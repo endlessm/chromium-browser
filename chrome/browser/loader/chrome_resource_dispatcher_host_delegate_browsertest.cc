@@ -519,7 +519,7 @@ IN_PROC_BROWSER_TEST_F(ChromeResourceDispatcherHostDelegateBrowserTest,
     std::unique_ptr<HeaderTestDispatcherHostDelegate> dispatcher_host_delegate;
     if (test_case.inject_header) {
       dispatcher_host_delegate =
-          base::MakeUnique<HeaderTestDispatcherHostDelegate>(
+          std::make_unique<HeaderTestDispatcherHostDelegate>(
               test_case.original_url);
       content::BrowserThread::PostTask(
           content::BrowserThread::IO, FROM_HERE,
@@ -566,7 +566,7 @@ IN_PROC_BROWSER_TEST_F(ChromeResourceDispatcherHostDelegateBrowserTest,
     content::BrowserThread::PostTaskAndReply(content::BrowserThread::IO,
                                              FROM_HERE,
                                              // Flush IO thread...
-                                             base::BindOnce(&base::DoNothing),
+                                             base::DoNothing(),
                                              // ... and UI thread.
                                              run_loop.QuitClosure());
     run_loop.Run();

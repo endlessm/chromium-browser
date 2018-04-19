@@ -23,7 +23,14 @@ namespace chromeos {
 // returns them unmodified.
 class FakeSessionManagerClient : public SessionManagerClient {
  public:
+  enum FakeSessionManagerOptions : uint32_t {
+    NONE = 0,
+    USE_HOST_POLICY = 1 << 0,
+  };
+
   FakeSessionManagerClient();
+  explicit FakeSessionManagerClient(
+      uint32_t options /* bitwise or of multiple FakeSessionManagerOptions */);
   ~FakeSessionManagerClient() override;
 
   // SessionManagerClient overrides
@@ -37,6 +44,7 @@ class FakeSessionManagerClient : public SessionManagerClient {
   void RestartJob(int socket_fd,
                   const std::vector<std::string>& argv,
                   VoidDBusMethodCallback callback) override;
+  void SaveLoginPassword(const std::string& password) override;
   void StartSession(const cryptohome::Identification& cryptohome_id) override;
   void StopSession() override;
   void NotifySupervisedUserCreationStarted() override;
@@ -92,6 +100,21 @@ class FakeSessionManagerClient : public SessionManagerClient {
   // Notifies observers as if ArcInstanceStopped signal is received.
   void NotifyArcInstanceStopped(bool clean,
                                 const std::string& conainer_instance_id);
+
+  // Returns true if flags for |cryptohome_id| have been set. If the return
+  // value is |true|, |*out_flags_for_user| is filled with the flags passed to
+  // |SetFlagsForUser|.
+  bool GetFlagsForUser(const cryptohome::Identification& cryptohome_id,
+                       std::vector<std::string>* out_flags_for_user) const;
+
+  // Sets whether FakeSessionManagerClient should advertise (through
+  // |SupportsRestartToApplyUserFlags|) that it supports restarting chrome to
+  // apply user-session flags. The default is |false|.
+  void set_supports_restart_to_apply_user_flags(
+      bool supports_restart_to_apply_user_flags) {
+    supports_restart_to_apply_user_flags_ =
+        supports_restart_to_apply_user_flags;
+  }
 
   void set_store_device_policy_success(bool success) {
     store_device_policy_success_ = success;
@@ -159,6 +182,8 @@ class FakeSessionManagerClient : public SessionManagerClient {
   }
 
  private:
+  bool supports_restart_to_apply_user_flags_ = false;
+
   bool store_device_policy_success_ = true;
   std::string device_policy_;
   std::map<cryptohome::Identification, std::string> user_policies_;
@@ -177,6 +202,7 @@ class FakeSessionManagerClient : public SessionManagerClient {
   int request_lock_screen_call_count_;
   int notify_lock_screen_shown_call_count_;
   int notify_lock_screen_dismissed_call_count_;
+  bool screen_is_locked_;
 
   bool arc_available_;
   base::TimeTicks arc_start_time_;
@@ -187,6 +213,16 @@ class FakeSessionManagerClient : public SessionManagerClient {
 
   // Contains last requst passed to StartArcInstance
   login_manager::StartArcInstanceRequest last_start_arc_request_;
+
+  StubDelegate* delegate_;
+
+  // Options for FakeSessionManagerClient with value of bitwise or of
+  // multiple FakeSessionManagerOptions.
+  uint32_t options_;
+
+  // The last-set flags for user set through |SetFlagsForUser|.
+  std::map<cryptohome::Identification, std::vector<std::string>>
+      flags_for_user_;
 
   base::WeakPtrFactory<FakeSessionManagerClient> weak_ptr_factory_;
   DISALLOW_COPY_AND_ASSIGN(FakeSessionManagerClient);

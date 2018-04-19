@@ -27,7 +27,6 @@
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_stats.h"
 #include "chrome/browser/download/drag_download_item.h"
-#include "chrome/browser/extensions/api/experience_sampling_private/experience_sampling.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/download_protection/download_feedback_service.h"
 #include "chrome/browser/safe_browsing/download_protection/download_protection_service.h"
@@ -39,10 +38,11 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/download/public/common/download_danger_type.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/common/safe_browsing_prefs.h"
 #include "components/vector_icons/vector_icons.h"
-#include "content/public/browser/download_danger_type.h"
+#include "content/public/browser/download_item_utils.h"
 #include "third_party/icu/source/common/unicode/uchar.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -70,8 +70,7 @@
 #include "ui/views/widget/root_view.h"
 #include "ui/views/widget/widget.h"
 
-using content::DownloadItem;
-using extensions::ExperienceSamplingEvent;
+using download::DownloadItem;
 
 namespace {
 
@@ -182,6 +181,9 @@ DownloadItemView::DownloadItemView(DownloadItem* download_item,
   download()->AddObserver(this);
   set_context_menu_controller(this);
 
+  dropdown_button_->SetAccessibleName(l10n_util::GetStringUTF16(
+      IDS_DOWNLOAD_ITEM_DROPDOWN_BUTTON_ACCESSIBLE_TEXT));
+
   dropdown_button_->SetBorder(
       views::CreateEmptyBorder(gfx::Insets(kDropdownBorderWidth)));
   dropdown_button_->set_has_ink_drop_action_on_click(false);
@@ -206,12 +208,6 @@ DownloadItemView::DownloadItemView(DownloadItem* download_item,
 DownloadItemView::~DownloadItemView() {
   StopDownloadProgress();
   download()->RemoveObserver(this);
-
-  // ExperienceSampling: If the user took no action to remove the warning
-  // before it disappeared, then the user effectively dismissed the download
-  // without keeping it.
-  if (sampling_event_)
-    sampling_event_->CreateUserDecisionEvent(ExperienceSamplingEvent::kIgnore);
 }
 
 // Progress animation handlers.
@@ -492,12 +488,11 @@ bool DownloadItemView::GetTooltipText(const gfx::Point& p,
 
 void DownloadItemView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->SetName(accessible_name_);
-  node_data->role = ui::AX_ROLE_BUTTON;
+  node_data->role = ax::mojom::Role::kButton;
   if (model_.IsDangerous()) {
-    node_data->AddIntAttribute(ui::AX_ATTR_RESTRICTION,
-                               ui::AX_RESTRICTION_DISABLED);
+    node_data->SetRestriction(ax::mojom::Restriction::kDisabled);
   } else {
-    node_data->AddState(ui::AX_STATE_HASPOPUP);
+    node_data->AddState(ax::mojom::State::kHaspopup);
   }
 }
 
@@ -595,12 +590,6 @@ void DownloadItemView::ButtonPressed(views::Button* sender,
     // The user has confirmed a dangerous download.  We'd record how quickly the
     // user did this to detect whether we're being clickjacked.
     UMA_HISTOGRAM_LONG_TIMES("clickjacking.save_download", warning_duration);
-    // ExperienceSampling: User chose to proceed with a dangerous download.
-    if (sampling_event_) {
-      sampling_event_->CreateUserDecisionEvent(
-          ExperienceSamplingEvent::kProceed);
-      sampling_event_.reset();
-    }
     // This will call ValidateDangerousDownload(), change download state and
     // notify us.
     MaybeSubmitDownloadToFeedbackService(DownloadCommands::KEEP);
@@ -929,17 +918,12 @@ void DownloadItemView::ToggleWarningDialog() {
 
 void DownloadItemView::ClearWarningDialog() {
   DCHECK(download()->GetDangerType() ==
-         content::DOWNLOAD_DANGER_TYPE_USER_VALIDATED);
+         download::DOWNLOAD_DANGER_TYPE_USER_VALIDATED);
   DCHECK(IsShowingWarningDialog());
 
   SetMode(NORMAL_MODE);
   dropdown_state_ = NORMAL;
 
-  // ExperienceSampling: User proceeded through the warning.
-  if (sampling_event_) {
-    sampling_event_->CreateUserDecisionEvent(ExperienceSamplingEvent::kProceed);
-    sampling_event_.reset();
-  }
   // Remove the views used by the warning dialog.
   delete save_button_;
   save_button_ = nullptr;
@@ -958,7 +942,7 @@ void DownloadItemView::ClearWarningDialog() {
 void DownloadItemView::ShowWarningDialog() {
   DCHECK(!IsShowingWarningDialog());
   time_download_warning_shown_ = base::Time::Now();
-  content::DownloadDangerType danger_type = download()->GetDangerType();
+  download::DownloadDangerType danger_type = download()->GetDangerType();
   RecordDangerousDownloadWarningShown(danger_type);
 #if defined(FULL_SAFE_BROWSING)
   if (model_.ShouldAllowDownloadFeedback()) {
@@ -967,15 +951,6 @@ void DownloadItemView::ShowWarningDialog() {
   }
 #endif
   SetMode(model_.MightBeMalicious() ? MALICIOUS_MODE : DANGEROUS_MODE);
-
-  // ExperienceSampling: Dangerous or malicious download warning is being shown
-  // to the user, so we start a new SamplingEvent and track it.
-  std::string event_name = model_.MightBeMalicious()
-                               ? ExperienceSamplingEvent::kMaliciousDownload
-                               : ExperienceSamplingEvent::kDangerousDownload;
-  sampling_event_.reset(new ExperienceSamplingEvent(
-      event_name, download()->GetURL(), download()->GetReferrerUrl(),
-      download()->GetBrowserContext()));
 
   dropdown_state_ = NORMAL;
   if (mode_ == DANGEROUS_MODE) {
@@ -1001,19 +976,19 @@ void DownloadItemView::ShowWarningDialog() {
 
 gfx::ImageSkia DownloadItemView::GetWarningIcon() {
   switch (download()->GetDangerType()) {
-    case content::DOWNLOAD_DANGER_TYPE_DANGEROUS_URL:
-    case content::DOWNLOAD_DANGER_TYPE_DANGEROUS_CONTENT:
-    case content::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT:
-    case content::DOWNLOAD_DANGER_TYPE_DANGEROUS_HOST:
-    case content::DOWNLOAD_DANGER_TYPE_POTENTIALLY_UNWANTED:
-    case content::DOWNLOAD_DANGER_TYPE_DANGEROUS_FILE:
+    case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_URL:
+    case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_CONTENT:
+    case download::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT:
+    case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_HOST:
+    case download::DOWNLOAD_DANGER_TYPE_POTENTIALLY_UNWANTED:
+    case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_FILE:
       return gfx::CreateVectorIcon(vector_icons::kWarningIcon, kWarningIconSize,
                                    gfx::kGoogleRed700);
 
-    case content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS:
-    case content::DOWNLOAD_DANGER_TYPE_MAYBE_DANGEROUS_CONTENT:
-    case content::DOWNLOAD_DANGER_TYPE_USER_VALIDATED:
-    case content::DOWNLOAD_DANGER_TYPE_MAX:
+    case download::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS:
+    case download::DOWNLOAD_DANGER_TYPE_MAYBE_DANGEROUS_CONTENT:
+    case download::DOWNLOAD_DANGER_TYPE_USER_VALIDATED:
+    case download::DOWNLOAD_DANGER_TYPE_MAX:
       NOTREACHED();
       break;
   }
@@ -1120,7 +1095,7 @@ void DownloadItemView::UpdateAccessibleName() {
   // has changed so they can announce it immediately.
   if (new_name != accessible_name_) {
     accessible_name_ = new_name;
-    NotifyAccessibilityEvent(ui::AX_EVENT_TEXT_CHANGED, true);
+    NotifyAccessibilityEvent(ax::mojom::Event::kTextChanged, true);
   }
 }
 

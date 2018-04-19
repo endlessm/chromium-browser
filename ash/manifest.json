@@ -11,8 +11,10 @@
           "app_list::mojom::AppList",
           "ash::mojom::AcceleratorController",
           "ash::mojom::AccessibilityController",
+          "ash::mojom::AppListController",
           "ash::mojom::AshMessageCenterController",
           "ash::mojom::CastConfig",
+          "ash::mojom::DockedMagnifierController",
           "ash::mojom::HighlighterController",
           "ash::mojom::ImeController",
           "ash::mojom::LocaleNotificationController",
@@ -25,6 +27,7 @@
           "ash::mojom::SessionController",
           "ash::mojom::ShelfController",
           "ash::mojom::ShutdownController",
+          "ash::mojom::SplitViewController",
           "ash::mojom::SystemTray",
           "ash::mojom::TabletModeController",
           "ash::mojom::TrayAction",
@@ -47,11 +50,16 @@
       },
       "requires": {
         "*": [ "accessibility", "app" ],
+        "autoclick_app": [
+          "chromeos:autoclick",
+          "mash:launchable"
+        ],
         "ash_pref_connector": [ "pref_connector" ],
         "catalog": [ "directory" ],
         "local_state": [ "pref_client" ],
+        "quick_launch_app": [ "mash:launchable" ],
         "ui": [ "display_dev", "window_manager", "video_detector" ],
-        "touch_hud": [ "mash:launchable" ],
+        "touch_hud_app": [ "mash:launchable" ],
         "data_decoder": [ "image_decoder" ]
       }
     }

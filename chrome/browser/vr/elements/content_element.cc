@@ -4,6 +4,7 @@
 
 #include "chrome/browser/vr/elements/content_element.h"
 
+#include "chrome/browser/vr/model/text_input_info.h"
 #include "chrome/browser/vr/ui_element_renderer.h"
 #include "chrome/browser/vr/ui_scene_constants.h"
 #include "chrome/browser/vr/vr_gl_util.h"
@@ -46,59 +47,90 @@ ContentElement::~ContentElement() = default;
 
 void ContentElement::Render(UiElementRenderer* renderer,
                             const CameraModel& model) const {
-  if (!texture_id_)
-    return;
   gfx::RectF copy_rect(0, 0, 1, 1);
-  renderer->DrawTexturedQuad(texture_id_, texture_location_,
-                             model.view_proj_matrix * world_space_transform(),
-                             copy_rect, computed_opacity(), size(),
-                             corner_radius());
+  if (texture_id_) {
+    renderer->DrawTexturedQuad(texture_id_, texture_location_,
+                               model.view_proj_matrix * world_space_transform(),
+                               copy_rect, computed_opacity(), size(),
+                               corner_radius());
+  }
+  if (overlay_texture_id_) {
+    renderer->DrawTexturedQuad(overlay_texture_id_, overlay_texture_location_,
+                               model.view_proj_matrix * world_space_transform(),
+                               copy_rect, computed_opacity(), size(),
+                               corner_radius());
+  }
+}
+
+void ContentElement::OnFocusChanged(bool focused) {
+  if (delegate_)
+    delegate_->OnFocusChanged(focused);
+
+  focused_ = focused;
+  if (event_handlers_.focus_change)
+    event_handlers_.focus_change.Run(focused);
+}
+
+void ContentElement::OnInputEdited(const EditedText& info) {
+  delegate_->OnWebInputEdited(info, false);
+}
+
+void ContentElement::OnInputCommitted(const EditedText& info) {
+  delegate_->OnWebInputEdited(info, true);
 }
 
 void ContentElement::OnHoverEnter(const gfx::PointF& position) {
-  delegate_->OnContentEnter(position);
+  if (delegate_)
+    delegate_->OnContentEnter(position);
 }
 
 void ContentElement::OnHoverLeave() {
-  delegate_->OnContentLeave();
+  if (delegate_)
+
+    delegate_->OnContentLeave();
 }
 
 void ContentElement::OnMove(const gfx::PointF& position) {
-  delegate_->OnContentMove(position);
+  if (delegate_)
+    delegate_->OnContentMove(position);
 }
 
 void ContentElement::OnButtonDown(const gfx::PointF& position) {
-  delegate_->OnContentDown(position);
+  if (delegate_)
+    delegate_->OnContentDown(position);
 }
 
 void ContentElement::OnButtonUp(const gfx::PointF& position) {
-  delegate_->OnContentUp(position);
+  if (delegate_)
+    delegate_->OnContentUp(position);
 }
 
-void ContentElement::OnFlingStart(
-    std::unique_ptr<blink::WebGestureEvent> gesture,
-    const gfx::PointF& position) {
-  delegate_->OnContentFlingStart(std::move(gesture), position);
-}
 void ContentElement::OnFlingCancel(
     std::unique_ptr<blink::WebGestureEvent> gesture,
     const gfx::PointF& position) {
-  delegate_->OnContentFlingCancel(std::move(gesture), position);
+  if (delegate_)
+    delegate_->OnContentFlingCancel(std::move(gesture), position);
 }
+
 void ContentElement::OnScrollBegin(
     std::unique_ptr<blink::WebGestureEvent> gesture,
     const gfx::PointF& position) {
-  delegate_->OnContentScrollBegin(std::move(gesture), position);
+  if (delegate_)
+    delegate_->OnContentScrollBegin(std::move(gesture), position);
 }
+
 void ContentElement::OnScrollUpdate(
     std::unique_ptr<blink::WebGestureEvent> gesture,
     const gfx::PointF& position) {
-  delegate_->OnContentScrollUpdate(std::move(gesture), position);
+  if (delegate_)
+    delegate_->OnContentScrollUpdate(std::move(gesture), position);
 }
+
 void ContentElement::OnScrollEnd(
     std::unique_ptr<blink::WebGestureEvent> gesture,
     const gfx::PointF& position) {
-  delegate_->OnContentScrollEnd(std::move(gesture), position);
+  if (delegate_)
+    delegate_->OnContentScrollEnd(std::move(gesture), position);
 }
 
 void ContentElement::SetTextureId(unsigned int texture_id) {
@@ -110,8 +142,41 @@ void ContentElement::SetTextureLocation(
   texture_location_ = location;
 }
 
+void ContentElement::SetOverlayTextureId(unsigned int texture_id) {
+  overlay_texture_id_ = texture_id;
+}
+
+void ContentElement::SetOverlayTextureLocation(
+    UiElementRenderer::TextureLocation location) {
+  overlay_texture_location_ = location;
+}
+
 void ContentElement::SetProjectionMatrix(const gfx::Transform& matrix) {
   projection_matrix_ = matrix;
+}
+
+void ContentElement::SetTextInputDelegate(
+    TextInputDelegate* text_input_delegate) {
+  text_input_delegate_ = text_input_delegate;
+}
+
+void ContentElement::RequestFocus() {
+  if (!text_input_delegate_)
+    return;
+
+  text_input_delegate_->RequestFocus(id());
+}
+
+void ContentElement::RequestUnfocus() {
+  if (!text_input_delegate_)
+    return;
+
+  text_input_delegate_->RequestUnfocus(id());
+}
+
+void ContentElement::UpdateInput(const EditedText& info) {
+  if (text_input_delegate_ && focused_)
+    text_input_delegate_->UpdateInput(info.current);
 }
 
 bool ContentElement::OnBeginFrame(const base::TimeTicks& time,
@@ -169,6 +234,10 @@ bool ContentElement::OnBeginFrame(const base::TimeTicks& time,
     return true;
   }
   return false;
+}
+
+void ContentElement::SetDelegate(ContentInputDelegate* delegate) {
+  delegate_ = delegate;
 }
 
 }  // namespace vr

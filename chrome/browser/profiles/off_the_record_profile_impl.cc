@@ -14,7 +14,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "build/build_config.h"
 #include "chrome/browser/background/background_contents_service_factory.h"
 #include "chrome/browser/background_fetch/background_fetch_delegate_factory.h"
@@ -44,11 +43,11 @@
 #include "chrome/browser/ssl/chrome_ssl_host_state_delegate_factory.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/ui/webui/extensions/extension_icon_source.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/features.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/prefs/json_pref_store.h"
@@ -65,7 +64,7 @@
 #include "ppapi/features/features.h"
 #include "services/preferences/public/cpp/in_process_service_factory.h"
 #include "services/preferences/public/cpp/pref_service_main.h"
-#include "services/preferences/public/interfaces/preferences.mojom.h"
+#include "services/preferences/public/mojom/preferences.mojom.h"
 #include "services/service_manager/public/cpp/service.h"
 #include "storage/browser/database/database_tracker.h"
 
@@ -132,11 +131,11 @@ OffTheRecordProfileImpl::OffTheRecordProfileImpl(Profile* real_profile)
   // Must happen before we ask for prefs as prefs needs the connection to the
   // service manager, which is set up in Initialize.
   BrowserContext::Initialize(this, profile_->GetPath());
-  prefs_.reset(CreateIncognitoPrefServiceSyncable(
+  prefs_ = CreateIncognitoPrefServiceSyncable(
       PrefServiceSyncableFromProfile(profile_),
       CreateExtensionPrefStore(profile_, true),
       InProcessPrefServiceFactoryFactory::GetInstanceForContext(this)
-          ->CreateDelegate()));
+          ->CreateDelegate());
   // Register on BrowserContext.
   user_prefs::UserPrefs::Set(this, prefs_.get());
 }
@@ -273,7 +272,7 @@ base::FilePath OffTheRecordProfileImpl::GetPath() const {
 std::unique_ptr<content::ZoomLevelDelegate>
 OffTheRecordProfileImpl::CreateZoomLevelDelegate(
     const base::FilePath& partition_path) {
-  return base::MakeUnique<ChromeZoomLevelOTRDelegate>(
+  return std::make_unique<ChromeZoomLevelOTRDelegate>(
       zoom::ZoomEventManager::GetForBrowserContext(this)->GetWeakPtr());
 }
 #endif  // !defined(OS_ANDROID)

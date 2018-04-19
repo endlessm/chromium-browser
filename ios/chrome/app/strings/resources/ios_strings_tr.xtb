@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">Adres 1</translation>
 <translation id="1545749641540134597">QR Kodunu Tara</translation>
 <translation id="1580783302095112590">Posta gönderildi.</translation>
+<translation id="1582732959743469162">Bu, geçerli indirme işleminizin tüm ilerlemesini durduracaktır.</translation>
 <translation id="1612730193129642006">Sekme Kılavuzunu Göster</translation>
+<translation id="1644574205037202324">Geçmiş</translation>
 <translation id="1646446875146297738">"Do Not Track" seçeneğinin etkinleştirilmesi, göz atma trafiğinize bir isteğin ekleneceği anlamına gelir. Bunun etkileri, bir web sitesinin bu isteğe yanıt verip vermemesine ve isteği ne şekilde yorumladığına bağlıdır.
 
 Örneğin bazı web siteleri bu isteğe yanıt olarak, daha önce ziyaret ettiğiniz diğer web sitelerine dayalı olmayan reklamlar gösterebilir. Pek çok web sitesi yine de göz atma verilerinizi toplamaya ve kullanmaya devam edecektir. Bunu örneğin, güvenliği artırmak, kendi web sitelerinde içerik, hizmet, reklam ve öneriler sunmak ve raporlama istatistikleri oluşturmak için yaparlar. <ph name="BEGIN_LINK" />Daha fazla bilgi edinin<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@
 <translation id="3175081911749765310">Web Hizmetleri</translation>
 <translation id="3207960819495026254">Yer işareti koyuldu</translation>
 <translation id="3210163015918861891">Senkronizasyon Kapalı</translation>
+<translation id="3224641773458703735">Şifreleri dışa aktarmak için öncelikle cihazınızda bir şifre kodu ayarlamanız gerekir.</translation>
 <translation id="3240426699337459095">Bağlantı kopyalandı</translation>
 <translation id="3244271242291266297">AA</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> / <ph name="NUM_SUGGESTIONS" /></translation>
@@ -153,6 +156,7 @@
 <translation id="3771033907050503522">Gizli Sekmeler</translation>
 <translation id="3779810277399252432">İnternet bağlantısı yok.</translation>
 <translation id="3783017676699494206">Resmi Kaydet</translation>
+<translation id="3789841737615482174">Yükle</translation>
 <translation id="385051799172605136">Geri</translation>
 <translation id="3897092660631435901">Menü</translation>
 <translation id="3928666092801078803">Verilerimi birleştir</translation>
@@ -220,7 +224,6 @@ Verileriniz senkronizasyon parolanızla şifrelendi. Senkronizasyonu başlatmak 
 <translation id="5300589172476337783">Göster</translation>
 <translation id="5317780077021120954">Kaydet</translation>
 <translation id="5327248766486351172">Ad</translation>
-<translation id="533632423981297619">Şifreleriniz dışa aktarılan dosyayı görebilen herkes tarafından görülebilir. Bu dosyayı kimseyle paylaşmayın.</translation>
 <translation id="5388358297987318779">Resmi Aç</translation>
 <translation id="5409365236829784218">Bu dosyayı açabilecek yüklü uygulama yok.</translation>
 <translation id="5433691172869980887">Kullanıcı adı kopyalandı</translation>
@@ -249,6 +252,7 @@ Handoff'un ayrıca, Ayarlar'ın Genel bölümünde de etkinleştirilmesi ve ciha
 <translation id="5871497086027727873">1 öğe taşındı</translation>
 <translation id="5911030830365207728">Google Çeviri</translation>
 <translation id="5916664084637901428">Açık</translation>
+<translation id="5938160824633642847">Cihazınızın depolama alanı dolmak üzere. Yer boşaltın ve tekrar deneyin.</translation>
 <translation id="5948291296578561264">Böylece, fotoğrafları fotoğraf kitaplığınıza kaydedebilirsiniz.</translation>
 <translation id="5955891643922670672">Çevrimdışı Sürüm Gösteriliyor</translation>
 <translation id="5964480694698977962">Yeni gizli sekme oluştur.</translation>
@@ -280,7 +284,9 @@ Handoff'un ayrıca, Ayarlar'ın Genel bölümünde de etkinleştirilmesi ve ciha
 <translation id="633809752005859102">Bir şeyler gerçekten ters gitti. Bu sorun üzerinde çalışacağız.</translation>
 <translation id="6342069812937806050">Az önce</translation>
 <translation id="6344783595350022745">Metni Temizle</translation>
+<translation id="6346549652287021269">Yeni İndirme İşlemi Başlatılsın mı?</translation>
 <translation id="6362362396625799311">Gizli Sekme Yok</translation>
+<translation id="6374469231428023295">Tekrar Dene</translation>
 <translation id="6380866119319257197">Parolanızı unutursanız veya bu ayarı değiştirmek isterseniz <ph name="BEGIN_LINK" />senkronizasyonu sıfırlayın<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">Karttaki Ad</translation>
 <translation id="6406506848690869874">Senkronizasyon</translation>
@@ -289,6 +295,7 @@ Handoff'un ayrıca, Ayarlar'ın Genel bölümünde de etkinleştirilmesi ve ciha
 
 Verileriniz <ph name="TIME" /> tarihinde senkronizasyon parolanızla şifrelendi. Senkronizasyonu başlatmak için senkronizasyon parolanızı girin.</translation>
 <translation id="6418346271604475326">PDF hazırlanıyor</translation>
+<translation id="6434591244308415567">Bir hata oluştu. Daha sonra tekrar deneyin.</translation>
 <translation id="6445051938772793705">Ülke</translation>
 <translation id="6445981559479772097">Mesaj gönderildi.</translation>
 <translation id="6464071786529933911">Yeni Gizli Sekmede Aç</translation>
@@ -299,6 +306,7 @@ Verileriniz <ph name="TIME" /> tarihinde senkronizasyon parolanızla şifrelendi
 <translation id="6657585470893396449">Şifre</translation>
 <translation id="667999046851023355">Doküman</translation>
 <translation id="6713747756340119864">Google Apps</translation>
+<translation id="6730682669179532099">Şifreler Dışa Aktarılamıyor</translation>
 <translation id="6762156594045689028">Bu ayarı değiştirmek için <ph name="BEGIN_LINK" />senkronizasyonu sıfırlayın<ph name="END_LINK" /></translation>
 <translation id="6780034285637185932">Posta Kodu</translation>
 <translation id="6785453220513215166">Kilitlenme raporu gönderiliyor...</translation>
@@ -308,13 +316,16 @@ Verileriniz <ph name="TIME" /> tarihinde senkronizasyon parolanızla şifrelendi
 <translation id="681368974849482173">Öğe oluşturuldu</translation>
 <translation id="6896758677409633944">Kopyala</translation>
 <translation id="6903907808598579934">Senkronizasyonu aç</translation>
+<translation id="6914783257214138813">Şifreleriniz, dışa aktarılan dosyayı görebilen herkes tarafından görülebilir.</translation>
 <translation id="6945221475159498467">Seç</translation>
 <translation id="6973630695168034713">Klasörler</translation>
 <translation id="7004499039102548441">Son Sekmeler</translation>
 <translation id="7006788746334555276">İçerik Ayarları</translation>
+<translation id="7029809446516969842">Şifreler</translation>
 <translation id="7031882061095297553">Şununla senkronize et</translation>
 <translation id="7053983685419859001">Engelle</translation>
 <translation id="7062545763355031412">Kabul et ve hesabı değiştir</translation>
+<translation id="7102005569666697658">İndiriliyor… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">Gizle</translation>
 <translation id="7133798577887235672">Tam Ad</translation>
 <translation id="7136892417564438900">Kamera kullanılamıyor</translation>
@@ -325,6 +336,7 @@ Verileriniz <ph name="TIME" /> tarihinde senkronizasyon parolanızla şifrelendi
 <translation id="7203585745079012652">Yanıtı Sesli Söyle</translation>
 <translation id="722055596168483966">Google hizmetlerini kişiselleştirme</translation>
 <translation id="7272437679830969316">Kimliğiniz doğrulanamıyor. Şifre kopyalanmadı.</translation>
+<translation id="7291368939935408496">Şifreler Hazırlanıyor...</translation>
 <translation id="7336264872878993241">Yüzde <ph name="PERCENT" /> indirildi</translation>
 <translation id="7346909386216857016">Tamam, anladım</translation>
 <translation id="7400418766976504921">URL</translation>
@@ -349,6 +361,7 @@ Verileriniz <ph name="TIME" /> tarihinde senkronizasyon parolanızla şifrelendi
 <translation id="7769602470925380267">Kabul et ve oturumu kapat</translation>
 <translation id="7772032839648071052">Parolayı onayla</translation>
 <translation id="780301667611848630">Hayır, teşekkürler</translation>
+<translation id="7856733331829174190">İndirilemedi</translation>
 <translation id="7859704718976024901">Tarama Geçmişi</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">Şifreleri Dışa Aktar...</translation>
@@ -409,6 +422,7 @@ Verileriniz <ph name="TIME" /> tarihinde senkronizasyon parolanızla şifrelendi
 <translation id="9083392325882095631">1 öğe</translation>
 <translation id="9100610230175265781">Parola gerekli</translation>
 <translation id="9148126808321036104">Tekrar oturum açın</translation>
+<translation id="915371508759614899">İndirme işlemi iptal edilsin mi?</translation>
 <translation id="9157836665414082580">İletişim Kutularını Gizle</translation>
 <translation id="9188680907066685419">Yönetilen hesabın oturumunu kapat</translation>
 <translation id="9203116392574189331">Handoff</translation>

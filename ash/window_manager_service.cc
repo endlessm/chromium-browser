@@ -15,7 +15,6 @@
 #include "ash/system/power/power_status.h"
 #include "ash/window_manager.h"
 #include "base/bind.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chromeos/audio/cras_audio_handler.h"
 #include "chromeos/cryptohome/system_salt_getter.h"
@@ -89,7 +88,7 @@ void WindowManagerService::InitializeComponents(bool init_network_handler) {
   // before WindowManager::Init(). Tests might initialize their own instance.
   if (!chromeos::DBusThreadManager::IsInitialized()) {
     chromeos::DBusThreadManager::Initialize(
-        chromeos::DBusThreadManager::PROCESS_ASH);
+        chromeos::DBusThreadManager::kShared);
     dbus_thread_manager_initialized_ = true;
   }
 

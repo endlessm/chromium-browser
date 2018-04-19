@@ -8,9 +8,9 @@
 
 #include "base/macros.h"
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
-#include "chrome/browser/extensions/browser_action_test_util.h"
 #include "chrome/browser/extensions/extension_context_menu_model.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/extensions/browser_action_test_util.h"
 #include "chrome/browser/ui/toolbar/browser_actions_bar_browsertest.h"
 #include "chrome/browser/ui/toolbar/toolbar_action_view_controller.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_model.h"
@@ -24,6 +24,7 @@
 #include "ui/base/dragdrop/drop_target_event.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/gfx/geometry/point.h"
+#include "ui/views/test/test_views.h"
 #include "ui/views/view.h"
 
 // TODO(devlin): Continue moving any tests that should be platform independent
@@ -293,9 +294,11 @@ void BrowserActionsContainerOverflowTest::SetUpOnMainThread() {
   BrowserActionsBarBrowserTest::SetUpOnMainThread();
   main_bar_ = BrowserView::GetBrowserViewForBrowser(browser())
                   ->toolbar()->browser_actions();
-  overflow_parent_.reset(new views::View());
+  overflow_parent_.reset(new views::ResizeAwareParentView());
   overflow_parent_->set_owned_by_client();
-  overflow_bar_ = new BrowserActionsContainer(browser(), main_bar_);
+  overflow_bar_ = new BrowserActionsContainer(
+      browser(), main_bar_,
+      BrowserView::GetBrowserViewForBrowser(browser())->toolbar(), true);
   overflow_parent_->AddChildView(overflow_bar_);
 }
 

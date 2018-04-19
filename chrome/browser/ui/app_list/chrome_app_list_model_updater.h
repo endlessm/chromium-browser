@@ -12,8 +12,6 @@
 
 #include "ash/app_list/model/app_list_model_observer.h"
 #include "chrome/browser/ui/app_list/app_list_model_updater.h"
-#include "chrome/browser/ui/app_list/app_list_syncable_service.h"
-#include "chrome/browser/ui/app_list/chrome_app_list_model_updater_delegate.h"
 
 namespace ui {
 class MenuModel;
@@ -25,8 +23,11 @@ class SearchModel;
 class ChromeAppListModelUpdater : public app_list::AppListModelObserver,
                                   public AppListModelUpdater {
  public:
-  ChromeAppListModelUpdater();
+  explicit ChromeAppListModelUpdater(Profile* profile);
   ~ChromeAppListModelUpdater() override;
+
+  app_list::AppListModel* GetModel() override;
+  app_list::SearchModel* GetSearchModel() override;
 
   // AppListModelUpdater:
   void AddItem(std::unique_ptr<ChromeAppListItem> app_item) override;
@@ -36,16 +37,14 @@ class ChromeAppListModelUpdater : public app_list::AppListModelObserver,
   void RemoveUninstalledItem(const std::string& id) override;
   void MoveItemToFolder(const std::string& id,
                         const std::string& folder_id) override;
-  void SetStatus(app_list::AppListModel::Status status) override;
-  void SetState(app_list::AppListModel::State state) override;
+  void SetStatus(ash::AppListModelStatus status) override;
+  void SetState(ash::AppListState state) override;
   void HighlightItemInstalledFromUI(const std::string& id) override;
   void SetSearchEngineIsGoogle(bool is_google) override;
   void SetSearchTabletAndClamshellAccessibleName(
       const base::string16& tablet_accessible_name,
       const base::string16& clamshell_accessible_name) override;
   void SetSearchHintText(const base::string16& hint_text) override;
-  void SetSearchSpeechRecognitionButton(
-      app_list::SpeechRecognitionState state) override;
   void UpdateSearchBox(const base::string16& text,
                        bool initiated_by_user) override;
   void PublishSearchResults(
@@ -66,20 +65,24 @@ class ChromeAppListModelUpdater : public app_list::AppListModelObserver,
                                 int32_t percent_downloaded) override;
 
   // Methods only for visiting Chrome items that never talk to ash.
-  void ActivateChromeItem(const std::string& id, int event_flags);
+  void ActivateChromeItem(const std::string& id, int event_flags) override;
+  ChromeAppListItem* AddChromeItem(std::unique_ptr<ChromeAppListItem> app_item);
 
   // Methods for item querying.
   ChromeAppListItem* FindItem(const std::string& id) override;
   size_t ItemCount() override;
   ChromeAppListItem* ItemAtForTest(size_t index) override;
-  app_list::AppListFolderItem* FindFolderItem(
-      const std::string& folder_id) override;
+  ChromeAppListItem* FindFolderItem(const std::string& folder_id) override;
   bool FindItemIndexForTest(const std::string& id, size_t* index) override;
-  bool TabletMode() override;
-  app_list::AppListViewState StateFullscreen() override;
   bool SearchEngineIsGoogle() override;
-  std::map<std::string, size_t> GetIdToAppListIndexMap() override;
-  ui::MenuModel* GetContextMenuModel(const std::string& id);
+  void GetIdToAppListIndexMap(GetIdToAppListIndexMapCallback callback) override;
+  size_t BadgedItemCount() override;
+  ui::MenuModel* GetContextMenuModel(const std::string& id) override;
+  void ContextMenuItemSelected(const std::string& id,
+                               int command_id,
+                               int event_flags) override;
+  app_list::SearchResult* FindSearchResult(
+      const std::string& result_id) override;
 
   // Methods for AppListSyncableService:
   void AddItemToOemFolder(
@@ -87,41 +90,43 @@ class ChromeAppListModelUpdater : public app_list::AppListModelObserver,
       app_list::AppListSyncableService::SyncItem* oem_sync_item,
       const std::string& oem_folder_id,
       const std::string& oem_folder_name,
-      const syncer::StringOrdinal& preffered_oem_position);
-  app_list::AppListFolderItem* ResolveOemFolderPosition(
+      const syncer::StringOrdinal& preferred_oem_position) override;
+  void ResolveOemFolderPosition(
       const std::string& oem_folder_id,
-      const syncer::StringOrdinal& preffered_oem_position);
+      const syncer::StringOrdinal& preferred_oem_position,
+      ResolveOemFolderPositionCallback callback) override;
   void UpdateAppItemFromSyncItem(
       app_list::AppListSyncableService::SyncItem* sync_item,
       bool update_name,
-      bool update_folder);
+      bool update_folder) override;
 
   // Overridden frome app_list::AppListModelObserver:
   // TODO(hejq): We temporarily put them here to make tests happy.
   void OnAppListItemAdded(app_list::AppListItem* item) override;
   void OnAppListItemWillBeDeleted(app_list::AppListItem* item) override;
+  void OnAppListItemDeleted(const std::string& id) override;
   void OnAppListItemUpdated(app_list::AppListItem* item) override;
 
-  void SetDelegate(ChromeAppListModelUpdaterDelegate* delegate) {
-    delegate_ = delegate;
-  }
+  void SetDelegate(AppListModelUpdaterDelegate* delegate) override;
 
  private:
-  // TODO(hejq): Remove this friend. Currently |model_| and |search_model_| are
-  // exposed to AppListViewDelegate via AppListSyncableService. We'll remove
-  // this once we remove AppListViewDelegate.
-  friend class app_list::AppListSyncableService;
-
-  void FindOrCreateOemFolder(
-      app_list::AppListSyncableService::SyncItem* oem_sync_item,
+  // TODO(hejq): Move the following methods to ash.
+  ash::mojom::AppListItemMetadataPtr FindOrCreateOemFolder(
       const std::string& oem_folder_id,
       const std::string& oem_folder_name,
-      const syncer::StringOrdinal& preffered_oem_position);
+      const syncer::StringOrdinal& preferred_oem_position);
   syncer::StringOrdinal GetOemFolderPos();
+  app_list::AppListFolderItem* FindAshFolderItem(const std::string& folder_id);
+  std::unique_ptr<app_list::AppListItem> CreateAppListItem(
+      ash::mojom::AppListItemMetadataPtr metadata);
 
   std::unique_ptr<app_list::AppListModel> model_;
   std::unique_ptr<app_list::SearchModel> search_model_;
-  ChromeAppListModelUpdaterDelegate* delegate_ = nullptr;
+  // A map from a ChromeAppListItem's id to its unique pointer. This item set
+  // matches the one in AppListModel.
+  std::map<std::string, std::unique_ptr<ChromeAppListItem>> items_;
+  Profile* const profile_ = nullptr;
+  AppListModelUpdaterDelegate* delegate_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeAppListModelUpdater);
 };

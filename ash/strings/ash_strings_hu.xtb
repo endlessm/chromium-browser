@@ -23,8 +23,10 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" /> (HDMI/DP)</translation>
 <translation id="1510238584712386396">Indító</translation>
 <translation id="1525508553941733066">ELVETÉS</translation>
+<translation id="1537254971476575106">Teljes képernyős nagyító</translation>
 <translation id="15373452373711364">Nagy egérmutató</translation>
 <translation id="1550523713251050646">Kattintson további lehetőségekért</translation>
+<translation id="1608626060424371292">Felhasználó eltávolítása</translation>
 <translation id="1621499497873603021">Akkumulátor lemerüléséig hátralévő idő: <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">Sajnos a jelszó ellenőrzése még mindig nem sikerült. Megjegyzés: ha a közelmúltban módosította jelszavát, az új jelszó beállítása a kijelentkezés után megy végbe, ezért itt a régi jelszót használja.</translation>
 <translation id="1677472565718498478"><ph name="TIME" /> van hátra</translation>
@@ -43,12 +45,15 @@
 <translation id="1951012854035635156">Segéd</translation>
 <translation id="1957803754585243749">0°</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
+<translation id="1995660704900986789">Kikapcsolás</translation>
 <translation id="2012624427112548395">Ctrl+Keresés+H</translation>
 <translation id="2049639323467105390">Ezt az eszközt a(z) <ph name="DOMAIN" /> domain kezeli.</translation>
 <translation id="2050339315714019657">Álló</translation>
 <translation id="2067602449040652523">Billentyűzet világossága</translation>
+<translation id="2081529251031312395">$1 később be tud jelentkezni.</translation>
 <translation id="2122028596993374965">„<ph name="TAB_NAME" />” lap „<ph name="RECEIVER_NAME" />” eszközre történő átküldésének leállítása</translation>
 <translation id="2127372758936585790">Kis teljesítményű töltő</translation>
+<translation id="2135456203358955318">Dokkolt nagyító</translation>
 <translation id="2144487987174258011">Az Adobe Flash Player frissítéséhez újraindítás szükséges</translation>
 <translation id="2208323208084708176">Egységes asztali mód</translation>
 <translation id="2220572644011485463">PIN-kód vagy jelszó</translation>
@@ -73,7 +78,6 @@
 <translation id="2653659639078652383">Elküldés</translation>
 <translation id="2675319268637823299">A rendszergazda letiltotta a többfiókos bejelentkezést <ph name="USER_EMAIL" /> számára.
     Az összes felhasználónak ki kell jelentkeznie a folytatáshoz.</translation>
-<translation id="2700058918926273959">A munkamenet <ph name="SESSION_TIME_REMAINING" /> múlva véget ér. A rendszer ekkor kijelentkezteti Önt.</translation>
 <translation id="2727977024730340865">Kis teljesítményű töltőt csatlakoztatott. Az akkumulátor töltése nem megbízható.</translation>
 <translation id="2761704814324807722">Állapotterület, idő: <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581">Újracsatlakozás a következőhöz: <ph name="NAME" /></translation>
@@ -83,6 +87,7 @@
 <translation id="2844169650293029770">C típusú USB-vel kompatibilis eszköz (bal első port)</translation>
 <translation id="2865888419503095837">Hálózatinformáció</translation>
 <translation id="2872961005593481000">Leállítás</translation>
+<translation id="2878884018241093801">Nincsenek mostanában használt elemek</translation>
 <translation id="2903844815300039659">Csatlakozva <ph name="NAME" /> hálózathoz, <ph name="STRENGTH" /></translation>
 <translation id="2911940648265863620">A képernyője meg van osztva</translation>
 <translation id="2942516765047364088">Polc pozíciója</translation>
@@ -109,7 +114,6 @@
 <translation id="3413817803639110246">Itt most nem látható semmi</translation>
 <translation id="3445925074670675829">C típusú USB-vel kompatibilis eszköz</translation>
 <translation id="3465566417615315331">Kattintson a képére</translation>
-<translation id="3473479545200714844">Képernyőnagyító</translation>
 <translation id="3477079411857374384">Control+Shift+szóköz</translation>
 <translation id="3510164367642747937">Egérmutató kiemelése</translation>
 <translation id="3513798432020909783">A fiókot a(z) <ph name="MANAGER_EMAIL" /> kezeli</translation>
@@ -131,6 +135,7 @@
 <translation id="3891340733213178823">Nyomja meg a Ctrl+Shift+Q billentyűkombinációt kétszer a kijelentkezéshez.</translation>
 <translation id="3893630138897523026">ChromeVox (beszélt visszajelzés)</translation>
 <translation id="3899995891769452915">Hangbevitel</translation>
+<translation id="3900355044994618856">Munkamenete <ph name="SESSION_TIME_REMAINING" /> elteltével lejár</translation>
 <translation id="3901991538546252627">Csatlakozás a következőhöz: <ph name="NAME" /></translation>
 <translation id="394485226368336402">Hangbeállítások</translation>
 <translation id="397105322502079400">Számítás…</translation>
@@ -139,6 +144,7 @@
 <translation id="4072264167173457037">Közepes jel</translation>
 <translation id="4279490309300973883">Tükrözés</translation>
 <translation id="4321179778687042513">ctrl</translation>
+<translation id="4331809312908958774">Chrome OS</translation>
 <translation id="4338109981321384717">Nagyító</translation>
 <translation id="4351433414020964307">Segéd betöltése…</translation>
 <translation id="4378551569595875038">Kapcsolódás folyamatban…</translation>
@@ -183,6 +189,7 @@
 <translation id="5744083938413354016">Érintéssel húzás</translation>
 <translation id="5777841717266010279">Leállítja a képernyőmegosztást?</translation>
 <translation id="57838592816432529">Némítás</translation>
+<translation id="5820394555380036790">Chromium OS</translation>
 <translation id="5832805196449965646">Személy hozzáadása</translation>
 <translation id="5860033963881614850">Kikapcsolva</translation>
 <translation id="5895138241574237353">Újraindítás</translation>
@@ -206,6 +213,7 @@
 <translation id="607652042414456612">Számítógépét felfedezhetik a közeli Bluetooth-eszközök. Számítógépe „<ph name="NAME" />” néven, <ph name="ADDRESS" /> címmel lesz látható</translation>
 <translation id="6106745654298855237"><ph name="POWER_SOURCE" /> töltése folyamatban</translation>
 <translation id="615957422585914272">A képernyő-billentyűzet megjelenítése</translation>
+<translation id="6164005077879661055">Amikor ezt a felügyelt felhasználót eltávolítják, minden hozzá tartozó fájl és helyi adat véglegesen törlődik. A felügyelt felhasználó felkeresett webhelyeit és beállításait a kezelő továbbra is láthatja a következő címen: <ph name="MANAGEMENT_URL" />.</translation>
 <translation id="6165508094623778733">További információ</translation>
 <translation id="6267036997247669271"><ph name="NAME" />: aktiválás...</translation>
 <translation id="6284232397434400372">A felbontás módosult</translation>
@@ -240,6 +248,7 @@ Kizárólag olyan fiókok esetében használja a funkciót, amelyekben megbízik
 <translation id="6857811139397017780"><ph name="NETWORKSERVICE" /> aktiválása</translation>
 <translation id="6911468394164995108">Csatlakozás másik hálózathoz...</translation>
 <translation id="6981982820502123353">Kisegítő lehetőségek</translation>
+<translation id="698231206551913481">A felhasználó eltávolításakor az összes hozzá tartozó fájl és helyi adat is véglegesen törlődik.</translation>
 <translation id="7029814467594812963">Kilépés a munkamenetből</translation>
 <translation id="7034339000180558234"><ph name="TAB_NAME" /> átküldése ide: <ph name="RECEIVER_NAME" /></translation>
 <translation id="7052914147756339792">Háttérkép beállítása...</translation>
@@ -247,6 +256,7 @@ Kizárólag olyan fiókok esetében használja a funkciót, amelyekben megbízik
 <translation id="7066646422045619941">Ezt a hálózatot letiltotta a rendszergazda.</translation>
 <translation id="7067196344162293536">Automatikus forgatás</translation>
 <translation id="7098389117866926363">C típusú USB-vel kompatibilis eszköz (bal hátsó port)</translation>
+<translation id="7131634465328662194">A rendszer automatikusan kijelentkezteti.</translation>
 <translation id="7165278925115064263">Alt+Shift+K</translation>
 <translation id="7168224885072002358">Visszaállítás a régi felbontásra <ph name="TIMEOUT_SECONDS" /> mp múlva</translation>
 <translation id="7256634071279256947">Hátulsó mikrofon</translation>
@@ -303,6 +313,7 @@ Kizárólag olyan fiókok esetében használja a funkciót, amelyekben megbízik
 <translation id="8484916590211895857"><ph name="NAME" />: Újracsatlakozás…</translation>
 <translation id="8517041960877371778">Előfordulhat, hogy a(z) <ph name="DEVICE_TYPE" /> nem töltődik, amíg be van kapcsolva.</translation>
 <translation id="8639760480004882931"><ph name="PERCENTAGE" /> maradt</translation>
+<translation id="8649101189709089199">Felolvasás</translation>
 <translation id="8652175077544655965">Beállítások bezárása</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">Kis teljesítményű töltő csatlakoztatva</translation>
@@ -312,6 +323,7 @@ Kizárólag olyan fiókok esetében használja a funkciót, amelyekben megbízik
 Az ezt követő értesítéseket, ablakokat és párbeszédpaneleket a rendszer megoszthatja az asztalok között.</translation>
 <translation id="8825534185036233643">A böngésző nem támogatja a tükrözést kettőnél több megjelenítő esetén.</translation>
 <translation id="8828714802988429505">90°</translation>
+<translation id="8841375032071747811">Vissza gomb</translation>
 <translation id="8850991929411075241">Keresés+Esc</translation>
 <translation id="8870509716567206129">Az alkalmazás nem támogatja az osztott képernyős nézetet.</translation>
 <translation id="8878886163241303700">Kibővített képernyő</translation>

@@ -60,8 +60,8 @@
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "services/device/public/interfaces/constants.mojom.h"
-#include "services/device/public/interfaces/wake_lock_provider.mojom.h"
+#include "services/device/public/mojom/constants.mojom.h"
+#include "services/device/public/mojom/wake_lock_provider.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "storage/browser/blob/scoped_file.h"
 #include "storage/common/fileapi/file_system_util.h"
@@ -72,7 +72,7 @@ class RemoteChangeProcessor;
 
 namespace drive_backend {
 
-constexpr net::NetworkTrafficAnnotationTag kTrafficAnnotation =
+constexpr net::NetworkTrafficAnnotationTag kSyncFileSystemTrafficAnnotation =
     net::DefineNetworkTrafficAnnotation("sync_file_system", R"(
         semantics {
           sender: "Sync FileSystem Chrome API"
@@ -106,7 +106,7 @@ SyncEngine::DriveServiceFactory::CreateDriveService(
       GURL(google_apis::DriveApiUrlGenerator::kBaseUrlForProduction),
       GURL(google_apis::DriveApiUrlGenerator::kBaseThumbnailUrlForProduction),
       std::string(), /* custom_user_agent */
-      kTrafficAnnotation));
+      kSyncFileSystemTrafficAnnotation));
 }
 
 class SyncEngine::WorkerObserver : public SyncWorkerInterface::Observer {
@@ -224,7 +224,7 @@ std::unique_ptr<SyncEngine> SyncEngine::CreateForBrowserContext(
       ui_task_runner.get(), worker_task_runner.get(), drive_task_runner.get(),
       GetSyncFileSystemDir(context->GetPath()), task_logger,
       notification_manager, extension_service, signin_manager, token_service,
-      request_context.get(), base::MakeUnique<DriveServiceFactory>(),
+      request_context.get(), std::make_unique<DriveServiceFactory>(),
       nullptr /* env_override */));
 
   sync_engine->Initialize();
@@ -354,7 +354,7 @@ void SyncEngine::InitializeInternal(
   worker_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&SyncWorkerInterface::Initialize,
                                 base::Unretained(sync_worker_.get()),
-                                base::Passed(&sync_engine_context)));
+                                std::move(sync_engine_context)));
   if (remote_change_processor_)
     SetRemoteChangeProcessor(remote_change_processor_);
 

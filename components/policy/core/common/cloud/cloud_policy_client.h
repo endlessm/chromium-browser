@@ -66,6 +66,11 @@ class POLICY_EXPORT CloudPolicyClient {
       DeviceManagementStatus,
       const std::vector<enterprise_management::RemoteCommand>&)>;
 
+  // A callback which fetches device dm_token based on user affiliation.
+  // Should be called once per registration.
+  using DeviceDMTokenCallback = base::RepeatingCallback<std::string(
+      const std::vector<std::string>& user_affiliation_ids)>;
+
   // Observer interface for state and policy changes.
   class POLICY_EXPORT Observer {
    public:
@@ -94,25 +99,32 @@ class POLICY_EXPORT CloudPolicyClient {
   // and |signing_service| are weak pointers and it's the caller's
   // responsibility to keep them valid for the lifetime of CloudPolicyClient.
   // The |signing_service| is used to sign sensitive requests.
-  CloudPolicyClient(
-      const std::string& machine_id,
-      const std::string& machine_model,
-      DeviceManagementService* service,
-      scoped_refptr<net::URLRequestContextGetter> request_context,
-      SigningService* signing_service);
+  // |device_dm_token_callback| is used to retrieve device DMToken for
+  // affiliated users. Could be null if it's not possible to use
+  // device DMToken for user policy fetches.
+  CloudPolicyClient(const std::string& machine_id,
+                    const std::string& machine_model,
+                    DeviceManagementService* service,
+                    scoped_refptr<net::URLRequestContextGetter> request_context,
+                    SigningService* signing_service,
+                    DeviceDMTokenCallback device_dm_token_callback);
   virtual ~CloudPolicyClient();
 
   // Sets the DMToken, thereby establishing a registration with the server. A
   // policy fetch is not automatically issued but can be requested by calling
   // FetchPolicy().
-  virtual void SetupRegistration(const std::string& dm_token,
-                                 const std::string& client_id);
+  // |user_affiliation_ids| are used to get device DMToken if relevant.
+  virtual void SetupRegistration(
+      const std::string& dm_token,
+      const std::string& client_id,
+      const std::vector<std::string>& user_affiliation_ids);
 
   // Attempts to register with the device management service. Results in a
   // registration change or error notification.
   virtual void Register(
       enterprise_management::DeviceRegisterRequest::Type registration_type,
       enterprise_management::DeviceRegisterRequest::Flavor flavor,
+      enterprise_management::DeviceRegisterRequest::Lifetime lifetime,
       enterprise_management::LicenseType::LicenseTypeEnum license_type,
       const std::string& auth_token,
       const std::string& client_id,
@@ -125,6 +137,7 @@ class POLICY_EXPORT CloudPolicyClient {
   virtual void RegisterWithCertificate(
       enterprise_management::DeviceRegisterRequest::Type registration_type,
       enterprise_management::DeviceRegisterRequest::Flavor flavor,
+      enterprise_management::DeviceRegisterRequest::Lifetime lifetime,
       enterprise_management::LicenseType::LicenseTypeEnum license_type,
       const std::string& pem_certificate_chain,
       const std::string& client_id,
@@ -177,6 +190,16 @@ class POLICY_EXPORT CloudPolicyClient {
       const enterprise_management::DeviceStatusReportRequest* device_status,
       const enterprise_management::SessionStatusReportRequest* session_status,
       const StatusCallback& callback);
+
+  // Uploads a report on the status of app push-installs. The client must be in
+  // a registered state. The |callback| will be called when the operation
+  // completes.
+  virtual void UploadAppInstallReport(
+      const enterprise_management::AppInstallReportRequest* app_install_report,
+      const StatusCallback& callback);
+
+  // Cancels the pending app push-install status report upload, if an.
+  virtual void CancelAppInstallReportUpload();
 
   // Attempts to fetch remote commands, with |last_command_id| being the ID of
   // the last command that finished execution and |command_results| being
@@ -355,8 +378,8 @@ class POLICY_EXPORT CloudPolicyClient {
       int net_error,
       const enterprise_management::DeviceManagementResponse& response);
 
-  // Callback for status upload requests.
-  void OnStatusUploadCompleted(
+  // Callback for several types of status/report upload requests.
+  void OnReportUploadCompleted(
       const DeviceManagementRequestJob* job,
       const StatusCallback& callback,
       DeviceManagementStatus status,
@@ -425,6 +448,9 @@ class POLICY_EXPORT CloudPolicyClient {
   int public_key_version_ = -1;
   bool public_key_version_valid_ = false;
   std::string robot_api_auth_code_;
+  // Device DMToken for affiliated user policy requests.
+  // Retrieved from |device_dm_token_callback_| on registration.
+  std::string device_dm_token_;
 
   // Information for the latest policy invalidation received.
   int64_t invalidation_version_ = 0;
@@ -447,9 +473,15 @@ class POLICY_EXPORT CloudPolicyClient {
   // silently cancelled if Unregister() is called.
   std::vector<std::unique_ptr<DeviceManagementRequestJob>> request_jobs_;
 
+  // Only one outstanding app push-install report upload is allowed, and it must
+  // be accessible so that it can be canceled.
+  DeviceManagementRequestJob* app_install_report_request_job_ = nullptr;
+
   // The policy responses returned by the last policy fetch operation.
   ResponseMap responses_;
   DeviceManagementStatus status_ = DM_STATUS_SUCCESS;
+
+  DeviceDMTokenCallback device_dm_token_callback_;
 
   base::ObserverList<Observer, true> observers_;
   scoped_refptr<net::URLRequestContextGetter> request_context_;

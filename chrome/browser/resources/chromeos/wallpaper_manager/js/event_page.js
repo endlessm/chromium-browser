@@ -2,9 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-var WALLPAPER_PICKER_WIDTH = 574;
-var WALLPAPER_PICKER_HEIGHT = 420;
-
 var wallpaperPickerWindow = null;
 
 var surpriseWallpaper = null;
@@ -144,16 +141,44 @@ SurpriseWallpaper.prototype.updateRandomWallpaper_ = function() {
 };
 
 /**
- * Sets wallpaper to one of the wallpapers displayed in wallpaper picker. If
- * the wallpaper download fails, retry one hour later. Wallpapers that are
- * disabled for surprise me are excluded.
+ * Sets wallpaper to be a random one. The wallpaper url is retrieved either from
+ * the stored manifest file, or by fetching the wallpaper info from the server.
  * @param {string} dateString String representation of current local date.
  * @private
  */
 SurpriseWallpaper.prototype.setRandomWallpaper_ = function(dateString) {
-  var self = this;
+  var onSuccess = function(url, layout) {
+    WallpaperUtil.saveWallpaperInfo(
+        url, layout, Constants.WallpaperSourceEnum.Daily, '');
+    WallpaperUtil.saveToLocalStorage(
+        Constants.AccessLastSurpriseWallpaperChangedDate, dateString,
+        function() {
+          WallpaperUtil.saveToSyncStorage(
+              Constants.AccessLastSurpriseWallpaperChangedDate, dateString);
+        });
+  };
+
+  chrome.wallpaperPrivate.getStrings(strings => {
+    var suffix = strings['highResolutionSuffix'];
+    if (strings['useNewWallpaperPicker'])
+      this.setRandomWallpaperFromServer_(onSuccess, suffix);
+    else
+      this.setRandomWallpaperFromManifest_(onSuccess, suffix);
+  });
+};
+
+/**
+ * Sets wallpaper to be a random one found in the stored manifest file. If the
+ * wallpaper download fails, retry one hour later. Wallpapers that are disabled
+ * for surprise me are excluded.
+ * @param {function} onSuccess The success callback.
+ * @param {string} suffix The url suffix for high resolution wallpaper.
+ * @private
+ */
+SurpriseWallpaper.prototype.setRandomWallpaperFromManifest_ = function(
+    onSuccess, suffix) {
   Constants.WallpaperLocalStorage.get(
-      Constants.AccessLocalManifestKey, function(items) {
+      Constants.AccessLocalManifestKey, items => {
         var manifest = items[Constants.AccessLocalManifestKey];
         if (manifest && manifest.wallpaper_list) {
           var filtered = manifest.wallpaper_list.filter(function(element) {
@@ -164,25 +189,63 @@ SurpriseWallpaper.prototype.setRandomWallpaper_ = function(dateString) {
           });
           var index = Math.floor(Math.random() * filtered.length);
           var wallpaper = filtered[index];
-          var wallpaperURL =
-              wallpaper.base_url + Constants.HighResolutionSuffix;
-          var onSuccess = function() {
-            WallpaperUtil.saveWallpaperInfo(
-                wallpaperURL, wallpaper.default_layout,
-                Constants.WallpaperSourceEnum.Daily, '');
-            WallpaperUtil.saveToLocalStorage(
-                Constants.AccessLastSurpriseWallpaperChangedDate, dateString,
-                function() {
-                  WallpaperUtil.saveToSyncStorage(
-                      Constants.AccessLastSurpriseWallpaperChangedDate,
-                      dateString);
-                });
-          };
+          var wallpaperUrl = wallpaper.base_url + suffix;
           WallpaperUtil.setOnlineWallpaper(
-              wallpaperURL, wallpaper.default_layout, onSuccess,
-              self.retryLater_.bind(self));
+              wallpaperUrl, wallpaper.default_layout,
+              onSuccess.bind(null, wallpaperUrl, wallpaper.default_layout),
+              this.retryLater_.bind(this));
         }
       });
+};
+
+/**
+ * Sets wallpaper to be a random one retrieved from the backend service. If the
+ * wallpaper download fails, retry one hour later.
+ * @param {function} onSuccess The success callback.
+ * @param {string} suffix The url suffix for high resolution wallpaper.
+ * @private
+ */
+SurpriseWallpaper.prototype.setRandomWallpaperFromServer_ = function(
+    onSuccess, suffix) {
+  // The first step is to get the list of wallpaper collections (ie. categories)
+  // and randomly select one.
+  chrome.wallpaperPrivate.getCollectionsInfo(collectionsInfo => {
+    if (chrome.runtime.lastError) {
+      this.retryLater_();
+      return;
+    }
+    if (collectionsInfo.length == 0) {
+      // Although the fetch succeeds, it's theoretically possible that the
+      // collection list is empty, in this case do nothing.
+      return;
+    }
+
+    var randomCollectionIndex =
+        Math.floor(Math.random() * collectionsInfo.length);
+    var collectionId = collectionsInfo[randomCollectionIndex]['collectionId'];
+    // The second step is to get the list of wallpapers that belong to the
+    // particular collection, and randomly select one.
+    chrome.wallpaperPrivate.getImagesInfo(collectionId, imagesInfo => {
+      if (chrome.runtime.lastError) {
+        this.retryLater_();
+        return;
+      }
+      if (imagesInfo.length == 0) {
+        // Although the fetch succeeds, it's theoretically possible that the
+        // image list is empty, in this case do nothing.
+        // TODO(crbug.com/800945): Consider fetching another collection.
+        return;
+      }
+      var randomImageIndex = Math.floor(Math.random() * imagesInfo.length);
+      var wallpaperUrl = imagesInfo[randomImageIndex]['imageUrl'] + suffix;
+      // The backend service doesn't specify the desired layout. Use the default
+      // layout here.
+      var layout = Constants.WallpaperThumbnailDefaultLayout;
+      WallpaperUtil.setOnlineWallpaper(
+          wallpaperUrl, layout, onSuccess.bind(null, wallpaperUrl, layout),
+          this.retryLater_.bind(this));
+    });
+  });
 };
 
 /**
@@ -259,23 +322,42 @@ chrome.app.runtime.onLaunched.addListener(function() {
     return;
   }
 
-  chrome.app.window.create(
-      'main.html', {
-        frame: 'none',
-        width: WALLPAPER_PICKER_WIDTH,
-        height: WALLPAPER_PICKER_HEIGHT,
-        resizable: false,
-        alphaEnabled: true
-      },
-      function(w) {
-        wallpaperPickerWindow = w;
-        chrome.wallpaperPrivate.minimizeInactiveWindows();
-        w.onClosed.addListener(function() {
-          wallpaperPickerWindow = null;
+  chrome.commandLinePrivate.hasSwitch('new-wallpaper-picker', (result) => {
+    var options = result ? {
+      frame: 'none',
+      state: 'maximized',
+      resizable: true,
+      alphaEnabled: true
+    } :
+                           {
+                             frame: 'none',
+                             width: 574,
+                             height: 420,
+                             resizable: false,
+                             alphaEnabled: true
+                           };
+
+    chrome.app.window.create('main.html', options, function(w) {
+      wallpaperPickerWindow = w;
+      chrome.wallpaperPrivate.minimizeInactiveWindows();
+      w.onClosed.addListener(function() {
+        wallpaperPickerWindow = null;
+        chrome.wallpaperPrivate.restoreMinimizedWindows();
+      });
+      if (result) {
+        // By design, the new wallpaper picker should never be shown on top of
+        // another window.
+        wallpaperPickerWindow.contentWindow.addEventListener(
+            'focus', function() {
+              chrome.wallpaperPrivate.minimizeInactiveWindows();
+            });
+        w.onMinimized.addListener(function() {
           chrome.wallpaperPrivate.restoreMinimizedWindows();
         });
-        WallpaperUtil.testSendMessage('wallpaper-window-created');
-      });
+      }
+      WallpaperUtil.testSendMessage('wallpaper-window-created');
+    });
+  });
 });
 
 chrome.syncFileSystem.onFileStatusChanged.addListener(function(detail) {
@@ -352,6 +434,9 @@ chrome.storage.onChanged.addListener(function(changes, namespace) {
           wpDocument.querySelector('#wallpaper-grid').classList.remove('small');
           Constants.WallpaperSyncStorage.get(
               Constants.AccessSyncSurpriseMeEnabledKey, function(item) {
+                // TODO(crbug.com/810169): Try to combine this part with
+                // |WallpaperManager.onSurpriseMeStateChanged_|. The logic is
+                // duplicate.
                 var enable = item[Constants.AccessSyncSurpriseMeEnabledKey];
                 if (enable) {
                   wpDocument.querySelector('#checkbox')
@@ -367,7 +452,12 @@ chrome.storage.onChanged.addListener(function(changes, namespace) {
                         'visible';
                 }
                 wpDocument.querySelector('#categories-list').disabled = enable;
-                wpDocument.querySelector('#wallpaper-grid').disabled = enable;
+                chrome.commandLinePrivate.hasSwitch(
+                    'new-wallpaper-picker', useNewWallpaperPicker => {
+                      if (!useNewWallpaperPicker)
+                        wpDocument.querySelector('#wallpaper-grid').disabled =
+                            enable;
+                    });
               });
         }
       };

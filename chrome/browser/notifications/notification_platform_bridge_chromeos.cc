@@ -6,7 +6,6 @@
 
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/notifications/chrome_ash_message_center_client.h"
 #include "chrome/browser/notifications/notification_display_service_impl.h"
 #include "chrome/browser/profiles/profile.h"
@@ -29,16 +28,6 @@ Profile* GetProfileFromId(const std::string& profile_id, bool incognito) {
 }  // namespace
 
 // static
-NotificationDisplayService*
-NotificationDisplayService::GetForSystemNotifications() {
-  // System notifications (such as those for network state) aren't tied to a
-  // particular user and can show up before any user is logged in, so fall back
-  // to the signin profile, which is guaranteed to exist.
-  return NotificationDisplayService::GetForProfile(
-      chromeos::ProfileHelper::GetSigninProfile());
-}
-
-// static
 NotificationPlatformBridge* NotificationPlatformBridge::Create() {
   return new NotificationPlatformBridgeChromeOs();
 }
@@ -46,7 +35,7 @@ NotificationPlatformBridge* NotificationPlatformBridge::Create() {
 // static
 bool NotificationPlatformBridge::CanHandleType(
     NotificationHandler::Type notification_type) {
-  return notification_type != NotificationHandler::Type::TRANSIENT;
+  return true;
 }
 
 NotificationPlatformBridgeChromeOs::NotificationPlatformBridgeChromeOs()
@@ -96,34 +85,79 @@ void NotificationPlatformBridgeChromeOs::HandleNotificationClosed(
   auto iter = active_notifications_.find(id);
   DCHECK(iter != active_notifications_.end());
   ProfileNotification* notification = iter->second.get();
-  NotificationDisplayServiceImpl::GetForProfile(notification->profile())
-      ->ProcessNotificationOperation(
-          NotificationCommon::CLOSE, notification->type(),
-          notification->notification().origin_url(),
-          notification->original_id(), base::nullopt, base::nullopt, by_user);
+
+  if (notification->type() == NotificationHandler::Type::TRANSIENT) {
+    notification->notification().delegate()->Close(by_user);
+  } else {
+    NotificationDisplayServiceImpl::GetForProfile(notification->profile())
+        ->ProcessNotificationOperation(
+            NotificationCommon::CLOSE, notification->type(),
+            notification->notification().origin_url(),
+            notification->original_id(), base::nullopt, base::nullopt, by_user);
+  }
   active_notifications_.erase(iter);
 }
 
 void NotificationPlatformBridgeChromeOs::HandleNotificationClicked(
     const std::string& id) {
   ProfileNotification* notification = GetProfileNotification(id);
-  NotificationDisplayServiceImpl::GetForProfile(notification->profile())
-      ->ProcessNotificationOperation(NotificationCommon::CLICK,
-                                     notification->type(),
-                                     notification->notification().origin_url(),
-                                     notification->original_id(), base::nullopt,
-                                     base::nullopt, base::nullopt);
+  if (notification->type() == NotificationHandler::Type::TRANSIENT) {
+    notification->notification().delegate()->Click();
+  } else {
+    NotificationDisplayServiceImpl::GetForProfile(notification->profile())
+        ->ProcessNotificationOperation(
+            NotificationCommon::CLICK, notification->type(),
+            notification->notification().origin_url(),
+            notification->original_id(), base::nullopt, base::nullopt,
+            base::nullopt);
+  }
 }
 
 void NotificationPlatformBridgeChromeOs::HandleNotificationButtonClicked(
     const std::string& id,
-    int button_index) {
+    int button_index,
+    const base::Optional<base::string16>& reply) {
   ProfileNotification* notification = GetProfileNotification(id);
+  if (notification->type() == NotificationHandler::Type::TRANSIENT) {
+    if (reply) {
+      notification->notification().delegate()->ButtonClickWithReply(
+          button_index, *reply);
+    } else {
+      notification->notification().delegate()->ButtonClick(button_index);
+    }
+  } else {
+    NotificationDisplayServiceImpl::GetForProfile(notification->profile())
+        ->ProcessNotificationOperation(
+            NotificationCommon::CLICK, notification->type(),
+            notification->notification().origin_url(),
+            notification->original_id(), button_index, reply, base::nullopt);
+  }
+}
+
+void NotificationPlatformBridgeChromeOs::
+    HandleNotificationSettingsButtonClicked(const std::string& id) {
+  ProfileNotification* notification = GetProfileNotification(id);
+  if (notification->type() == NotificationHandler::Type::TRANSIENT) {
+    notification->notification().delegate()->SettingsClick();
+  } else {
+    NotificationDisplayServiceImpl::GetForProfile(notification->profile())
+        ->ProcessNotificationOperation(
+            NotificationCommon::SETTINGS, notification->type(),
+            notification->notification().origin_url(),
+            notification->original_id(), base::nullopt, base::nullopt,
+            base::nullopt);
+  }
+}
+
+void NotificationPlatformBridgeChromeOs::DisableNotification(
+    const std::string& id) {
+  ProfileNotification* notification = GetProfileNotification(id);
+  DCHECK_NE(NotificationHandler::Type::TRANSIENT, notification->type());
   NotificationDisplayServiceImpl::GetForProfile(notification->profile())
-      ->ProcessNotificationOperation(NotificationCommon::CLICK,
+      ->ProcessNotificationOperation(NotificationCommon::DISABLE_PERMISSION,
                                      notification->type(),
                                      notification->notification().origin_url(),
-                                     notification->original_id(), button_index,
+                                     notification->original_id(), base::nullopt,
                                      base::nullopt, base::nullopt);
 }
 

@@ -41,9 +41,13 @@ const int kBigFrameThresholdPixels = 300000;
 // encoded "big" frame may be too large to be delivered to the client quickly.
 const int kEstimatedBytesPerMegapixel = 100000;
 
-// Minimum interval between frames needed to keep the connection alive.
+// Minimum interval between frames needed to keep the connection alive. The
+// client will request a key-frame if it does not receive any frames for a
+// 3-second period. This is effectively a minimum frame-rate, so the value
+// should not be too small, otherwise the client may waste CPU cycles on
+// processing and rendering lots of identical frames.
 constexpr base::TimeDelta kKeepAliveInterval =
-    base::TimeDelta::FromMilliseconds(200);
+    base::TimeDelta::FromMilliseconds(2000);
 
 int64_t GetRegionArea(const webrtc::DesktopRegion& region) {
   int64_t result = 0;
@@ -248,26 +252,16 @@ void WebrtcFrameSchedulerSimple::ScheduleNextFrame() {
 
   base::TimeTicks target_capture_time;
   if (!last_capture_started_time_.is_null()) {
-    // We won't start sending the frame until last one has been sent.
+    // Try to set the capture time so that (if the estimated processing time is
+    // accurate) the new frame is ready to be sent just when the previous frame
+    // is finished sending.
     target_capture_time = pacing_bucket_.GetEmptyTime() -
         processing_time_estimator_.EstimatedProcessingTime(key_frame_request_);
 
-    // We also try to ensure the next frame will reach the client
-    // |kTargetFrameInterval| after last frame reached.
-
-    // The estimated time when last frame reached or will reach the client.
-    base::TimeTicks estimated_last_frame_reach_time =
-        pacing_bucket_.GetEmptyTime();
-    // The cost of next frame, including both the processing time and transit
-    // time.
-    base::TimeDelta estimated_next_frame_cost =
-        processing_time_estimator_.EstimatedProcessingTime(key_frame_request_) +
-        processing_time_estimator_.EstimatedTransitTime(key_frame_request_);
-    base::TimeTicks ideal_capture_time =
-        estimated_last_frame_reach_time +
-        kTargetFrameInterval -
-        estimated_next_frame_cost;
-    target_capture_time = std::max(target_capture_time, ideal_capture_time);
+    // Ensure that the capture rate is capped by kTargetFrameInterval, to avoid
+    // excessive CPU usage by the capturer.
+    target_capture_time = std::max(
+        target_capture_time, last_capture_started_time_ + kTargetFrameInterval);
   }
 
   target_capture_time = std::max(target_capture_time, now);

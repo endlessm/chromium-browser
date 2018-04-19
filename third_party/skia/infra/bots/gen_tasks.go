@@ -35,12 +35,13 @@ const (
 	ISOLATE_SKP_NAME            = "Housekeeper-PerCommit-IsolateSKP"
 	ISOLATE_SVG_NAME            = "Housekeeper-PerCommit-IsolateSVG"
 	ISOLATE_NDK_LINUX_NAME      = "Housekeeper-PerCommit-IsolateAndroidNDKLinux"
+	ISOLATE_SDK_LINUX_NAME      = "Housekeeper-PerCommit-IsolateAndroidSDKLinux"
 	ISOLATE_WIN_TOOLCHAIN_NAME  = "Housekeeper-PerCommit-IsolateWinToolchain"
 	ISOLATE_WIN_VULKAN_SDK_NAME = "Housekeeper-PerCommit-IsolateWinVulkanSDK"
 
 	DEFAULT_OS_DEBIAN    = "Debian-9.1"
 	DEFAULT_OS_LINUX_GCE = "Debian-9.2"
-	DEFAULT_OS_MAC       = "Mac-10.13.2"
+	DEFAULT_OS_MAC       = "Mac-10.13.3"
 	DEFAULT_OS_UBUNTU    = "Ubuntu-14.04"
 	DEFAULT_OS_WIN       = "Windows-2016Server-14393"
 
@@ -199,7 +200,7 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 			"Ubuntu16":   "Ubuntu-16.10",
 			"Ubuntu17":   "Ubuntu-17.04",
 			"Win":        DEFAULT_OS_WIN,
-			"Win10":      "Windows-10-15063",
+			"Win10":      "Windows-10-16299.248",
 			"Win2k8":     "Windows-2008ServerR2-SP1",
 			"Win2016":    DEFAULT_OS_WIN,
 			"Win7":       "Windows-7-SP1",
@@ -208,6 +209,11 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 		}[os]
 		if !ok {
 			glog.Fatalf("Entry %q not found in OS mapping.", os)
+		}
+		if os == "Win10" && parts["model"] == "Golo" {
+			// Golo/MTV lab bots have Windows 10 version 1703, whereas Skolo bots have Windows 10 version
+			// 1709.
+			d["os"] = "Windows-10-15063"
 		}
 	} else {
 		d["os"] = DEFAULT_OS_DEBIAN
@@ -218,7 +224,7 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 			// than CPU or GPU.
 			deviceInfo, ok := map[string][]string{
 				"AndroidOne":      {"sprout", "MOB30Q"},
-				"Chorizo":         {"chorizo", "1.24_82923"},
+				"Chorizo":         {"chorizo", "1.30_109591"},
 				"GalaxyS6":        {"zerofltetmo", "NRD90M_G920TUVU5FQK1"},
 				"GalaxyS7_G930A":  {"heroqlteatt", "NRD90M_G930AUCS4BQC2"},
 				"GalaxyS7_G930FD": {"herolte", "NRD90M_G930FXXU1DQAS"},
@@ -228,10 +234,9 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 				"Nexus5x":         {"bullhead", "OPR6.170623.023"},
 				"Nexus7":          {"grouper", "LMY47V_1836172"}, // 2012 Nexus 7
 				"NexusPlayer":     {"fugu", "OPR6.170623.021"},
-				"Pixel":           {"sailfish", "OPR3.170623.008"},
+				"Pixel":           {"sailfish", "OPM1.171019.016"},
 				"Pixel2XL":        {"taimen", "OPD1.170816.023"},
 				"PixelC":          {"dragon", "OPR1.170623.034"},
-				"PixelXL":         {"marlin", "OPR3.170623.008"},
 			}[parts["model"]]
 			if !ok {
 				glog.Fatalf("Entry %q not found in Android mapping.", parts["model"])
@@ -288,16 +293,14 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 			if strings.Contains(parts["os"], "Win") {
 				gpu, ok := map[string]string{
 					"GT610":         "10de:104a-22.21.13.8205",
-					"GTX1070":       "10de:1ba1-23.21.13.8813",
-					"GTX660":        "10de:11c0-23.21.13.8813",
-					"GTX960":        "10de:1401-23.21.13.8813",
-					"IntelHD530":    "8086:1912-21.20.16.4590",
-					"IntelHD4400":   "8086:0a16-20.19.15.4703",
-					"IntelHD4600":   "8086:0412-20.19.15.4703",
-					"IntelIris540":  "8086:1926-21.20.16.4590",
-					"IntelIris6100": "8086:162b-20.19.15.4703",
-					"RadeonHD7770":  "1002:683d-22.19.165.512",
-					"RadeonR9M470X": "1002:6646-22.19.165.512",
+					"GTX1070":       "10de:1ba1-23.21.13.9101",
+					"GTX660":        "10de:11c0-23.21.13.9101",
+					"GTX960":        "10de:1401-23.21.13.9101",
+					"IntelHD4400":   "8086:0a16-20.19.15.4835",
+					"IntelIris540":  "8086:1926-21.20.16.4839",
+					"IntelIris6100": "8086:162b-20.19.15.4835",
+					"RadeonHD7770":  "1002:683d-23.20.15017.4003",
+					"RadeonR9M470X": "1002:6646-23.20.15017.4003",
 					"QuadroP400":    "10de:1cb3-22.21.13.8205",
 				}[parts["cpu_or_gpu_value"]]
 				if !ok {
@@ -329,14 +332,19 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 				d["gpu"] = gpu
 			} else if strings.Contains(parts["os"], "Mac") {
 				gpu, ok := map[string]string{
+					"IntelHD6000":   "8086:1626",
+					"IntelHD615":    "8086:591e",
 					"IntelIris5100": "8086:0a2e",
 				}[parts["cpu_or_gpu_value"]]
 				if !ok {
 					glog.Fatalf("Entry %q not found in Mac GPU mapping.", parts["cpu_or_gpu_value"])
 				}
 				d["gpu"] = gpu
-				// TODO(benjaminwagner): Mac GPU bots haven't been upgraded.
-				d["os"] = "Mac-10.13.1"
+				// Yuck. We have two different types of MacMini7,1 with the same GPU but different CPUs.
+				if parts["cpu_or_gpu_value"] == "IntelIris5100" {
+					// Run all tasks on Golo machines for now.
+					d["cpu"] = "x86-64-i7-4578U"
+				}
 			} else if strings.Contains(parts["os"], "ChromeOS") {
 				version, ok := map[string]string{
 					"MaliT604":           "9901.12.0",
@@ -442,6 +450,10 @@ var ISOLATE_ASSET_MAPPING = map[string]isolateAssetCfg{
 		isolateFile: "isolate_ndk_linux.isolate",
 		cipdPkg:     "android_ndk_linux",
 	},
+	ISOLATE_SDK_LINUX_NAME: {
+		isolateFile: "isolate_android_sdk_linux.isolate",
+		cipdPkg:     "android_sdk_linux",
+	},
 	ISOLATE_WIN_TOOLCHAIN_NAME: {
 		isolateFile: "isolate_win_toolchain.isolate",
 		cipdPkg:     "win_toolchain",
@@ -498,7 +510,10 @@ func compile(b *specs.TasksCfgBuilder, name string, parts map[string]string) str
 
 	// Android bots require a toolchain.
 	if strings.Contains(name, "Android") {
-		if strings.Contains(name, "Mac") {
+		if parts["extra_config"] == "Android_Framework" {
+			// Do not need a toolchain when building the
+			// Android Framework.
+		} else if strings.Contains(name, "Mac") {
 			pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("android_ndk_darwin"))
 		} else if strings.Contains(name, "Win") {
 			pkg := b.MustGetCipdPackageFromAsset("android_ndk_windows")
@@ -743,6 +758,29 @@ func bookmaker(b *specs.TasksCfgBuilder, name, compileTaskName string) string {
 		Priority:         0.8,
 		ExecutionTimeout: 2 * time.Hour,
 		IoTimeout:        2 * time.Hour,
+	})
+	return name
+}
+
+// androidFrameworkCompile generates an Android Framework Compile task. Returns
+// the name of the last task in the generated chain of tasks, which the Job
+// should add as a dependency.
+func androidFrameworkCompile(b *specs.TasksCfgBuilder, name string) string {
+	b.MustAddTask(name, &specs.TaskSpec{
+		Dimensions: linuxGceDimensions(),
+		ExtraArgs: []string{
+			"--workdir", "../../..", "android_compile",
+			fmt.Sprintf("repository=%s", specs.PLACEHOLDER_REPO),
+			fmt.Sprintf("buildername=%s", name),
+			fmt.Sprintf("swarm_out_dir=%s", specs.PLACEHOLDER_ISOLATED_OUTDIR),
+			fmt.Sprintf("revision=%s", specs.PLACEHOLDER_REVISION),
+			fmt.Sprintf("patch_repo=%s", specs.PLACEHOLDER_PATCH_REPO),
+			fmt.Sprintf("patch_storage=%s", specs.PLACEHOLDER_PATCH_STORAGE),
+			fmt.Sprintf("patch_issue=%s", specs.PLACEHOLDER_ISSUE),
+			fmt.Sprintf("patch_set=%s", specs.PLACEHOLDER_PATCHSET),
+		},
+		Isolate:  relpath("compile_skia.isolate"),
+		Priority: 0.8,
 	})
 	return name
 }
@@ -1155,7 +1193,12 @@ func process(b *specs.TasksCfgBuilder, name string) {
 
 	// Compile bots.
 	if parts["role"] == "Build" {
-		deps = append(deps, compile(b, name, parts))
+		if parts["extra_config"] == "Android_Framework" {
+			// Android Framework compile tasks use a different recipe.
+			deps = append(deps, androidFrameworkCompile(b, name))
+		} else {
+			deps = append(deps, compile(b, name, parts))
+		}
 	}
 
 	// Most remaining bots need a compile task.
@@ -1175,6 +1218,7 @@ func process(b *specs.TasksCfgBuilder, name string) {
 		name != "Housekeeper-PerCommit-BundleRecipes" &&
 		name != "Housekeeper-PerCommit-InfraTests" &&
 		name != "Housekeeper-PerCommit-CheckGeneratedFiles" &&
+		!strings.Contains(name, "Android_Framework") &&
 		!strings.Contains(name, "RecreateSKPs") &&
 		!strings.Contains(name, "UpdateMetaConfig") &&
 		!strings.Contains(name, "-CT_") &&

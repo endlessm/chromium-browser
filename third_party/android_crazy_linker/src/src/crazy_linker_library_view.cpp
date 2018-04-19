@@ -12,7 +12,7 @@
 namespace crazy {
 
 LibraryView::~LibraryView() {
-  LOG("%s: Destroying %s\n", __FUNCTION__, name_.c_str());
+  LOG("Destroying %s", name_.c_str());
   if (type_ == TYPE_SYSTEM) {
     ::dlclose(system_);
     system_ = NULL;
@@ -29,7 +29,7 @@ void* LibraryView::LookupSymbol(const char* symbol_name) {
     return ::dlsym(system_, symbol_name);
 
   if (type_ == TYPE_CRAZY) {
-    LibraryList* lib_list = Globals::GetLibraries();
+    LibraryList* lib_list = Globals::Get()->libraries();
     return lib_list->FindSymbolFrom(symbol_name, this);
   }
 

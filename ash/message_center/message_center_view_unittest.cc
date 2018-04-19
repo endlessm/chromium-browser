@@ -18,10 +18,10 @@
 #include "base/strings/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/message_center/fake_message_center.h"
-#include "ui/message_center/notification.h"
 #include "ui/message_center/notification_list.h"
-#include "ui/message_center/notification_types.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
+#include "ui/message_center/public/cpp/notification.h"
+#include "ui/message_center/public/cpp/notification_types.h"
 #include "ui/message_center/views/notification_view.h"
 #include "ui/views/animation/bounds_animator_observer.h"
 #include "ui/views/widget/widget.h"
@@ -479,7 +479,7 @@ TEST_F(MessageCenterViewTest, SizeAfterUpdateBelowWithRepositionTarget) {
   EXPECT_LT(GetNotificationView(kNotificationId2)->bounds().y(),
             GetNotificationView(kNotificationId1)->bounds().y());
 
-  GetMessageListView()->SetRepositionTargetForTest(
+  GetMessageListView()->SetRepositionTarget(
       GetNotificationView(kNotificationId1)->bounds());
 
   std::unique_ptr<Notification> notification = std::make_unique<Notification>(
@@ -509,7 +509,7 @@ TEST_F(MessageCenterViewTest, SizeAfterUpdateOfRepositionTarget) {
   EXPECT_LT(GetNotificationView(kNotificationId2)->bounds().y(),
             GetNotificationView(kNotificationId1)->bounds().y());
 
-  GetMessageListView()->SetRepositionTargetForTest(
+  GetMessageListView()->SetRepositionTarget(
       GetNotificationView(kNotificationId1)->bounds());
 
   std::unique_ptr<Notification> notification = std::make_unique<Notification>(
@@ -555,7 +555,7 @@ TEST_F(MessageCenterViewTest, PositionAfterUpdate) {
   int previous_vertical_pos_from_bottom =
       GetMessageListView()->height() -
       GetNotificationView(kNotificationId1)->bounds().y();
-  GetMessageListView()->SetRepositionTargetForTest(
+  GetMessageListView()->SetRepositionTarget(
       GetNotificationView(kNotificationId1)->bounds());
 
   std::unique_ptr<Notification> notification = std::make_unique<Notification>(
@@ -582,7 +582,7 @@ TEST_F(MessageCenterViewTest, PositionAfterRemove) {
   EXPECT_LT(GetNotificationView(kNotificationId2)->bounds().y(),
             GetNotificationView(kNotificationId1)->bounds().y());
 
-  GetMessageListView()->SetRepositionTargetForTest(
+  GetMessageListView()->SetRepositionTarget(
       GetNotificationView(kNotificationId2)->bounds());
   int previous_height = GetMessageListView()->height();
   int previous_notification2_y =

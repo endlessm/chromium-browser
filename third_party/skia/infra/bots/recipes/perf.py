@@ -81,8 +81,7 @@ def nanobench_flags(api, bot):
           'Quadro' in bot or
           'GTX' in bot or
           ('GT610' in bot and 'Ubuntu17' not in bot)):
-        configs.extend([gl_prefix + 'nvpr' + sample_count,
-                        gl_prefix + 'nvprdit' + sample_count])
+        configs.extend([gl_prefix + 'nvpr' + sample_count])
 
     # We want to test both the OpenGL config and the GLES config on Linux Intel:
     # GL is used by Chrome, GLES is used by ChromeOS.
@@ -171,6 +170,11 @@ def nanobench_flags(api, bot):
     # skia:6863
     match.append('~desk_skbug6850overlay2')
     match.append('~desk_googlespreadsheet')
+    match.append('~desk_carsvg')
+  if ('Vulkan' in bot and ('RadeonR9M470X' in bot or 'RadeonHD7770' in bot) and
+      'Win' in bot):
+    # skia:7677
+    match.append('~path_text_clipped_uncached')
   if ('Intel' in bot and api.vars.is_linux and not 'Vulkan' in bot):
     # TODO(dogben): Track down what's causing bots to die.
     verbose = True
@@ -264,16 +268,18 @@ def perf_steps(api):
     args.extend([
       '-i', api.flavor.device_dirs.resource_dir,
       '--images', api.flavor.device_path_join(
-          api.flavor.device_dirs.resource_dir, 'color_wheel.jpg'),
+          api.flavor.device_dirs.resource_dir, 'images', 'color_wheel.jpg'),
       '--skps',  api.flavor.device_dirs.skp_dir,
       '--pre_log',
-      '--match', # skia:6581
+      '--match', # skia:6687
       '~matrixconvolution',
       '~blur_image_filter',
       '~blur_0.01',
       '~GM_animated-image-blurs',
       '~blendmode_mask_',
+      '~desk_carsvg.skp',
       '~^path_text_clipped', # Bot times out; skia:7190
+      '~shapes_rrect_inner_rrect_50_500x500', # skia:7551
     ])
 
   if api.vars.upload_perf_results:
@@ -352,6 +358,7 @@ TEST_BUILDERS = [
   ('Perf-Ubuntu17-GCC-Golo-GPU-QuadroP400-x86_64-Release-All-'
    'Valgrind_SK_CPU_LIMIT_SSE41'),
   'Perf-Win10-Clang-AlphaR2-GPU-RadeonR9M470X-x86_64-Release-All-ANGLE',
+  'Perf-Win10-Clang-AlphaR2-GPU-RadeonR9M470X-x86_64-Release-All-Vulkan',
   'Perf-Win10-Clang-NUC6i5SYK-GPU-IntelIris540-x86_64-Release-All-ANGLE',
   'Perf-Win10-Clang-NUC6i5SYK-GPU-IntelIris540-x86_64-Release-All-Vulkan',
   'Perf-Win10-Clang-ShuttleC-GPU-GTX960-x86_64-Release-All-ANGLE',

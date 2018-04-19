@@ -12,7 +12,7 @@
 #include "chrome/browser/ui/passwords/password_dialog_controller.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
-#include "services/network/public/interfaces/url_loader_factory.mojom.h"
+#include "services/network/public/mojom/url_loader_factory.mojom.h"
 
 PasswordPromptViewBridge::PasswordPromptViewBridge(
     PasswordDialogController* controller,
@@ -58,7 +58,7 @@ PasswordPromptViewBridge::GetDialogController() {
   return controller_;
 }
 
-network::mojom::URLLoaderFactory*
+scoped_refptr<content::SharedURLLoaderFactory>
 PasswordPromptViewBridge::GetURLLoaderFactory() const {
   return content::BrowserContext::GetDefaultStoragePartition(
              Profile::FromBrowserContext(web_contents_->GetBrowserContext()))
@@ -74,14 +74,4 @@ void PasswordPromptViewBridge::ShowWindow() {
       [[CustomConstrainedWindowSheet alloc] initWithCustomWindow:window]);
   constrained_window_ =
       CreateAndShowWebModalDialogMac(this, web_contents_, sheet);
-}
-
-AccountChooserPrompt* CreateAccountChooserPromptView(
-    PasswordDialogController* controller, content::WebContents* web_contents) {
-  return new PasswordPromptViewBridge(controller, web_contents);
-}
-
-AutoSigninFirstRunPrompt* CreateAutoSigninPromptView(
-    PasswordDialogController* controller, content::WebContents* web_contents) {
-  return new PasswordPromptViewBridge(controller, web_contents);
 }

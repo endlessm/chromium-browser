@@ -14,7 +14,7 @@
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/message_center/notifier_id.h"
+#include "ui/message_center/public/cpp/notifier_id.h"
 #include "ui/views/controls/scroll_view.h"
 
 namespace ash {
@@ -40,8 +40,13 @@ class TestAshMessageCenterClient : public mojom::AshMessageCenterClient {
   // mojom::AshMessageCenterClient:
   void HandleNotificationClosed(const std::string& id, bool by_user) override {}
   void HandleNotificationClicked(const std::string& id) override {}
-  void HandleNotificationButtonClicked(const std::string& id,
-                                       int button_index) override {}
+  void HandleNotificationButtonClicked(
+      const std::string& id,
+      int button_index,
+      const base::Optional<base::string16>& reply) override {}
+  void HandleNotificationSettingsButtonClicked(const std::string& id) override {
+  }
+  void DisableNotification(const std::string& id) override {}
 
   void SetNotifierEnabled(const NotifierId& notifier_id,
                           bool enabled) override {}

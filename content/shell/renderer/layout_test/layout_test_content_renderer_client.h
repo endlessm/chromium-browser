@@ -31,9 +31,12 @@ class LayoutTestContentRendererClient : public ShellContentRendererClient {
   blink::WebThemeEngine* OverrideThemeEngine() override;
   std::unique_ptr<MediaStreamRendererFactory> CreateMediaStreamRendererFactory()
       override;
+  std::unique_ptr<blink::WebSocketHandshakeThrottle>
+  CreateWebSocketHandshakeThrottle() override;
   void DidInitializeWorkerContextOnWorkerThread(
       v8::Local<v8::Context> context) override;
   void SetRuntimeFeaturesDefaultsBeforeBlinkInitialization() override;
+  bool AllowIdleMediaSuspend() override;
 
  private:
   std::unique_ptr<LayoutTestRenderThreadObserver> shell_observer_;

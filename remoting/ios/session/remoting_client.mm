@@ -16,7 +16,7 @@
 #import "remoting/ios/display/gl_display_handler.h"
 #import "remoting/ios/domain/client_session_details.h"
 #import "remoting/ios/domain/host_info.h"
-#import "remoting/ios/keychain_wrapper.h"
+#import "remoting/ios/persistence/host_pairing_info.h"
 #import "remoting/ios/persistence/remoting_preferences.h"
 
 #include "base/strings/sys_string_conversions.h"
@@ -26,6 +26,8 @@
 #include "remoting/client/display/renderer_proxy.h"
 #include "remoting/client/gesture_interpreter.h"
 #include "remoting/client/input/keyboard_interpreter.h"
+#import "remoting/ios/facade/remoting_authentication.h"
+#import "remoting/ios/facade/remoting_service.h"
 #include "remoting/ios/session/remoting_client_session_delegate.h"
 #include "remoting/protocol/session.h"
 #include "remoting/protocol/video_renderer.h"
@@ -40,6 +42,23 @@ NSString* const kSessonStateErrorCode = @"kSessonStateErrorCode";
 NSString* const kHostSessionCreatePairing = @"kHostSessionCreatePairing";
 NSString* const kHostSessionHostName = @"kHostSessionHostName";
 NSString* const kHostSessionPin = @"kHostSessionPin";
+
+static std::string GetCurrentUserId() {
+  return base::SysNSStringToUTF8(
+      RemotingService.instance.authentication.user.userId);
+}
+
+// Block doesn't work with rvalue passing. This function helps exposing the data
+// to the block.
+static void ResolveFeedbackDataCallback(
+    void (^callback)(const remoting::FeedbackData&),
+    std::unique_ptr<remoting::FeedbackData> data) {
+  DCHECK(remoting::ChromotingClientRuntime::GetInstance()
+             ->ui_task_runner()
+             ->BelongsToCurrentThread());
+  remoting::FeedbackData* raw_data = data.get();
+  callback(*raw_data);
+}
 
 @interface RemotingClient () {
   remoting::ChromotingClientRuntime* _runtime;
@@ -100,17 +119,10 @@ NSString* const kHostSessionPin = @"kHostSessionPin";
   info.host_os_version = base::SysNSStringToUTF8(hostInfo.hostOsVersion);
   info.host_version = base::SysNSStringToUTF8(hostInfo.hostVersion);
 
-  NSDictionary* pairing =
-      [KeychainWrapper.instance pairingCredentialsForHost:hostInfo.hostId];
-  if (pairing) {
-    info.pairing_id =
-        base::SysNSStringToUTF8([pairing objectForKey:kKeychainPairingId]);
-    info.pairing_secret =
-        base::SysNSStringToUTF8([pairing objectForKey:kKeychainPairingSecret]);
-  } else {
-    info.pairing_id = "";
-    info.pairing_secret = "";
-  }
+  remoting::HostPairingInfo pairing = remoting::HostPairingInfo::GetPairingInfo(
+      GetCurrentUserId(), info.host_id);
+  info.pairing_id = pairing.pairing_id();
+  info.pairing_secret = pairing.pairing_secret();
 
   info.capabilities = "";
   if ([RemotingPreferences.instance boolForFlag:RemotingFlagUseWebRTC]) {
@@ -314,11 +326,13 @@ NSString* const kHostSessionPin = @"kHostSessionPin";
 }
 
 - (void)commitPairingCredentialsForHost:(NSString*)host
-                                     id:(NSString*)id
+                                     id:(NSString*)pairingId
                                  secret:(NSString*)secret {
-  [KeychainWrapper.instance commitPairingCredentialsForHost:host
-                                                         id:id
-                                                     secret:secret];
+  remoting::HostPairingInfo info = remoting::HostPairingInfo::GetPairingInfo(
+      GetCurrentUserId(), base::SysNSStringToUTF8(host));
+  info.set_pairing_id(base::SysNSStringToUTF8(pairingId));
+  info.set_pairing_secret(base::SysNSStringToUTF8(secret));
+  info.Save();
 }
 
 - (void)fetchThirdPartyTokenForUrl:(NSString*)tokenUrl
@@ -350,6 +364,18 @@ NSString* const kHostSessionPin = @"kHostSessionPin";
 - (void)setHostResolution:(CGSize)dipsResolution scale:(int)scale {
   _session->SendClientResolution(dipsResolution.width, dipsResolution.height,
                                  scale);
+}
+
+- (void)createFeedbackDataWithCallback:
+    (void (^)(const remoting::FeedbackData&))callback {
+  if (!_session) {
+    // Session has never been connected. Returns an empty data.
+    callback(remoting::FeedbackData());
+    return;
+  }
+
+  _session->GetFeedbackData(
+      base::BindOnce(&ResolveFeedbackDataCallback, callback));
 }
 
 #pragma mark - GlDisplayHandlerDelegate

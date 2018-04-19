@@ -163,11 +163,7 @@ class VertexAttributeTest : public ANGLETest
     void runTest(const TestData &test, bool checkPixelEqual)
     {
         // TODO(geofflang): Figure out why this is broken on AMD OpenGL
-        if (IsAMD() && getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE)
-        {
-            std::cout << "Test skipped on AMD OpenGL." << std::endl;
-            return;
-        }
+        ANGLE_SKIP_TEST_IF(IsAMD() && IsOpenGL());
 
         for (GLint i = 0; i < 4; i++)
         {
@@ -699,12 +695,8 @@ TEST_P(VertexAttributeTestES3, VertexArrayObjectRendering)
 // Validate that we can support GL_MAX_ATTRIBS attribs
 TEST_P(VertexAttributeTest, MaxAttribs)
 {
-    // TODO(jmadill): Figure out why we get this error on AMD/OpenGL and Intel.
-    if ((IsIntel() || IsAMD()) && GetParam().getRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE)
-    {
-        std::cout << "Test skipped on Intel and AMD." << std::endl;
-        return;
-    }
+    // TODO(jmadill): Figure out why we get this error on AMD/OpenGL.
+    ANGLE_SKIP_TEST_IF(IsAMD() && IsOpenGL());
 
     GLint maxAttribs;
     glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &maxAttribs);
@@ -727,11 +719,7 @@ TEST_P(VertexAttributeTest, MaxAttribs)
 TEST_P(VertexAttributeTest, MaxAttribsPlusOne)
 {
     // TODO(jmadill): Figure out why we get this error on AMD/ES2/OpenGL
-    if (IsAMD() && GetParam() == ES2_OPENGL())
-    {
-        std::cout << "Test disabled on AMD/ES2/OpenGL" << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(IsAMD() && GetParam() == ES2_OPENGL());
 
     GLint maxAttribs;
     glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &maxAttribs);
@@ -747,13 +735,6 @@ TEST_P(VertexAttributeTest, MaxAttribsPlusOne)
 // Simple test for when we use glBindAttribLocation
 TEST_P(VertexAttributeTest, SimpleBindAttribLocation)
 {
-    // TODO(jmadill): Figure out why this fails on Intel.
-    if (IsIntel() && GetParam().getRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE)
-    {
-        std::cout << "Test skipped on Intel." << std::endl;
-        return;
-    }
-
     // Re-use the multi-attrib program, binding attribute 0
     GLuint program = compileMultiAttribProgram(1);
     glBindAttribLocation(program, 2, "position");
@@ -785,12 +766,8 @@ TEST_P(VertexAttributeTest, DrawArraysBufferTooSmall)
 // Verify that index draw with an out-of-range offset generates INVALID_OPERATION.
 TEST_P(VertexAttributeTest, DrawElementsBufferTooSmall)
 {
-    if (extensionEnabled("GL_KHR_robust_buffer_access_behavior"))
-    {
-        std::cout << "Test skipped due to supporting GL_KHR_robust_buffer_access_behavior"
-                  << std::endl;
-        return;
-    }
+    // Test skipped due to supporting GL_KHR_robust_buffer_access_behavior
+    ANGLE_SKIP_TEST_IF(extensionEnabled("GL_KHR_robust_buffer_access_behavior"));
 
     std::array<GLfloat, kVertexCount> inputData;
     std::array<GLfloat, kVertexCount> expectedData;
@@ -808,18 +785,10 @@ TEST_P(VertexAttributeTest, DrawElementsBufferTooSmall)
 TEST_P(VertexAttributeTest, DrawArraysWithBufferOffset)
 {
     // TODO(jmadill): Diagnose this failure.
-    if (IsD3D11_FL93())
-    {
-        std::cout << "Test disabled on D3D11 FL 9_3" << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(IsD3D11_FL93());
 
     // TODO(geofflang): Figure out why this is broken on AMD OpenGL
-    if (IsAMD() && getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE)
-    {
-        std::cout << "Test skipped on AMD OpenGL." << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(IsAMD() && IsOpenGL());
 
     initBasicProgram();
     glUseProgram(mProgram);
@@ -1377,11 +1346,7 @@ void VertexAttributeCachingTest::SetUp()
 // to stress-test the caching code.
 TEST_P(VertexAttributeCachingTest, BufferMulticaching)
 {
-    if (IsAMD() && IsDesktopOpenGL())
-    {
-        std::cout << "Test skipped on AMD OpenGL." << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(IsAMD() && IsDesktopOpenGL());
 
     initBasicProgram();
 
@@ -1415,11 +1380,7 @@ TEST_P(VertexAttributeCachingTest, BufferMulticaching)
 // after enough iterations. It validates the unchanged attributes don't get deleted incidentally.
 TEST_P(VertexAttributeCachingTest, BufferMulticachingWithOneUnchangedAttrib)
 {
-    if (IsAMD() && IsDesktopOpenGL())
-    {
-        std::cout << "Test skipped on AMD OpenGL." << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(IsAMD() && IsDesktopOpenGL());
 
     initDoubleAttribProgram();
 

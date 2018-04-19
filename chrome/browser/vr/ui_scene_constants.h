@@ -51,9 +51,7 @@ static constexpr float kFullscreenVerticalOffset =
 
 static constexpr float kExitPromptWidth = 0.672f * kContentDistance;
 static constexpr float kExitPromptHeight = 0.2f * kContentDistance;
-
 static constexpr float kExitPromptVerticalOffset = -0.09f * kContentDistance;
-static constexpr float kPromptBackplaneSize = 1000.0f;
 
 static constexpr float kUrlBarDistance = 2.4f;
 static constexpr float kUrlBarWidthDMM = 0.672f;
@@ -71,6 +69,8 @@ static constexpr float kUrlBarOriginContentOffsetDMM = 0.020f;
 static constexpr float kUrlBarFieldSpacingDMM = 0.014f;
 static constexpr float kUrlBarOfflineIconTextSpacingDMM = 0.004f;
 static constexpr float kUrlBarSecuritySeparatorHeightDMM = 0.026f;
+static constexpr float kUrlBarOriginFadeWidth = 0.044f;
+static constexpr float kUrlBarOriginMinimumPathWidth = 0.044f;
 
 static constexpr float kOverlayPlaneDistance = 2.3f;
 
@@ -149,27 +149,15 @@ static constexpr float kSceneSize = 25.0f;
 static constexpr float kSceneHeight = 4.0f;
 static constexpr int kFloorGridlineCount = 40;
 
-static constexpr float kVoiceSearchUIGroupButtonDMM = 0.096f;
-static constexpr float kVoiceSearchButtonDiameterDMM =
-    kVoiceSearchUIGroupButtonDMM;
-static constexpr float kVoiceSearchButtonYOffsetDMM = 0.032f;
-static constexpr float kVoiceSearchCloseButtonWidth =
-    kVoiceSearchUIGroupButtonDMM * kContentDistance;
-static constexpr float kVoiceSearchCloseButtonHeight =
-    kVoiceSearchCloseButtonWidth;
+static constexpr float kVoiceSearchCloseButtonDiameterDMM = 0.096f;
+static constexpr float kVoiceSearchCloseButtonDiameter =
+    kVoiceSearchCloseButtonDiameterDMM * kContentDistance;
 static constexpr float kVoiceSearchCloseButtonYOffset =
-    0.316f * kContentDistance + 0.5f * kVoiceSearchCloseButtonWidth;
+    0.316f * kContentDistance + 0.5f * kVoiceSearchCloseButtonDiameter;
 static constexpr float kVoiceSearchRecognitionResultTextHeight =
     0.026f * kContentDistance;
 static constexpr float kVoiceSearchRecognitionResultTextWidth =
     0.4f * kContentDistance;
-
-static constexpr float kUnderDevelopmentNoticeFontHeightDMM = 0.02f;
-static constexpr float kUnderDevelopmentNoticeHeightDMM = 0.1f;
-static constexpr float kUnderDevelopmentNoticeWidthDMM = 0.44f;
-static constexpr float kUnderDevelopmentNoticeVerticalOffsetDMM =
-    kVoiceSearchButtonYOffsetDMM + kVoiceSearchButtonDiameterDMM * 1.5f + 0.04f;
-static constexpr float kUnderDevelopmentNoticeRotationRad = -0.78f;
 
 static constexpr float kTimeoutScreenDisatance = 2.5f;
 static constexpr float kTimeoutSpinnerSizeDMM = 0.088f;
@@ -199,6 +187,10 @@ static constexpr float kTimeoutButtonTextWidthDMM = 0.058f;
 static constexpr float kTimeoutButtonTextHeightDMM = 0.024f;
 static constexpr float kTimeoutButtonTextVerticalOffsetDMM = 0.024f;
 
+static constexpr float kHostedUiHeightRatio = 0.6f;
+static constexpr float kHostedUiWidthRatio = 0.6f;
+static constexpr float kHostedUiDepthOffset = 0.3f;
+
 static constexpr float kScreenDimmerOpacity = 0.9f;
 
 static constexpr gfx::Point3F kOrigin = {0.0f, 0.0f, 0.0f};
@@ -225,6 +217,8 @@ static constexpr float kOmniboxTextFieldIconSizeDMM = 0.05f;
 static constexpr float kOmniboxTextFieldIconButtonSizeDMM = 0.064f;
 static constexpr float kOmniboxTextFieldIconButtonRadiusDMM = 0.006f;
 static constexpr float kOmniboxTextFieldIconButtonHoverOffsetDMM = 0.0f;
+static constexpr float kOmniboxTextFieldRightMargin =
+    ((kOmniboxHeightDMM - kOmniboxTextFieldIconButtonSizeDMM) / 2);
 
 static constexpr float kSuggestionHeightDMM = 0.088f;
 static constexpr float kSuggestionGapDMM = 0.0018f;
@@ -260,8 +254,50 @@ static constexpr float kSnackbarHeightDMM = 0.08f;
 static constexpr float kSnackbarMoveInAngle = -base::kPiFloat / 10;
 static constexpr int kSnackbarTransitionDurationMs = 300;
 
+static constexpr float kControllerLabelSpacerSize = 0.025f;
+static constexpr float kControllerLabelLayoutMargin = -0.005f;
+static constexpr float kControllerLabelCalloutWidth = 0.02f;
+static constexpr float kControllerLabelCalloutHeight = 0.001f;
+static constexpr float kControllerLabelFontHeight = 0.05f;
+static constexpr float kControllerLabelScale = 0.2f;
+
+// TODO(vollick): these should be encoded in the controller mesh.
+static constexpr float kControllerTrackpadOffset = -0.035f;
+static constexpr float kControllerExitButtonOffset = -0.008f;
+static constexpr float kControllerBackButtonOffset = -0.008f;
+
+static constexpr int kControllerLabelTransitionDurationMs = 700;
+
+static constexpr float kControllerWidth = 0.035f;
+static constexpr float kControllerHeight = 0.016f;
+static constexpr float kControllerLength = 0.105f;
+static constexpr float kControllerSmallButtonSize = kControllerWidth * 0.306f;
+static constexpr float kControllerAppButtonZ = kControllerLength * -0.075f;
+static constexpr float kControllerHomeButtonZ = kControllerLength * 0.075f;
+
 static constexpr float kSkyDistance = 1000.0f;
 static constexpr float kGridOpacity = 0.5f;
+
+static constexpr float kRepositionButtonDiameter = 0.75f * kCloseButtonDiameter;
+// This allows the button to be hittable even when hidden.
+static constexpr float kRepositionButtonMinOpacity = 0.001f;
+static constexpr float kRepositionButtonMidOpacity = 0.3f;
+static constexpr float kRepositionButtonMaxOpacity = 1.0f;
+static constexpr float kRepositionButtonXOffset = kIndicatorGap;
+static constexpr float kRepositionButtonYOffset = 0.5f * kIndicatorGap;
+static constexpr int kRepositionButtonTransitionDurationMs = 750;
+static constexpr float kRepositionLabelWidth = 0.55f * kContentWidth;
+static constexpr float kRepositionLabelFontHeight = kControllerLabelFontHeight;
+static constexpr float kRepositionLabelFontScale = 1.5f;
+static constexpr float kRepositionLabelBackgroundPadding = 0.06f;
+static constexpr float kRepositionContentOpacity = 0.2f;
+static constexpr float kRepositionLabelBackgroundCornerRadius = 0.02f;
+
+static constexpr float kPromptWidthDMM = 0.63f;
+static constexpr float kPromptHeightDMM = 0.218f;
+static constexpr float kPromptVerticalOffsetDMM = -0.1f;
+static constexpr float kPromptShadowOffsetDMM = 0.1f;
+static constexpr float kPromptDistance = 2.4f;
 
 }  // namespace vr
 

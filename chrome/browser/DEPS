@@ -38,10 +38,11 @@ include_rules = [
   "+google_update",
   "+installer_util_strings",  # For generated headers
   "+jni",
-  "+mash/public/interfaces",
+  "+mash/public/mojom",
   "+media/audio", # For media audio hang monitor.
   "+media/base",  # For media switches
   "+media/cdm/cdm_paths.h",
+  "+media/capture",
   "+media/midi",  # For midi switches
   "+media/mojo",  # For mojo media services.
   "+ppapi/c",  # For various types.
@@ -50,21 +51,26 @@ include_rules = [
   "+ppapi/shared_impl",
   "+rlz",
   "+sandbox/win/src",  # The path doesn't say it, but this is the Windows sandbox.
+  "+services/audio/public",
   "+services/data_decoder/public",
   "+services/device/public",
   "+services/identity/public",
   "+services/metrics/metrics_mojo_service.h",
   "+services/metrics/public",
+  "+services/network/ignore_errors_cert_verifier.h",
+  "+services/network/network_service.h",
+  "+services/network/url_request_context_owner.h",
   "+services/network/public",
+  "+services/network/url_request_context_builder_mojo.h",
   "+services/preferences/public/cpp",
-  "+services/preferences/public/interfaces",
+  "+services/preferences/public/mojom",
   "+services/proxy_resolver",  # Android runs the packaged proxy resolver
                                # service in process and needs impl access.
-  "+services/proxy_resolver/public/interfaces",
+  "+services/proxy_resolver/public/mojom",
   "+services/resource_coordinator/public/cpp",
-  "+services/resource_coordinator/public/interfaces",
+  "+services/resource_coordinator/public/mojom",
   "+services/service_manager",
-  "+services/shape_detection/public/interfaces",
+  "+services/shape_detection/public/mojom",
   "+services/ui/common",
   "+services/ui/public",
   "+services/ui/service.h",
@@ -75,11 +81,11 @@ include_rules = [
   "+third_party/libaom/av1_features.h",
   "+third_party/metrics_proto",
 
-  # Code under //ash runs out-of-process under mustash (chrome --mash) so it
-  # must be accessed via mojo interfaces in //ash/public/interfaces. See
-  # //ash/README.md.
+  # Code under //ash runs out-of-process in mash so it must be accessed via mojo
+  # interfaces in //ash/public/interfaces. See //ash/README.md.
   "-ash",
   "+ash/public",
+  "+ash/components/quick_launch/public/mojom",
 
   # chrome only needs switches from cc. All usage of the compositor is from
   # content. Definitely don't include generic stuff from cc/base here, if this
@@ -107,8 +113,6 @@ include_rules = [
   # Should be removed once the actual network service ships.
   "+content/public/network",
 
-  "+mash/quick_launch/public/interfaces",
-
   # Other libraries.
   "+libxml",
   "+third_party/google_toolbox_for_mac/src",
@@ -124,10 +128,12 @@ include_rules = [
   "+third_party/sqlite",
   "+third_party/zlib",
 
-  # No inclusion of WebKit from the browser, other than strictly enum/POD,
+  # No inclusion of WebKit from the browser, other than the ones in
+  # WebKit/public/{mojom,common}, or the ones that are strictly enum/POD,
   # header-only types, and some selected common code.
   "-third_party/WebKit",
-  "+third_party/WebKit/common/feature_policy/feature_policy_feature.h",
+  "+third_party/WebKit/public/common",
+  "+third_party/WebKit/public/mojom",
   "+third_party/WebKit/public/platform/WebCache.h",
   "+third_party/WebKit/public/platform/WebDisplayMode.h",
   "+third_party/WebKit/public/platform/WebLoadingBehaviorFlag.h",
@@ -149,11 +155,6 @@ include_rules = [
   "+third_party/WebKit/public/web/WebPresentationReceiverFlags.h",
   "+third_party/WebKit/public/web/WebTextDirection.h",
   "+third_party/WebKit/public/web/WebTriggeringEventInfo.h",
-
-  # Unlike other WebKit directories WebKit/common is for the files that
-  # are commonly referenced by renderer-side and browser-side code, and
-  # does not use Blink types like WTF.
-  "+third_party/WebKit/common",
 
   # Allow mojo generated files in WebKit. These files use STL types and
   # don't use WTF types.
@@ -200,9 +201,6 @@ specific_include_rules = {
   "fullscreen_chromeos\.cc": [
     "+ash/root_window_controller.h",
     "+ash/shell.h",
-  ],
-  "mash_service_registry.cc": [
-    "+mash/quick_launch/quick_launch.h",
   ],
   "display_info_provider_chromeos_unittest.cc": [
     "+ui/events/devices/touch_device_transform.h"

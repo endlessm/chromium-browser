@@ -41,7 +41,6 @@
 #include "ui/display/screen.h"
 #include "ui/display/test/display_manager_test_api.h"
 #include "ui/gfx/geometry/vector3d_f.h"
-#include "ui/message_center/message_center.h"
 
 using ash::ResolutionNotificationController;
 
@@ -209,7 +208,7 @@ class DisplayPrefsTest : public ash::AshTestBase {
     return ash::Shell::Get()
         ->display_manager()
         ->GetDisplayInfo(display::Display::InternalDisplayId())
-        .GetRotation(display::Display::ROTATION_SOURCE_ACCELEROMETER);
+        .GetRotation(display::Display::RotationSource::ACCELEROMETER);
   }
 
   void StoreExternalDisplayMirrorInfo(
@@ -322,7 +321,7 @@ TEST_F(DisplayPrefsTest, BasicStores) {
 
   window_tree_host_manager->SetOverscanInsets(id1, gfx::Insets(10, 11, 12, 13));
   display_manager()->SetDisplayRotation(id1, display::Display::ROTATE_90,
-                                        display::Display::ROTATION_SOURCE_USER);
+                                        display::Display::RotationSource::USER);
   EXPECT_TRUE(display::test::DisplayManagerTestApi(display_manager())
                   .SetDisplayUIScale(id1, 1.25f));
   EXPECT_FALSE(display::test::DisplayManagerTestApi(display_manager())
@@ -611,16 +610,11 @@ TEST_F(DisplayPrefsTest, PreventStore) {
   EXPECT_FALSE(property->GetInteger("width", &width));
   EXPECT_FALSE(property->GetInteger("height", &height));
 
-  // Revert the change. When timeout, 2nd button is revert.
-  message_center::MessageCenter::Get()->ClickOnNotificationButton(
-      ResolutionNotificationController::kNotificationId, 1);
+  // Revert the change.
+  shell->resolution_notification_controller()->RevertResolutionChange(false);
   RunAllPendingInMessageLoop();
-  EXPECT_FALSE(
-      message_center::MessageCenter::Get()->FindVisibleNotificationById(
-          ResolutionNotificationController::kNotificationId));
 
-  // Once the notification is removed, the specified resolution will be stored
-  // by SetDisplayMode.
+  // The specified resolution will be stored by SetDisplayMode.
   ash::Shell::Get()->display_manager()->SetDisplayMode(
       id, display::ManagedDisplayMode(gfx::Size(300, 200), 60.0f, false, true));
   UpdateDisplay("300x200#500x400|400x300|300x200");
@@ -723,7 +717,7 @@ TEST_F(DisplayPrefsTest, DontStoreInGuestMode) {
                                               gfx::Insets(10, 11, 12, 13));
   display_manager()->SetDisplayRotation(new_primary,
                                         display::Display::ROTATE_90,
-                                        display::Display::ROTATION_SOURCE_USER);
+                                        display::Display::RotationSource::USER);
 
   // Does not store the preferences locally.
   EXPECT_FALSE(local_state()
@@ -819,11 +813,11 @@ TEST_F(DisplayPrefsTest, DontSaveTabletModeControllerRotations) {
   // Populate the properties.
   display_manager()->SetDisplayRotation(display::Display::InternalDisplayId(),
                                         display::Display::ROTATE_180,
-                                        display::Display::ROTATION_SOURCE_USER);
+                                        display::Display::RotationSource::USER);
   // Reset property to avoid rotation lock
   display_manager()->SetDisplayRotation(display::Display::InternalDisplayId(),
                                         display::Display::ROTATE_0,
-                                        display::Display::ROTATION_SOURCE_USER);
+                                        display::Display::RotationSource::USER);
 
   // Open up 270 degrees to trigger tablet mode
   scoped_refptr<chromeos::AccelerometerUpdate> update(

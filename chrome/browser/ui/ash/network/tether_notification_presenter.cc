@@ -4,25 +4,25 @@
 
 #include "chrome/browser/ui/ash/network/tether_notification_presenter.h"
 
+#include "ash/public/cpp/vector_icons/vector_icons.h"
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/notifications/notification_display_service.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
+#include "chromeos/network/network_connect.h"
 #include "components/proximity_auth/logging/logging.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_skia_operations.h"
-#include "ui/gfx/paint_vector_icon.h"
-#include "ui/gfx/vector_icon_types.h"
-#include "ui/message_center/notification.h"
-#include "ui/message_center/notification_types.h"
-#include "ui/message_center/notifier_id.h"
+#include "ui/message_center/public/cpp/notification.h"
+#include "ui/message_center/public/cpp/notification_types.h"
+#include "ui/message_center/public/cpp/notifier_id.h"
 
 namespace chromeos {
 
@@ -221,7 +221,7 @@ void TetherNotificationPresenter::NotifyConnectionToHostFailed() {
       new message_center::HandleNotificationClickDelegate(base::BindRepeating(
           &TetherNotificationPresenter::OnNotificationClicked,
           weak_ptr_factory_.GetWeakPtr(), id)),
-      kNotificationCellularAlertIcon,
+      ash::kNotificationCellularAlertIcon,
       message_center::SystemNotificationWarningLevel::WARNING));
 }
 
@@ -236,6 +236,10 @@ void TetherNotificationPresenter::OnNotificationClicked(
     DCHECK_EQ(kPotentialHotspotNotificationId, notification_id);
     DCHECK_EQ(0, *button_index);
     DCHECK(hotspot_nearby_device_id_);
+    UMA_HISTOGRAM_ENUMERATION(
+        "InstantTethering.NotificationInteractionType",
+        TetherNotificationPresenter::NOTIFICATION_BUTTON_TAPPED_HOST_NEARBY,
+        TetherNotificationPresenter::NOTIFICATION_INTERACTION_TYPE_MAX);
     PA_LOG(INFO) << "\"Potential hotspot nearby\" notification button was "
                  << "clicked.";
     network_connect_->ConnectToNetworkId(*hotspot_nearby_device_id_);
@@ -243,7 +247,36 @@ void TetherNotificationPresenter::OnNotificationClicked(
     return;
   }
 
+  UMA_HISTOGRAM_ENUMERATION(
+      "InstantTethering.NotificationInteractionType",
+      GetMetricValueForClickOnNotificationBody(notification_id),
+      TetherNotificationPresenter::NOTIFICATION_INTERACTION_TYPE_MAX);
+
   OpenSettingsAndRemoveNotification(kTetherSettingsSubpage, notification_id);
+}
+
+TetherNotificationPresenter::NotificationInteractionType
+TetherNotificationPresenter::GetMetricValueForClickOnNotificationBody(
+    const std::string& clicked_notification_id) const {
+  if (clicked_notification_id == kPotentialHotspotNotificationId &&
+      hotspot_nearby_device_id_.get()) {
+    return TetherNotificationPresenter::
+        NOTIFICATION_BODY_TAPPED_SINGLE_HOST_NEARBY;
+  }
+  if (clicked_notification_id == kPotentialHotspotNotificationId &&
+      !hotspot_nearby_device_id_.get()) {
+    return TetherNotificationPresenter::
+        NOTIFICATION_BODY_TAPPED_MULTIPLE_HOSTS_NEARBY;
+  }
+  if (clicked_notification_id == kSetupRequiredNotificationId) {
+    return TetherNotificationPresenter::NOTIFICATION_BODY_TAPPED_SETUP_REQUIRED;
+  }
+  if (clicked_notification_id == kActiveHostNotificationId) {
+    return TetherNotificationPresenter::
+        NOTIFICATION_BODY_TAPPED_CONNECTION_FAILED;
+  }
+  NOTREACHED();
+  return TetherNotificationPresenter::NOTIFICATION_INTERACTION_TYPE_MAX;
 }
 
 void TetherNotificationPresenter::OnNotificationClosed(

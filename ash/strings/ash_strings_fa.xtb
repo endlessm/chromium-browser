@@ -23,8 +23,10 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" /> (HDMI/DP)</translation>
 <translation id="1510238584712386396">راه‌انداز</translation>
 <translation id="1525508553941733066">رد کردن</translation>
+<translation id="1537254971476575106">ذره‌بین تمام‌صفحه</translation>
 <translation id="15373452373711364">نشانگر موشواره بزرگ</translation>
 <translation id="1550523713251050646">برای گزینه‌های بیشتر کلیک کنید</translation>
+<translation id="1608626060424371292">حذف این کاربر</translation>
 <translation id="1621499497873603021">زمان باقیمانده تا خالی‌شدن شارژ باتری، <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">متأسفیم، گذرواژه‌تان هنوز تأیید نشده است. توجه: اگر به‌تازگی گذرواژه‌تان را تغییر داده‌اید، گذرواژه جدید شما هنگامی‌که از سیستم خارج شوید، اعمال می‌شود؛ لطفاً اینجا از گذرواژه قدیمی خود استفاده کنید.</translation>
 <translation id="1677472565718498478"><ph name="TIME" /> باقی‌مانده</translation>
@@ -43,12 +45,15 @@
 <translation id="1951012854035635156">دستیار</translation>
 <translation id="1957803754585243749">۰ درجه</translation>
 <translation id="1969011864782743497">‏<ph name="DEVICE_NAME" /> (‏USB)</translation>
+<translation id="1995660704900986789">خاموش کردن</translation>
 <translation id="2012624427112548395">Ctrl+Search+H</translation>
 <translation id="2049639323467105390">این دستگاه توسط <ph name="DOMAIN" /> مدیریت می‌شود.</translation>
 <translation id="2050339315714019657">عمودی</translation>
 <translation id="2067602449040652523">روشنایی صفحه‌کلید</translation>
+<translation id="2081529251031312395">$1 همچنان می‌تواند بعداً به سیستم وارد شود.</translation>
 <translation id="2122028596993374965">شروع ارسال محتوای <ph name="TAB_NAME" /> به <ph name="RECEIVER_NAME" /></translation>
 <translation id="2127372758936585790">شارژر برق ضعیف</translation>
+<translation id="2135456203358955318">ذره‌بین متصل</translation>
 <translation id="2144487987174258011">‏برای به‌روزرسانی Adobe Flash Player، راه‌اندازی مجدد کنید</translation>
 <translation id="2208323208084708176">حالت میزکار یکپارچه</translation>
 <translation id="2220572644011485463">پین یا گذرواژه</translation>
@@ -73,7 +78,6 @@
 <translation id="2653659639078652383">ارائه</translation>
 <translation id="2675319268637823299">یکی از سرپرست‌ها ورود چندگانه به سیستم را برای <ph name="USER_EMAIL" /> غیرمجاز کرده است.
     برای ادامه دادن، همه کاربران باید از سیستم خارج شوند.</translation>
-<translation id="2700058918926273959">جلسه در <ph name="SESSION_TIME_REMAINING" /> به پایان می‌رسد. از سیستم خارج خواهید شد.</translation>
 <translation id="2727977024730340865">باتری به شارژر برق ضعیف متصل است. شارژ باتری ممکن است قابل اطمینان نباشد.</translation>
 <translation id="2761704814324807722">سینی وضعیت، زمان <ph name="TIME" />، ‏<ph name="BATTERY" /></translation>
 <translation id="277257480934873581">اتصال مجدد به <ph name="NAME" /></translation>
@@ -83,6 +87,7 @@
 <translation id="2844169650293029770">‏دستگاه USB-C (درگاه جلوی سمت چپ)</translation>
 <translation id="2865888419503095837">اطلاعات شبکه</translation>
 <translation id="2872961005593481000">خاموش کردن</translation>
+<translation id="2878884018241093801">بدون موارد اخیر</translation>
 <translation id="2903844815300039659">متصل به <ph name="NAME" /> با <ph name="STRENGTH" /></translation>
 <translation id="2911940648265863620">شما در حال هم‌رسانی صفحه‌تان هستید</translation>
 <translation id="2942516765047364088">موقعیت قفسه</translation>
@@ -109,7 +114,6 @@
 <translation id="3413817803639110246">هنوز چیزی برای دیدن وجود ندارد</translation>
 <translation id="3445925074670675829">‏دستگاه USB-C</translation>
 <translation id="3465566417615315331">روی عکستان کلیک کنید</translation>
-<translation id="3473479545200714844">ذره‌بین صفحه</translation>
 <translation id="3477079411857374384">Control-Shift-Space</translation>
 <translation id="3510164367642747937">برجسته کردن نشانگر موشواره</translation>
 <translation id="3513798432020909783">حساب تحت مدیریت <ph name="MANAGER_EMAIL" /> است</translation>
@@ -131,6 +135,7 @@
 <translation id="3891340733213178823">‏برای خروج از سیستم Ctrl+Shift+Q را دو بار فشار دهید.</translation>
 <translation id="3893630138897523026">‏ChromeVox (بازخورد گفتاری)</translation>
 <translation id="3899995891769452915">ورودی گفتاری</translation>
+<translation id="3900355044994618856">جلسه‌تان <ph name="SESSION_TIME_REMAINING" /> دیگر به پایان می‌رسد</translation>
 <translation id="3901991538546252627">در حال اتصال به <ph name="NAME" /></translation>
 <translation id="394485226368336402">تنظیمات صوتی</translation>
 <translation id="397105322502079400">در حال محاسبه…</translation>
@@ -139,6 +144,8 @@
 <translation id="4072264167173457037">سیگنال متوسط</translation>
 <translation id="4279490309300973883">بازتاب می‌شود</translation>
 <translation id="4321179778687042513">مهار</translation>
+<translation id="4331809312908958774">Chrome OS
+</translation>
 <translation id="4338109981321384717">ذره‌بین</translation>
 <translation id="4351433414020964307">دستیار درحال بار کردن است...</translation>
 <translation id="4378551569595875038">در حال اتصال...</translation>
@@ -183,6 +190,7 @@
 <translation id="5744083938413354016">کشیدن با ضربه زدن</translation>
 <translation id="5777841717266010279">اشتراک‌گذاری صفحه نمایش متوقف شود؟</translation>
 <translation id="57838592816432529">بی‌صدا کردن</translation>
+<translation id="5820394555380036790">‏سیستم عامل Chromium </translation>
 <translation id="5832805196449965646">افزودن شخص</translation>
 <translation id="5860033963881614850">خاموش</translation>
 <translation id="5895138241574237353">راه‌اندازی مجدد</translation>
@@ -206,6 +214,7 @@
 <translation id="607652042414456612">رایانه شما توسط دستگاه‌های بلوتوث نزدیک قابل شناسایی است و با نام «<ph name="NAME" />» و آدرس <ph name="ADDRESS" /> نشان داده می‌شود</translation>
 <translation id="6106745654298855237">در حال شارژ کردن <ph name="POWER_SOURCE" /></translation>
 <translation id="615957422585914272">نمایش صفحه‌کلید روی صفحه</translation>
+<translation id="6164005077879661055">با حذف این کاربر نظارت‌شده، کلیه فایل‌ها و داده‌های محلی مربوط به کاربر نظارت‌شده برای همیشه حذف خواهند شد. وب‌سایت‌های بازدید شده و تنظیمات این کاربر نظارت‌شده همچنان برای مدیر در <ph name="MANAGEMENT_URL" /> قابل مشاهده خواهد بود.</translation>
 <translation id="6165508094623778733">بیشتر بدانید</translation>
 <translation id="6267036997247669271"><ph name="NAME" />: در حال فعال‌سازی…</translation>
 <translation id="6284232397434400372">وضوح تغییر کرد</translation>
@@ -240,6 +249,7 @@
 <translation id="6857811139397017780">فعال سازی <ph name="NETWORKSERVICE" /></translation>
 <translation id="6911468394164995108">پیوستن به شبکه دیگر…</translation>
 <translation id="6981982820502123353">قابلیت دسترسی</translation>
+<translation id="698231206551913481">اگر کاربر حذف شود، همه فایل‌ها و داده‌های محلی مربوط به او به‌طور دائم حذف خواهند شد.</translation>
 <translation id="7029814467594812963">خروج از جلسه</translation>
 <translation id="7034339000180558234">ارسال محتوای <ph name="TAB_NAME" /> به <ph name="RECEIVER_NAME" /></translation>
 <translation id="7052914147756339792">تنظیم کاغذدیواری...</translation>
@@ -247,6 +257,7 @@
 <translation id="7066646422045619941">این شبکه توسط سرپرست شما غیرفعال شده است.</translation>
 <translation id="7067196344162293536">چرخش خودکار</translation>
 <translation id="7098389117866926363">‏دستگاه USB-C (درگاه عقب سمت چپ)</translation>
+<translation id="7131634465328662194">به‌طور خودکار از سیستم خارج خواهید شد.</translation>
 <translation id="7165278925115064263">Alt+Shift+K</translation>
 <translation id="7168224885072002358">برگرداندن به وضوح قدیمی در <ph name="TIMEOUT_SECONDS" /></translation>
 <translation id="7256634071279256947">میکروفون پشت</translation>
@@ -303,6 +314,7 @@
 <translation id="8484916590211895857"><ph name="NAME" />: درحال اتصال مجدد...</translation>
 <translation id="8517041960877371778">ممکن است وقتی <ph name="DEVICE_TYPE" /> شما خاموش است، شارژ نشود.</translation>
 <translation id="8639760480004882931"><ph name="PERCENTAGE" /> باقی‌مانده</translation>
+<translation id="8649101189709089199">انتخاب کنید تا بتوانید صحبت کنید</translation>
 <translation id="8652175077544655965">بستن تنظیمات</translation>
 <translation id="8673028979667498656">‎۲۷۰°‎</translation>
 <translation id="8676770494376880701">شارژر برق متصل شده ضعیف است</translation>
@@ -312,6 +324,7 @@
 اعلان‌ها، پنجره‌ها و کادرهای گفتگوی بعدی ممکن است بین میزکارها تقسیم شوند.</translation>
 <translation id="8825534185036233643">«نمایش صفحه‌نمایش روی دستگاه دیگر» با بیش از دو نمایشگر پشتیبانی نمی‌شود.</translation>
 <translation id="8828714802988429505">۹۰°</translation>
+<translation id="8841375032071747811">دکمه برگشت</translation>
 <translation id="8850991929411075241">Search+Esc</translation>
 <translation id="8870509716567206129">برنامه از تقسیم صفحه پشتیبانی نمی‌کند.</translation>
 <translation id="8878886163241303700">صفحه گسترش یافته است</translation>

@@ -89,8 +89,6 @@ namespace blink {
 const WrapperTypeInfo V8TestObject::wrapperTypeInfo = {
     gin::kEmbedderBlink,
     V8TestObject::domTemplate,
-    V8TestObject::Trace,
-    V8TestObject::TraceWrappers,
     V8TestObject::InstallConditionalFeatures,
     "TestObject",
     nullptr,
@@ -1563,6 +1561,7 @@ static void testEnumOrNullAttributeAttributeSetter(v8::Local<v8::Value> v8Value,
   // Returns undefined without setting the value if the value is invalid.
   DummyExceptionStateForTesting dummyExceptionState;
   const char* validValues[] = {
+      nullptr,
       "",
       "EnumValue1",
       "EnumValue2",
@@ -5282,7 +5281,7 @@ static void voidMethodNullableSequenceLongArgMethod(const v8::FunctionCallbackIn
     return;
   }
 
-  Nullable<Vector<int32_t>> longSequenceArg;
+  Optional<Vector<int32_t>> longSequenceArg;
   if (!info[0]->IsNullOrUndefined()) {
     longSequenceArg = NativeValueTraits<IDLSequence<IDLLong>>::NativeValue(info.GetIsolate(), info[0], exceptionState);
     if (exceptionState.HadException())
@@ -5337,11 +5336,11 @@ static void voidMethodTestInterfaceEmptyFrozenArrayMethodMethod(const v8::Functi
 static void nullableLongMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
-  Nullable<int32_t> result = impl->nullableLongMethod();
-  if (result.IsNull())
+  Optional<int32_t> result = impl->nullableLongMethod();
+  if (!result)
     V8SetReturnValueNull(info);
   else
-    V8SetReturnValueInt(info, result.Get());
+    V8SetReturnValueInt(info, result.value());
 }
 
 static void nullableStringMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
@@ -5359,11 +5358,11 @@ static void nullableTestInterfaceMethodMethod(const v8::FunctionCallbackInfo<v8:
 static void nullableLongSequenceMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
-  Nullable<Vector<int32_t>> result = impl->nullableLongSequenceMethod();
-  if (result.IsNull())
+  Optional<Vector<int32_t>> result = impl->nullableLongSequenceMethod();
+  if (!result)
     V8SetReturnValueNull(info);
   else
-    V8SetReturnValue(info, ToV8(result.Get(), info.Holder(), info.GetIsolate()));
+    V8SetReturnValue(info, ToV8(result.value(), info.Holder(), info.GetIsolate()));
 }
 
 static void testInterfaceGarbageCollectedOrDOMStringMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
@@ -5718,12 +5717,12 @@ static void testDictionaryMethodMethod(const v8::FunctionCallbackInfo<v8::Value>
 static void nullableTestDictionaryMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
-  Nullable<TestDictionary> result;
+  Optional<TestDictionary> result;
   impl->nullableTestDictionaryMethod(result);
-  if (result.IsNull())
+  if (!result)
     V8SetReturnValueNull(info);
   else
-    V8SetReturnValue(info, result.Get());
+    V8SetReturnValue(info, result.value());
 }
 
 static void staticTestDictionaryMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
@@ -5733,12 +5732,12 @@ static void staticTestDictionaryMethodMethod(const v8::FunctionCallbackInfo<v8::
 }
 
 static void staticNullableTestDictionaryMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
-  Nullable<TestDictionary> result;
+  Optional<TestDictionary> result;
   TestObject::staticNullableTestDictionaryMethod(result);
-  if (result.IsNull())
+  if (!result)
     V8SetReturnValueNull(info);
   else
-    V8SetReturnValue(info, result.Get(), info.GetIsolate()->GetCurrentContext()->Global());
+    V8SetReturnValue(info, result.value(), info.GetIsolate()->GetCurrentContext()->Global());
 }
 
 static void passPermissiveDictionaryMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
@@ -5974,6 +5973,39 @@ static void voidMethodStringArgLongArgMethod(const v8::FunctionCallbackInfo<v8::
     return;
 
   impl->voidMethodStringArgLongArg(stringArg, longArg);
+}
+
+static void voidMethodByteStringOrNullOptionalUSVStringArgMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "voidMethodByteStringOrNullOptionalUSVStringArg");
+
+  TestObject* impl = V8TestObject::ToImpl(info.Holder());
+
+  if (UNLIKELY(info.Length() < 1)) {
+    exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(1, info.Length()));
+    return;
+  }
+
+  V8StringResource<kTreatNullAndUndefinedAsNullString> byteStringArg;
+  V8StringResource<> usvStringArg;
+  int numArgsPassed = info.Length();
+  while (numArgsPassed > 0) {
+    if (!info[numArgsPassed - 1]->IsUndefined())
+      break;
+    --numArgsPassed;
+  }
+  byteStringArg = NativeValueTraits<IDLByteStringBase<kTreatNullAndUndefinedAsNullString>>::NativeValue(info.GetIsolate(), info[0], exceptionState);
+  if (exceptionState.HadException())
+    return;
+
+  if (UNLIKELY(numArgsPassed <= 1)) {
+    impl->voidMethodByteStringOrNullOptionalUSVStringArg(byteStringArg);
+    return;
+  }
+  usvStringArg = NativeValueTraits<IDLUSVString>::NativeValue(info.GetIsolate(), info[1], exceptionState);
+  if (exceptionState.HadException())
+    return;
+
+  impl->voidMethodByteStringOrNullOptionalUSVStringArg(byteStringArg, usvStringArg);
 }
 
 static void voidMethodOptionalStringArgMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
@@ -6397,7 +6429,7 @@ static void voidMethodDefaultNullableByteStringArgMethod(const v8::FunctionCallb
 
   V8StringResource<kTreatNullAndUndefinedAsNullString> defaultStringArg;
   if (!info[0]->IsUndefined()) {
-    defaultStringArg = NativeValueTraits<IDLByteString>::NativeValue(info.GetIsolate(), info[0], exceptionState);
+    defaultStringArg = NativeValueTraits<IDLByteStringBase<kTreatNullAndUndefinedAsNullString>>::NativeValue(info.GetIsolate(), info[0], exceptionState);
     if (exceptionState.HadException())
       return;
   } else {
@@ -12257,6 +12289,12 @@ void V8TestObject::voidMethodStringArgLongArgMethodCallback(const v8::FunctionCa
   TestObjectV8Internal::voidMethodStringArgLongArgMethod(info);
 }
 
+void V8TestObject::voidMethodByteStringOrNullOptionalUSVStringArgMethodCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  RUNTIME_CALL_TIMER_SCOPE_DISABLED_BY_DEFAULT(info.GetIsolate(), "Blink_TestObject_voidMethodByteStringOrNullOptionalUSVStringArg");
+
+  TestObjectV8Internal::voidMethodByteStringOrNullOptionalUSVStringArgMethod(info);
+}
+
 void V8TestObject::voidMethodOptionalStringArgMethodCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
   RUNTIME_CALL_TIMER_SCOPE_DISABLED_BY_DEFAULT(info.GetIsolate(), "Blink_TestObject_voidMethodOptionalStringArg");
 
@@ -13581,6 +13619,7 @@ static const V8DOMConfiguration::MethodConfiguration V8TestObjectMethods[] = {
     {"voidMethodXPathNSResolverArg", V8TestObject::voidMethodXPathNSResolverArgMethodCallback, 1, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
     {"voidMethodDictionarySequenceArg", V8TestObject::voidMethodDictionarySequenceArgMethodCallback, 1, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
     {"voidMethodStringArgLongArg", V8TestObject::voidMethodStringArgLongArgMethodCallback, 2, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
+    {"voidMethodByteStringOrNullOptionalUSVStringArg", V8TestObject::voidMethodByteStringOrNullOptionalUSVStringArgMethodCallback, 1, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
     {"voidMethodOptionalStringArg", V8TestObject::voidMethodOptionalStringArgMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
     {"voidMethodOptionalTestInterfaceEmptyArg", V8TestObject::voidMethodOptionalTestInterfaceEmptyArgMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
     {"voidMethodOptionalLongArg", V8TestObject::voidMethodOptionalLongArgMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},

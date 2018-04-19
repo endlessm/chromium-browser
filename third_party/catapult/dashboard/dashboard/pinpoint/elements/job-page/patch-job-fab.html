@@ -15,11 +15,17 @@ found in the LICENSE file.
 
 <link rel="import" href="/elements/base-style.html">
 
+
 <dom-module id="patch-job-fab">
   <template>
     <style include="base-style">
       paper-input {
         min-width: 40em;
+      }
+
+      paper-fab {
+        color: var(--paper-grey-700);
+        --paper-fab-background: white;
       }
 
       .error {
@@ -28,7 +34,7 @@ found in the LICENSE file.
     </style>
 
     <app-location route="{{route}}"></app-location>
-    <paper-fab id="try-fab" icon="forward" on-tap="openDialog"></paper-fab>
+    <paper-fab mini id="try-fab" icon="forward" on-tap="openDialog"></paper-fab>
     <paper-tooltip for="try-fab" position="left">Test a patch</paper-tooltip>
     <paper-dialog id="try_dialog" entry-animation="fade-in-animation" exit-animation="fade-out-animation">
       <h2>Test a patch with this configuration</h2>

@@ -62,6 +62,10 @@ USER_BASELINE_JETSTREAM = dict((e.user, e) for e in (
     UserEntry(user='ap-monitor', uid=1102, gid=1103),
 ))
 
+USER_BASELINE_TERMINA = dict((e.user, e) for e in (
+    UserEntry(user='lxd', uid=298, gid=298),
+))
+
 USER_BOARD_BASELINES = {
     'lakitu': USER_BASELINE_LAKITU,
     'lakitu-gpu': USER_BASELINE_LAKITU,
@@ -72,6 +76,8 @@ USER_BOARD_BASELINES = {
     'gale': USER_BASELINE_JETSTREAM,
     'storm': USER_BASELINE_JETSTREAM,
     'whirlwind': USER_BASELINE_JETSTREAM,
+    'tael': USER_BASELINE_TERMINA,
+    'tatl': USER_BASELINE_TERMINA,
 }
 
 GROUP_BASELINE = dict((e.group, e) for e in (
@@ -90,11 +96,11 @@ GROUP_BASELINE = dict((e.group, e) for e in (
     GroupEntry(group='uucp', gid=14, users={'uucp', 'gpsd'}),
     GroupEntry(group='console', gid=17),
     GroupEntry(group='audio', gid=18, users={'cras', 'chronos', 'volume',
-                                             'midis'}),
+                                             'midis', 'rtanalytics'}),
     GroupEntry(group='cdrom', gid=19, users={'cros-disks'}),
     GroupEntry(group='tape', gid=26, users={'root'}),
     GroupEntry(group='cdrw', gid=80, users={'cros-disks'}),
-    GroupEntry(group='usb', gid=85, users={'mtp', 'brltty', 'dlm'}),
+    GroupEntry(group='usb', gid=85, users={'mtp', 'brltty', 'dlm', 'modem'}),
     GroupEntry(group='users', gid=100),
     GroupEntry(group='portage', gid=250, users={'portage'}),
     GroupEntry(group='utmp', gid=406),
@@ -110,7 +116,7 @@ GROUP_BASELINE = dict((e.group, e) for e in (
                                                'chaps', 'wpa', 'attestation'}),
     GroupEntry(group='wpa', gid=219, users={'root'}),
     GroupEntry(group='cras', gid=600, users={'chronos', 'power'}),
-    GroupEntry(group='wayland', gid=601, users={'chronos'}),
+    GroupEntry(group='wayland', gid=601, users={'chronos', 'crosvm'}),
     GroupEntry(group='arc-bridge', gid=602, users={'chronos'}),
     GroupEntry(group='brltty', gid=240, users={'chronos'}),
     GroupEntry(group='preserve', gid=253, users={'root', 'attestation',
@@ -125,8 +131,11 @@ GROUP_BASELINE = dict((e.group, e) for e in (
     GroupEntry(group='buffet', gid=264, users={'chronos', 'buffet', 'power'}),
     GroupEntry(group='webservd', gid=266, users={'buffet', 'webservd'}),
     GroupEntry(group='lpadmin', gid=269, users={'cups', 'lpadmin'}),
+    GroupEntry(group='policy-readers', gid=303, users={'authpolicyd', 'chronos',
+                                                       'u2f'}),
     GroupEntry(group='arc-camera', gid=603, users={'chronos'}),
-    GroupEntry(group='daemon-store', gid=400, users={'chaps', 'biod'}),
+    GroupEntry(group='daemon-store', gid=400, users={'biod', 'chaps',
+                                                     'crosvm'}),
     GroupEntry(group='logs-access', gid=401, users={'debugd-logs'}),
     GroupEntry(group='serial', gid=402, users={'uucp'}),
     GroupEntry(group='devbroker-access', gid=403, users={'chronos'}),
@@ -137,6 +146,10 @@ GROUP_BASELINE = dict((e.group, e) for e in (
     GroupEntry(group='avfs', gid=301, users={'cros-disks'}),
     GroupEntry(group='cfm-peripherals', gid=20103,
                users={'cfm-monitor', 'cfm-firmware-updaters'}),
+    GroupEntry(group='ippusb', gid=20100, users={'ippusb', 'lp', 'lpadmin',
+                                                 'cups'}),
+    GroupEntry(group='tun', gid=413, users={'crosvm', 'shill'}),
+    GroupEntry(group='gpio', gid=414, users={'modem'}),
 ))
 
 GROUP_BASELINE_FREON = dict((e.group, e) for e in (
@@ -179,6 +192,10 @@ GROUP_BASELINE_RIALTO = dict((e.group, e) for e in (
     GroupEntry(group='rialtod', gid=400, users={'rialto'}),
 ))
 
+GROUP_BASELINE_TERMINA = dict((e.group, e) for e in (
+    GroupEntry(group='lxd', gid=298, users={'lxd', 'chronos'}),
+))
+
 GROUP_BOARD_BASELINES = {
     'lakitu': GROUP_BASELINE_LAKITU,
     'lakitu-gpu': GROUP_BASELINE_LAKITU,
@@ -190,4 +207,6 @@ GROUP_BOARD_BASELINES = {
     'storm': GROUP_BASELINE_JETSTREAM,
     'whirlwind': GROUP_BASELINE_JETSTREAM,
     'veyron_rialto': GROUP_BASELINE_RIALTO,
+    'tael': GROUP_BASELINE_TERMINA,
+    'tatl': GROUP_BASELINE_TERMINA,
 }

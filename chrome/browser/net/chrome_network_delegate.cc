@@ -30,7 +30,7 @@
 #include "chrome/browser/net/chrome_extensions_network_delegate.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/task_manager/task_manager_interface.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/pref_names.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/data_usage/core/data_use_aggregator.h"
@@ -526,26 +526,30 @@ bool ChromeNetworkDelegate::OnCancelURLRequestWithPolicyViolatingReferrerHeader(
 bool ChromeNetworkDelegate::OnCanQueueReportingReport(
     const url::Origin& origin) const {
   if (!cookie_settings_)
-    return true;
+    return false;
 
   return cookie_settings_->IsCookieAccessAllowed(origin.GetURL(),
                                                  origin.GetURL());
 }
 
-bool ChromeNetworkDelegate::OnCanSendReportingReport(
-    const url::Origin& origin) const {
-  if (!cookie_settings_)
-    return true;
+void ChromeNetworkDelegate::OnCanSendReportingReports(
+    std::set<url::Origin> origins,
+    base::OnceCallback<void(std::set<url::Origin>)> result_callback) const {
+  if (!reporting_permissions_checker_) {
+    origins.clear();
+    std::move(result_callback).Run(std::move(origins));
+    return;
+  }
 
-  return cookie_settings_->IsCookieAccessAllowed(origin.GetURL(),
-                                                 origin.GetURL());
+  reporting_permissions_checker_->FilterReportingOrigins(
+      std::move(origins), std::move(result_callback));
 }
 
 bool ChromeNetworkDelegate::OnCanSetReportingClient(
     const url::Origin& origin,
     const GURL& endpoint) const {
   if (!cookie_settings_)
-    return true;
+    return false;
 
   return cookie_settings_->IsCookieAccessAllowed(endpoint, origin.GetURL());
 }
@@ -554,7 +558,7 @@ bool ChromeNetworkDelegate::OnCanUseReportingClient(
     const url::Origin& origin,
     const GURL& endpoint) const {
   if (!cookie_settings_)
-    return true;
+    return false;
 
   return cookie_settings_->IsCookieAccessAllowed(endpoint, origin.GetURL());
 }

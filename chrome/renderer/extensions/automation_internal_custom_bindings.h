@@ -37,8 +37,10 @@ class AutomationInternalCustomBindings : public ObjectBackedNativeHandler {
  public:
   AutomationInternalCustomBindings(ScriptContext* context,
                                    ExtensionBindingsSystem* bindings_system);
-
   ~AutomationInternalCustomBindings() override;
+
+  // ObjectBackedNativeHandler:
+  void AddRoutes() override;
 
   void OnMessageReceived(const IPC::Message& message);
 
@@ -121,6 +123,7 @@ class AutomationInternalCustomBindings : public ObjectBackedNativeHandler {
       const std::string& name,
       void (*callback)(v8::Isolate* isolate,
                        v8::ReturnValue<v8::Value> result,
+                       ui::AXTree* tree,
                        ui::AXNode* node,
                        const std::string& attribute_name));
   void RouteNodeIDPlusRangeFunction(

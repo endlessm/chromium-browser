@@ -124,6 +124,14 @@ std::string RoleToString(blink::WebAXRole role) {
       return result.append("InputTime");
     case blink::kWebAXRoleLabel:
       return result.append("Label");
+    case blink::kWebAXRoleLayoutTable:
+      return result.append("LayoutTable");
+    case blink::kWebAXRoleLayoutTableCell:
+      return result.append("LayoutTableCell");
+    case blink::kWebAXRoleLayoutTableColumn:
+      return result.append("LayoutTableColumn");
+    case blink::kWebAXRoleLayoutTableRow:
+      return result.append("LayoutTableRow");
     case blink::kWebAXRoleLegend:
       return result.append("Legend");
     case blink::kWebAXRoleLink:
@@ -600,6 +608,7 @@ gin::ObjectTemplateBuilder WebAXObjectProxy::GetObjectTemplateBuilder(
       .SetProperty("isValid", &WebAXObjectProxy::IsValid)
       .SetProperty("isReadOnly", &WebAXObjectProxy::IsReadOnly)
       .SetProperty("restriction", &WebAXObjectProxy::Restriction)
+      .SetProperty("activeDescendant", &WebAXObjectProxy::ActiveDescendant)
       .SetProperty("backgroundColor", &WebAXObjectProxy::BackgroundColor)
       .SetProperty("color", &WebAXObjectProxy::Color)
       .SetProperty("colorValue", &WebAXObjectProxy::ColorValue)
@@ -1028,12 +1037,13 @@ bool WebAXObjectProxy::IsModal() {
 
 bool WebAXObjectProxy::IsSelected() {
   accessibility_object_.UpdateLayoutAndCheckValidity();
-  return accessibility_object_.IsSelected();
+  return accessibility_object_.IsSelected() == blink::kWebAXSelectedStateTrue;
 }
 
 bool WebAXObjectProxy::IsSelectable() {
   accessibility_object_.UpdateLayoutAndCheckValidity();
-  return accessibility_object_.CanSetSelectedAttribute();
+  return accessibility_object_.IsSelected() !=
+         blink::kWebAXSelectedStateUndefined;
 }
 
 bool WebAXObjectProxy::IsMultiLine() {
@@ -1099,6 +1109,12 @@ bool WebAXObjectProxy::IsReadOnly() {
   accessibility_object_.UpdateLayoutAndCheckValidity();
   return accessibility_object_.Restriction() ==
          blink::kWebAXRestrictionReadOnly;
+}
+
+v8::Local<v8::Object> WebAXObjectProxy::ActiveDescendant() {
+  accessibility_object_.UpdateLayoutAndCheckValidity();
+  blink::WebAXObject element = accessibility_object_.AriaActiveDescendant();
+  return factory_->GetOrCreate(element);
 }
 
 unsigned int WebAXObjectProxy::BackgroundColor() {

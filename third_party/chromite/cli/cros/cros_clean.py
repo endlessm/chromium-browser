@@ -72,7 +72,7 @@ class CleanCommand(command.CliCommand):
     group = parser.add_argument_group(
         'Unrecoverable Options (Dangerous)',
         description='Clean out objects that cannot be recovered easily.')
-    parser.add_argument(
+    group.add_argument(
         '--clobber', default=False, action='store_true',
         help='Delete all non-source objects.')
     group.add_argument(
@@ -80,6 +80,9 @@ class CleanCommand(command.CliCommand):
         help='Delete build chroot (affects all boards).')
     group.add_argument(
         '--board', action='append', help='Delete board(s) build root(s).')
+    group.add_argument(
+        '--autotest', default=False, action='store_true',
+        help='Delete build_externals packages.')
 
   def __init__(self, options):
     """Initializes cros clean."""
@@ -97,11 +100,13 @@ class CleanCommand(command.CliCommand):
             self.options.deploy or
             self.options.flash or
             self.options.images or
+            self.options.autotest or
             self.options.incrementals):
       self.options.safe = True
 
     if self.options.clobber:
       self.options.chroot = True
+      self.options.autotest = True
       self.options.safe = True
 
     if self.options.safe:
@@ -128,6 +133,14 @@ class CleanCommand(command.CliCommand):
       else:
         osutils.RmDir(path, ignore_missing=True, sudo=True)
 
+    def CleanNoBindMount(path):
+      # This test is a convenience for developers that bind mount these dirs.
+      if not os.path.ismount(path):
+        Clean(path)
+      else:
+        logging.debug('Ignoring bind mounted dir: %s',
+                      self.options.path)
+
     # Delete this first since many of the caches below live in the chroot.
     if self.options.chroot:
       logging.debug('Remove the chroot.')
@@ -143,12 +156,7 @@ class CleanCommand(command.CliCommand):
 
     if self.options.cache:
       logging.debug('Clean the common cache')
-      # This test is a convenience for developers that bind mount in .cache.
-      if not os.path.ismount(self.options.cache_dir):
-        Clean(self.options.cache_dir)
-      else:
-        logging.debug('Ignoring bind mounted cache dir: %s',
-                      self.options.cache_dir)
+      CleanNoBindMount(self.options.cache_dir)
 
     if self.options.chromite:
       logging.debug('Clean chromite workdirs')
@@ -167,12 +175,8 @@ class CleanCommand(command.CliCommand):
 
     if self.options.images:
       logging.debug('Clean the images cache.')
-      cache_dir = os.path.join(constants.SOURCE_ROOT, 'build')
-      # This test is a convenience for developers that bind mount.
-      if not os.path.ismount(cache_dir):
-        Clean(cache_dir)
-      else:
-        logging.debug('Ignoring bind mounted cache dir: %s', cache_dir)
+      cache_dir = os.path.join(constants.SOURCE_ROOT, 'src', 'build')
+      CleanNoBindMount(cache_dir)
 
     if self.options.incrementals:
       logging.debug('Clean package incremental objects')
@@ -195,3 +199,10 @@ class CleanCommand(command.CliCommand):
       for d in glob.glob(os.path.join(chroot_dir, 'build', '*', 'tmp',
                                       'portage')):
         Clean(d)
+
+    if self.options.autotest:
+      logging.debug('Clean build_externals')
+      packages_dir = os.path.join(
+          constants.SOURCE_ROOT, 'src', 'third_party', 'autotest', 'files',
+          'site-packages')
+      Clean(packages_dir)

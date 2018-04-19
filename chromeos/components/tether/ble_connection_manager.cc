@@ -51,23 +51,6 @@ std::string StateChangeDetailToString(
 const int64_t BleConnectionManager::kAdvertisingTimeoutMillis = 12000;
 const int64_t BleConnectionManager::kFailImmediatelyTimeoutMillis = 0;
 
-// static
-std::string BleConnectionManager::MessageTypeToString(
-    const MessageType& reason) {
-  switch (reason) {
-    case MessageType::TETHER_AVAILABILITY_REQUEST:
-      return "[TetherAvailabilityRequest]";
-    case MessageType::CONNECT_TETHERING_REQUEST:
-      return "[ConnectTetheringRequest]";
-    case MessageType::KEEP_ALIVE_TICKLE:
-      return "[KeepAliveTickle]";
-    case MessageType::DISCONNECT_TETHERING_REQUEST:
-      return "[DisconnectTetheringRequest]";
-    default:
-      return "[invalid MessageType]";
-  }
-}
-
 BleConnectionManager::ConnectionMetadata::ConnectionMetadata(
     const std::string& device_id,
     std::unique_ptr<base::Timer> timer,
@@ -80,18 +63,18 @@ BleConnectionManager::ConnectionMetadata::ConnectionMetadata(
 BleConnectionManager::ConnectionMetadata::~ConnectionMetadata() = default;
 
 void BleConnectionManager::ConnectionMetadata::RegisterConnectionReason(
-    const MessageType& connection_reason) {
+    const ConnectionReason& connection_reason) {
   active_connection_reasons_.insert(connection_reason);
 }
 
 void BleConnectionManager::ConnectionMetadata::UnregisterConnectionReason(
-    const MessageType& connection_reason) {
+    const ConnectionReason& connection_reason) {
   active_connection_reasons_.erase(connection_reason);
 }
 
 ConnectionPriority
 BleConnectionManager::ConnectionMetadata::GetConnectionPriority() {
-  return HighestPriorityForMessageTypes(active_connection_reasons_);
+  return HighestPriorityForConnectionReasons(active_connection_reasons_);
 }
 
 bool BleConnectionManager::ConnectionMetadata::HasReasonForConnection() const {
@@ -162,6 +145,11 @@ int BleConnectionManager::ConnectionMetadata::SendMessage(
     const std::string& payload) {
   DCHECK(GetStatus() == cryptauth::SecureChannel::Status::AUTHENTICATED);
   return secure_channel_->SendMessage(std::string(kTetherFeature), payload);
+}
+
+void BleConnectionManager::ConnectionMetadata::Disconnect() {
+  DCHECK(HasSecureChannel());
+  secure_channel_->Disconnect();
 }
 
 void BleConnectionManager::ConnectionMetadata::OnSecureChannelStatusChanged(
@@ -239,7 +227,7 @@ BleConnectionManager::BleConnectionManager(
       ble_scanner_(ble_scanner),
       ad_hoc_ble_advertisement_(ad_hoc_ble_advertisement),
       timer_factory_(std::make_unique<TimerFactory>()),
-      clock_(std::make_unique<base::DefaultClock>()),
+      clock_(base::DefaultClock::GetInstance()),
       has_registered_observer_(false),
       weak_ptr_factory_(this) {}
 
@@ -251,7 +239,7 @@ BleConnectionManager::~BleConnectionManager() {
 
 void BleConnectionManager::RegisterRemoteDevice(
     const std::string& device_id,
-    const MessageType& connection_reason) {
+    const ConnectionReason& connection_reason) {
   if (!has_registered_observer_) {
     ble_scanner_->AddObserver(this);
   }
@@ -259,7 +247,7 @@ void BleConnectionManager::RegisterRemoteDevice(
 
   PA_LOG(INFO) << "Register - Device ID: \""
                << cryptauth::RemoteDevice::TruncateDeviceIdForLogs(device_id)
-               << "\", Reason: " << MessageTypeToString(connection_reason);
+               << "\", Reason: " << ConnectionReasonToString(connection_reason);
 
   ConnectionMetadata* connection_metadata = GetConnectionMetadata(device_id);
   if (!connection_metadata)
@@ -271,41 +259,40 @@ void BleConnectionManager::RegisterRemoteDevice(
 
 void BleConnectionManager::UnregisterRemoteDevice(
     const std::string& device_id,
-    const MessageType& connection_reason) {
+    const ConnectionReason& connection_reason) {
   ConnectionMetadata* connection_metadata = GetConnectionMetadata(device_id);
   if (!connection_metadata) {
     PA_LOG(WARNING) << "Tried to unregister device, but was not registered - "
                     << "Device ID: \""
                     << cryptauth::RemoteDevice::TruncateDeviceIdForLogs(
                            device_id)
-                    << "\", Reason: " << MessageTypeToString(connection_reason);
+                    << "\", Reason: "
+                    << ConnectionReasonToString(connection_reason);
     return;
   }
 
   PA_LOG(INFO) << "Unregister - Device ID: \""
                << cryptauth::RemoteDevice::TruncateDeviceIdForLogs(device_id)
-               << "\", Reason: " << MessageTypeToString(connection_reason);
+               << "\", Reason: " << ConnectionReasonToString(connection_reason);
 
   connection_metadata->UnregisterConnectionReason(connection_reason);
   if (!connection_metadata->HasReasonForConnection()) {
-    // Use a copy of the device ID. It's possible that the device ID passed to
-    // this function will be destroyed due to fields being manipulated below.
-    const std::string device_id_copy = device_id;
+    if (connection_metadata->HasEstablishedConnection()) {
+      connection_metadata->Disconnect();
+    } else {
+      // |device_id| references memory that will be deleted below; make a copy.
+      const std::string device_id_copy = device_id;
+      cryptauth::SecureChannel::Status status_before_erase =
+          connection_metadata->GetStatus();
+      device_id_to_metadata_map_.erase(device_id_copy);
 
-    cryptauth::SecureChannel::Status status_before_disconnect =
-        connection_metadata->GetStatus();
-    device_id_to_metadata_map_.erase(device_id_copy);
-    if (status_before_disconnect ==
-        cryptauth::SecureChannel::Status::CONNECTING) {
-      StopConnectionAttemptAndMoveToEndOfQueue(device_id_copy);
-    }
-    if (status_before_disconnect !=
-        cryptauth::SecureChannel::Status::DISCONNECTED) {
-      // Send a status update for the disconnection.
-      NotifySecureChannelStatusChanged(
-          device_id_copy, status_before_disconnect,
-          cryptauth::SecureChannel::Status::DISCONNECTED,
-          StateChangeDetail::STATE_CHANGE_DETAIL_DEVICE_WAS_UNREGISTERED);
+      if (status_before_erase == cryptauth::SecureChannel::Status::CONNECTING) {
+        StopConnectionAttemptAndMoveToEndOfQueue(device_id_copy);
+        NotifySecureChannelStatusChanged(
+            device_id_copy, cryptauth::SecureChannel::Status::CONNECTING,
+            cryptauth::SecureChannel::Status::DISCONNECTED,
+            StateChangeDetail::STATE_CHANGE_DETAIL_DEVICE_WAS_UNREGISTERED);
+      }
     }
   }
 
@@ -555,8 +542,24 @@ void BleConnectionManager::OnSecureChannelStatusChanged(
     const cryptauth::SecureChannel::Status& old_status,
     const cryptauth::SecureChannel::Status& new_status,
     StateChangeDetail state_change_detail) {
-  NotifySecureChannelStatusChanged(device_id, old_status, new_status,
-                                   state_change_detail);
+  ConnectionMetadata* connection_metadata = GetConnectionMetadata(device_id);
+  DCHECK(connection_metadata);
+
+  // Create copies of the references passed to this function. If the map entry
+  // is erased below, the references will point to deleted memory.
+  const std::string device_id_copy = device_id;
+  const cryptauth::SecureChannel::Status old_status_copy = old_status;
+  const cryptauth::SecureChannel::Status new_status_copy = new_status;
+
+  if (!connection_metadata->HasReasonForConnection() &&
+      new_status == cryptauth::SecureChannel::Status::DISCONNECTED) {
+    device_id_to_metadata_map_.erase(device_id_copy);
+    state_change_detail =
+        StateChangeDetail::STATE_CHANGE_DETAIL_DEVICE_WAS_UNREGISTERED;
+  }
+
+  NotifySecureChannelStatusChanged(device_id_copy, old_status_copy,
+                                   new_status_copy, state_change_detail);
   UpdateConnectionAttempts();
 }
 
@@ -611,9 +614,9 @@ void BleConnectionManager::NotifyMessageSent(int sequence_number) {
 }
 
 void BleConnectionManager::SetTestDoubles(
-    std::unique_ptr<base::Clock> test_clock,
+    base::Clock* test_clock,
     std::unique_ptr<TimerFactory> test_timer_factory) {
-  clock_ = std::move(test_clock);
+  clock_ = test_clock;
   timer_factory_ = std::move(test_timer_factory);
 }
 

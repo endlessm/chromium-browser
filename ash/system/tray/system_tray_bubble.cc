@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "ash/public/cpp/ash_features.h"
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
 #include "ash/shell_port.h"
@@ -205,13 +206,15 @@ void SystemTrayBubble::InitView(views::View* anchor,
   init_params->parent_window = tray_->GetBubbleWindowContainer();
   init_params->anchor_view = anchor;
   bubble_view_ = new TrayBubbleView(*init_params);
+  if (features::IsSystemTrayUnifiedEnabled())
+    bubble_view_->set_color(kUnifiedMenuBackgroundColor);
   bubble_view_->AddChildView(system_tray_view_);
   UpdateBottomPadding();
   bubble_view_->set_adjust_if_offscreen(false);
   CreateItemViews(login_status);
 
   if (bubble_view_->CanActivate()) {
-    bubble_view_->NotifyAccessibilityEvent(ui::AX_EVENT_ALERT, true);
+    bubble_view_->NotifyAccessibilityEvent(ax::mojom::Event::kAlert, true);
   }
 }
 

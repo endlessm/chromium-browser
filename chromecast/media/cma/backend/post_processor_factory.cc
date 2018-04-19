@@ -4,6 +4,8 @@
 
 #include "chromecast/media/cma/backend/post_processor_factory.h"
 
+#include <memory>
+
 #include "base/files/file_path.h"
 #include "base/memory/ptr_util.h"
 #include "base/scoped_native_library.h"
@@ -18,7 +20,7 @@ namespace media {
 namespace {
 
 const char kV1SoCreateFunction[] = "AudioPostProcessorShlib_Create";
-const char kV2SoCreateFunctionFormat[] = "AudioPostProcessorShlib2_%s_Create";
+const char kV2SoCreateFunctionFormat[] = "AudioPostProcessor2Shlib%sCreate";
 
 }  // namespace
 
@@ -33,7 +35,7 @@ PostProcessorFactory::~PostProcessorFactory() = default;
 
 std::unique_ptr<AudioPostProcessor2> PostProcessorFactory::CreatePostProcessor(
     const std::string& library_path,
-    const std::string& plugin_name,
+    const std::string& post_processor_type,
     const std::string& config,
     int channels) {
   libraries_.push_back(std::make_unique<base::ScopedNativeLibrary>(
@@ -41,9 +43,9 @@ std::unique_ptr<AudioPostProcessor2> PostProcessorFactory::CreatePostProcessor(
   CHECK(libraries_.back()->is_valid())
       << "Could not open post processing library " << library_path;
 
-  if (!plugin_name.empty()) {
-    std::string create_function =
-        base::StringPrintf(kV2SoCreateFunctionFormat, plugin_name.c_str());
+  if (!post_processor_type.empty()) {
+    std::string create_function = base::StringPrintf(
+        kV2SoCreateFunctionFormat, post_processor_type.c_str());
     auto v2_create = reinterpret_cast<CreatePostProcessor2Function>(
         libraries_.back()->GetFunctionPointer(create_function.c_str()));
 
@@ -63,7 +65,7 @@ std::unique_ptr<AudioPostProcessor2> PostProcessorFactory::CreatePostProcessor(
                << " Please update " << library_path
                << " to AudioPostProcessor2.";
 
-  return base::MakeUnique<AudioPostProcessorWrapper>(
+  return std::make_unique<AudioPostProcessorWrapper>(
       base::WrapUnique(v1_create(config, channels)), channels);
 }
 

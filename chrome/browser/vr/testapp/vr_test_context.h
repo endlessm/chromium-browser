@@ -13,6 +13,7 @@
 #include "chrome/browser/vr/content_input_delegate.h"
 #include "chrome/browser/vr/model/controller_model.h"
 #include "chrome/browser/vr/ui_browser_interface.h"
+#include "chrome/browser/vr/ui_renderer.h"
 #include "ui/gfx/transform.h"
 
 namespace ui {
@@ -44,29 +45,30 @@ class VrTestContext : public vr::UiBrowserInterface {
   void ExitFullscreen() override;
   void NavigateBack() override;
   void ExitCct() override;
+  void CloseHostedDialog() override;
   void OnUnsupportedMode(vr::UiUnsupportedMode mode) override;
   void OnExitVrPromptResult(vr::ExitVrPromptChoice choice,
                             vr::UiUnsupportedMode reason) override;
   void OnContentScreenBoundsChanged(const gfx::SizeF& bounds) override;
   void SetVoiceSearchActive(bool active) override;
-  void StartAutocomplete(const base::string16& string) override;
+  void StartAutocomplete(const AutocompleteRequest& request) override;
   void StopAutocomplete() override;
   void Navigate(GURL gurl) override;
-  void LoadAssets() override;
 
   void set_window_size(const gfx::Size& size) { window_size_ = size; }
 
  private:
   unsigned int CreateFakeContentTexture();
-  void CreateFakeOmniboxSuggestions();
   void CreateFakeVoiceSearchResult();
-  void CreateFakeTextInputOrCommit(bool commit);
   void CycleWebVrModes();
   void ToggleSplashScreen();
   void CycleOrigin();
+  RenderInfo GetRenderInfo() const;
   gfx::Transform ProjectionMatrix() const;
   gfx::Transform ViewProjectionMatrix() const;
-  ControllerModel UpdateController();
+  ControllerModel UpdateController(const RenderInfo& render_info);
+  gfx::Point3F LaserOrigin() const;
+  void LoadAssets();
 
   std::unique_ptr<Ui> ui_;
   gfx::Size window_size_;
@@ -94,6 +96,8 @@ class VrTestContext : public vr::UiBrowserInterface {
 
   std::unique_ptr<TextInputDelegate> text_input_delegate_;
   std::unique_ptr<TestKeyboardDelegate> keyboard_delegate_;
+
+  PlatformController::Handedness handedness_ = PlatformController::kRightHanded;
 
   DISALLOW_COPY_AND_ASSIGN(VrTestContext);
 };

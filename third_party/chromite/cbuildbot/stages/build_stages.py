@@ -187,7 +187,16 @@ class CleanUpStage(generic_stages.BuilderStage):
                           self._build_root, e)
 
     # Clean mount points first to be safe about deleting.
+    cros_build_lib.CleanupChrootMount(buildroot=self._build_root)
     osutils.UmountTree(self._build_root)
+
+    # Re-mount chroot if it exists so that subsequent steps can clean up inside.
+    try:
+      cros_build_lib.MountChroot(buildroot=self._build_root, create=False)
+    except cros_build_lib.RunCommandError as e:
+      logging.error('Unable to mount chroot under %s.  Deleting chroot.  '
+                    'Error: %s', self._build_root, e)
+      self._DeleteChroot()
 
     if manifest is None:
       self._DeleteChroot()
@@ -503,7 +512,8 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
                                        update_dict)
 
       # Get a list of models supported by this board.
-      models = commands.GetModels(self._build_root, self._current_board)
+      models = commands.GetModels(
+          self._build_root, cros_build_lib.GetSysroot(self._current_board))
       self._run.attrs.metadata.UpdateWithDict({'unibuild': bool(models)})
       if models:
         all_fw_versions = commands.GetAllFirmwareVersions(self._build_root,

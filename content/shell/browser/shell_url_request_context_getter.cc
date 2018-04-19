@@ -32,16 +32,21 @@
 #include "net/dns/host_resolver.h"
 #include "net/dns/mapped_host_resolver.h"
 #include "net/http/http_network_session.h"
-#include "net/proxy/proxy_config_service.h"
-#include "net/proxy/proxy_service.h"
-#include "net/reporting/reporting_feature.h"
-#include "net/reporting/reporting_policy.h"
-#include "net/reporting/reporting_service.h"
+#include "net/net_features.h"
+#include "net/proxy_resolution/proxy_config_service.h"
+#include "net/proxy_resolution/proxy_service.h"
 #include "net/ssl/channel_id_service.h"
 #include "net/ssl/default_channel_id_store.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_builder.h"
+#include "services/network/public/cpp/features.h"
+#include "services/network/public/cpp/network_switches.h"
 #include "url/url_constants.h"
+
+#if BUILDFLAG(ENABLE_REPORTING)
+#include "net/reporting/reporting_policy.h"
+#include "net/reporting/reporting_service.h"
+#endif  // BUILDFLAG(ENABLE_REPORTING)
 
 namespace content {
 
@@ -111,10 +116,11 @@ ShellURLRequestContextGetter::GetCertVerifier() {
 
 std::unique_ptr<net::ProxyConfigService>
 ShellURLRequestContextGetter::GetProxyConfigService() {
-  return net::ProxyService::CreateSystemProxyConfigService(io_task_runner_);
+  return net::ProxyResolutionService::CreateSystemProxyConfigService(
+      io_task_runner_);
 }
 
-std::unique_ptr<net::ProxyService>
+std::unique_ptr<net::ProxyResolutionService>
 ShellURLRequestContextGetter::GetProxyService() {
   // TODO(jam): use v8 if possible, look at chrome code.
   return nullptr;
@@ -149,9 +155,10 @@ net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
     builder.set_ct_policy_enforcer(
         base::WrapUnique(new IgnoresCTPolicyEnforcer));
 
-    std::unique_ptr<net::ProxyService> proxy_service = GetProxyService();
-    if (proxy_service) {
-      builder.set_proxy_service(std::move(proxy_service));
+    std::unique_ptr<net::ProxyResolutionService> proxy_resolution_service =
+        GetProxyService();
+    if (proxy_resolution_service) {
+      builder.set_proxy_resolution_service(std::move(proxy_resolution_service));
     } else {
       builder.set_proxy_config_service(std::move(proxy_config_service_));
     }
@@ -174,12 +181,12 @@ net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
         ignore_certificate_errors_;
     builder.set_http_network_session_params(network_session_params);
 
-    if (command_line.HasSwitch(switches::kHostResolverRules)) {
+    if (command_line.HasSwitch(network::switches::kHostResolverRules)) {
       std::unique_ptr<net::MappedHostResolver> mapped_host_resolver(
           new net::MappedHostResolver(
               net::HostResolver::CreateDefaultResolver(net_log_)));
-      mapped_host_resolver->SetRulesFromString(
-          command_line.GetSwitchValueASCII(switches::kHostResolverRules));
+      mapped_host_resolver->SetRulesFromString(command_line.GetSwitchValueASCII(
+          network::switches::kHostResolverRules));
       builder.set_host_resolver(std::move(mapped_host_resolver));
     }
 
@@ -203,7 +210,7 @@ net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
     builder.SetInterceptors(std::move(request_interceptors_));
 
 #if BUILDFLAG(ENABLE_REPORTING)
-    if (base::FeatureList::IsEnabled(features::kReporting)) {
+    if (base::FeatureList::IsEnabled(network::features::kReporting)) {
       std::unique_ptr<net::ReportingPolicy> reporting_policy =
           std::make_unique<net::ReportingPolicy>();
       if (command_line.HasSwitch(switches::kRunLayoutTest))

@@ -21,7 +21,6 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.FlakyTest;
-import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.signin.AccountTrackerService;
@@ -33,18 +32,15 @@ import org.chromium.chrome.test.util.browser.signin.SigninTestUtil;
 import org.chromium.chrome.test.util.browser.sync.SyncTestUtil;
 import org.chromium.components.signin.AccountIdProvider;
 import org.chromium.components.sync.AndroidSyncSettings;
-import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
+import org.chromium.content_public.browser.ContentViewCore;
 
 /**
  * Test suite for Sync.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
-@CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
-        // TODO(crbug.com/781368) remove once feature enabled.
-        "enable-features=SyncUSSTypedURL"})
-@RetryOnFailure // crbug.com/637448
+@CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class SyncTest {
     @Rule
     public SyncTestRule mSyncTestRule = new SyncTestRule();
@@ -92,8 +88,7 @@ public class SyncTest {
                 new Criteria("Timed out checking that isSignedInOnNative() == true") {
                     @Override
                     public boolean isSatisfied() {
-                        return SigninManager.get(mSyncTestRule.getTargetContext())
-                                .isSignedInOnNative();
+                        return SigninManager.get().isSignedInOnNative();
                     }
                 },
                 SyncTestUtil.TIMEOUT_MS, SyncTestUtil.INTERVAL_MS);
@@ -107,8 +102,7 @@ public class SyncTest {
                 new Criteria("Timed out checking that isSignedInOnNative() == false") {
                     @Override
                     public boolean isSatisfied() {
-                        return !SigninManager.get(mSyncTestRule.getTargetContext())
-                                        .isSignedInOnNative();
+                        return !SigninManager.get().isSignedInOnNative();
                     }
                 },
                 SyncTestUtil.TIMEOUT_MS, SyncTestUtil.INTERVAL_MS);

@@ -11,7 +11,7 @@
 #include "chrome/browser/notifications/notification_display_service_impl.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "content/public/browser/browser_thread.h"
-#include "ui/message_center/notification.h"
+#include "ui/message_center/public/cpp/notification.h"
 
 namespace {
 
@@ -150,7 +150,7 @@ void NotificationPlatformBridgeMessageCenter::GetDisplayed(
 
   content::BrowserThread::PostTask(
       content::BrowserThread::UI, FROM_HERE,
-      base::BindOnce(callback, base::Passed(&displayed_notifications),
+      base::BindOnce(callback, std::move(displayed_notifications),
                      true /* supports_synchronization */));
 }
 

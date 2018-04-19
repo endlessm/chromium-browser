@@ -31,7 +31,7 @@
 #include "extensions/common/manifest_handlers/content_capabilities_handler.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "storage/browser/quota/quota_manager.h"
-#include "third_party/WebKit/common/quota/quota_types.mojom.h"
+#include "third_party/WebKit/public/mojom/quota/quota_types.mojom.h"
 
 using content::BrowserThread;
 using extensions::APIPermission;
@@ -112,11 +112,11 @@ bool ExtensionSpecialStoragePolicy::IsStorageSessionOnly(const GURL& origin) {
   return cookie_settings_->IsCookieSessionOnly(origin);
 }
 
-bool ExtensionSpecialStoragePolicy::IsStorageSessionOnlyOrBlocked(
+bool ExtensionSpecialStoragePolicy::ShouldDeleteCookieOnExit(
     const GURL& origin) {
   if (cookie_settings_.get() == NULL)
     return false;
-  return cookie_settings_->IsCookieSessionOnlyOrBlocked(origin);
+  return cookie_settings_->ShouldDeleteCookieOnExit(origin);
 }
 
 bool ExtensionSpecialStoragePolicy::HasSessionOnlyOrigins() {

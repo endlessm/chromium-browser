@@ -13,7 +13,7 @@
 
 #include "base/containers/flat_set.h"
 #include "base/memory/weak_ptr.h"
-#include "components/download/public/download_params.h"
+#include "components/download/public/background_service/download_params.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/offline_items_collection/core/offline_content_provider.h"
 #include "components/offline_items_collection/core/offline_item.h"
@@ -74,7 +74,6 @@ class BackgroundFetchDelegateImpl
                            uint64_t size);
 
   // OfflineContentProvider implementation:
-  bool AreItemsAvailable() override;
   void OpenItem(const offline_items_collection::ContentId& id) override;
   void RemoveItem(const offline_items_collection::ContentId& id) override;
   void CancelDownload(const offline_items_collection::ContentId& id) override;

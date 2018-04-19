@@ -40,7 +40,6 @@
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/ash_config.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "chrome/browser/prefs/browser_prefs.h"
@@ -91,7 +90,6 @@
 #include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "components/prefs/pref_notifier_impl.h"
 #include "components/signin/core/account_id/account_id.h"
-#include "components/sync/model/attachments/attachment_service_proxy_for_test.h"
 #include "components/sync/model/fake_sync_change_processor.h"
 #include "components/sync/model/sync_error_factory_mock.h"
 #include "components/sync/protocol/sync.pb.h"
@@ -328,17 +326,13 @@ class TestShelfController : public ash::mojom::ShelfController {
   DISALLOW_COPY_AND_ASSIGN(TestShelfController);
 };
 
-// A callback that does nothing after shelf item selection handling.
-void NoopCallback(ash::ShelfAction action, base::Optional<ash::MenuItemList>) {}
-
 // Simulates selection of the shelf item.
 void SelectItem(ash::ShelfItemDelegate* delegate) {
   std::unique_ptr<ui::Event> event = std::make_unique<ui::MouseEvent>(
       ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(), ui::EventTimeForNow(),
       ui::EF_NONE, 0);
   delegate->ItemSelected(std::move(event), display::kInvalidDisplayId,
-                         ash::LAUNCH_FROM_UNKNOWN,
-                         base::BindOnce(&NoopCallback));
+                         ash::LAUNCH_FROM_UNKNOWN, base::DoNothing());
 }
 
 }  // namespace
@@ -635,9 +629,8 @@ class ChromeLauncherControllerTest : public BrowserWithTestWindowTest {
     sync_pb::PreferenceSpecifics* pref_one = one.mutable_preference();
     pref_one->set_name(prefs::kPinnedLauncherApps);
     pref_one->set_value(serialized);
-    init_sync_list.push_back(syncer::SyncData::CreateRemoteData(
-        1, one, base::Time(), syncer::AttachmentIdList(),
-        syncer::AttachmentServiceProxyForTest::Create()));
+    init_sync_list.push_back(
+        syncer::SyncData::CreateRemoteData(1, one, base::Time()));
     StartPrefSyncService(init_sync_list);
   }
 
@@ -1164,8 +1157,7 @@ class MultiProfileMultiBrowserShelfLayoutChromeLauncherControllerTest
     user_manager_enabler_ = std::make_unique<user_manager::ScopedUserManager>(
         std::make_unique<chromeos::FakeChromeUserManager>());
 
-    // Initialize the WallpaperManager singleton and WallpaperControllerClient.
-    chromeos::WallpaperManager::Initialize();
+    // Initialize WallpaperControllerClient.
     wallpaper_controller_client_ =
         std::make_unique<WallpaperControllerClient>();
     wallpaper_controller_client_->InitForTesting(
@@ -1185,7 +1177,6 @@ class MultiProfileMultiBrowserShelfLayoutChromeLauncherControllerTest
   void TearDown() override {
     ChromeLauncherControllerTest::TearDown();
     user_manager_enabler_.reset();
-    chromeos::WallpaperManager::Shutdown();
     wallpaper_controller_client_.reset();
 
     // A Task is leaked if we don't destroy everything, then run the message
@@ -3888,8 +3879,8 @@ TEST_P(ChromeLauncherControllerWithArcTest, ShelfItemWithMultipleWindows) {
   // opposite order. Last created goes in front.
   ash::MenuItemList items = item_delegate->GetAppMenuItems(0);
   ASSERT_EQ(items.size(), 2U);
-  EXPECT_EQ(items[0]->command_id, 0U);
-  EXPECT_EQ(items[1]->command_id, 1U);
+  EXPECT_EQ(items[0]->command_id, 0);
+  EXPECT_EQ(items[1]->command_id, 1);
 
   // Execute command to activate first window.
   item_delegate->ExecuteCommand(false, items[1]->command_id, ui::EF_NONE,
@@ -3945,11 +3936,11 @@ class ChromeLauncherControllerOrientationTest
     EXPECT_EQ(display::Display::ROTATE_0,
               display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
-    // Create a arc window with PORTRAIT orientation locks the screen to 90.
+    // Create a arc window with PORTRAIT orientation locks the screen to 270.
     window_portrait_ = CreateArcWindow(window_app_id_portrait_);
     NotifyOnTaskCreated(appinfo_portrait_, task_id_portrait_);
     EXPECT_TRUE(controller->rotation_locked());
-    EXPECT_EQ(display::Display::ROTATE_90,
+    EXPECT_EQ(display::Display::ROTATE_270,
               display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
     // Create a arc window with LANDSCAPE orientation locks the screen to 0.
@@ -4066,7 +4057,7 @@ TEST_P(ChromeLauncherControllerOrientationTest,
 
   EnableTabletMode(true);
   EXPECT_TRUE(controller->rotation_locked());
-  EXPECT_EQ(display::Display::ROTATE_90,
+  EXPECT_EQ(display::Display::ROTATE_270,
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
   std::string app_id2("org.chromium.arc.2");
@@ -4078,7 +4069,7 @@ TEST_P(ChromeLauncherControllerOrientationTest,
   NotifyOnTaskCreated(appinfo2, task_id2);
   NotifyOnTaskOrientationLockRequested(task_id2, OrientationLock::LANDSCAPE);
   EXPECT_TRUE(controller->rotation_locked());
-  EXPECT_EQ(display::Display::ROTATE_90,
+  EXPECT_EQ(display::Display::ROTATE_270,
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
   // The screen will be locked when the window is created.
@@ -4107,10 +4098,10 @@ TEST_P(ChromeLauncherControllerOrientationTest, ArcOrientationLock) {
   EXPECT_EQ(display::Display::ROTATE_0,
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
-  // Activating a window with PORTRAIT orientation locks the screen to 90.
+  // Activating a window with PORTRAIT orientation locks the screen to 270.
   window_portrait_->Activate();
   EXPECT_TRUE(controller->rotation_locked());
-  EXPECT_EQ(display::Display::ROTATE_90,
+  EXPECT_EQ(display::Display::ROTATE_270,
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
   // Disable Tablet mode, and make sure the screen is unlocked.
@@ -4119,15 +4110,15 @@ TEST_P(ChromeLauncherControllerOrientationTest, ArcOrientationLock) {
   EXPECT_EQ(display::Display::ROTATE_0,
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
-  // Re-enable Tablet mode, and make sure the screen is locked to 90.
+  // Re-enable Tablet mode, and make sure the screen is locked to 270.
   EnableTabletMode(true);
   EXPECT_TRUE(controller->rotation_locked());
-  EXPECT_EQ(display::Display::ROTATE_90,
+  EXPECT_EQ(display::Display::ROTATE_270,
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
   window_portrait_->Activate();
   EXPECT_TRUE(controller->rotation_locked());
-  EXPECT_EQ(display::Display::ROTATE_90,
+  EXPECT_EQ(display::Display::ROTATE_270,
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
   window_landscape_->Activate();
@@ -4145,14 +4136,14 @@ TEST_P(ChromeLauncherControllerOrientationTest, ArcOrientationLock) {
   NotifyOnTaskOrientationLockRequested(task_id_landscape_,
                                        OrientationLock::PORTRAIT);
   EXPECT_TRUE(controller->rotation_locked());
-  EXPECT_EQ(display::Display::ROTATE_90,
+  EXPECT_EQ(display::Display::ROTATE_270,
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
   // Non active window won't change the lock.
   NotifyOnTaskOrientationLockRequested(task_id_none_,
                                        OrientationLock::LANDSCAPE);
   EXPECT_TRUE(controller->rotation_locked());
-  EXPECT_EQ(display::Display::ROTATE_90,
+  EXPECT_EQ(display::Display::ROTATE_270,
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
   // But activating it will change the locked orinetation.
@@ -4177,7 +4168,7 @@ TEST_P(ChromeLauncherControllerOrientationTest, ArcOrientationLock) {
   // enabled.
   EnableTabletMode(true);
   EXPECT_TRUE(controller->rotation_locked());
-  EXPECT_EQ(display::Display::ROTATE_90,
+  EXPECT_EQ(display::Display::ROTATE_270,
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
   // Manually unlock first.

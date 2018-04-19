@@ -18,6 +18,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "base/trace_event/memory_usage_estimator.h"
 #include "build/build_config.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/features.h"
@@ -26,6 +27,7 @@
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/gfx/vector_icon_types.h"
 #include "url/third_party/mozilla/url_parse.h"
 
@@ -185,8 +187,15 @@ AutocompleteMatch& AutocompleteMatch::operator=(
 }
 
 // static
-const gfx::VectorIcon& AutocompleteMatch::TypeToVectorIcon(Type type) {
+const gfx::VectorIcon& AutocompleteMatch::TypeToVectorIcon(Type type,
+                                                           bool is_bookmark) {
 #if (!defined(OS_ANDROID) || BUILDFLAG(ENABLE_VR)) && !defined(OS_IOS)
+  const bool is_touch_ui =
+      ui::MaterialDesignController::IsTouchOptimizedUiEnabled();
+
+  if (is_bookmark)
+    return is_touch_ui ? omnibox::kTouchableBookmarkIcon : omnibox::kStarIcon;
+
   switch (type) {
     case Type::URL_WHAT_YOU_TYPED:
     case Type::HISTORY_URL:
@@ -199,7 +208,7 @@ const gfx::VectorIcon& AutocompleteMatch::TypeToVectorIcon(Type type) {
     case Type::CLIPBOARD:
     case Type::PHYSICAL_WEB:
     case Type::PHYSICAL_WEB_OVERFLOW:
-      return omnibox::kHttpIcon;
+      return is_touch_ui ? omnibox::kTouchablePageIcon : omnibox::kHttpIcon;
 
     case Type::TAB_SEARCH:
       return omnibox::kTabIcon;
@@ -213,7 +222,8 @@ const gfx::VectorIcon& AutocompleteMatch::TypeToVectorIcon(Type type) {
     case Type::SEARCH_OTHER_ENGINE:
     case Type::CONTACT_DEPRECATED:
     case Type::VOICE_SUGGEST:
-      return vector_icons::kSearchIcon;
+      return is_touch_ui ? omnibox::kTouchableSearchIcon
+                         : vector_icons::kSearchIcon;
 
     case Type::EXTENSION_APP:
       return omnibox::kExtensionAppIcon;
@@ -593,9 +603,8 @@ void AutocompleteMatch::EnsureUWYTIsAllowedToBeDefault(
     TemplateURLService* template_url_service) {
   if (!allowed_to_be_default_match) {
     const GURL& stripped_canonical_input_url =
-        AutocompleteMatch::GURLToStrippedGURL(
-            input.canonicalized_url(), input, template_url_service,
-            base::string16());
+        GURLToStrippedGURL(input.canonicalized_url(), input,
+                           template_url_service, base::string16());
     ComputeStrippedDestinationURL(input, template_url_service);
     allowed_to_be_default_match =
         stripped_canonical_input_url == stripped_destination_url;
@@ -681,11 +690,16 @@ bool AutocompleteMatch::SupportsDeletion() const {
   return false;
 }
 
-void AutocompleteMatch::PossiblySwapContentsAndDescriptionForDisplay() {
-  if (swap_contents_and_description) {
-    std::swap(contents, description);
-    std::swap(contents_class, description_class);
+AutocompleteMatch
+AutocompleteMatch::GetMatchWithContentsAndDescriptionPossiblySwapped() const {
+  AutocompleteMatch copy(*this);
+  if (copy.swap_contents_and_description) {
+    std::swap(copy.contents, copy.description);
+    std::swap(copy.contents_class, copy.description_class);
+    // Clear bit to prevent accidentally performing the swap again.
+    copy.swap_contents_and_description = false;
   }
+  return copy;
 }
 
 void AutocompleteMatch::InlineTailPrefix(const base::string16& common_prefix) {
@@ -699,6 +713,29 @@ void AutocompleteMatch::InlineTailPrefix(const base::string16& common_prefix) {
         contents_class.begin(),
         ACMatchClassification(0, ACMatchClassification::INVISIBLE));
   }
+}
+
+size_t AutocompleteMatch::EstimateMemoryUsage() const {
+  size_t res = 0;
+
+  res += base::trace_event::EstimateMemoryUsage(fill_into_edit);
+  res += base::trace_event::EstimateMemoryUsage(inline_autocompletion);
+  res += base::trace_event::EstimateMemoryUsage(destination_url);
+  res += base::trace_event::EstimateMemoryUsage(stripped_destination_url);
+  res += base::trace_event::EstimateMemoryUsage(contents);
+  res += base::trace_event::EstimateMemoryUsage(contents_class);
+  res += base::trace_event::EstimateMemoryUsage(description);
+  res += base::trace_event::EstimateMemoryUsage(description_class);
+  res += base::trace_event::EstimateMemoryUsage(answer_contents);
+  res += base::trace_event::EstimateMemoryUsage(answer_type);
+  res += base::trace_event::EstimateMemoryUsage(answer);
+  res += base::trace_event::EstimateMemoryUsage(associated_keyword);
+  res += base::trace_event::EstimateMemoryUsage(keyword);
+  res += base::trace_event::EstimateMemoryUsage(search_terms_args);
+  res += base::trace_event::EstimateMemoryUsage(additional_info);
+  res += base::trace_event::EstimateMemoryUsage(duplicate_matches);
+
+  return res;
 }
 
 #ifndef NDEBUG

@@ -10,8 +10,8 @@
 namespace web {
 namespace features {
 
-// Used to workaround https://crbug.com/810911 for iOS 11.3.
-extern const base::Feature kWorkaroundForMissingRedirectCallback;
+// Used to enable asynchronous DOM element fetching for context menu.
+extern const base::Feature kContextMenuElementPostMessage;
 
 // Used to enable the WKBackForwardList based navigation manager.
 extern const base::Feature kSlimNavigationManager;

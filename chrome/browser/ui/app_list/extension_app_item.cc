@@ -105,8 +105,7 @@ bool ExtensionAppItem::RunExtensionEnableFlow() {
 
     extension_enable_flow_.reset(new ExtensionEnableFlow(
         profile(), extension_id(), this));
-    extension_enable_flow_->StartForNativeWindow(
-        extension_enable_flow_controller_->GetAppListWindow());
+    extension_enable_flow_->StartForNativeWindow(nullptr);
   }
   return true;
 }
@@ -180,8 +179,12 @@ const char* ExtensionAppItem::GetItemType() const {
   return ExtensionAppItem::kItemType;
 }
 
-size_t ExtensionAppItem::BadgedItemCount() const {
-  return icon_ && icon_->icon_is_badged() ? 1 : 0;
+bool ExtensionAppItem::IsBadged() const {
+  return icon_ && icon_->icon_is_badged();
+}
+
+app_list::AppContextMenu* ExtensionAppItem::GetAppContextMenu() {
+  return context_menu_.get();
 }
 
 void ExtensionAppItem::ExecuteLaunchCommand(int event_flags) {

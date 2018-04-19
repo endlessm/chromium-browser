@@ -5,6 +5,7 @@
 #include "base/android/library_loader/library_loader_hooks.h"
 
 #include "base/android/jni_string.h"
+#include "base/android/library_loader/anchor_functions_buildflags.h"
 #include "base/android/library_loader/library_load_from_apk_status_codes.h"
 #include "base/android/library_loader/library_prefetcher.h"
 #include "base/at_exit.h"
@@ -84,6 +85,13 @@ void RecordLibraryPreloaderRendereHistogram() {
                        g_library_preloader_renderer_histogram_code);
   }
 }
+
+#if BUILDFLAG(SUPPORTS_CODE_ORDERING)
+bool ShouldDoOrderfileMemoryOptimization() {
+  return CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kOrderfileMemoryOptimization);
+}
+#endif
 
 }  // namespace
 
@@ -167,10 +175,11 @@ void SetLibraryLoadedHook(LibraryLoadedHook* func) {
 static jboolean JNI_LibraryLoader_LibraryLoaded(
     JNIEnv* env,
     const JavaParamRef<jobject>& jcaller) {
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kMadviseRandomExecutableCode)) {
-    NativeLibraryPrefetcher::MadviseRandomText();
+#if BUILDFLAG(SUPPORTS_CODE_ORDERING)
+  if (ShouldDoOrderfileMemoryOptimization()) {
+    NativeLibraryPrefetcher::MadviseForOrderfile();
   }
+#endif
 
   if (g_native_initialization_hook && !g_native_initialization_hook())
     return false;
@@ -189,19 +198,36 @@ void LibraryLoaderExitHook() {
 static jboolean JNI_LibraryLoader_ForkAndPrefetchNativeLibrary(
     JNIEnv* env,
     const JavaParamRef<jclass>& clazz) {
-  return NativeLibraryPrefetcher::ForkAndPrefetchNativeLibrary();
+#if BUILDFLAG(SUPPORTS_CODE_ORDERING)
+  // Calling madvise(MADV_RANDOM) and prefetching the same region have the
+  // opposite effects.
+  // TODO(crbug.com/758566): add library prefetching that only prefetches
+  // regions not madvise(MADV_RANDOM)'d.
+  if (!ShouldDoOrderfileMemoryOptimization()) {
+    return NativeLibraryPrefetcher::ForkAndPrefetchNativeLibrary();
+  }
+#endif
+  return false;
 }
 
 static jint JNI_LibraryLoader_PercentageOfResidentNativeLibraryCode(
     JNIEnv* env,
     const JavaParamRef<jclass>& clazz) {
+#if BUILDFLAG(SUPPORTS_CODE_ORDERING)
   return NativeLibraryPrefetcher::PercentageOfResidentNativeLibraryCode();
+#else
+  return -1;
+#endif
 }
 
 static void JNI_LibraryLoader_PeriodicallyCollectResidency(
     JNIEnv* env,
     const JavaParamRef<jclass>& clazz) {
-  return NativeLibraryPrefetcher::PeriodicallyCollectResidency();
+#if BUILDFLAG(SUPPORTS_CODE_ORDERING)
+  NativeLibraryPrefetcher::PeriodicallyCollectResidency();
+#else
+  LOG(WARNING) << "Collecting residency is not supported.";
+#endif
 }
 
 void SetVersionNumber(const char* version_number) {

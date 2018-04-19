@@ -446,8 +446,8 @@ static std::unique_ptr<GrFragmentProcessor> create_linear_gradient_processor(GrC
     sk_sp<SkShader> shader = SkGradientShader::MakeLinear(
         pts, colors, nullptr, SK_ARRAY_COUNT(colors), SkShader::kClamp_TileMode);
     GrColorSpaceInfo colorSpaceInfo(nullptr, kRGBA_8888_GrPixelConfig);
-    SkShaderBase::AsFPArgs args(ctx, &SkMatrix::I(), &SkMatrix::I(),
-                                SkFilterQuality::kLow_SkFilterQuality, &colorSpaceInfo);
+    GrFPArgs args(ctx, &SkMatrix::I(), &SkMatrix::I(), SkFilterQuality::kLow_SkFilterQuality,
+                  &colorSpaceInfo);
     return as_SB(shader)->asFragmentProcessor(args);
 }
 
@@ -486,18 +486,16 @@ static void test_path(GrContext* ctx,
 DEF_GPUTEST_FOR_ALL_CONTEXTS(TessellatingPathRendererTests, reporter, ctxInfo) {
     GrContext* ctx = ctxInfo.grContext();
     sk_sp<GrRenderTargetContext> rtc(ctx->makeDeferredRenderTargetContext(
-                                                                  SkBackingFit::kApprox,
-                                                                  800, 800,
-                                                                  kRGBA_8888_GrPixelConfig,
-                                                                  nullptr,
-                                                                  0,
-                                                                  GrMipMapped::kNo,
-                                                                  kTopLeft_GrSurfaceOrigin));
+            SkBackingFit::kApprox, 800, 800, kRGBA_8888_GrPixelConfig, nullptr, 1, GrMipMapped::kNo,
+            kTopLeft_GrSurfaceOrigin));
     if (!rtc) {
         return;
     }
 
     ctx->flush();
+    // Adding discard to appease vulkan validation warning about loading uninitialized data on draw
+    rtc->discard();
+
     test_path(ctx, rtc.get(), create_path_0());
     test_path(ctx, rtc.get(), create_path_1());
     test_path(ctx, rtc.get(), create_path_2());

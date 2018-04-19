@@ -54,10 +54,6 @@ class AppListServiceDisabled : public AppListService {
 
   void Show() override {}
   void ShowForProfile(Profile* profile) override {}
-  void ShowForVoiceSearch(
-      Profile* profile,
-      const scoped_refptr<content::SpeechRecognitionSessionPreamble>& preamble)
-      override {}
   void ShowForAppInstall(Profile* profile,
                          const std::string& extension_id,
                          bool start_discovery_tracking) override {}
@@ -67,7 +63,6 @@ class AppListServiceDisabled : public AppListService {
   bool IsAppListVisible() const override { return false; }
   void EnableAppList(Profile* initial_profile,
                      AppListEnableSource enable_source) override {}
-  gfx::NativeWindow GetAppListWindow() override { return nullptr; }
   AppListControllerDelegate* GetControllerDelegate() override {
     return nullptr;
   }

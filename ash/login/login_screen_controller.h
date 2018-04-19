@@ -86,6 +86,7 @@ class ASH_EXPORT LoginScreenController : public mojom::LoginScreen {
   void LoginAsGuest();
   void OnMaxIncorrectPasswordAttempted(const AccountId& account_id);
   void FocusLockScreenApps(bool reverse);
+  void ShowGaiaSignin();
 
   // Methods to manage lock screen apps focus observers.
   // The observers will be notified when lock screen apps focus changes are
@@ -118,6 +119,9 @@ class ASH_EXPORT LoginScreenController : public mojom::LoginScreen {
 
   // Returns the active data dispatcher or nullptr if there is no lock screen.
   LoginDataDispatcher* DataDispatcher() const;
+
+  // Common code that is called when the login/lock screen is shown.
+  void OnShow();
 
   // Client interface in chrome browser. May be null in tests.
   mojom::LoginScreenClientPtr login_screen_client_;

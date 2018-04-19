@@ -32,6 +32,7 @@
 #include "vkQueryUtil.hpp"
 
 #include "tcuVector.hpp"
+#include "tcuMaybe.hpp"
 
 #include "deStringUtil.hpp"
 
@@ -102,13 +103,14 @@ private:
 class GraphicsPipelineBuilder
 {
 public:
-								GraphicsPipelineBuilder	(void) : m_renderSize			(0, 0)
-															   , m_shaderStageFlags		(0u)
-															   , m_cullModeFlags		(vk::VK_CULL_MODE_NONE)
-															   , m_frontFace			(vk::VK_FRONT_FACE_COUNTER_CLOCKWISE)
-															   , m_patchControlPoints	(1u)
-															   , m_blendEnable			(false)
-															   , m_primitiveTopology	(vk::VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) {}
+								GraphicsPipelineBuilder	(void) : m_renderSize				(0, 0)
+															   , m_shaderStageFlags			(0u)
+															   , m_cullModeFlags			(vk::VK_CULL_MODE_NONE)
+															   , m_frontFace				(vk::VK_FRONT_FACE_COUNTER_CLOCKWISE)
+															   , m_patchControlPoints		(1u)
+															   , m_blendEnable				(false)
+															   , m_primitiveTopology		(vk::VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+															   , m_tessellationDomainOrigin	(tcu::nothing<vk::VkTessellationDomainOriginKHR>()) {}
 
 	GraphicsPipelineBuilder&	setRenderSize					(const tcu::IVec2& size) { m_renderSize = size; return *this; }
 	GraphicsPipelineBuilder&	setShader						(const vk::DeviceInterface& vk, const vk::VkDevice device, const vk::VkShaderStageFlagBits stage, const vk::ProgramBinary& binary, const vk::VkSpecializationInfo* specInfo);
@@ -125,6 +127,10 @@ public:
 
 	//! Basic vertex input configuration (uses biding 0, location 0, etc.)
 	GraphicsPipelineBuilder&	setVertexInputSingleAttribute	(const vk::VkFormat vertexFormat, const deUint32 stride);
+
+	//! If tessellation domain origin is set, pipeline requires VK_KHR_maintenance2
+	GraphicsPipelineBuilder&	setTessellationDomainOrigin		(const vk::VkTessellationDomainOriginKHR domainOrigin) { return setTessellationDomainOrigin(tcu::just(domainOrigin)); }
+	GraphicsPipelineBuilder&	setTessellationDomainOrigin		(const tcu::Maybe<vk::VkTessellationDomainOriginKHR>& domainOrigin) { m_tessellationDomainOrigin = domainOrigin; return *this; }
 
 	vk::Move<vk::VkPipeline>	build							(const vk::DeviceInterface& vk, const vk::VkDevice device, const vk::VkPipelineLayout pipelineLayout, const vk::VkRenderPass renderPass);
 
@@ -144,6 +150,7 @@ private:
 	deUint32											m_patchControlPoints;
 	bool												m_blendEnable;
 	vk::VkPrimitiveTopology								m_primitiveTopology;
+	tcu::Maybe<vk::VkTessellationDomainOriginKHR>		m_tessellationDomainOrigin;
 
 	GraphicsPipelineBuilder (const GraphicsPipelineBuilder&); // "deleted"
 	GraphicsPipelineBuilder& operator= (const GraphicsPipelineBuilder&);
@@ -181,6 +188,14 @@ enum Winding
 	WINDING_LAST,
 };
 
+enum ShaderLanguage
+{
+	SHADER_LANGUAGE_GLSL = 0,
+	SHADER_LANGUAGE_HLSL = 1,
+
+	SHADER_LANGUAGE_LAST,
+};
+
 enum FeatureFlagBits
 {
 	FEATURE_TESSELLATION_SHADER							= 1u << 0,
@@ -195,7 +210,6 @@ typedef deUint32 FeatureFlags;
 vk::VkBufferCreateInfo			makeBufferCreateInfo						(const vk::VkDeviceSize bufferSize, const vk::VkBufferUsageFlags usage);
 vk::VkImageCreateInfo			makeImageCreateInfo							(const tcu::IVec2& size, const vk::VkFormat format, const vk::VkImageUsageFlags usage, const deUint32 numArrayLayers);
 vk::Move<vk::VkCommandPool>		makeCommandPool								(const vk::DeviceInterface& vk, const vk::VkDevice device, const deUint32 queueFamilyIndex);
-vk::Move<vk::VkCommandBuffer>	makeCommandBuffer							(const vk::DeviceInterface& vk, const vk::VkDevice device, const vk::VkCommandPool commandPool);
 vk::Move<vk::VkDescriptorSet>	makeDescriptorSet							(const vk::DeviceInterface& vk, const vk::VkDevice device, const vk::VkDescriptorPool descriptorPool, const vk::VkDescriptorSetLayout setLayout);
 vk::Move<vk::VkPipelineLayout>	makePipelineLayout							(const vk::DeviceInterface& vk, const vk::VkDevice device, const vk::VkDescriptorSetLayout descriptorSetLayout);
 vk::Move<vk::VkPipelineLayout>	makePipelineLayoutWithoutDescriptors		(const vk::DeviceInterface& vk, const vk::VkDevice device);
@@ -242,9 +256,35 @@ static inline const char* getTessPrimitiveTypeShaderName (const TessPrimitiveTyp
 		case TESSPRIMITIVETYPE_QUADS:		return "quads";
 		case TESSPRIMITIVETYPE_ISOLINES:	return "isolines";
 		default:
-			DE_ASSERT(false);
+			DE_FATAL("Unexpected primitive type.");
 			return DE_NULL;
 	}
+}
+
+static inline const char* getDomainName (const TessPrimitiveType type)
+{
+	switch (type)
+	{
+		case TESSPRIMITIVETYPE_TRIANGLES:	return "tri";
+		case TESSPRIMITIVETYPE_QUADS:		return "quad";
+		case TESSPRIMITIVETYPE_ISOLINES:	return "isoline";
+		default:
+			DE_FATAL("Unexpected primitive type.");
+			return DE_NULL;
+	}
+}
+
+static inline const char* getOutputTopologyName (const TessPrimitiveType type, const Winding winding, const bool usePointMode)
+{
+	if (usePointMode)
+		return "point";
+	else if (type == TESSPRIMITIVETYPE_TRIANGLES || type == TESSPRIMITIVETYPE_QUADS)
+		return (winding == WINDING_CCW ? "triangle_ccw" : "triangle_cw");
+	else if (type == TESSPRIMITIVETYPE_ISOLINES)
+		return "line";
+
+	DE_FATAL("Unexpected primitive type.");
+	return DE_NULL;
 }
 
 static inline const char* getSpacingModeShaderName (SpacingMode mode)
@@ -255,7 +295,20 @@ static inline const char* getSpacingModeShaderName (SpacingMode mode)
 		case SPACINGMODE_FRACTIONAL_ODD:	return "fractional_odd_spacing";
 		case SPACINGMODE_FRACTIONAL_EVEN:	return "fractional_even_spacing";
 		default:
-			DE_ASSERT(false);
+			DE_FATAL("Unexpected spacing mode.");
+			return DE_NULL;
+	}
+}
+
+static inline const char* getPartitioningShaderName (SpacingMode mode)
+{
+	switch (mode)
+	{
+		case SPACINGMODE_EQUAL:				return "integer";
+		case SPACINGMODE_FRACTIONAL_ODD:	return "fractional_odd";
+		case SPACINGMODE_FRACTIONAL_EVEN:	return "fractional_even";
+		default:
+			DE_FATAL("Unexpected spacing mode.");
 			return DE_NULL;
 	}
 }
@@ -267,7 +320,19 @@ static inline const char* getWindingShaderName (const Winding winding)
 		case WINDING_CCW:	return "ccw";
 		case WINDING_CW:	return "cw";
 		default:
-			DE_ASSERT(false);
+			DE_FATAL("Unexpected winding type.");
+			return DE_NULL;
+	}
+}
+
+static inline const char* getShaderLanguageName (const ShaderLanguage language)
+{
+	switch (language)
+	{
+		case SHADER_LANGUAGE_GLSL:	return "glsl";
+		case SHADER_LANGUAGE_HLSL:	return "hlsl";
+		default:
+			DE_FATAL("Unexpected shader language.");
 			return DE_NULL;
 	}
 }
@@ -287,7 +352,7 @@ static inline const char* getGeometryShaderInputPrimitiveTypeShaderName (const T
 			return "lines";
 
 		default:
-			DE_ASSERT(false);
+			DE_FATAL("Unexpected primitive type.");
 			return DE_NULL;
 	}
 }
@@ -307,7 +372,7 @@ static inline const char* getGeometryShaderOutputPrimitiveTypeShaderName (const 
 			return "line_strip";
 
 		default:
-			DE_ASSERT(false);
+			DE_FATAL("Unexpected primitive type.");
 			return DE_NULL;
 	}
 }

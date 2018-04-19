@@ -103,13 +103,6 @@ TEST_P(UniformTest, GetUniformNoCurrentProgram)
 
 TEST_P(UniformTest, UniformArrayLocations)
 {
-    // TODO(geofflang): Figure out why this is broken on Intel OpenGL
-    if (IsIntel() && getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE)
-    {
-        std::cout << "Test skipped on Intel OpenGL." << std::endl;
-        return;
-    }
-
     const std::string vertexShader =
         R"(precision mediump float;
         uniform float uPosition[4];
@@ -612,11 +605,8 @@ TEST_P(UniformTest, SamplerUniformsAppearOnce)
     int maxVertexTextureImageUnits = 0;
     glGetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, &maxVertexTextureImageUnits);
 
-    if (maxVertexTextureImageUnits == 0)
-    {
-        std::cout << "Renderer doesn't support vertex texture fetch, skipping test" << std::endl;
-        return;
-    }
+    // Renderer doesn't support vertex texture fetch, skipping test.
+    ANGLE_SKIP_TEST_IF(!maxVertexTextureImageUnits);
 
     const std::string &vertShader =
         "attribute vec2 position;\n"

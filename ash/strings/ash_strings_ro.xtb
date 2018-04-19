@@ -23,8 +23,10 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" /> (HDMI/DP)</translation>
 <translation id="1510238584712386396">Lansator</translation>
 <translation id="1525508553941733066">ÎNCHIDE</translation>
+<translation id="1537254971476575106">Lupă de ecran complet</translation>
 <translation id="15373452373711364">Cursor de mouse mare</translation>
 <translation id="1550523713251050646">Dă clic pentru mai multe opțiuni</translation>
+<translation id="1608626060424371292">Eliminați acest utilizator</translation>
 <translation id="1621499497873603021">Timp rămas până la descărcarea bateriei: <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">Ne pare rău, parola tot nu a putut fi confirmată. Notă: dacă ți-ai schimbat recent parola, aceasta se va aplica după ce te deconectezi. Te rugăm să folosești aici parola veche.</translation>
 <translation id="1677472565718498478">Timp rămas: <ph name="TIME" /></translation>
@@ -43,12 +45,15 @@
 <translation id="1951012854035635156">Asistent</translation>
 <translation id="1957803754585243749">0°</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
+<translation id="1995660704900986789">Oprește alimentarea</translation>
 <translation id="2012624427112548395">Ctrl + tasta de căutare + H</translation>
 <translation id="2049639323467105390">Acest dispozitiv este gestionat de <ph name="DOMAIN" />.</translation>
 <translation id="2050339315714019657">Portret</translation>
 <translation id="2067602449040652523">Luminozitatea tastaturii</translation>
+<translation id="2081529251031312395">$1 se poate conecta și mai târziu.</translation>
 <translation id="2122028596993374965">Nu mai proiecta <ph name="TAB_NAME" /> pe dispozitivul <ph name="RECEIVER_NAME" /></translation>
 <translation id="2127372758936585790">Încărcător de putere joasă</translation>
+<translation id="2135456203358955318">Lupă andocată</translation>
 <translation id="2144487987174258011">Repornește ca să actualizezi Adobe Flash Player</translation>
 <translation id="2208323208084708176">Modul Desktop unificat</translation>
 <translation id="2220572644011485463">PIN sau parolă</translation>
@@ -73,7 +78,6 @@
 <translation id="2653659639078652383">Trimite</translation>
 <translation id="2675319268637823299">Un administrator a interzis conectarea multiplă pentru <ph name="USER_EMAIL" />.
     Toți utilizatorii trebuie să se deconecteze pentru a continua.</translation>
-<translation id="2700058918926273959">Sesiunea se încheie peste <ph name="SESSION_TIME_REMAINING" />. Veți fi deconectat(ă).</translation>
 <translation id="2727977024730340865">V-ați conectat la un încărcător de putere joasă. Încărcarea bateriei poate fi nesigură.</translation>
 <translation id="2761704814324807722">Bară de stare, durată <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581">Se reconectează la <ph name="NAME" /></translation>
@@ -83,6 +87,7 @@
 <translation id="2844169650293029770">Dispozitiv USB-C (portul din stânga față)</translation>
 <translation id="2865888419503095837">Informații despre rețea</translation>
 <translation id="2872961005593481000">Închide</translation>
+<translation id="2878884018241093801">Niciun element recent</translation>
 <translation id="2903844815300039659">Conectat la <ph name="NAME" />, <ph name="STRENGTH" /></translation>
 <translation id="2911940648265863620">Acum permiți accesul la ecran</translation>
 <translation id="2942516765047364088">Poziție raft</translation>
@@ -109,7 +114,6 @@
 <translation id="3413817803639110246">Încă nu este nimic de văzut</translation>
 <translation id="3445925074670675829">Dispozitiv USB-C</translation>
 <translation id="3465566417615315331">Dă clic pe fotografia ta</translation>
-<translation id="3473479545200714844">Lupă de ecran</translation>
 <translation id="3477079411857374384">Control-Shift-Space</translation>
 <translation id="3510164367642747937">Evidențiază cursorul mouse-ului</translation>
 <translation id="3513798432020909783">Cont gestionat de <ph name="MANAGER_EMAIL" /></translation>
@@ -131,6 +135,7 @@
 <translation id="3891340733213178823">Apăsați de două ori Ctrl+Shift+Q pentru a vă deconecta.</translation>
 <translation id="3893630138897523026">ChromeVox (feedback rostit)</translation>
 <translation id="3899995891769452915">Intrare vocală</translation>
+<translation id="3900355044994618856">Sesiunea se va încheia în <ph name="SESSION_TIME_REMAINING" /></translation>
 <translation id="3901991538546252627">Se conectează la <ph name="NAME" /></translation>
 <translation id="394485226368336402">Setări audio</translation>
 <translation id="397105322502079400">Se calculează...</translation>
@@ -139,6 +144,7 @@
 <translation id="4072264167173457037">Semnal mediu</translation>
 <translation id="4279490309300973883">Oglindire</translation>
 <translation id="4321179778687042513">ctrl</translation>
+<translation id="4331809312908958774">Sistemul de operare Chrome</translation>
 <translation id="4338109981321384717">Lupă</translation>
 <translation id="4351433414020964307">Asistentul se încarcă...</translation>
 <translation id="4378551569595875038">Se stabilește conexiunea...</translation>
@@ -183,6 +189,7 @@
 <translation id="5744083938413354016">Tragere prin atingere</translation>
 <translation id="5777841717266010279">Oprești permiterea accesului la ecran?</translation>
 <translation id="57838592816432529">Dezactivează sunetul</translation>
+<translation id="5820394555380036790">Sistemul de operare Chromium</translation>
 <translation id="5832805196449965646">Adăugați un utilizator</translation>
 <translation id="5860033963881614850">Dezactivat</translation>
 <translation id="5895138241574237353">Reîncepe</translation>
@@ -206,6 +213,7 @@
 <translation id="607652042414456612">Computerul poate fi detectat de dispozitivele Bluetooth din apropiere și va apărea ca „<ph name="NAME" />” cu adresa <ph name="ADDRESS" /></translation>
 <translation id="6106745654298855237">Se încarcă <ph name="POWER_SOURCE" /></translation>
 <translation id="615957422585914272">Afișați tastatura pe ecran</translation>
+<translation id="6164005077879661055">Toate fișierele și datele locale asociate acestui utilizator monitorizat vor fi șterse definitiv după eliminarea acestui utilizator monitorizat. Site-urile web accesate și setările acestui utilizator monitorizat pot fi în continuare vizibile pentru manager la <ph name="MANAGEMENT_URL" />.</translation>
 <translation id="6165508094623778733">Află mai multe</translation>
 <translation id="6267036997247669271"><ph name="NAME" />: se activează...</translation>
 <translation id="6284232397434400372">Rezoluția a fost schimbată</translation>
@@ -239,6 +247,7 @@ Folosește funcția numai pentru conturile în care ai încredere.</translation>
 <translation id="6857811139397017780">Activează <ph name="NETWORKSERVICE" /></translation>
 <translation id="6911468394164995108">Conectați-vă la altă rețea...</translation>
 <translation id="6981982820502123353">Accesibilitate</translation>
+<translation id="698231206551913481">Toate fișierele și datele locale asociate acestui utilizator vor fi șterse definitiv după eliminarea utilizatorului.</translation>
 <translation id="7029814467594812963">Ieșiți din sesiune</translation>
 <translation id="7034339000180558234">Se proiectează <ph name="TAB_NAME" /> pe <ph name="RECEIVER_NAME" /></translation>
 <translation id="7052914147756339792">Setați o imagine de fundal...</translation>
@@ -246,6 +255,7 @@ Folosește funcția numai pentru conturile în care ai încredere.</translation>
 <translation id="7066646422045619941">Această rețea este dezactivată de administrator.</translation>
 <translation id="7067196344162293536">Rotire automată</translation>
 <translation id="7098389117866926363">Dispozitiv USB-C (portul din stânga în spate)</translation>
+<translation id="7131634465328662194">Vei fi deconectat(ă) automat.</translation>
 <translation id="7165278925115064263">Alt + Shift + K</translation>
 <translation id="7168224885072002358">Se revine la rezoluția anterioară în <ph name="TIMEOUT_SECONDS" /></translation>
 <translation id="7256634071279256947">Microfonul din spate</translation>
@@ -302,6 +312,7 @@ Folosește funcția numai pentru conturile în care ai încredere.</translation>
 <translation id="8484916590211895857"><ph name="NAME" />: se reconectează...</translation>
 <translation id="8517041960877371778">Este posibil ca <ph name="DEVICE_TYPE" /> să nu se încarce cât timp este pornit.</translation>
 <translation id="8639760480004882931">Nivelul bateriei: <ph name="PERCENTAGE" /></translation>
+<translation id="8649101189709089199">Selectează și ascultă</translation>
 <translation id="8652175077544655965">Închide setările</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">A fost conectat un încărcător de putere joasă</translation>
@@ -311,6 +322,7 @@ Folosește funcția numai pentru conturile în care ai încredere.</translation>
 Notificările, ferestrele și casetele de dialog ulterioare ar putea fi împărțite între ecrane.</translation>
 <translation id="8825534185036233643">Oglindirea cu mai mult de două afișaje nu este acceptată.</translation>
 <translation id="8828714802988429505">90°</translation>
+<translation id="8841375032071747811">Butonul Înapoi</translation>
 <translation id="8850991929411075241">Tasta de căutare + Esc</translation>
 <translation id="8870509716567206129">Aplicația nu acceptă ecranul împărțit.</translation>
 <translation id="8878886163241303700">Ecran extins</translation>

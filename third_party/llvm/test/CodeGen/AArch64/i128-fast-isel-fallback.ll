@@ -1,4 +1,4 @@
-; RUN: llc -O0 -mtriple=arm64-apple-ios7.0 -mcpu=generic < %s | FileCheck %s
+; RUN: llc -O0 -fast-isel -mtriple=arm64-apple-ios7.0 -mcpu=generic < %s | FileCheck %s
 
 ; Function Attrs: nounwind ssp
 define void @test1() {
@@ -10,7 +10,7 @@ define void @test1() {
 ; registers that make up the i128 pair
 
 ; CHECK:  mov  x0, xzr
-; CHECK:  mov  x1, x0
+; CHECK:  mov  x1, xzr 
 ; CHECK:  bl  _test2
 
 }

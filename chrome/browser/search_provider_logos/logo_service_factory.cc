@@ -30,7 +30,7 @@ constexpr base::FilePath::CharType kCachedLogoDirectory[] =
 
 bool UseGrayLogo() {
 #if defined(OS_ANDROID)
-  return !chrome::android::GetIsChromeHomeEnabled();
+  return !chrome::android::GetIsChromeModernDesignEnabled();
 #else
   return false;
 #endif
@@ -67,6 +67,6 @@ KeyedService* LogoServiceFactory::BuildServiceInstanceFor(
       profile->GetPath().Append(kCachedLogoDirectory),
       GaiaCookieManagerServiceFactory::GetForProfile(profile),
       TemplateURLServiceFactory::GetForProfile(profile),
-      base::MakeUnique<suggestions::ImageDecoderImpl>(),
+      std::make_unique<suggestions::ImageDecoderImpl>(),
       profile->GetRequestContext(), base::BindRepeating(&UseGrayLogo));
 }

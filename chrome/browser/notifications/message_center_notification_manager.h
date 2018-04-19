@@ -15,13 +15,12 @@
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
-#include "chrome/browser/notifications/message_center_stats_collector.h"
 #include "chrome/browser/notifications/notification_system_observer.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/message_center_observer.h"
 #include "ui/message_center/message_center_types.h"
-#include "ui/message_center/notification.h"
+#include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/ui_delegate.h"
 
 class Profile;
@@ -101,9 +100,6 @@ class MessageCenterNotificationManager
   std::vector<std::unique_ptr<message_center::NotificationBlocker>> blockers_;
 
   NotificationSystemObserver system_observer_;
-
-  // Keeps track of all notification statistics for UMA purposes.
-  MessageCenterStatsCollector stats_collector_;
 
   // Tracks if shutdown has started.
   bool is_shutdown_started_ = false;

@@ -26,8 +26,10 @@
 #include "chrome/browser/signin/account_reconcilor_factory.h"
 #include "chrome/browser/signin/account_tracker_service_factory.h"
 #include "chrome/browser/signin/chrome_signin_helper.h"
+#include "chrome/browser/signin/mutable_profile_oauth2_token_service_delegate.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
+#include "chrome/browser/sync/user_event_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/profile_chooser_constants.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
@@ -46,6 +48,7 @@
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/browser/signin_metrics.h"
 #include "components/sync/base/sync_prefs.h"
+#include "components/sync/user_events/user_event_service.h"
 #include "components/variations/variations_switches.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
@@ -379,6 +382,7 @@ class DiceBrowserTestBase : public InProcessBrowserTest,
         "existing_refresh_token", kMainGaiaID, kMainEmail, "password",
         SigninManager::OAuthTokenFetchedCallback());
     ASSERT_TRUE(GetTokenService()->RefreshTokenIsAvailable(GetMainAccountID()));
+    ASSERT_FALSE(GetTokenService()->RefreshTokenHasError(GetMainAccountID()));
     ASSERT_EQ(GetMainAccountID(), signin_manager->GetAuthenticatedAccountId());
 
     // Add a token for a secondary account.
@@ -388,6 +392,7 @@ class DiceBrowserTestBase : public InProcessBrowserTest,
     GetTokenService()->UpdateCredentials(secondary_account_id, "other_token");
     ASSERT_TRUE(
         GetTokenService()->RefreshTokenIsAvailable(secondary_account_id));
+    ASSERT_FALSE(GetTokenService()->RefreshTokenHasError(secondary_account_id));
   }
 
   // Navigate to a Gaia URL setting the Google-Accounts-SignOut header.
@@ -435,6 +440,19 @@ class DiceBrowserTestBase : public InProcessBrowserTest,
     // stable state.
     reconcilor->AbortReconcile();
     reconcilor->AddObserver(this);
+
+    // TODO(crbug.com/709094, crbug.com/761485): This browsertest exercises
+    // the Sync confirmation dialog and thus triggers consent recording. For
+    // that to happen successfully, UserEventSyncBridge must be ready to
+    // receive events. UserEventSyncBridge initializes asynchronously which
+    // is not a problem for regular usage, but in this browsertest, we must
+    // give it enough time to do so.
+    while (!browser_sync::UserEventServiceFactory::GetForProfile(
+                browser()->profile())
+                ->GetSyncBridge()
+                ->change_processor()
+                ->IsTrackingMetadata())
+      base::RunLoop().RunUntilIdle();
   }
 
   void TearDownOnMainThread() override {
@@ -626,15 +644,6 @@ class DicePrepareMigrationBrowserTest : public DiceBrowserTestBase {
       : DiceBrowserTestBase(AccountConsistencyMethod::kDicePrepareMigration) {}
 };
 
-class DicePrepareMigrationChromeSynEndpointBrowserTest
-    : public DiceBrowserTestBase {
- public:
-  DicePrepareMigrationChromeSynEndpointBrowserTest()
-      : DiceBrowserTestBase(
-            AccountConsistencyMethod::kDicePrepareMigrationChromeSyncEndpoint) {
-  }
-};
-
 // Checks that signin on Gaia triggers the fetch for a refresh token.
 IN_PROC_BROWSER_TEST_F(DiceBrowserTest, Signin) {
   EXPECT_EQ(0, reconcilor_started_count_);
@@ -702,14 +711,25 @@ IN_PROC_BROWSER_TEST_F(DiceBrowserTest, SignoutMainAccount) {
   // Signout from main account.
   SignOutWithDice(kMainAccount);
 
-  // Check that the user is signed out and all tokens are deleted.
-  EXPECT_TRUE(GetSigninManager()->GetAuthenticatedAccountId().empty());
-  EXPECT_TRUE(GetSigninManager()->GetAccountIdForAuthInProgress().empty());
-  EXPECT_FALSE(GetTokenService()->RefreshTokenIsAvailable(GetMainAccountID()));
-  EXPECT_FALSE(
+  // Check that the user is in error state.
+  EXPECT_EQ(GetMainAccountID(),
+            GetSigninManager()->GetAuthenticatedAccountId());
+  MutableProfileOAuth2TokenServiceDelegate* delegate =
+      static_cast<MutableProfileOAuth2TokenServiceDelegate*>(
+          GetTokenService()->GetDelegate());
+  EXPECT_TRUE(GetTokenService()->RefreshTokenIsAvailable(GetMainAccountID()));
+  EXPECT_TRUE(GetTokenService()->RefreshTokenHasError(GetMainAccountID()));
+  EXPECT_EQ(MutableProfileOAuth2TokenServiceDelegate::kInvalidRefreshToken,
+            delegate->GetRefreshTokenForTest(GetMainAccountID()));
+  EXPECT_TRUE(
       GetTokenService()->RefreshTokenIsAvailable(GetSecondaryAccountID()));
-  EXPECT_EQ(2, token_revoked_notification_count_);
-  WaitForTokenRevokedCount(2);
+  EXPECT_EQ("other_token",
+            delegate->GetRefreshTokenForTest(GetSecondaryAccountID()));
+
+  // Token for main account is revoked on server but not notified in the client.
+  EXPECT_EQ(0, token_revoked_notification_count_);
+  WaitForTokenRevokedCount(1);
+
   EXPECT_EQ(1, reconcilor_blocked_count_);
   WaitForReconcilorUnblockedCount(1);
 }
@@ -744,14 +764,23 @@ IN_PROC_BROWSER_TEST_F(DiceBrowserTest, SignoutAllAccounts) {
   // Signout from all accounts.
   SignOutWithDice(kAllAccounts);
 
-  // Check that the user is signed out and all tokens are deleted.
-  EXPECT_TRUE(GetSigninManager()->GetAuthenticatedAccountId().empty());
-  EXPECT_TRUE(GetSigninManager()->GetAccountIdForAuthInProgress().empty());
-  EXPECT_FALSE(GetTokenService()->RefreshTokenIsAvailable(GetMainAccountID()));
+  // Check that the user is in error state.
+  EXPECT_EQ(GetMainAccountID(),
+            GetSigninManager()->GetAuthenticatedAccountId());
+  EXPECT_TRUE(GetTokenService()->RefreshTokenIsAvailable(GetMainAccountID()));
+  EXPECT_TRUE(GetTokenService()->RefreshTokenHasError(GetMainAccountID()));
+  MutableProfileOAuth2TokenServiceDelegate* delegate =
+      static_cast<MutableProfileOAuth2TokenServiceDelegate*>(
+          GetTokenService()->GetDelegate());
+  EXPECT_EQ(MutableProfileOAuth2TokenServiceDelegate::kInvalidRefreshToken,
+            delegate->GetRefreshTokenForTest(GetMainAccountID()));
   EXPECT_FALSE(
       GetTokenService()->RefreshTokenIsAvailable(GetSecondaryAccountID()));
-  EXPECT_EQ(2, token_revoked_notification_count_);
+
+  // Token for main account is revoked on server but not notified in the client.
+  EXPECT_EQ(1, token_revoked_notification_count_);
   WaitForTokenRevokedCount(2);
+
   EXPECT_EQ(1, reconcilor_blocked_count_);
   WaitForReconcilorUnblockedCount(1);
 }
@@ -892,33 +921,6 @@ IN_PROC_BROWSER_TEST_F(DiceFixAuthErrorsBrowserTest, Signout) {
   WaitForReconcilorUnblockedCount(0);
 }
 
-// Checks that signin on Gaia triggers the fetch for a refresh token.
-IN_PROC_BROWSER_TEST_F(DicePrepareMigrationBrowserTest, Signin) {
-  EXPECT_EQ(0, reconcilor_started_count_);
-
-  // Navigate to Gaia and sign in.
-  NavigateToURL(kSigninURL);
-
-  // Check that the Dice request header was sent, with no signout confirmation.
-  std::string client_id = GaiaUrls::GetInstance()->oauth2_chrome_client_id();
-  EXPECT_EQ(
-      base::StringPrintf("version=%s,client_id=%s,signin_mode=all_accounts,"
-                         "signout_mode=no_confirmation",
-                         signin::kDiceProtocolVersion, client_id.c_str()),
-      dice_request_header_);
-
-  // Check that the token was requested and added to the token service.
-  SendRefreshTokenResponse();
-  EXPECT_TRUE(GetTokenService()->RefreshTokenIsAvailable(GetMainAccountID()));
-  // Sync should not be enabled.
-  EXPECT_TRUE(GetSigninManager()->GetAuthenticatedAccountId().empty());
-  EXPECT_TRUE(GetSigninManager()->GetAccountIdForAuthInProgress().empty());
-
-  EXPECT_EQ(1, reconcilor_blocked_count_);
-  WaitForReconcilorUnblockedCount(1);
-  EXPECT_EQ(1, reconcilor_started_count_);
-}
-
 IN_PROC_BROWSER_TEST_F(DicePrepareMigrationBrowserTest, Signout) {
   // Start from a signed-in state.
   SetupSignedInAccounts();
@@ -941,8 +943,7 @@ IN_PROC_BROWSER_TEST_F(DicePrepareMigrationBrowserTest, Signout) {
 
 // Tests that Sync is enabled if the ENABLE_SYNC response is received after the
 // refresh token.
-IN_PROC_BROWSER_TEST_F(DicePrepareMigrationChromeSynEndpointBrowserTest,
-                       EnableSyncAfterToken) {
+IN_PROC_BROWSER_TEST_F(DicePrepareMigrationBrowserTest, EnableSyncAfterToken) {
   EXPECT_EQ(0, reconcilor_started_count_);
 
   // Signin using the Chrome Sync endpoint.
@@ -955,6 +956,9 @@ IN_PROC_BROWSER_TEST_F(DicePrepareMigrationChromeSynEndpointBrowserTest,
   SendRefreshTokenResponse();
   EXPECT_TRUE(GetTokenService()->RefreshTokenIsAvailable(GetMainAccountID()));
 
+  // Receive ENABLE_SYNC.
+  SendEnableSyncResponse();
+
   // Check that the Dice request header was sent, with no signout confirmation.
   std::string client_id = GaiaUrls::GetInstance()->oauth2_chrome_client_id();
   EXPECT_EQ(
@@ -962,9 +966,6 @@ IN_PROC_BROWSER_TEST_F(DicePrepareMigrationChromeSynEndpointBrowserTest,
                          "signout_mode=no_confirmation",
                          signin::kDiceProtocolVersion, client_id.c_str()),
       dice_request_header_);
-
-  // Receive ENABLE_SYNC.
-  SendEnableSyncResponse();
 
   WaitForSigninSucceeded();
   EXPECT_EQ(GetMainAccountID(),
@@ -986,8 +987,7 @@ IN_PROC_BROWSER_TEST_F(DicePrepareMigrationChromeSynEndpointBrowserTest,
 
 // Tests that Sync is enabled if the ENABLE_SYNC response is received before the
 // refresh token.
-IN_PROC_BROWSER_TEST_F(DicePrepareMigrationChromeSynEndpointBrowserTest,
-                       EnableSyncBeforeToken) {
+IN_PROC_BROWSER_TEST_F(DicePrepareMigrationBrowserTest, EnableSyncBeforeToken) {
   EXPECT_EQ(0, reconcilor_started_count_);
 
   // Signin using the Chrome Sync endpoint.
@@ -1002,6 +1002,11 @@ IN_PROC_BROWSER_TEST_F(DicePrepareMigrationChromeSynEndpointBrowserTest,
       https_server_.GetURL(kEnableSyncURL),
       content::NotificationService::AllSources());
 
+  // Receive token.
+  EXPECT_FALSE(GetTokenService()->RefreshTokenIsAvailable(GetMainAccountID()));
+  SendRefreshTokenResponse();
+  EXPECT_TRUE(GetTokenService()->RefreshTokenIsAvailable(GetMainAccountID()));
+
   // Check that the Dice request header was sent, with no signout confirmation.
   std::string client_id = GaiaUrls::GetInstance()->oauth2_chrome_client_id();
   EXPECT_EQ(
@@ -1009,11 +1014,6 @@ IN_PROC_BROWSER_TEST_F(DicePrepareMigrationChromeSynEndpointBrowserTest,
                          "signout_mode=no_confirmation",
                          signin::kDiceProtocolVersion, client_id.c_str()),
       dice_request_header_);
-
-  // Receive token.
-  EXPECT_FALSE(GetTokenService()->RefreshTokenIsAvailable(GetMainAccountID()));
-  SendRefreshTokenResponse();
-  EXPECT_TRUE(GetTokenService()->RefreshTokenIsAvailable(GetMainAccountID()));
 
   WaitForSigninSucceeded();
   EXPECT_EQ(GetMainAccountID(),

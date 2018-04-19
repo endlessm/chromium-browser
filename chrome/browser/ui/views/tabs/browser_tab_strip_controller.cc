@@ -7,10 +7,10 @@
 #include <utility>
 
 #include "base/auto_reset.h"
+#include "base/command_line.h"
 #include "base/macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/task_scheduler/post_task.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "build/build_config.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
 #include "chrome/browser/browser_process.h"
@@ -31,9 +31,10 @@
 #include "chrome/browser/ui/views/tabs/tab.h"
 #include "chrome/browser/ui/views/tabs/tab_renderer_data.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
-#include "components/feature_engagement/features.h"
+#include "components/feature_engagement/buildflags.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/prefs/pref_service.h"
@@ -47,8 +48,9 @@
 #include "content/public/common/webplugininfo.h"
 #include "ipc/ipc_message.h"
 #include "net/base/filename_util.h"
-#include "third_party/WebKit/common/mime_util/mime_util.h"
+#include "third_party/WebKit/public/common/mime_util/mime_util.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/models/list_selection_model.h"
 #include "ui/gfx/image/image.h"
 #include "ui/views/controls/menu/menu_runner.h"
@@ -70,9 +72,12 @@ bool DetermineTabStripLayoutStacked(PrefService* prefs, bool* adjust_layout) {
   // For ash, always allow entering stacked mode.
 #if defined(OS_CHROMEOS)
   *adjust_layout = true;
-  return prefs->GetBoolean(prefs::kTabStripStackedLayout);
+  // Stacked layout is always enabled in touch optimized UI design.
+  return ui::MaterialDesignController::IsTouchOptimizedUiEnabled() ||
+         prefs->GetBoolean(prefs::kTabStripStackedLayout);
 #else
-  return false;
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kForceStackedTabStripLayout);
 #endif
 }
 

@@ -7,14 +7,9 @@
 
 namespace flag_descriptions {
 
-// Title and description for the flag to enable the adaptive toolbar.
-extern const char kAdaptiveToolbarName[];
-extern const char kAdaptiveToolbarDescription[];
-
-// Title and description for the flag to enable the new bookmark edit page in
-// the new bookmark UI.
-extern const char kBookmarkNewEditPageName[];
-extern const char kBookmarkNewEditPageDescription[];
+// Title and description for the flag to controll the autofill delay.
+extern const char kAutofillIOSDelayBetweenFieldsName[];
+extern const char kAutofillIOSDelayBetweenFieldsDescription[];
 
 // Title and description for the flag to control redirection to the task
 // scheduler.
@@ -25,25 +20,34 @@ extern const char kBrowserTaskSchedulerDescription[];
 extern const char kCaptivePortalName[];
 extern const char kCaptivePortalDescription[];
 
-// Title and description for the flag to enable Clean Toolbar.
-extern const char kCleanToolbarName[];
-extern const char kCleanToolbarDescription[];
-
-// Title and description for the flag to enable Omnibox Clipping.
-extern const char kClippingTextfieldName[];
-extern const char kClippingTextfieldDescription[];
+// Title and description for the flag to enable Captive Portal metrics logging.
+extern const char kCaptivePortalMetricsName[];
+extern const char kCaptivePortalMetricsDescription[];
 
 // Title and description for the flag to enable Contextual Search.
 extern const char kContextualSearch[];
 extern const char kContextualSearchDescription[];
 
+// Title and description for the flag to enable returning the DOM element for
+// context menu using webkit postMessage API.
+extern const char kContextMenuElementPostMessageName[];
+extern const char kContextMenuElementPostMessageDescription[];
+
 // Title and description for the flag to enable drag and drop.
 extern const char kDragAndDropName[];
 extern const char kDragAndDropDescription[];
 
+// Title and description for the flag to enable new Clear Browsing Data UI.
+extern const char kNewClearBrowsingDataUIName[];
+extern const char kNewClearBrowsingDataUIDescription[];
+
 // Title and description for the flag to enable External Search.
 extern const char kExternalSearchName[];
 extern const char kExternalSearchDescription[];
+
+// Title and description for the flag to enable use of FeedbackKit V2.
+extern const char kFeedbackKitV2Name[];
+extern const char kFeedbackKitV2Description[];
 
 // Title and description for the flag to enable History batch filtering.
 extern const char kHistoryBatchUpdatesFilterName[];
@@ -54,6 +58,10 @@ extern const char kHistoryBatchUpdatesFilterDescription[];
 extern const char kInProductHelpDemoModeName[];
 extern const char kInProductHelpDemoModeDescription[];
 
+// Title, description, and options for Google UI menu for handling mailto links.
+extern const char kMailtoHandlingWithGoogleUIName[];
+extern const char kMailtoHandlingWithGoogleUIDescription[];
+
 // Title, description, and options for the MarkHttpAs setting that controls
 // display of omnibox warnings about non-secure pages.
 extern const char kMarkHttpAsName[];
@@ -62,11 +70,6 @@ extern const char kMarkHttpAsDescription[];
 // Title and description for the flag to enable the Memex Tab Switcher.
 extern const char kMemexTabSwitcherName[];
 extern const char kMemexTabSwitcherDescription[];
-
-// Title and description for the flag to enable the new fullscreen
-// implementation.
-extern const char kNewFullscreenName[];
-extern const char kNewFullscreenDescription[];
 
 // Title and description for the flag to enable elision of the URL path, query,
 // and ref in omnibox URL suggestions.
@@ -92,9 +95,10 @@ extern const char kPasswordExportDescription[];
 extern const char kPhysicalWeb[];
 extern const char kPhysicalWebDescription[];
 
-// Title and description for the flag to have the toolbar respect the safe area.
-extern const char kSafeAreaCompatibleToolbarName[];
-extern const char kSafeAreaCompatibleToolbarDescription[];
+// Title and description for the flag to enable the new UI Reboot on Recent
+// Tabs.
+extern const char kRecentTabsUIRebootName[];
+extern const char kRecentTabsUIRebootDescription[];
 
 // Title and description for the flag to share the canonical URL of the
 // current page instead of the visible URL.
@@ -125,6 +129,14 @@ extern const char kShowAutofillTypePredictionsDescription[];
 // BVC.
 extern const char kTabSwitcherPresentsBVCName[];
 extern const char kTabSwitcherPresentsBVCDescription[];
+
+// Title and description for the flag to enable the TabGrid as the tab switcher.
+extern const char kTabSwitcherTabGridName[];
+extern const char kTabSwitcherTabGridDescription[];
+
+// Title and description for the flag to enable the phase 1 UI Refresh.
+extern const char kUIRefreshPhase1Name[];
+extern const char kUIRefreshPhase1Description[];
 
 // Title and description for the flag to enable the ddljson Doodle API.
 extern const char kUseDdljsonApiName[];

@@ -5,16 +5,19 @@
 #ifndef CHROME_BROWSER_UI_APP_LIST_APP_LIST_MODEL_UPDATER_H_
 #define CHROME_BROWSER_UI_APP_LIST_APP_LIST_MODEL_UPDATER_H_
 
-#include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "ash/app_list/model/app_list_folder_item.h"
 #include "ash/app_list/model/app_list_model.h"
 #include "ash/app_list/model/search/search_result.h"
-#include "ash/app_list/model/speech/speech_ui_model.h"
+#include "ash/public/interfaces/app_list.mojom.h"
+#include "base/callback_forward.h"
 #include "base/strings/string16.h"
+#include "chrome/browser/ui/app_list/app_list_model_updater_delegate.h"
+#include "chrome/browser/ui/app_list/app_list_syncable_service.h"
 
 class ChromeAppListItem;
 
@@ -36,6 +39,11 @@ class AppListModelUpdater {
     AppListModelUpdater* const model_updater_;
   };
 
+  virtual ~AppListModelUpdater() {}
+
+  virtual app_list::AppListModel* GetModel() = 0;
+  virtual app_list::SearchModel* GetSearchModel() = 0;
+
   // For AppListModel:
   virtual void AddItem(std::unique_ptr<ChromeAppListItem> item) {}
   virtual void AddItemToFolder(std::unique_ptr<ChromeAppListItem> item,
@@ -44,8 +52,8 @@ class AppListModelUpdater {
   virtual void RemoveUninstalledItem(const std::string& id) {}
   virtual void MoveItemToFolder(const std::string& id,
                                 const std::string& folder_id) {}
-  virtual void SetStatus(app_list::AppListModel::Status status) {}
-  virtual void SetState(app_list::AppListModel::State state) {}
+  virtual void SetStatus(ash::AppListModelStatus status) {}
+  virtual void SetState(ash::AppListState state) {}
   virtual void HighlightItemInstalledFromUI(const std::string& id) {}
   // For SearchModel:
   virtual void SetSearchEngineIsGoogle(bool is_google) {}
@@ -53,8 +61,6 @@ class AppListModelUpdater {
       const base::string16& tablet_accessible_name,
       const base::string16& clamshell_accessible_name) {}
   virtual void SetSearchHintText(const base::string16& hint_text) {}
-  virtual void SetSearchSpeechRecognitionButton(
-      app_list::SpeechRecognitionState state) {}
   virtual void UpdateSearchBox(const base::string16& text,
                                bool initiated_by_user) {}
   virtual void PublishSearchResults(
@@ -74,22 +80,48 @@ class AppListModelUpdater {
   virtual void SetItemPercentDownloaded(const std::string& id,
                                         int32_t percent_downloaded) {}
 
+  virtual void ActivateChromeItem(const std::string& id, int event_flags) {}
+
   // For AppListModel:
   virtual ChromeAppListItem* FindItem(const std::string& id) = 0;
   virtual size_t ItemCount() = 0;
   virtual ChromeAppListItem* ItemAtForTest(size_t index) = 0;
-  // TODO(hejq): |FindFolderItem| will return |ChromeAppListItem|.
-  virtual app_list::AppListFolderItem* FindFolderItem(
-      const std::string& folder_id) = 0;
+  virtual ChromeAppListItem* FindFolderItem(const std::string& folder_id) = 0;
   virtual bool FindItemIndexForTest(const std::string& id, size_t* index) = 0;
-  virtual app_list::AppListViewState StateFullscreen() = 0;
-  virtual std::map<std::string, size_t> GetIdToAppListIndexMap() = 0;
-  // For SearchModel:
-  virtual bool TabletMode() = 0;
-  virtual bool SearchEngineIsGoogle() = 0;
+  using GetIdToAppListIndexMapCallback =
+      base::OnceCallback<void(const std::unordered_map<std::string, size_t>&)>;
+  virtual void GetIdToAppListIndexMap(GetIdToAppListIndexMapCallback callback) {
+  }
+  virtual void ContextMenuItemSelected(const std::string& id,
+                                       int command_id,
+                                       int event_flags) {}
 
- protected:
-  virtual ~AppListModelUpdater() {}
+  // Methods for AppListSyncableService:
+  virtual void AddItemToOemFolder(
+      std::unique_ptr<ChromeAppListItem> item,
+      app_list::AppListSyncableService::SyncItem* oem_sync_item,
+      const std::string& oem_folder_id,
+      const std::string& oem_folder_name,
+      const syncer::StringOrdinal& preferred_oem_position) {}
+  using ResolveOemFolderPositionCallback =
+      base::OnceCallback<void(ChromeAppListItem*)>;
+  virtual void ResolveOemFolderPosition(
+      const std::string& oem_folder_id,
+      const syncer::StringOrdinal& preferred_oem_position,
+      ResolveOemFolderPositionCallback callback) {}
+  virtual void UpdateAppItemFromSyncItem(
+      app_list::AppListSyncableService::SyncItem* sync_item,
+      bool update_name,
+      bool update_folder) {}
+
+  virtual ui::MenuModel* GetContextMenuModel(const std::string& id) = 0;
+  virtual size_t BadgedItemCount() = 0;
+  // For SearchModel:
+  virtual bool SearchEngineIsGoogle() = 0;
+  virtual app_list::SearchResult* FindSearchResult(
+      const std::string& result_id) = 0;
+
+  virtual void SetDelegate(AppListModelUpdaterDelegate* delegate) = 0;
 };
 
 #endif  // CHROME_BROWSER_UI_APP_LIST_APP_LIST_MODEL_UPDATER_H_

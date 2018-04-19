@@ -6,16 +6,16 @@
 
 #include <memory>
 
-#include "ash/autoclick/mus/autoclick_application.h"
+#include "ash/components/autoclick/autoclick_application.h"
+#include "ash/components/quick_launch/public/mojom/constants.mojom.h"
+#include "ash/components/quick_launch/quick_launch_application.h"
+#include "ash/components/touch_hud/touch_hud_application.h"
 #include "ash/public/interfaces/constants.mojom.h"
-#include "ash/touch_hud/mus/touch_hud_application.h"
 #include "ash/window_manager_service.h"
 #include "base/bind.h"
 #include "build/build_config.h"
 #include "components/font_service/font_service_app.h"
 #include "components/font_service/public/interfaces/constants.mojom.h"
-#include "mash/quick_launch/public/interfaces/constants.mojom.h"
-#include "mash/quick_launch/quick_launch.h"
 #include "services/ui/common/image_cursors_set.h"
 #include "services/ui/public/interfaces/constants.mojom.h"
 #include "services/ui/service.h"
@@ -34,7 +34,7 @@ void RegisterMashService(
 }
 
 // Runs on the UI service main thread.
-// NOTE: For --mus the UI service is created at the //chrome/browser layer,
+// NOTE: For mus the UI service is created at the //chrome/browser layer,
 // not in //content. See ServiceManagerContext.
 std::unique_ptr<service_manager::Service> CreateUiService(
     const scoped_refptr<base::SingleThreadTaskRunner>& resource_runner,
@@ -67,16 +67,16 @@ std::unique_ptr<service_manager::Service> CreateAshService() {
       show_primary_host_on_connect);
 }
 
-std::unique_ptr<service_manager::Service> CreateAccessibilityAutoclick() {
-  return std::make_unique<ash::autoclick::AutoclickApplication>();
+std::unique_ptr<service_manager::Service> CreateAutoclickApp() {
+  return std::make_unique<autoclick::AutoclickApplication>();
 }
 
-std::unique_ptr<service_manager::Service> CreateQuickLaunch() {
-  return std::make_unique<mash::quick_launch::QuickLaunch>();
+std::unique_ptr<service_manager::Service> CreateQuickLaunchApp() {
+  return std::make_unique<quick_launch::QuickLaunchApplication>();
 }
 
-std::unique_ptr<service_manager::Service> CreateTouchHud() {
-  return std::make_unique<ash::touch_hud::TouchHudApplication>();
+std::unique_ptr<service_manager::Service> CreateTouchHudApp() {
+  return std::make_unique<touch_hud::TouchHudApplication>();
 }
 
 std::unique_ptr<service_manager::Service> CreateFontService() {
@@ -93,12 +93,11 @@ MashServiceFactory::~MashServiceFactory() = default;
 void MashServiceFactory::RegisterOutOfProcessServices(
     content::ContentUtilityClient::StaticServiceMap* services) {
   RegisterUiService(services, cursors_.get());
-  RegisterMashService(services, mash::quick_launch::mojom::kServiceName,
-                      &CreateQuickLaunch);
+  RegisterMashService(services, quick_launch::mojom::kServiceName,
+                      &CreateQuickLaunchApp);
   RegisterMashService(services, ash::mojom::kServiceName, &CreateAshService);
-  RegisterMashService(services, "accessibility_autoclick",
-                      &CreateAccessibilityAutoclick);
-  RegisterMashService(services, "touch_hud", &CreateTouchHud);
+  RegisterMashService(services, "autoclick_app", &CreateAutoclickApp);
+  RegisterMashService(services, "touch_hud_app", &CreateTouchHudApp);
   RegisterMashService(services, font_service::mojom::kServiceName,
                       &CreateFontService);
 }

@@ -15,8 +15,7 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/devicetype_utils.h"
-#include "ui/message_center/message_center_types.h"
-#include "ui/message_center/notification_types.h"
+#include "ui/message_center/public/cpp/notification_types.h"
 
 namespace {
 
@@ -42,7 +41,7 @@ std::unique_ptr<message_center::Notification> CreateNotification(
     const gfx::Image& icon,
     const message_center::RichNotificationData& rich_notification_data,
     message_center::NotificationDelegate* delegate) {
-  return base::MakeUnique<message_center::Notification>(
+  return std::make_unique<message_center::Notification>(
       message_center::NotificationType::NOTIFICATION_TYPE_SIMPLE, id, title,
       message, icon, base::string16() /* display_source */,
       GURL() /* origin_url */,

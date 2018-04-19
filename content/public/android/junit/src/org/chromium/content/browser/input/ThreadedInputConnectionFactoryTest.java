@@ -35,15 +35,16 @@ import org.robolectric.shadow.api.Shadow;
 import org.robolectric.shadows.ShadowLooper;
 
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Feature;
-import org.chromium.testing.local.LocalRobolectricTestRunner;
+import org.chromium.content_public.browser.InputMethodManagerWrapper;
 
 import java.util.concurrent.Callable;
 
 /**
  * Unit tests for {@ThreadedInputConnectionFactory}.
  */
-@RunWith(LocalRobolectricTestRunner.class)
+@RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE, sdk = Build.VERSION_CODES.LOLLIPOP)
 public class ThreadedInputConnectionFactoryTest {
     /**
@@ -126,7 +127,7 @@ public class ThreadedInputConnectionFactoryTest {
         mImeAdapter = Mockito.mock(ImeAdapterImpl.class);
         mInputMethodManager = Mockito.mock(InputMethodManager.class);
 
-        mFactory = new TestFactory(new InputMethodManagerWrapper(mContext));
+        mFactory = new TestFactory(new InputMethodManagerWrapperImpl(mContext));
         mFactory.onWindowFocusChanged(true);
         mImeHandler = mFactory.getHandler();
         mImeShadowLooper = (ShadowLooper) Shadow.extract(mImeHandler.getLooper());

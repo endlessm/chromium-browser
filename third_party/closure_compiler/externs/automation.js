@@ -87,7 +87,6 @@ chrome.automation.RoleType = {
   BANNER: 'banner',
   BLOCKQUOTE: 'blockquote',
   BUTTON: 'button',
-  BUTTON_DROP_DOWN: 'buttonDropDown',
   CANVAS: 'canvas',
   CAPTION: 'caption',
   CARET: 'caret',
@@ -131,6 +130,10 @@ chrome.automation.RoleType = {
   INLINE_TEXT_BOX: 'inlineTextBox',
   INPUT_TIME: 'inputTime',
   LABEL_TEXT: 'labelText',
+  LAYOUT_TABLE: 'layoutTable',
+  LAYOUT_TABLE_CELL: 'layoutTableCell',
+  LAYOUT_TABLE_COLUMN: 'layoutTableColumn',
+  LAYOUT_TABLE_ROW: 'layoutTableRow',
   LEGEND: 'legend',
   LINE_BREAK: 'lineBreak',
   LINK: 'link',
@@ -219,6 +222,7 @@ chrome.automation.StateType = {
   HASPOPUP: 'haspopup',
   HORIZONTAL: 'horizontal',
   HOVERED: 'hovered',
+  IGNORED: 'ignored',
   INVISIBLE: 'invisible',
   LINKED: 'linked',
   MULTILINE: 'multiline',
@@ -550,6 +554,62 @@ chrome.automation.AutomationNode.prototype.activeDescendant;
 chrome.automation.AutomationNode.prototype.inPageLinkTarget;
 
 /**
+ * A node that provides more details about the current node.
+ * @type {(!chrome.automation.AutomationNode|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-details
+ */
+chrome.automation.AutomationNode.prototype.details;
+
+/**
+ * A node that provides an error message for a current node.
+ * @type {(!chrome.automation.AutomationNode|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-errorMessage
+ */
+chrome.automation.AutomationNode.prototype.errorMessage;
+
+/**
+ * Reverse relationship for details.
+ * @type {(!Array<!chrome.automation.AutomationNode>|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-detailsFor
+ */
+chrome.automation.AutomationNode.prototype.detailsFor;
+
+/**
+ * Reverse relationship for errorMessage.
+ * @type {(!Array<!chrome.automation.AutomationNode>|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-errorMessageFor
+ */
+chrome.automation.AutomationNode.prototype.errorMessageFor;
+
+/**
+ * Reverse relationship for controls.
+ * @type {(!Array<!chrome.automation.AutomationNode>|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-controlledBy
+ */
+chrome.automation.AutomationNode.prototype.controlledBy;
+
+/**
+ * Reverse relationship for describedBy.
+ * @type {(!Array<!chrome.automation.AutomationNode>|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-descriptionFor
+ */
+chrome.automation.AutomationNode.prototype.descriptionFor;
+
+/**
+ * Reverse relationship for flowTo.
+ * @type {(!Array<!chrome.automation.AutomationNode>|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-flowFrom
+ */
+chrome.automation.AutomationNode.prototype.flowFrom;
+
+/**
+ * Reverse relationship for labelledBy.
+ * @type {(!Array<!chrome.automation.AutomationNode>|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-labelFor
+ */
+chrome.automation.AutomationNode.prototype.labelFor;
+
+/**
  * An array of custom actions.
  * @type {(!Array<!chrome.automation.CustomAction>|undefined)}
  * @see https://developer.chrome.com/extensions/automation#type-customActions
@@ -839,6 +899,20 @@ chrome.automation.AutomationNode.prototype.tableColumnHeader;
 chrome.automation.AutomationNode.prototype.tableRowHeader;
 
 /**
+ * The column index of this column node.
+ * @type {(number|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-tableColumnIndex
+ */
+chrome.automation.AutomationNode.prototype.tableColumnIndex;
+
+/**
+ * The row index of this row node.
+ * @type {(number|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-tableRowIndex
+ */
+chrome.automation.AutomationNode.prototype.tableRowIndex;
+
+/**
  * The type of region if this is the root of a live region. Possible values are 'polite' and 'assertive'.
  * @type {(string|undefined)}
  * @see https://developer.chrome.com/extensions/automation#type-liveStatus
@@ -909,6 +983,13 @@ chrome.automation.AutomationNode.prototype.autoComplete;
 chrome.automation.AutomationNode.prototype.className;
 
 /**
+ * Marks this subtree as modal.
+ * @type {(boolean|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-modal
+ */
+chrome.automation.AutomationNode.prototype.modal;
+
+/**
  * A map containing all HTML attributes and their values
  * @type {Object<string>}
  * @see https://developer.chrome.com/extensions/automation#type-htmlAttributes
@@ -958,7 +1039,7 @@ chrome.automation.AutomationNode.prototype.imageDataUrl;
 chrome.automation.AutomationNode.prototype.language;
 
 /**
- * Input restriction, if any, such as readonly or disabled: undefined - enabled control or other object that is not disabled  Restriction.DISABLED - disallows input in itself + any descendants Restriction.READONLY - allow focus/selection but not input
+ * Input restriction, if any, such as readonly or disabled: undefined - enabled control or other object that is not disabled Restriction.DISABLED - disallows input in itself + any descendants Restriction.READONLY - allow focus/selection but not input
  * @type {(string|undefined)}
  * @see https://developer.chrome.com/extensions/automation#type-restriction
  */

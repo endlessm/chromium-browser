@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">Indirizzo 1</translation>
 <translation id="1545749641540134597">Leggi il codice QR</translation>
 <translation id="1580783302095112590">Messaggio inviato.</translation>
+<translation id="1582732959743469162">Verrà interrotto l'avanzamento del tuo download attuale.</translation>
 <translation id="1612730193129642006">Mostra griglia schede</translation>
+<translation id="1644574205037202324">Cronologia</translation>
 <translation id="1646446875146297738">Se attivi "Non tenere traccia", viene inclusa una richiesta con il tuo traffico di navigazione. Gli eventuali effetti dipendono dalla risposta o meno di un sito web alla richiesta e dalla modalità di interpretazione della richiesta.
 
 Ad esempio, alcuni siti web potrebbero rispondere alla richiesta visualizzando annunci non basati su altri siti web che hai visitato. Molti siti web raccoglieranno e utilizzeranno comunque i tuoi dati di navigazione, ad esempio per aumentare la sicurezza, fornire contenuti, servizi, annunci e consigli sui loro siti web, nonché per generare statistiche di reporting. <ph name="BEGIN_LINK" />Ulteriori informazioni<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@ Ad esempio, alcuni siti web potrebbero rispondere alla richiesta visualizzando a
 <translation id="3175081911749765310">Servizi web</translation>
 <translation id="3207960819495026254">Aggiunto ai Preferiti</translation>
 <translation id="3210163015918861891">La sincronizzazione è disattivata</translation>
+<translation id="3224641773458703735">Per esportare le password devi innanzitutto impostare un passcode sul dispositivo.</translation>
 <translation id="3240426699337459095">Link copiato</translation>
 <translation id="3244271242291266297">MM</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> di <ph name="NUM_SUGGESTIONS" /></translation>
@@ -153,6 +156,7 @@ Ad esempio, alcuni siti web potrebbero rispondere alla richiesta visualizzando a
 <translation id="3771033907050503522">Schede di navigazione in incognito</translation>
 <translation id="3779810277399252432">Nessuna connessione a Internet.</translation>
 <translation id="3783017676699494206">Salva immagine</translation>
+<translation id="3789841737615482174">Installa</translation>
 <translation id="385051799172605136">Indietro</translation>
 <translation id="3897092660631435901">Menu</translation>
 <translation id="3928666092801078803">Unisci i miei dati</translation>
@@ -220,7 +224,6 @@ I tuoi dati vengono criptati con la tua passphrase di sincronizzazione. Inserisc
 <translation id="5300589172476337783">Mostra</translation>
 <translation id="5317780077021120954">Salva</translation>
 <translation id="5327248766486351172">Nome</translation>
-<translation id="533632423981297619">Le tue password saranno visibili a chiunque abbia accesso al file esportato. Non condividere il file con nessuno.</translation>
 <translation id="5388358297987318779">Apri immagine</translation>
 <translation id="5409365236829784218">Non ci sono applicazioni installate in grado di aprire questo file.</translation>
 <translation id="5433691172869980887">Nome utente copiato</translation>
@@ -249,6 +252,7 @@ La funzione Handoff deve anche essere attivata nella sezione Generali di Imposta
 <translation id="5871497086027727873">1 elemento spostato</translation>
 <translation id="5911030830365207728">Google Traduttore</translation>
 <translation id="5916664084637901428">On</translation>
+<translation id="5938160824633642847">Il dispositivo è quasi pieno. Libera spazio e riprova.</translation>
 <translation id="5948291296578561264">In questo modo puoi salvare le foto nella raccolta di foto.</translation>
 <translation id="5955891643922670672">È visualizzata la versione offline</translation>
 <translation id="5964480694698977962">Crea nuova scheda in incognito.</translation>
@@ -280,7 +284,9 @@ La funzione Handoff deve anche essere attivata nella sezione Generali di Imposta
 <translation id="633809752005859102">Si è verificato un problema. Stiamo cercando una soluzione.</translation>
 <translation id="6342069812937806050">In questo momento</translation>
 <translation id="6344783595350022745">Cancella testo</translation>
+<translation id="6346549652287021269">Iniziare un nuovo download?</translation>
 <translation id="6362362396625799311">Nessuna scheda in incognito</translation>
+<translation id="6374469231428023295">Riprova</translation>
 <translation id="6380866119319257197">Se non ricordi la passphrase o vuoi modificare questa impostazione, <ph name="BEGIN_LINK" />reimposta la sincronizzazione<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">Nome sulla carta</translation>
 <translation id="6406506848690869874">Sincronizzazione</translation>
@@ -289,6 +295,7 @@ La funzione Handoff deve anche essere attivata nella sezione Generali di Imposta
 
 I tuoi dati sono stati criptati con la tua passphrase di sincronizzazione in data <ph name="TIME" />. Inseriscila per avviare la sincronizzazione.</translation>
 <translation id="6418346271604475326">Preparazione del PDF</translation>
+<translation id="6434591244308415567">Si è verificato un errore. Riprova più tardi.</translation>
 <translation id="6445051938772793705">Paese</translation>
 <translation id="6445981559479772097">Messaggio inviato.</translation>
 <translation id="6464071786529933911">Apri in nuova scheda in incognito</translation>
@@ -299,6 +306,7 @@ I tuoi dati sono stati criptati con la tua passphrase di sincronizzazione in dat
 <translation id="6657585470893396449">Password</translation>
 <translation id="667999046851023355">Documento</translation>
 <translation id="6713747756340119864">Google Apps</translation>
+<translation id="6730682669179532099">Impossibile esportare le password</translation>
 <translation id="6762156594045689028">Per modificare questa impostazione, <ph name="BEGIN_LINK" />reimposta la sincronizzazione<ph name="END_LINK" /></translation>
 <translation id="6780034285637185932">Codice postale</translation>
 <translation id="6785453220513215166">Invio rapporto sugli arresti anomali...</translation>
@@ -308,13 +316,16 @@ I tuoi dati sono stati criptati con la tua passphrase di sincronizzazione in dat
 <translation id="681368974849482173">Elemento creato</translation>
 <translation id="6896758677409633944">Copia</translation>
 <translation id="6903907808598579934">Attiva la sincronizzazione</translation>
+<translation id="6914783257214138813">Le tue password saranno visibili a chiunque abbia accesso al file esportato.</translation>
 <translation id="6945221475159498467">Seleziona</translation>
 <translation id="6973630695168034713">Cartelle</translation>
 <translation id="7004499039102548441">Schede recenti</translation>
 <translation id="7006788746334555276">Impostazioni contenuti</translation>
+<translation id="7029809446516969842">Password</translation>
 <translation id="7031882061095297553">Sincronizza con</translation>
 <translation id="7053983685419859001">Blocca</translation>
 <translation id="7062545763355031412">Accetta e cambia account</translation>
+<translation id="7102005569666697658">Download in corso… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">Nascondi</translation>
 <translation id="7133798577887235672">Nome e cognome</translation>
 <translation id="7136892417564438900">La videocamera non è disponibile</translation>
@@ -325,6 +336,7 @@ I tuoi dati sono stati criptati con la tua passphrase di sincronizzazione in dat
 <translation id="7203585745079012652">Pronuncia le risposte</translation>
 <translation id="722055596168483966">Personalizza i servizi Google</translation>
 <translation id="7272437679830969316">Impossibile verificare la tua identità. Password non copiata.</translation>
+<translation id="7291368939935408496">Preparazione delle password...</translation>
 <translation id="7336264872878993241"><ph name="PERCENT" />% scaricato</translation>
 <translation id="7346909386216857016">OK</translation>
 <translation id="7400418766976504921">URL</translation>
@@ -349,6 +361,7 @@ I tuoi dati sono stati criptati con la tua passphrase di sincronizzazione in dat
 <translation id="7769602470925380267">Accetta ed esci</translation>
 <translation id="7772032839648071052">Conferma passphrase</translation>
 <translation id="780301667611848630">No grazie</translation>
+<translation id="7856733331829174190">Download non riuscito</translation>
 <translation id="7859704718976024901">Cronologia di navigazione</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">Esporta password...</translation>
@@ -409,6 +422,7 @@ I tuoi dati sono stati criptati con la tua passphrase di sincronizzazione in dat
 <translation id="9083392325882095631">1 elemento</translation>
 <translation id="9100610230175265781">Passphrase obbligatoria</translation>
 <translation id="9148126808321036104">Esegui di nuovo l'accesso</translation>
+<translation id="915371508759614899">Annullare il download?</translation>
 <translation id="9157836665414082580">Elimina finestre di dialogo</translation>
 <translation id="9188680907066685419">Esci dall'account gestito</translation>
 <translation id="9203116392574189331">Handoff</translation>

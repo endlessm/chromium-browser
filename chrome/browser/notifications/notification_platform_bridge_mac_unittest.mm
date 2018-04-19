@@ -18,13 +18,13 @@
 #include "chrome/browser/ui/cocoa/notifications/notification_builder_mac.h"
 #include "chrome/browser/ui/cocoa/notifications/notification_constants_mac.h"
 #include "chrome/browser/ui/cocoa/notifications/notification_response_builder_mac.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/gtest_mac.h"
-#include "ui/message_center/notification.h"
-#include "ui/message_center/notification_delegate.h"
-#include "ui/message_center/notification_types.h"
+#include "ui/message_center/public/cpp/notification.h"
+#include "ui/message_center/public/cpp/notification_delegate.h"
+#include "ui/message_center/public/cpp/notification_types.h"
 #include "url/gurl.h"
 
 using message_center::Notification;

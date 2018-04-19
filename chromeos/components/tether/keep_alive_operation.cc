@@ -37,8 +37,8 @@ void KeepAliveOperation::Factory::SetInstanceForTesting(Factory* factory) {
 std::unique_ptr<KeepAliveOperation> KeepAliveOperation::Factory::BuildInstance(
     const cryptauth::RemoteDevice& device_to_connect,
     BleConnectionManager* connection_manager) {
-  return std::make_unique<KeepAliveOperation>(device_to_connect,
-                                              connection_manager);
+  return base::WrapUnique(
+      new KeepAliveOperation(device_to_connect, connection_manager));
 }
 
 KeepAliveOperation::KeepAliveOperation(
@@ -48,7 +48,7 @@ KeepAliveOperation::KeepAliveOperation(
           std::vector<cryptauth::RemoteDevice>{device_to_connect},
           connection_manager),
       remote_device_(device_to_connect),
-      clock_(std::make_unique<base::DefaultClock>()) {}
+      clock_(base::DefaultClock::GetInstance()) {}
 
 KeepAliveOperation::~KeepAliveOperation() = default;
 
@@ -110,9 +110,8 @@ MessageType KeepAliveOperation::GetMessageTypeForConnection() {
   return MessageType::KEEP_ALIVE_TICKLE;
 }
 
-void KeepAliveOperation::SetClockForTest(
-    std::unique_ptr<base::Clock> clock_for_test) {
-  clock_ = std::move(clock_for_test);
+void KeepAliveOperation::SetClockForTest(base::Clock* clock_for_test) {
+  clock_ = clock_for_test;
 }
 
 }  // namespace tether

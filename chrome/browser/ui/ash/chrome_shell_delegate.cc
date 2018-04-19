@@ -15,7 +15,6 @@
 #include "ash/public/cpp/accessibility_types.h"
 #include "ash/shell.h"
 #include "ash/system/tray/system_tray_controller.h"
-#include "ash/wallpaper/wallpaper_delegate.h"
 #include "ash/wm/mru_window_tracker.h"
 #include "base/command_line.h"
 #include "base/macros.h"
@@ -29,7 +28,6 @@
 #include "chrome/browser/chromeos/accessibility/magnification_manager.h"
 #include "chrome/browser/chromeos/arc/fileapi/arc_content_file_system_url_util.h"
 #include "chrome/browser/chromeos/ash_config.h"
-#include "chrome/browser/chromeos/background/ash_wallpaper_delegate.h"
 #include "chrome/browser/chromeos/display/display_configuration_observer.h"
 #include "chrome/browser/chromeos/display/display_prefs.h"
 #include "chrome/browser/chromeos/policy/display_rotation_default_handler.h"
@@ -37,7 +35,6 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/signin_error_notifier_factory_ash.h"
-#include "chrome/browser/speech/tts_controller.h"
 #include "chrome/browser/sync/sync_error_notifier_factory_ash.h"
 #include "chrome/browser/ui/ash/chrome_keyboard_ui.h"
 #include "chrome/browser/ui/ash/chrome_screenshot_grabber.h"
@@ -107,56 +104,6 @@ class AccessibilityDelegateImpl : public ash::AccessibilityDelegate {
     return chromeos::MagnificationManager::Get()->IsMagnifierEnabled();
   }
 
-  void SetVirtualKeyboardEnabled(bool enabled) override {
-    DCHECK(AccessibilityManager::Get());
-    return AccessibilityManager::Get()->EnableVirtualKeyboard(enabled);
-  }
-
-  bool IsVirtualKeyboardEnabled() const override {
-    DCHECK(AccessibilityManager::Get());
-    return AccessibilityManager::Get()->IsVirtualKeyboardEnabled();
-  }
-
-  void SetCaretHighlightEnabled(bool enabled) override {
-    DCHECK(AccessibilityManager::Get());
-    AccessibilityManager::Get()->SetCaretHighlightEnabled(enabled);
-  }
-
-  bool IsCaretHighlightEnabled() const override {
-    DCHECK(AccessibilityManager::Get());
-    return AccessibilityManager::Get()->IsCaretHighlightEnabled();
-  }
-
-  void SetCursorHighlightEnabled(bool enabled) override {
-    DCHECK(AccessibilityManager::Get());
-    AccessibilityManager::Get()->SetCursorHighlightEnabled(enabled);
-  }
-
-  bool IsCursorHighlightEnabled() const override {
-    DCHECK(AccessibilityManager::Get());
-    return AccessibilityManager::Get()->IsCursorHighlightEnabled();
-  }
-
-  void SetFocusHighlightEnabled(bool enabled) override {
-    DCHECK(AccessibilityManager::Get());
-    AccessibilityManager::Get()->SetFocusHighlightEnabled(enabled);
-  }
-
-  bool IsFocusHighlightEnabled() const override {
-    DCHECK(AccessibilityManager::Get());
-    return AccessibilityManager::Get()->IsFocusHighlightEnabled();
-  }
-
-  void SetStickyKeysEnabled(bool enabled) override {
-    DCHECK(AccessibilityManager::Get());
-    return AccessibilityManager::Get()->EnableStickyKeys(enabled);
-  }
-
-  bool IsStickyKeysEnabled() const override {
-    DCHECK(AccessibilityManager::Get());
-    return AccessibilityManager::Get()->IsStickyKeysEnabled();
-  }
-
   void SetTapDraggingEnabled(bool enabled) override {
     DCHECK(AccessibilityManager::Get());
     return AccessibilityManager::Get()->EnableTapDragging(enabled);
@@ -167,38 +114,9 @@ class AccessibilityDelegateImpl : public ash::AccessibilityDelegate {
     return AccessibilityManager::Get()->IsTapDraggingEnabled();
   }
 
-  void SetSelectToSpeakEnabled(bool enabled) override {
-    DCHECK(AccessibilityManager::Get());
-    AccessibilityManager::Get()->SetSelectToSpeakEnabled(enabled);
-  }
-
-  bool IsSelectToSpeakEnabled() const override {
-    DCHECK(AccessibilityManager::Get());
-    return AccessibilityManager::Get()->IsSelectToSpeakEnabled();
-  }
-
-  void SetSwitchAccessEnabled(bool enabled) override {
-    DCHECK(AccessibilityManager::Get());
-    AccessibilityManager::Get()->SetSwitchAccessEnabled(enabled);
-  }
-
-  bool IsSwitchAccessEnabled() const override {
-    DCHECK(AccessibilityManager::Get());
-    return AccessibilityManager::Get()->IsSwitchAccessEnabled();
-  }
-
   bool ShouldShowAccessibilityMenu() const override {
     DCHECK(AccessibilityManager::Get());
     return AccessibilityManager::Get()->ShouldShowAccessibilityMenu();
-  }
-
-  bool IsBrailleDisplayConnected() const override {
-    DCHECK(AccessibilityManager::Get());
-    return AccessibilityManager::Get()->IsBrailleDisplayConnected();
-  }
-
-  void SilenceSpokenFeedback() const override {
-    TtsController::GetInstance()->Stop();
   }
 
   void SaveScreenMagnifierScale(double scale) override {
@@ -212,26 +130,6 @@ class AccessibilityDelegateImpl : public ash::AccessibilityDelegate {
           ->GetSavedScreenMagnifierScale();
     }
     return std::numeric_limits<double>::min();
-  }
-
-  void OnTwoFingerTouchStart() override {
-    DCHECK(AccessibilityManager::Get());
-    AccessibilityManager::Get()->OnTwoFingerTouchStart();
-  }
-
-  void OnTwoFingerTouchStop() override {
-    DCHECK(AccessibilityManager::Get());
-    AccessibilityManager::Get()->OnTwoFingerTouchStop();
-  }
-
-  bool ShouldToggleSpokenFeedbackViaTouch() override {
-    DCHECK(AccessibilityManager::Get());
-    return AccessibilityManager::Get()->ShouldToggleSpokenFeedbackViaTouch();
-  }
-
-  void PlaySpokenFeedbackToggleCountdown(int tick_count) override {
-    DCHECK(AccessibilityManager::Get());
-    AccessibilityManager::Get()->PlaySpokenFeedbackToggleCountdown(tick_count);
   }
 
  private:
@@ -361,11 +259,6 @@ ChromeShellDelegate::GetNetworkingConfigDelegate() {
 std::unique_ptr<ash::ScreenshotDelegate>
 ChromeShellDelegate::CreateScreenshotDelegate() {
   return std::make_unique<ChromeScreenshotGrabber>();
-}
-
-std::unique_ptr<ash::WallpaperDelegate>
-ChromeShellDelegate::CreateWallpaperDelegate() {
-  return base::WrapUnique(chromeos::CreateWallpaperDelegate());
 }
 
 ui::InputDeviceControllerClient*

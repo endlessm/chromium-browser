@@ -9,7 +9,7 @@
 
 #include "base/macros.h"
 #include "chrome/browser/chrome_browser_main_extra_parts.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 
 namespace aura {
 class UserActivityForwarder;
@@ -26,6 +26,7 @@ class CastConfigClientMediaRouter;
 class ChromeNewWindowClient;
 class ChromeShellContentState;
 class DataPromoNotification;
+class DockedMagnifierClient;
 class ImeControllerClient;
 class ImmersiveContextMus;
 class ImmersiveHandlerFactoryMus;
@@ -107,6 +108,7 @@ class ChromeBrowserMainExtraPartsAsh : public ChromeBrowserMainExtraParts {
   // Initialized in PostBrowserStart in all configs:
   std::unique_ptr<DataPromoNotification> data_promo_notification_;
   std::unique_ptr<NightLightClient> night_light_client_;
+  std::unique_ptr<DockedMagnifierClient> docked_magnifier_client_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeBrowserMainExtraPartsAsh);
 };

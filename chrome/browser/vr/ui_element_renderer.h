@@ -9,11 +9,11 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "chrome/browser/vr/controller_mesh.h"
 #include "chrome/browser/vr/elements/controller.h"
 #include "chrome/browser/vr/elements/environment/background.h"
 #include "chrome/browser/vr/elements/environment/grid.h"
 #include "chrome/browser/vr/elements/environment/stars.h"
+#include "chrome/browser/vr/elements/keyboard.h"
 #include "chrome/browser/vr/elements/laser.h"
 #include "chrome/browser/vr/elements/reticle.h"
 #include "chrome/browser/vr/elements/shadow.h"
@@ -81,9 +81,7 @@ class UiElementRenderer {
       int gridline_count,
       float opacity);
 
-  // TODO(crbug/779108) This presumes a Daydream controller.
   VIRTUAL_FOR_MOCKS void DrawController(
-      ControllerMesh::State state,
       float opacity,
       const gfx::Transform& model_view_proj_matrix);
 
@@ -121,8 +119,10 @@ class UiElementRenderer {
       float incognito_factor,
       float fullscreen_factor);
 
+  VIRTUAL_FOR_MOCKS void DrawKeyboard(const CameraModel& camera_model,
+                                      KeyboardDelegate* delegate);
+
   void Flush();
-  void SetUpController(std::unique_ptr<ControllerMesh> mesh);
 
  protected:
   explicit UiElementRenderer(bool use_gl);
@@ -145,6 +145,7 @@ class UiElementRenderer {
   std::unique_ptr<Shadow::Renderer> shadow_renderer_;
   std::unique_ptr<Stars::Renderer> stars_renderer_;
   std::unique_ptr<Background::Renderer> background_renderer_;
+  std::unique_ptr<Keyboard::Renderer> keyboard_renderer_;
 
   DISALLOW_COPY_AND_ASSIGN(UiElementRenderer);
 };

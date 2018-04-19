@@ -377,7 +377,9 @@ Status LaunchDesktopChrome(URLRequestContextGetter* context_getter,
 
 #if defined(OS_POSIX)
   base::ScopedFD devnull;
-  if (!base::CommandLine::ForCurrentProcess()->HasSwitch("verbose")) {
+  const base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
+  if (!cmd_line->HasSwitch("verbose") &&
+      cmd_line->GetSwitchValueASCII("log-level") != "ALL") {
     // Redirect stderr to /dev/null, so that Chrome log spew doesn't confuse
     // users.
     devnull.reset(HANDLE_EINTR(open("/dev/null", O_WRONLY)));
@@ -464,17 +466,20 @@ Status LaunchDesktopChrome(URLRequestContextGetter* context_getter,
       std::move(devtools_event_listeners), std::move(port_reservation),
       capabilities.page_load_strategy, std::move(process), command,
       &user_data_dir, &extension_dir, capabilities.network_emulation_enabled));
-  for (size_t i = 0; i < extension_bg_pages.size(); ++i) {
-    VLOG(0) << "Waiting for extension bg page load: " << extension_bg_pages[i];
-    std::unique_ptr<WebView> web_view;
-    Status status = chrome_desktop->WaitForPageToLoad(
-        extension_bg_pages[i], base::TimeDelta::FromSeconds(10),
-        &web_view, w3c_compliant);
-    if (status.IsError()) {
-      return Status(kUnknownError,
-                    "failed to wait for extension background page to load: " +
-                        extension_bg_pages[i],
-                    status);
+  if (!capabilities.extension_load_timeout.is_zero()) {
+    for (size_t i = 0; i < extension_bg_pages.size(); ++i) {
+      VLOG(0) << "Waiting for extension bg page load: "
+              << extension_bg_pages[i];
+      std::unique_ptr<WebView> web_view;
+      Status status = chrome_desktop->WaitForPageToLoad(
+          extension_bg_pages[i], capabilities.extension_load_timeout, &web_view,
+          w3c_compliant);
+      if (status.IsError()) {
+        return Status(kUnknownError,
+                      "failed to wait for extension background page to load: " +
+                          extension_bg_pages[i],
+                      status);
+      }
     }
   }
   *chrome = std::move(chrome_desktop);
@@ -508,12 +513,11 @@ Status LaunchAndroidChrome(URLRequestContextGetter* context_getter,
     switches.SetUnparsedSwitch(android_switch);
   for (auto excluded_switch : capabilities.exclude_switches)
     switches.RemoveSwitch(excluded_switch);
-  status = device->SetUp(capabilities.android_package,
-                         capabilities.android_activity,
-                         capabilities.android_process,
-                         switches.ToString(),
-                         capabilities.android_use_running_app,
-                         port);
+  status = device->SetUp(
+      capabilities.android_package, capabilities.android_activity,
+      capabilities.android_process, capabilities.android_device_socket,
+      capabilities.android_exec_name, switches.ToString(),
+      capabilities.android_use_running_app, port);
   if (status.IsError()) {
     device->TearDown();
     return status;
@@ -827,7 +831,7 @@ Status WritePrefsFile(
   if (custom_prefs) {
     for (base::DictionaryValue::Iterator it(*custom_prefs); !it.IsAtEnd();
          it.Advance()) {
-      prefs->Set(it.key(), base::MakeUnique<base::Value>(it.value().Clone()));
+      prefs->Set(it.key(), std::make_unique<base::Value>(it.value().Clone()));
     }
   }
 

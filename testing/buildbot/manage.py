@@ -74,6 +74,8 @@ SKIP = {
 SKIP_GN_ISOLATE_MAP_TARGETS = {
   # This target is magic and not present in gn_isolate_map.pyl.
   'all',
+  'remoting/client:client',
+  'remoting/host:host',
 
   # These targets are listed only in build-side recipes.
   'All_syzygy',
@@ -103,12 +105,14 @@ SKIP_GN_ISOLATE_MAP_TARGETS = {
   'ios_chrome_web_egtests',
   'ios_components_unittests',
   'ios_net_unittests',
+  "ios_remoting_unittests",
   'ios_showcase_egtests',
   'ios_web_inttests',
   'ios_web_shell_egtests',
   'ios_web_unittests',
   'ios_web_view_inttests',
   'ios_web_view_unittests',
+  'ocmock_support_unittests',
 
   # These are listed in Builders that are skipped for other reasons.
   'chrome_junit_tests',

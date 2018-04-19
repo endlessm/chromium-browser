@@ -7,6 +7,8 @@
 
 #import <Foundation/Foundation.h>
 
+#import "ios/chrome/browser/ui/commands/browsing_data_commands.h"
+
 @class OpenNewTabCommand;
 @class OpenUrlCommand;
 @class ShowSigninCommand;
@@ -32,6 +34,10 @@
 - (void)showSyncPassphraseSettingsFromViewController:
     (UIViewController*)baseViewController;
 
+// Shows the list of saved passwords in the settings.
+- (void)showSavedPasswordsSettingsFromViewController:
+    (UIViewController*)baseViewController;
+
 @end
 
 // Protocol for commands that will generally be handled by the application,
@@ -41,7 +47,9 @@
 // object that implements the methods in this protocol should be able to forward
 // ApplicationSettingsCommands to the settings view controller if necessary.
 
-@protocol ApplicationCommands<NSObject, ApplicationSettingsCommands>
+@protocol ApplicationCommands<NSObject,
+                              ApplicationSettingsCommands,
+                              BrowsingDataCommands>
 
 // Dismisses all modal dialogs.
 - (void)dismissModalDialogs;
@@ -69,9 +77,6 @@
 
 // Shows the TabSwitcher UI.
 - (void)displayTabSwitcher;
-
-// Dismisses the TabSwitcher UI.
-- (void)dismissTabSwitcher;
 
 // Shows the Clear Browsing Data Settings UI (part of Settings).
 - (void)showClearBrowsingDataSettingsFromViewController:

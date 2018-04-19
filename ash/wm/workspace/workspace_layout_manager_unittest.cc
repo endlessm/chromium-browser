@@ -1039,9 +1039,8 @@ class WorkspaceLayoutManagerBackdropTest : public AshTestBase {
   // Turn the top window back drop on / off.
   void ShowTopWindowBackdropForContainer(aura::Window* container, bool show) {
     std::unique_ptr<BackdropDelegate> backdrop;
-    if (show) {
+    if (show)
       backdrop = std::make_unique<TabletModeBackdropDelegateImpl>();
-    }
     GetWorkspaceLayoutManager(container)->SetBackdropDelegate(
         std::move(backdrop));
     // Closing and / or opening can be a delayed operation.
@@ -1537,7 +1536,7 @@ class WorkspaceLayoutManagerKeyboardTest : public AshTestBase {
   }
 
   void ShowKeyboard() {
-    layout_manager_->OnKeyboardWorkspaceDisplacingBoundsChanging(
+    layout_manager_->OnKeyboardWorkspaceDisplacingBoundsChanged(
         keyboard_bounds_);
     restore_work_area_insets_ = GetPrimaryDisplay().GetWorkAreaInsets();
     Shell::Get()->SetDisplayWorkAreaInsets(
@@ -1548,7 +1547,7 @@ class WorkspaceLayoutManagerKeyboardTest : public AshTestBase {
   void HideKeyboard() {
     Shell::Get()->SetDisplayWorkAreaInsets(Shell::GetPrimaryRootWindow(),
                                            restore_work_area_insets_);
-    layout_manager_->OnKeyboardWorkspaceDisplacingBoundsChanging(gfx::Rect());
+    layout_manager_->OnKeyboardWorkspaceDisplacingBoundsChanged(gfx::Rect());
   }
 
   // Initializes the keyboard bounds using the bottom half of the work area.
@@ -1758,15 +1757,14 @@ TEST_F(WorkspaceLayoutManagerBackdropTest, BackdropForSplitScreenTest) {
             default_container()->children()[0]->bounds());
 
   // Snap the window to left. Test that the backdrop window is still visible
-  // and is the second child in the container. Its bounds should still be the
-  // same as the container bounds.
+  // and is the second child in the container. Its bounds should be the same
+  // as the snapped window's bounds.
   split_view_controller->SnapWindow(window1.get(), SplitViewController::LEFT);
   EXPECT_EQ(2U, default_container()->children().size());
   for (auto* child : default_container()->children())
     EXPECT_TRUE(child->IsVisible());
   EXPECT_EQ(window1.get(), default_container()->children()[1]);
-  EXPECT_EQ(default_container()->bounds(),
-            default_container()->children()[0]->bounds());
+  EXPECT_EQ(window1->bounds(), default_container()->children()[0]->bounds());
 
   // Now snap another window to right. Test that the backdrop window is still
   // visible but is now the third window in the container. Its bounds should

@@ -32,18 +32,16 @@ class ModelTypeStoreImpl : public ModelTypeStore {
 
   static void CreateStore(ModelType type,
                           const std::string& path,
-                          const InitCallback& callback);
-  static void CreateInMemoryStoreForTest(ModelType type,
-                                         const InitCallback& callback);
+                          InitCallback callback);
+  static void CreateInMemoryStoreForTest(ModelType type, InitCallback callback);
 
   // ModelTypeStore implementation.
-  void ReadData(const IdList& id_list,
-                const ReadDataCallback& callback) override;
-  void ReadAllData(const ReadAllDataCallback& callback) override;
-  void ReadAllMetadata(const ReadMetadataCallback& callback) override;
+  void ReadData(const IdList& id_list, ReadDataCallback callback) override;
+  void ReadAllData(ReadAllDataCallback callback) override;
+  void ReadAllMetadata(ReadMetadataCallback callback) override;
   std::unique_ptr<WriteBatch> CreateWriteBatch() override;
   void CommitWriteBatch(std::unique_ptr<WriteBatch> write_batch,
-                        const CallbackWithResult& callback) override;
+                        CallbackWithResult callback) override;
 
  protected:
   // ModelTypeStore implementation.
@@ -69,9 +67,9 @@ class ModelTypeStoreImpl : public ModelTypeStore {
 
   static void BackendInitDone(
       const ModelType type,
-      std::unique_ptr<Result> result,
+      std::unique_ptr<base::Optional<ModelError>> result,
       scoped_refptr<base::SequencedTaskRunner> blocking_task_runner,
-      const InitCallback& callback,
+      InitCallback callback,
       scoped_refptr<ModelTypeStoreBackend> backend);
 
   static leveldb::WriteBatch* GetLeveldbWriteBatch(WriteBatch* write_batch);
@@ -86,26 +84,26 @@ class ModelTypeStoreImpl : public ModelTypeStore {
       scoped_refptr<base::SequencedTaskRunner> backend_task_runner);
 
   // Callbacks for different calls to ModelTypeStoreBackend.
-  void ReadDataDone(const ReadDataCallback& callback,
+  void ReadDataDone(ReadDataCallback callback,
                     std::unique_ptr<RecordList> record_list,
                     std::unique_ptr<IdList> missing_id_list,
-                    Result result);
-  void ReadAllDataDone(const ReadAllDataCallback& callback,
+                    const base::Optional<ModelError>& error);
+  void ReadAllDataDone(ReadAllDataCallback callback,
                        std::unique_ptr<RecordList> record_list,
-                       Result result);
-  void ReadMetadataRecordsDone(const ReadMetadataCallback& callback,
+                       const base::Optional<ModelError>& error);
+  void ReadMetadataRecordsDone(ReadMetadataCallback callback,
                                std::unique_ptr<RecordList> metadata_records,
-                               Result result);
-  void ReadAllMetadataDone(const ReadMetadataCallback& callback,
+                               const base::Optional<ModelError>& error);
+  void ReadAllMetadataDone(ReadMetadataCallback callback,
                            std::unique_ptr<RecordList> metadata_records,
                            std::unique_ptr<RecordList> global_metadata_records,
                            std::unique_ptr<IdList> missing_id_list,
-                           Result result);
-  void WriteModificationsDone(const CallbackWithResult& callback,
-                              Result result);
+                           const base::Optional<ModelError>& error);
+  void WriteModificationsDone(CallbackWithResult callback,
+                              const base::Optional<ModelError>& error);
 
   // Parse the serialized metadata into protos and pass them to |callback|.
-  void DeserializeMetadata(const ReadMetadataCallback& callback,
+  void DeserializeMetadata(ReadMetadataCallback callback,
                            const std::string& global_metadata,
                            std::unique_ptr<RecordList> metadata_records);
 

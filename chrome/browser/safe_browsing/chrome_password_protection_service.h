@@ -123,6 +123,22 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
   bool UserClickedThroughSBInterstitial(
       content::WebContents* web_contents) override;
 
+  // For preference of |pref_name| is not managed by enterprise policy, this
+  // function should always return PHISHING_REUSE. Otherwise, returns the
+  // specified pref value.
+  PasswordProtectionTrigger GetPasswordProtectionTriggerPref(
+      const std::string& pref_name) const override;
+
+  // If change password URL is specified in preference, gets the pref value,
+  // otherwise, gets the GAIA change password URL based on |account_info_|.
+  GURL GetChangePasswordURL() const;
+
+  // If |url| matches Safe Browsing whitelist domains, password protection
+  // change password URL, or password protection login URLs in the enterprise
+  // policy.
+  bool IsURLWhitelistedForPasswordEntry(const GURL& url,
+                                        RequestOutcome* reason) const override;
+
  protected:
   // PasswordProtectionService overrides.
   // Obtains referrer chain of |event_url| and |event_tab_id| and add this
@@ -147,7 +163,7 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
       content::WebContents* web_contents) override;
 
   LoginReputationClientRequest::PasswordReuseEvent::SyncAccountType
-  GetSyncAccountType() override;
+  GetSyncAccountType() const override;
 
   void MaybeLogPasswordReuseLookupEvent(
       content::WebContents* web_contents,
@@ -165,10 +181,7 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
       const history::URLRows& deleted_rows) override;
 
   // Gets |account_info_| based on |profile_|.
-  AccountInfo GetAccountInfo();
-
-  // Gets change password URl based on |account_info_|.
-  GURL GetChangePasswordURL();
+  AccountInfo GetAccountInfo() const;
 
   void HandleUserActionOnModalWarning(
       content::WebContents* web_contents,

@@ -150,7 +150,10 @@ static sk_sp<GrRenderTargetContext> random_render_target_context(GrContext* cont
                                                                  const GrCaps* caps) {
     GrSurfaceOrigin origin = random->nextBool() ? kTopLeft_GrSurfaceOrigin
                                                 : kBottomLeft_GrSurfaceOrigin;
-    int sampleCnt = random->nextBool() ? caps->getSampleCount(4, kRGBA_8888_GrPixelConfig) : 0;
+    int sampleCnt =
+            random->nextBool() ? caps->getRenderTargetSampleCount(2, kRGBA_8888_GrPixelConfig) : 1;
+    // Above could be 0 if msaa isn't supported.
+    sampleCnt = SkTMax(1, sampleCnt);
 
     sk_sp<GrRenderTargetContext> renderTargetContext(context->makeDeferredRenderTargetContext(
                                                                            SkBackingFit::kExact,
@@ -348,7 +351,7 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages, int ma
 
 static int get_glprograms_max_stages(const sk_gpu_test::ContextInfo& ctxInfo) {
     GrContext* context = ctxInfo.grContext();
-    GrGLGpu* gpu = static_cast<GrGLGpu*>(context->getGpu());
+    GrGLGpu* gpu = static_cast<GrGLGpu*>(context->contextPriv().getGpu());
     int maxStages = 6;
     if (kGLES_GrGLStandard == gpu->glStandard()) {
     // We've had issues with driver crashes and HW limits being exceeded with many effects on

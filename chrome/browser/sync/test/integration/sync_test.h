@@ -12,7 +12,6 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/process/process.h"
-#include "base/test/scoped_feature_list.h"
 #include "chrome/browser/extensions/install_verifier.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/test/integration/configuration_refresher.h"
@@ -394,6 +393,11 @@ class SyncTest : public InProcessBrowserTest {
   // Tells us what kind of server we're using (some tests run only on certain
   // server types).
   ServerType server_type_;
+
+  // The default profile, created before our actual testing |profiles_|. This is
+  // needed in a workaround for https://crbug.com/801569, see comments in the
+  // .cc file.
+  Profile* previous_profile_;
 
   // Number of sync clients that will be created by a test.
   int num_clients_;

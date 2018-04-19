@@ -23,6 +23,7 @@ add_public_tablegen_target(X86CommonTableGen)
 set(sources
   X86AsmPrinter.cpp
   X86CallFrameOptimization.cpp
+  X86CallingConv.cpp
   X86CallLowering.cpp
   X86CmovConversion.cpp
   X86DomainReassignment.cpp
@@ -30,12 +31,14 @@ set(sources
   X86FastISel.cpp
   X86FixupBWInsts.cpp
   X86FixupLEAs.cpp
+  X86FixupSFB.cpp
   X86FixupSetCC.cpp
   X86FloatingPoint.cpp
   X86FrameLowering.cpp
   X86InstructionSelector.cpp
   X86ISelDAGToDAG.cpp
   X86ISelLowering.cpp
+  X86IndirectBranchTracking.cpp
   X86InterleavedAccess.cpp
   X86InstrFMA3Info.cpp
   X86InstrInfo.cpp
@@ -48,6 +51,7 @@ set(sources
   X86PadShortFunction.cpp
   X86RegisterBankInfo.cpp
   X86RegisterInfo.cpp
+  X86RetpolineThunks.cpp
   X86SelectionDAGInfo.cpp
   X86ShuffleDecodeConstantPool.cpp
   X86Subtarget.cpp
@@ -57,7 +61,6 @@ set(sources
   X86VZeroUpper.cpp
   X86WinAllocaExpander.cpp
   X86WinEHState.cpp
-  X86CallingConv.cpp
   )
 
 add_llvm_target(X86CodeGen ${sources})

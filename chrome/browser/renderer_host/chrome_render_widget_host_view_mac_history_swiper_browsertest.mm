@@ -97,10 +97,8 @@ class ChromeRenderWidgetHostViewMacHistorySwiperTest
     ui_test_utils::NavigateToURL(browser(), url2_);
     ASSERT_EQ(url2_, GetWebContents()->GetURL());
 
-    std::unique_ptr<base::SimpleTestTickClock> mock_clock(
-      new base::SimpleTestTickClock());
-    mock_clock->Advance(base::TimeDelta::FromMilliseconds(100));
-    ui::SetEventTickClockForTesting(std::move(mock_clock));
+    mock_clock_.Advance(base::TimeDelta::FromMilliseconds(100));
+    ui::SetEventTickClockForTesting(&mock_clock_);
   }
 
   void TearDownOnMainThread() override { event_queue_.reset(); }
@@ -376,6 +374,8 @@ class ChromeRenderWidgetHostViewMacHistorySwiperTest
     const int scroll_offset = GetScrollTop();
     EXPECT_EQ(offset, scroll_offset);
   }
+
+  base::SimpleTestTickClock mock_clock_;
 
   GURL url1_;
   GURL url2_;
@@ -736,6 +736,9 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderWidgetHostViewMacHistorySwiperTest,
   if (!IsHistorySwipingSupported())
     return;
 
+  ui_test_utils::NavigateToURL(browser(), url_iframe_);
+  ASSERT_EQ(url_iframe_, GetWebContents()->GetURL());
+
   content::InputEventAckWaiter wheel_end_ack_waiter(
       GetWebContents()->GetRenderViewHost()->GetWidget(),
       base::BindRepeating([](content::InputEventAckSource,
@@ -746,8 +749,6 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderWidgetHostViewMacHistorySwiperTest,
                    blink::WebMouseWheelEvent::kPhaseEnded;
       }));
 
-  ui_test_utils::NavigateToURL(browser(), url_iframe_);
-  ASSERT_EQ(url_iframe_, GetWebContents()->GetURL());
   QueueBeginningEvents(0, -1);
   for (int i = 0; i < 10; ++i)
     QueueScrollAndTouchMoved(0, -1);

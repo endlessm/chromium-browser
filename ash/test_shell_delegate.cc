@@ -8,7 +8,6 @@
 #include "ash/keyboard/test_keyboard_ui.h"
 #include "ash/system/tray/system_tray_notifier.h"
 #include "ash/test_screenshot_delegate.h"
-#include "ash/wallpaper/test_wallpaper_delegate.h"
 #include "base/logging.h"
 #include "ui/gfx/image/image.h"
 
@@ -51,11 +50,6 @@ NetworkingConfigDelegate* TestShellDelegate::GetNetworkingConfigDelegate() {
 std::unique_ptr<ScreenshotDelegate>
 TestShellDelegate::CreateScreenshotDelegate() {
   return std::make_unique<TestScreenshotDelegate>();
-}
-
-std::unique_ptr<WallpaperDelegate>
-TestShellDelegate::CreateWallpaperDelegate() {
-  return std::make_unique<TestWallpaperDelegate>();
 }
 
 AccessibilityDelegate* TestShellDelegate::CreateAccessibilityDelegate() {

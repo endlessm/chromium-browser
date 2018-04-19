@@ -13,6 +13,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/net/chrome_mojo_proxy_resolver_factory.h"
 #include "chrome/common/channel_info.h"
+#include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/core/common/policy_service.h"
@@ -21,7 +22,7 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/user_agent.h"
-#include "services/proxy_resolver/public/interfaces/proxy_resolver.mojom.h"
+#include "services/proxy_resolver/public/mojom/proxy_resolver.mojom.h"
 
 network::mojom::NetworkContextParamsPtr CreateDefaultNetworkContextParams() {
   network::mojom::NetworkContextParamsPtr network_context_params =
@@ -29,6 +30,8 @@ network::mojom::NetworkContextParamsPtr CreateDefaultNetworkContextParams() {
 
   network_context_params->enable_brotli =
       base::FeatureList::IsEnabled(features::kBrotliEncoding);
+
+  network_context_params->user_agent = GetUserAgent();
 
   std::string quic_user_agent_id = chrome::GetChannelString();
   if (!quic_user_agent_id.empty())

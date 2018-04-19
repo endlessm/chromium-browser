@@ -1,0 +1,8 @@
+include_rules = [
+  "+chromeos/assistant",
+  "+google_apis/gaia",
+  "+libassistant",
+  "+mojo/public",
+  "+services/identity/public",
+  "+services/service_manager/public",
+]

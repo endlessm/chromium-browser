@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">ঠিকানা ১</translation>
 <translation id="1545749641540134597">QR কোড স্ক্যান করুন</translation>
 <translation id="1580783302095112590">মেল পাঠানো হয়েছে৷</translation>
+<translation id="1582732959743469162">এর ফলে আপনি এখন যা ডাউনলোড করছেন সেগুলি সব বন্ধ হয়ে যাবে।</translation>
 <translation id="1612730193129642006">ট্যাব গ্রিড দেখান</translation>
+<translation id="1644574205037202324">ইতিহাস</translation>
 <translation id="1646446875146297738">‘ট্র্যাক করবেন না’ সক্ষম করার মানে হল যে আপনার ব্রাউজিং ট্রাফিকের সাথে একটি অনুরোধ অন্তর্ভুক্ত করা হবে৷ একটি ওয়েবসাইট অনুরোধটিতে সাড়া দেবে কিনা এবং কিভাবে অনুরোধটিকে ব্যাখ্যা করে তার উপর যেকোনো ফল নির্ভর করে৷
 
 উদাহরণস্বরূপ, কিছু কিছু ওয়েবসাইট আপনার পরিদর্শন করা অন্যান্য ওয়েবসাইটগুলির উপর ভিত্তি না করে বিজ্ঞাপনগুলি দেখানোর মাধ্যমে এই অনুরোধটিতে প্রতিক্রিয়া জানাতে পারে৷ এমনও অনেক ওয়েবসাইট রয়েছে যা তা সত্বেও আপনার ব্রাউজিং ডেটা সংগ্রহ এবং ব্যবহার করবে - উদাহরণস্বরূপ, তাদের ওয়েবসাইটগুলির নিরাপত্তা ব্যবস্থার উন্নতি ঘটাতে, সামগ্রী, পরিষেবা, বিজ্ঞাপন এবং প্রস্তাবগুলি সরবরাহ করতে এবং প্রতিবেদনের পরিসংখ্যান তৈরি করতে৷ <ph name="BEGIN_LINK" />আরও জানুন<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@
 <translation id="3175081911749765310">ওয়েব পরিষেবা</translation>
 <translation id="3207960819495026254">বুকমার্ক করা হয়েছে</translation>
 <translation id="3210163015918861891">সিঙ্ক বন্ধ রয়েছে</translation>
+<translation id="3224641773458703735">পাসওয়ার্ড এক্সপোর্ট করার জন্য আপনার ডিভাইসে আপনাকে অবশ্যই একটি পাসকোড সেট করতে হবে।</translation>
 <translation id="3240426699337459095">লিঙ্ক অনুলিপি করা হয়েছে</translation>
 <translation id="3244271242291266297">মিমি</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="NUM_SUGGESTIONS" /> এর <ph name="INDEX" /></translation>
@@ -153,6 +156,7 @@
 <translation id="3771033907050503522">ছদ্মবেশী ট্যাবগুলি</translation>
 <translation id="3779810277399252432">কোনও ইন্টারনেট সংযোগ নেই৷</translation>
 <translation id="3783017676699494206">ছবি সেভ করুন</translation>
+<translation id="3789841737615482174">ইনস্টল করুন</translation>
 <translation id="385051799172605136">ফিরুন</translation>
 <translation id="3897092660631435901">মেনু</translation>
 <translation id="3928666092801078803">আমার ডেটা একত্রিত করুন</translation>
@@ -220,7 +224,6 @@
 <translation id="5300589172476337783">দেখান</translation>
 <translation id="5317780077021120954">সেভ করুন</translation>
 <translation id="5327248766486351172">নাম</translation>
-<translation id="533632423981297619">এক্সপোর্ট করা ফাইল যারা দেখতে পাবেন তারা আপনার পাসওয়ার্ডগুলিও দেখতে পাবেন। ফাইলটি কারও সাথে শেয়ার করবেন না।</translation>
 <translation id="5388358297987318779">ছবি খুলুন</translation>
 <translation id="5409365236829784218">এই ফাউলটি খুলতে পারে এমন কোনো অ্যাপ্লিকেশন এখানে ডাউনলোড করা নেই৷</translation>
 <translation id="5433691172869980887">ইউজারনেম কপি করা হয়েছে</translation>
@@ -250,6 +253,7 @@
 <translation id="5871497086027727873">১টি আইটেম সরানো হয়েছে</translation>
 <translation id="5911030830365207728">Google অনুবাদ</translation>
 <translation id="5916664084637901428">চালু</translation>
+<translation id="5938160824633642847">আপনার ডিভাইসে পর্যাপ্ত জায়গা নেই। জায়গা খালি করে আবার চেষ্টা করুন।</translation>
 <translation id="5948291296578561264">এর ফলে আপনি ফটো লাইব্রেরিতে ফটো সেভ করতে পারবেন।</translation>
 <translation id="5955891643922670672">অফলাইন সংস্করণ দেখছেন</translation>
 <translation id="5964480694698977962">নতুন ছদ্মবেশী ট্যাব তৈরি করুন।</translation>
@@ -281,7 +285,9 @@
 <translation id="633809752005859102">সত্যিই কিছু ভুল রয়েছে৷ আমরা এটির উপরে কাজ করব৷</translation>
 <translation id="6342069812937806050">এখনই</translation>
 <translation id="6344783595350022745">পাঠ্য সাফ করুন</translation>
+<translation id="6346549652287021269">নতুন ডাউনলোড শুরু করবেন?</translation>
 <translation id="6362362396625799311">কোনো ছদ্মবেশী ট্যাব নেই</translation>
+<translation id="6374469231428023295">আবার চেষ্টা করুন</translation>
 <translation id="6380866119319257197">আপনি যদি আপনার পাসফ্রেজ ভুলে যান বা এই সেটিং পরিবর্তন করতে চান, তাহলে <ph name="BEGIN_LINK" />সিঙ্ক পুনরায় সেট করুন<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">কার্ডে থাকা নাম</translation>
 <translation id="6406506848690869874">সিঙ্ক</translation>
@@ -290,6 +296,7 @@
 
 আপনার সিঙ্ক পাসফ্রেজের মাধ্যমে আপনার ডেটা <ph name="TIME" /> এ এনক্রিপটেড হয়েছে। সিঙ্ক শুরু করতে এটি লিখুন।</translation>
 <translation id="6418346271604475326">PDF প্রস্তুত হচ্ছে</translation>
+<translation id="6434591244308415567">কোনও সমস্যা হয়েছে। পরে আবার চেষ্টা করুন।</translation>
 <translation id="6445051938772793705">দেশ</translation>
 <translation id="6445981559479772097">বার্তা পাঠানো হয়েছে৷</translation>
 <translation id="6464071786529933911">নতুন ছদ্মবেশী ট্যাবে খুলুন</translation>
@@ -300,6 +307,7 @@
 <translation id="6657585470893396449">পাসওয়ার্ড</translation>
 <translation id="667999046851023355">দস্তাবেজ</translation>
 <translation id="6713747756340119864">Google অ্যাপ্লিকেশানগুলি</translation>
+<translation id="6730682669179532099">পাসওয়ার্ড এক্সপোর্ট করা যাচ্ছে না</translation>
 <translation id="6762156594045689028">এই সেটিং পরিবর্তন করার জন্য, <ph name="BEGIN_LINK" />সিঙ্ক পুনরায় সেট করুন<ph name="END_LINK" /></translation>
 <translation id="6780034285637185932">পিন কোড</translation>
 <translation id="6785453220513215166">ক্র্যাশ প্রতিবেদন পাঠানো হচ্ছে...</translation>
@@ -309,13 +317,16 @@
 <translation id="681368974849482173">আইটেম তৈরি করা হয়েছে</translation>
 <translation id="6896758677409633944">অনুলিপি</translation>
 <translation id="6903907808598579934">সিঙ্ক চালু করুন</translation>
+<translation id="6914783257214138813">এক্সপোর্ট করা ফাইল যারা দেখতে পান তারা আপনার পাসওয়ার্ডগুলিও দেখতে পাবেন।</translation>
 <translation id="6945221475159498467">নির্বাচন</translation>
 <translation id="6973630695168034713">ফোল্ডারগুলি</translation>
 <translation id="7004499039102548441">সাম্প্রতিক ট্যাবগুলি</translation>
 <translation id="7006788746334555276">সামগ্রী সেটিংস</translation>
+<translation id="7029809446516969842">পাসওয়ার্ড</translation>
 <translation id="7031882061095297553">এতে সিঙ্ক করুন</translation>
 <translation id="7053983685419859001">ব্লক করুন</translation>
 <translation id="7062545763355031412">স্বীকার করে অ্যাকাউন্টগুলি সুইচ করুন</translation>
+<translation id="7102005569666697658"><ph name="FILE_SIZE" /> ডাউনলোড করা হচ্ছে…</translation>
 <translation id="7108338896283013870">লুকান</translation>
 <translation id="7133798577887235672">সম্পূর্ণ নাম</translation>
 <translation id="7136892417564438900">ক্যামেরা অনুপলব্ধ</translation>
@@ -326,6 +337,7 @@
 <translation id="7203585745079012652">আবার উত্তরগুলি বলে</translation>
 <translation id="722055596168483966">Google পরিষেবাগুলিকে ব্যক্তিগত করুন</translation>
 <translation id="7272437679830969316">আপনার পরিচয় যাচাই করা যাবে না। পাসওয়ার্ড কপি করা হয়নি।</translation>
+<translation id="7291368939935408496">পাসওয়ার্ড তৈরি করা হচ্ছে...</translation>
 <translation id="7336264872878993241"><ph name="PERCENT" /> শতাংশ ডাউনলোড হয়েছে</translation>
 <translation id="7346909386216857016">ঠিক আছে, বুঝেছি</translation>
 <translation id="7400418766976504921">URL</translation>
@@ -350,6 +362,7 @@
 <translation id="7769602470925380267">স্বীকার করে প্রস্থান করুন</translation>
 <translation id="7772032839648071052">পাসফ্রেজ নিশ্চিত করুন</translation>
 <translation id="780301667611848630">না থাক</translation>
+<translation id="7856733331829174190">ডাউনলোড করা যায়নি</translation>
 <translation id="7859704718976024901">ব্রাউজিং ইতিহাস</translation>
 <translation id="7938254975914653459">ফেসটাইম</translation>
 <translation id="7939128259257418052">পাসওয়ার্ড এক্সপোর্ট করুন...</translation>
@@ -387,7 +400,7 @@
 <translation id="8654802032646794042">বাতিল করুন</translation>
 <translation id="8668210798914567634">এই পৃষ্ঠাটি আপনার পড়ার তালিকায় সংরক্ষণ করা হয়েছে।</translation>
 <translation id="8680787084697685621">অ্যাকাউন্ট সাইন-ইন বিশদ তারিখ সীমার বাইরে৷</translation>
-<translation id="8721297211384281569">সরঞ্জাম মেনু</translation>
+<translation id="8721297211384281569">টুল মেনু</translation>
 <translation id="8725066075913043281">আবার চেষ্টা করুন</translation>
 <translation id="8730621377337864115">হয়ে গেছে</translation>
 <translation id="8741995161408053644"><ph name="BEGIN_LINK" />history.google.com<ph name="END_LINK" /> এ আপনার Google অ্যাকাউন্টের অন্যান্য ধরনের ব্রাউজিং ইতিহাস থাকতে পারে।</translation>
@@ -410,6 +423,7 @@
 <translation id="9083392325882095631">১টি আইটেম</translation>
 <translation id="9100610230175265781">পাসফ্রেজের প্রয়োজন</translation>
 <translation id="9148126808321036104">আবার প্রবেশ করুন</translation>
+<translation id="915371508759614899">ডাউনলোড বাতিল করবেন?</translation>
 <translation id="9157836665414082580">ডায়ালগ রুদ্ধ করুন</translation>
 <translation id="9188680907066685419">পরিচালিত অ্যাকাউন্ট থেকে প্রস্থান করুন</translation>
 <translation id="9203116392574189331">Handoff</translation>

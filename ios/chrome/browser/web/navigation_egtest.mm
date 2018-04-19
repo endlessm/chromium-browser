@@ -7,7 +7,7 @@
 #include "base/ios/ios_util.h"
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
-#include "ios/chrome/test/app/web_view_interaction_test_util.h"
+#import "ios/chrome/test/app/web_view_interaction_test_util.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
@@ -271,6 +271,7 @@ std::unique_ptr<net::test_server::HttpResponse> WindowLocationHashHandlers(
 
   // Tap the back button in the HTML and verify the first URL is loaded.
   [ChromeEarlGrey tapWebViewElementWithID:kGoBackID];
+  [ChromeEarlGrey waitForWebViewContainingText:"pony"];
   [[EarlGrey selectElementWithMatcher:OmniboxText(firstURL.GetContent())]
       assertWithMatcher:grey_notNil()];
 
@@ -306,7 +307,7 @@ std::unique_ptr<net::test_server::HttpResponse> WindowLocationHashHandlers(
       assertWithMatcher:grey_notNil()];
 
   // Verify that the forward button is not enabled.
-  if (IsCompact()) {
+  if (IsCompactWidth()) {
     // In horizontally compact environments, the forward button is not visible.
     [[EarlGrey selectElementWithMatcher:ForwardButton()]
         assertWithMatcher:grey_nil()];
@@ -385,7 +386,8 @@ std::unique_ptr<net::test_server::HttpResponse> WindowLocationHashHandlers(
   [ChromeEarlGrey loadURL:page1URL];
 
   // Click link to update location.hash and go to new URL (same page).
-  chrome_test_util::TapWebViewElementWithId(kHashChangeWithHistoryLabel);
+  GREYAssert(TapWebViewElementWithId(kHashChangeWithHistoryLabel),
+             @"Failed to tap %s", kHashChangeWithHistoryLabel);
 
   // Navigate back to original URL. This should fire a hashchange event.
   std::string backHashChangeContent = "backHashChange";
@@ -428,14 +430,16 @@ std::unique_ptr<net::test_server::HttpResponse> WindowLocationHashHandlers(
   [ChromeEarlGrey loadURL:page1URL];
 
   // Tap link to replace the location value.
-  TapWebViewElementWithId(kHashChangeWithoutHistoryLabel);
+  GREYAssert(TapWebViewElementWithId(kHashChangeWithoutHistoryLabel),
+             @"Failed to tap %s", kHashChangeWithoutHistoryLabel);
   [[EarlGrey
       selectElementWithMatcher:OmniboxText(
                                    hashChangedWithoutHistoryURL.GetContent())]
       assertWithMatcher:grey_notNil()];
 
   // Tap link to update the location.hash with a new value.
-  TapWebViewElementWithId(kHashChangeWithHistoryLabel);
+  GREYAssert(TapWebViewElementWithId(kHashChangeWithHistoryLabel),
+             @"Failed to tap %s", kHashChangeWithHistoryLabel);
   [[EarlGrey
       selectElementWithMatcher:OmniboxText(
                                    hashChangedWithHistoryURL.GetContent())]
@@ -463,14 +467,16 @@ std::unique_ptr<net::test_server::HttpResponse> WindowLocationHashHandlers(
   [ChromeEarlGrey loadURL:page1URL];
 
   // Tap link to update location.hash with a new value.
-  TapWebViewElementWithId(kHashChangeWithHistoryLabel);
+  GREYAssert(TapWebViewElementWithId(kHashChangeWithHistoryLabel),
+             @"Failed to tap %s", kHashChangeWithHistoryLabel);
   [[EarlGrey
       selectElementWithMatcher:OmniboxText(
                                    hashChangedWithHistoryURL.GetContent())]
       assertWithMatcher:grey_notNil()];
 
   // Tap link to update location.hash with the same value.
-  TapWebViewElementWithId(kHashChangeWithHistoryLabel);
+  GREYAssert(TapWebViewElementWithId(kHashChangeWithHistoryLabel),
+             @"Failed to tap %s", kHashChangeWithHistoryLabel);
 
   // Tap back once to return to original URL.
   [[EarlGrey selectElementWithMatcher:BackButton()] performAction:grey_tap()];
@@ -559,7 +565,8 @@ std::unique_ptr<net::test_server::HttpResponse> WindowLocationHashHandlers(
   // Load index, tap on redirect link, and assert that the page is redirected
   // to the proper destination.
   [ChromeEarlGrey loadURL:indexURL];
-  TapWebViewElementWithId(redirectLabel);
+  GREYAssert(TapWebViewElementWithId(redirectLabel), @"Failed to tap %s",
+             redirectLabel.c_str());
   [ChromeEarlGrey waitForWebViewContainingText:"You've arrived"];
   [[EarlGrey selectElementWithMatcher:OmniboxText(destinationURL.GetContent())]
       assertWithMatcher:grey_notNil()];

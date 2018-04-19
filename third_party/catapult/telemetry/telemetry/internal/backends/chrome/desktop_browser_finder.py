@@ -46,8 +46,18 @@ class PossibleDesktopBrowser(possible_browser.PossibleBrowser):
         self.browser_type, self._local_executable, self._flash_path)
 
   @property
+  def browser_directory(self):
+    return self._browser_directory
+
+  @property
   def profile_directory(self):
     return self._profile_directory
+
+  @property
+  def last_modification_time(self):
+    if os.path.exists(self._local_executable):
+      return os.path.getmtime(self._local_executable)
+    return -1
 
   def _InitPlatformIfNeeded(self):
     if self._platform:
@@ -57,6 +67,9 @@ class PossibleDesktopBrowser(possible_browser.PossibleBrowser):
 
     # pylint: disable=protected-access
     self._platform_backend = self._platform._platform_backend
+
+  def _GetPathsForOsPageCacheFlushing(self):
+    return [self.profile_directory, self.browser_directory]
 
   def SetUpEnvironment(self, browser_options):
     super(PossibleDesktopBrowser, self).SetUpEnvironment(browser_options)
@@ -110,7 +123,7 @@ class PossibleDesktopBrowser(possible_browser.PossibleBrowser):
             self._browser_directory, self._profile_directory,
             self._local_executable, self._flash_path, self._is_content_shell)
 
-        browser_backend.ClearCaches()
+        self._ClearCachesOnStart()
 
         returned_browser = browser.Browser(
             browser_backend, self._platform_backend, startup_args)
@@ -150,6 +163,12 @@ class PossibleDesktopBrowser(possible_browser.PossibleBrowser):
         # not overridden by the bundled or component-updated version of Flash.
         startup_args.append('--ppapi-flash-version=99.9.999.999')
 
+    if self.profile_directory is not None:
+      if self._is_content_shell:
+        startup_args.append('--data-path=%s' % self.profile_directory)
+      else:
+        startup_args.append('--user-data-dir=%s' % self.profile_directory)
+
     trace_config_file = (self._platform_backend.tracing_controller_backend
                          .GetChromeTraceConfigFile())
     if trace_config_file:
@@ -166,10 +185,6 @@ class PossibleDesktopBrowser(possible_browser.PossibleBrowser):
   def UpdateExecutableIfNeeded(self):
     pass
 
-  def last_modification_time(self):
-    if os.path.exists(self._local_executable):
-      return os.path.getmtime(self._local_executable)
-    return -1
 
 def SelectDefaultBrowser(possible_browsers):
   local_builds_by_date = [

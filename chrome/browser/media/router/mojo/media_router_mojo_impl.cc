@@ -24,6 +24,7 @@
 #include "chrome/browser/media/router/mojo/media_route_controller.h"
 #include "chrome/browser/media/router/mojo/media_route_provider_util_win.h"
 #include "chrome/browser/media/router/mojo/media_router_mojo_metrics.h"
+#include "chrome/browser/media/router/mojo/media_sink_service_status.h"
 #include "chrome/browser/media/router/route_message_observer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
@@ -195,11 +196,18 @@ void MediaRouterMojoImpl::CreateRoute(
 
   MediaRouterMetrics::RecordMediaSinkType(sink->icon_type());
   MediaRouteProviderId provider_id = sink->provider_id();
+  // This is a hack to ensure the extension handles the CreateRoute call until
+  // the CastMediaRouteProvider supports it.
+  // TODO(crbug.com/698940): Remove this hack when CastMediaRouteProvider
+  // supports route management.
+  if (provider_id == MediaRouteProviderId::CAST)
+    provider_id = MediaRouteProviderId::EXTENSION;
+
   int tab_id = SessionTabHelper::IdForTab(web_contents);
   std::string presentation_id = MediaRouterBase::CreatePresentationId();
   auto callback = base::BindOnce(
       &MediaRouterMojoImpl::RouteResponseReceived, weak_factory_.GetWeakPtr(),
-      presentation_id, provider_id, incognito, base::Passed(&callbacks), false);
+      presentation_id, provider_id, incognito, std::move(callbacks), false);
   media_route_providers_[provider_id]->CreateRoute(
       source_id, sink_id, presentation_id, origin, tab_id, timeout, incognito,
       std::move(callback));
@@ -231,7 +239,7 @@ void MediaRouterMojoImpl::JoinRoute(
   int tab_id = SessionTabHelper::IdForTab(web_contents);
   auto callback = base::BindOnce(
       &MediaRouterMojoImpl::RouteResponseReceived, weak_factory_.GetWeakPtr(),
-      presentation_id, *provider_id, incognito, base::Passed(&callbacks), true);
+      presentation_id, *provider_id, incognito, std::move(callbacks), true);
   media_route_providers_[*provider_id]->JoinRoute(
       source_id, presentation_id, origin, tab_id, timeout, incognito,
       std::move(callback));
@@ -259,7 +267,7 @@ void MediaRouterMojoImpl::ConnectRouteByRouteId(
   std::string presentation_id = MediaRouterBase::CreatePresentationId();
   auto callback = base::BindOnce(
       &MediaRouterMojoImpl::RouteResponseReceived, weak_factory_.GetWeakPtr(),
-      presentation_id, *provider_id, incognito, base::Passed(&callbacks), true);
+      presentation_id, *provider_id, incognito, std::move(callbacks), true);
   media_route_providers_[*provider_id]->ConnectRouteByRouteId(
       source_id, route_id, presentation_id, origin, tab_id, timeout, incognito,
       std::move(callback));
@@ -890,6 +898,12 @@ void MediaRouterMojoImpl::OnMediaRemoterCreated(
 
   CastRemotingConnector* connector = it->second;
   connector->ConnectToService(std::move(source_request), std::move(remoter));
+}
+
+void MediaRouterMojoImpl::GetMediaSinkServiceStatus(
+    mojom::MediaRouter::GetMediaSinkServiceStatusCallback callback) {
+  MediaSinkServiceStatus status;
+  std::move(callback).Run(status.GetStatusAsJSONString());
 }
 
 void MediaRouterMojoImpl::BindToMojoRequest(

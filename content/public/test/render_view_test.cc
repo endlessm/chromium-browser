@@ -289,6 +289,10 @@ void RenderViewTest::SetUp() {
   std::string flags("--expose-gc");
   v8::V8::SetFlagsFromString(flags.c_str(), static_cast<int>(flags.size()));
 
+  // Ensure that this looks like the renderer process based on the command line.
+  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+      switches::kProcessType, switches::kRendererProcess);
+
   // Ensure that we register any necessary schemes when initializing WebKit,
   // since we are using a MockRenderThread.
   RenderThreadImpl::RegisterSchemes();
@@ -320,7 +324,7 @@ void RenderViewTest::SetUp() {
   render_thread_->PassInitialInterfaceProviderRequestForFrame(
       view_params->main_frame_routing_id,
       mojo::MakeRequest(&view_params->main_frame_interface_provider));
-  view_params->session_storage_namespace_id = kInvalidSessionStorageNamespaceId;
+  view_params->session_storage_namespace_id = "";
   view_params->swapped_out = false;
   view_params->replicated_frame_state = FrameReplicationState();
   view_params->proxy_routing_id = MSG_ROUTING_NONE;
@@ -550,7 +554,8 @@ void RenderViewTest::Reload(const GURL& url) {
       PREVIEWS_UNSPECIFIED, base::TimeTicks::Now(), "GET", nullptr,
       base::Optional<SourceLocation>(),
       CSPDisposition::CHECK /* should_check_main_world_csp */,
-      false /* started_from_context_menu */, false /* has_user_gesture */);
+      false /* started_from_context_menu */, false /* has_user_gesture */,
+      base::nullopt /* suggested_filename */);
   RenderViewImpl* impl = static_cast<RenderViewImpl*>(view_);
   TestRenderFrame* frame =
       static_cast<TestRenderFrame*>(impl->GetMainRenderFrame());
@@ -564,11 +569,13 @@ void RenderViewTest::Resize(gfx::Size new_size,
   ResizeParams params;
   params.screen_info = ScreenInfo();
   params.new_size = new_size;
-  params.physical_backing_size = new_size;
+  params.compositor_viewport_pixel_size = new_size;
   params.top_controls_height = 0.f;
   params.browser_controls_shrink_blink_size = false;
   params.is_fullscreen_granted = is_fullscreen_granted;
   params.display_mode = blink::kWebDisplayModeBrowser;
+  params.content_source_id =
+      static_cast<RenderViewImpl*>(view_)->GetContentSourceId();
   std::unique_ptr<IPC::Message> resize_message(new ViewMsg_Resize(0, params));
   OnMessageReceived(*resize_message);
 }
@@ -690,7 +697,8 @@ void RenderViewTest::GoToOffset(int offset,
       GURL(), PREVIEWS_UNSPECIFIED, base::TimeTicks::Now(), "GET", nullptr,
       base::Optional<SourceLocation>(),
       CSPDisposition::CHECK /* should_check_main_world_csp */,
-      false /* started_from_context_menu */, false /* has_user_gesture */);
+      false /* started_from_context_menu */, false /* has_user_gesture */,
+      base::nullopt /* suggested_filename */);
   RequestNavigationParams request_params;
   request_params.page_state = state;
   request_params.nav_entry_id = pending_offset + 1;

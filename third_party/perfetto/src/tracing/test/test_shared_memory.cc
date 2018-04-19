@@ -16,6 +16,7 @@
 
 #include "src/tracing/test/test_shared_memory.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "perfetto/base/logging.h"
@@ -23,8 +24,7 @@
 namespace perfetto {
 
 TestSharedMemory::TestSharedMemory(size_t size) {
-  mem_.reset(new char[size]);
-  memset(mem_.get(), 0, size);
+  mem_ = base::PageAllocator::Allocate(size);
   size_ = size;
 }
 

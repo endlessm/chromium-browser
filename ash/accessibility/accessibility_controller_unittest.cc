@@ -10,18 +10,16 @@
 #include "ash/public/cpp/config.h"
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
+#include "ash/sticky_keys/sticky_keys_controller.h"
 #include "ash/system/accessibility_observer.h"
 #include "ash/system/tray/system_tray_notifier.h"
 #include "ash/test/ash_test_base.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_power_manager_client.h"
 #include "components/prefs/pref_service.h"
+#include "ui/keyboard/keyboard_util.h"
 
 namespace ash {
-
-void CopyResult(base::TimeDelta* dest, base::TimeDelta src) {
-  *dest = src;
-}
 
 class TestAccessibilityObserver : public AccessibilityObserver {
  public:
@@ -59,6 +57,10 @@ class AccessibilityControllerTest : public AshTestBase {
 
     AshTestBase::SetUp();
   }
+  void TearDown() override {
+    AshTestBase::TearDown();
+    chromeos::DBusThreadManager::Shutdown();
+  }
 
  protected:
   // Owned by chromeos::DBusThreadManager.
@@ -72,14 +74,25 @@ TEST_F(AccessibilityControllerTest, PrefsAreRegistered) {
   PrefService* prefs =
       Shell::Get()->session_controller()->GetLastActiveUserPrefService();
   EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityAutoclickEnabled));
+  EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityAutoclickDelayMs));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityCaretHighlightEnabled));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityCursorHighlightEnabled));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityFocusHighlightEnabled));
   EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityHighContrastEnabled));
   EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityLargeCursorEnabled));
   EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityLargeCursorDipSize));
   EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityMonoAudioEnabled));
   EXPECT_TRUE(
       prefs->FindPreference(prefs::kAccessibilityScreenMagnifierEnabled));
+  EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityScreenMagnifierScale));
   EXPECT_TRUE(
       prefs->FindPreference(prefs::kAccessibilitySpokenFeedbackEnabled));
+  EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityStickyKeysEnabled));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityVirtualKeyboardEnabled));
 }
 
 TEST_F(AccessibilityControllerTest, SetAutoclickEnabled) {
@@ -97,6 +110,66 @@ TEST_F(AccessibilityControllerTest, SetAutoclickEnabled) {
 
   controller->SetAutoclickEnabled(false);
   EXPECT_FALSE(controller->IsAutoclickEnabled());
+  EXPECT_EQ(2, observer.notification_none_changed_);
+
+  Shell::Get()->system_tray_notifier()->RemoveAccessibilityObserver(&observer);
+}
+
+TEST_F(AccessibilityControllerTest, SetCaretHighlightEnabled) {
+  AccessibilityController* controller =
+      Shell::Get()->accessibility_controller();
+  EXPECT_FALSE(controller->IsCaretHighlightEnabled());
+
+  TestAccessibilityObserver observer;
+  Shell::Get()->system_tray_notifier()->AddAccessibilityObserver(&observer);
+  EXPECT_EQ(0, observer.notification_none_changed_);
+
+  controller->SetCaretHighlightEnabled(true);
+  EXPECT_TRUE(controller->IsCaretHighlightEnabled());
+  EXPECT_EQ(1, observer.notification_none_changed_);
+
+  controller->SetCaretHighlightEnabled(false);
+  EXPECT_FALSE(controller->IsCaretHighlightEnabled());
+  EXPECT_EQ(2, observer.notification_none_changed_);
+
+  Shell::Get()->system_tray_notifier()->RemoveAccessibilityObserver(&observer);
+}
+
+TEST_F(AccessibilityControllerTest, SetCursorHighlightEnabled) {
+  AccessibilityController* controller =
+      Shell::Get()->accessibility_controller();
+  EXPECT_FALSE(controller->IsCursorHighlightEnabled());
+
+  TestAccessibilityObserver observer;
+  Shell::Get()->system_tray_notifier()->AddAccessibilityObserver(&observer);
+  EXPECT_EQ(0, observer.notification_none_changed_);
+
+  controller->SetCursorHighlightEnabled(true);
+  EXPECT_TRUE(controller->IsCursorHighlightEnabled());
+  EXPECT_EQ(1, observer.notification_none_changed_);
+
+  controller->SetCursorHighlightEnabled(false);
+  EXPECT_FALSE(controller->IsCursorHighlightEnabled());
+  EXPECT_EQ(2, observer.notification_none_changed_);
+
+  Shell::Get()->system_tray_notifier()->RemoveAccessibilityObserver(&observer);
+}
+
+TEST_F(AccessibilityControllerTest, SetFocusHighlightEnabled) {
+  AccessibilityController* controller =
+      Shell::Get()->accessibility_controller();
+  EXPECT_FALSE(controller->IsFocusHighlightEnabled());
+
+  TestAccessibilityObserver observer;
+  Shell::Get()->system_tray_notifier()->AddAccessibilityObserver(&observer);
+  EXPECT_EQ(0, observer.notification_none_changed_);
+
+  controller->SetFocusHighlightEnabled(true);
+  EXPECT_TRUE(controller->IsFocusHighlightEnabled());
+  EXPECT_EQ(1, observer.notification_none_changed_);
+
+  controller->SetFocusHighlightEnabled(false);
+  EXPECT_FALSE(controller->IsFocusHighlightEnabled());
   EXPECT_EQ(2, observer.notification_none_changed_);
 
   Shell::Get()->system_tray_notifier()->RemoveAccessibilityObserver(&observer);
@@ -202,6 +275,52 @@ TEST_F(AccessibilityControllerTest, SetSpokenFeedbackEnabled) {
   Shell::Get()->system_tray_notifier()->RemoveAccessibilityObserver(&observer);
 }
 
+TEST_F(AccessibilityControllerTest, SetStickyKeysEnabled) {
+  AccessibilityController* controller =
+      Shell::Get()->accessibility_controller();
+  EXPECT_FALSE(controller->IsStickyKeysEnabled());
+
+  TestAccessibilityObserver observer;
+  Shell::Get()->system_tray_notifier()->AddAccessibilityObserver(&observer);
+  EXPECT_EQ(0, observer.notification_none_changed_);
+
+  StickyKeysController* sticky_keys_controller =
+      Shell::Get()->sticky_keys_controller();
+  controller->SetStickyKeysEnabled(true);
+  EXPECT_TRUE(sticky_keys_controller->enabled_for_test());
+  EXPECT_TRUE(controller->IsStickyKeysEnabled());
+  EXPECT_EQ(1, observer.notification_none_changed_);
+
+  controller->SetStickyKeysEnabled(false);
+  EXPECT_FALSE(sticky_keys_controller->enabled_for_test());
+  EXPECT_FALSE(controller->IsStickyKeysEnabled());
+  EXPECT_EQ(2, observer.notification_none_changed_);
+
+  Shell::Get()->system_tray_notifier()->RemoveAccessibilityObserver(&observer);
+}
+
+TEST_F(AccessibilityControllerTest, SetVirtualKeyboardEnabled) {
+  AccessibilityController* controller =
+      Shell::Get()->accessibility_controller();
+  EXPECT_FALSE(controller->IsVirtualKeyboardEnabled());
+
+  TestAccessibilityObserver observer;
+  Shell::Get()->system_tray_notifier()->AddAccessibilityObserver(&observer);
+  EXPECT_EQ(0, observer.notification_none_changed_);
+
+  controller->SetVirtualKeyboardEnabled(true);
+  EXPECT_TRUE(keyboard::GetAccessibilityKeyboardEnabled());
+  EXPECT_TRUE(controller->IsVirtualKeyboardEnabled());
+  EXPECT_EQ(1, observer.notification_none_changed_);
+
+  controller->SetVirtualKeyboardEnabled(false);
+  EXPECT_FALSE(keyboard::GetAccessibilityKeyboardEnabled());
+  EXPECT_FALSE(controller->IsVirtualKeyboardEnabled());
+  EXPECT_EQ(2, observer.notification_none_changed_);
+
+  Shell::Get()->system_tray_notifier()->RemoveAccessibilityObserver(&observer);
+}
+
 // Tests that ash's controller gets shutdown sound duration properly from
 // remote client.
 TEST_F(AccessibilityControllerTest, GetShutdownSoundDuration) {
@@ -211,11 +330,29 @@ TEST_F(AccessibilityControllerTest, GetShutdownSoundDuration) {
   controller->SetClient(client.CreateInterfacePtrAndBind());
 
   base::TimeDelta sound_duration;
-  controller->PlayShutdownSound(
-      base::BindOnce(&CopyResult, base::Unretained(&sound_duration)));
+  controller->PlayShutdownSound(base::BindOnce(
+      [](base::TimeDelta* dst, base::TimeDelta duration) { *dst = duration; },
+      base::Unretained(&sound_duration)));
   controller->FlushMojoForTest();
   EXPECT_EQ(TestAccessibilityControllerClient::kShutdownSoundDuration,
             sound_duration);
+}
+
+// Tests that ash's controller gets should toggle spoken feedback via touch
+// properly from remote client.
+TEST_F(AccessibilityControllerTest, GetShouldToggleSpokenFeedbackViaTouch) {
+  AccessibilityController* controller =
+      Shell::Get()->accessibility_controller();
+  TestAccessibilityControllerClient client;
+  controller->SetClient(client.CreateInterfacePtrAndBind());
+
+  bool should_toggle = false;
+  controller->ShouldToggleSpokenFeedbackViaTouch(base::BindOnce(
+      [](bool* dst, bool should_toggle) { *dst = should_toggle; },
+      base::Unretained(&should_toggle)));
+  controller->FlushMojoForTest();
+  // Expects true which is passed by |client|.
+  EXPECT_TRUE(should_toggle);
 }
 
 TEST_F(AccessibilityControllerTest, SetDarkenScreen) {

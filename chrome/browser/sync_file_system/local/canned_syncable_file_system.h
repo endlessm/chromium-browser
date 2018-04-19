@@ -24,7 +24,7 @@
 #include "storage/browser/quota/quota_callbacks.h"
 #include "storage/common/fileapi/file_system_types.h"
 #include "storage/common/fileapi/file_system_util.h"
-#include "third_party/WebKit/common/quota/quota_types.mojom.h"
+#include "third_party/WebKit/public/mojom/quota/quota_types.mojom.h"
 
 namespace base {
 class SingleThreadTaskRunner;
@@ -213,7 +213,7 @@ class CannedSyncableFileSystem
                      const WriteCallback& callback);
   void DoGetUsageAndQuota(int64_t* usage,
                           int64_t* quota,
-                          const storage::StatusCallback& callback);
+                          storage::StatusCallback callback);
 
  private:
   typedef base::ObserverListThreadSafe<LocalFileSyncStatus::Observer>

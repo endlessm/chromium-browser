@@ -49,7 +49,7 @@ class FakeWebViewScheduler : public WebViewScheduler {
   }
 
   void SetPageVisible(bool is_page_visible) override {}
-  void SetPageStopped(bool is_page_stopped) override {}
+  void SetPageFrozen(bool is_page_frozen) override {}
 
   std::unique_ptr<WebFrameScheduler> CreateFrameScheduler(
       BlameContext* blame_context,
@@ -62,6 +62,7 @@ class FakeWebViewScheduler : public WebViewScheduler {
   void SetVirtualTimePolicy(VirtualTimePolicy policy) override {}
   void AddVirtualTimeObserver(VirtualTimeObserver* observer) override {}
   void RemoveVirtualTimeObserver(VirtualTimeObserver* observer) override {}
+  void SetInitialVirtualTimeOffset(base::TimeDelta offset) override {}
   void GrantVirtualTimeBudget(base::TimeDelta budget,
                               base::OnceClosure callback) override {}
   void SetMaxVirtualTimeTaskStarvationCount(int count) override {}

@@ -37,13 +37,18 @@ class HoverButton : public views::LabelButton {
 
   // Creates a HoverButton with custom subviews. |icon_view| replaces the
   // LabelButton icon, and titles appear on separate rows. An empty |subtitle|
-  // will vertically center |title|.
+  // will vertically center |title|. If |show_submenu_arrow| is true, an arrow
+  // is shown, analogous to menu items with submenus.
   HoverButton(views::ButtonListener* button_listener,
               std::unique_ptr<views::View> icon_view,
               const base::string16& title,
-              const base::string16& subtitle);
+              const base::string16& subtitle,
+              bool show_submenu_arrow = false);
 
   ~HoverButton() override;
+
+  // views::LabelButton:
+  void SetBorder(std::unique_ptr<views::Border> b) override;
 
   // Updates the title text, and applies the secondary style to the text
   // specified by |range|. If |range| is invalid, no style is applied. This
@@ -70,6 +75,11 @@ class HoverButton : public views::LabelButton {
   void set_auto_compute_tooltip(bool auto_compute_tooltip) {
     auto_compute_tooltip_ = auto_compute_tooltip;
   }
+
+  // Sets the view to be highlighted when the button is hovered. If this
+  // function is not called, |this| will be used. This function can be used e.g.
+  // when siblings in the parent view have to be highlighted as well.
+  void SetHighlightingView(views::View* highlighting_view);
 
  protected:
   // views::LabelButton:
@@ -98,6 +108,9 @@ class HoverButton : public views::LabelButton {
   // Whether this |HoverButton|'s accessible name and tooltip should be computed
   // from the |title_| and |subtitle_| text.
   bool auto_compute_tooltip_ = true;
+
+  // View that gets highlighted when this button is hovered.
+  views::View* highlighting_view_ = this;
 
   DISALLOW_COPY_AND_ASSIGN(HoverButton);
 };

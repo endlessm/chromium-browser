@@ -13,6 +13,7 @@
 #include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/prerender/prerender_contents.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/renderer_host/chrome_navigation_ui_data.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -31,6 +32,7 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
+#include "ui/base/mojo/window_open_disposition_struct_traits.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "url/gurl.h"
@@ -101,6 +103,41 @@ void RecordProceedWithTransitionType(ui::PageTransition transition_type) {
   } else {
     NOTREACHED();
   }
+}
+
+void RecordProceedWithDisposition(WindowOpenDisposition disposition) {
+  ProcessNavigationResult result =
+      ProcessNavigationResult::kProceedDispositionSingletonTab;
+  switch (disposition) {
+    case WindowOpenDisposition::UNKNOWN:
+    case WindowOpenDisposition::SAVE_TO_DISK:
+    case WindowOpenDisposition::IGNORE_ACTION:
+      // These values don't result in a navigation, so they will never be
+      // passed to this class.
+      NOTREACHED();
+      break;
+    case WindowOpenDisposition::CURRENT_TAB:
+    case WindowOpenDisposition::NEW_FOREGROUND_TAB:
+    case WindowOpenDisposition::NEW_WINDOW:
+    case WindowOpenDisposition::OFF_THE_RECORD:
+      // These navigations are special cases and are handled elsewhere.
+      NOTREACHED();
+      break;
+    case WindowOpenDisposition::SINGLETON_TAB:
+      result = ProcessNavigationResult::kProceedDispositionSingletonTab;
+      break;
+    case WindowOpenDisposition::NEW_BACKGROUND_TAB:
+      result = ProcessNavigationResult::kProceedDispositionNewBackgroundTab;
+      break;
+    case WindowOpenDisposition::NEW_POPUP:
+      result = ProcessNavigationResult::kProceedDispositionNewPopup;
+      break;
+    case WindowOpenDisposition::SWITCH_TO_TAB:
+      result = ProcessNavigationResult::kProceedDispositionSwitchToTab;
+      break;
+  }
+
+  RecordProcessNavigationResult(result);
 }
 
 bool IsWindowedBookmarkApp(const Extension* app,
@@ -268,6 +305,37 @@ BookmarkAppNavigationThrottle::ProcessNavigation(bool is_redirect) {
     return content::NavigationThrottle::PROCEED;
   }
 
+  const ChromeNavigationUIData* ui_data =
+      static_cast<const ChromeNavigationUIData*>(
+          navigation_handle()->GetNavigationUIData());
+
+  WindowOpenDisposition disposition = ui_data->window_open_disposition();
+
+  // CURRENT_TAB is used when clicking on links that just navigate the frame
+  // We always want to intercept these navigations.
+  //
+  // FOREGROUND_TAB is used when clicking on links that open a new tab in the
+  // foreground e.g. target=_blank links, trying to open a tab inside an app
+  // window when there are no regular browser windows, Ctrl + Shift + Clicking
+  // a link, etc. We want to ignore Ctrl + Shift + Click navigations.
+  // TODO(crbug.com/786835): Stop intercepting FOREGROUND_TAB navigations from
+  // Ctrl + Shift + Click.
+  //
+  // NEW_WINDOW is used when shift + clicking a link or when clicking
+  // "Open in new window" in the context menu. We want to intercept these
+  // navigations but only if they come from an app.
+  // TODO(crbug.com/786838): Stop intercepting NEW_WINDOW navigations outside
+  // the app.
+  if (disposition != WindowOpenDisposition::CURRENT_TAB &&
+      disposition != WindowOpenDisposition::NEW_FOREGROUND_TAB &&
+      disposition != WindowOpenDisposition::NEW_WINDOW) {
+    DVLOG(1) << "Don't override: Disposition is "
+             << mojo::EnumTraits<ui::mojom::WindowOpenDisposition,
+                                 WindowOpenDisposition>::ToMojom(disposition);
+    RecordProceedWithDisposition(disposition);
+    return content::NavigationThrottle::PROCEED;
+  }
+
   scoped_refptr<const Extension> app_for_window = GetAppForWindow();
 
   if (app_for_window == target_app) {
@@ -347,7 +415,7 @@ BookmarkAppNavigationThrottle::ProcessNavigation(bool is_redirect) {
     switch (result.action()) {
       case content::NavigationThrottle::DEFER:
         open_in_app_result =
-            ProcessNavigationResult::kDeferOpenAppCloseEmptyWebContents;
+            ProcessNavigationResult::kDeferMovingContentsToNewAppWindow;
         break;
       case content::NavigationThrottle::CANCEL_AND_IGNORE:
         open_in_app_result = ProcessNavigationResult::kCancelOpenedApp;
@@ -355,7 +423,7 @@ BookmarkAppNavigationThrottle::ProcessNavigation(bool is_redirect) {
       default:
         NOTREACHED();
         open_in_app_result =
-            ProcessNavigationResult::kDeferOpenAppCloseEmptyWebContents;
+            ProcessNavigationResult::kDeferMovingContentsToNewAppWindow;
     }
 
     RecordProcessNavigationResult(open_in_app_result);
@@ -369,8 +437,8 @@ BookmarkAppNavigationThrottle::ProcessNavigation(bool is_redirect) {
     // experience for out-of-scope navigations improves.
     DVLOG(1) << "Open in new tab.";
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&BookmarkAppNavigationThrottle::OpenInNewTab,
-                              weak_ptr_factory_.GetWeakPtr()));
+        FROM_HERE, base::BindOnce(&BookmarkAppNavigationThrottle::OpenInNewTab,
+                                  weak_ptr_factory_.GetWeakPtr()));
     RecordProcessNavigationResult(
         ProcessNavigationResult::kDeferOpenNewTabInAppOutOfScope);
     return content::NavigationThrottle::DEFER;
@@ -386,24 +454,16 @@ BookmarkAppNavigationThrottle::OpenInAppWindowAndCloseTabIfNecessary(
     scoped_refptr<const Extension> target_app) {
   content::WebContents* source = navigation_handle()->GetWebContents();
   if (source->GetController().IsInitialNavigation()) {
-    // When a new WebContents has no opener, the first navigation will happen
-    // synchronously. This could result in us opening the app and then focusing
-    // the original WebContents. To avoid this we open the app asynchronously.
-    if (!source->HasOpener()) {
-      DVLOG(1) << "Deferring opening app.";
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(&BookmarkAppNavigationThrottle::OpenBookmarkApp,
-                                weak_ptr_factory_.GetWeakPtr(), target_app));
-    } else {
-      OpenBookmarkApp(target_app);
-    }
-
-    // According to NavigationThrottle::WillStartRequest's documentation closing
-    // a WebContents should be done asynchronously to avoid UAFs. Closing the
-    // WebContents will cancel the navigation.
+    // The first navigation might happen synchronously. This could result in us
+    // trying to reparent a WebContents that hasn't been attached to a browser
+    // yet. To avoid this we post a task to wait for the WebContents to be
+    // attached to a browser window.
+    DVLOG(1) << "Defer reparenting WebContents into app window.";
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&BookmarkAppNavigationThrottle::CloseWebContents,
-                              weak_ptr_factory_.GetWeakPtr()));
+        FROM_HERE,
+        base::BindOnce(
+            &BookmarkAppNavigationThrottle::ReparentWebContentsAndResume,
+            weak_ptr_factory_.GetWeakPtr(), target_app));
     return content::NavigationThrottle::DEFER;
   }
 
@@ -422,6 +482,7 @@ void BookmarkAppNavigationThrottle::OpenBookmarkApp(
       profile, bookmark_app.get(), extensions::LAUNCH_CONTAINER_WINDOW,
       WindowOpenDisposition::CURRENT_TAB, extensions::SOURCE_URL_HANDLER);
   launch_params.override_url = navigation_handle()->GetURL();
+  launch_params.opener = source->GetOpener();
 
   DVLOG(1) << "Opening app.";
   OpenApplication(launch_params);
@@ -451,6 +512,13 @@ void BookmarkAppNavigationThrottle::OpenInNewTab() {
 
   source->OpenURL(url_params);
   CancelDeferredNavigation(content::NavigationThrottle::CANCEL_AND_IGNORE);
+}
+
+void BookmarkAppNavigationThrottle::ReparentWebContentsAndResume(
+    scoped_refptr<const Extension> target_app) {
+  ReparentWebContentsIntoAppBrowser(navigation_handle()->GetWebContents(),
+                                    target_app.get());
+  Resume();
 }
 
 scoped_refptr<const Extension>

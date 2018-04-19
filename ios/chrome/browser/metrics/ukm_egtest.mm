@@ -181,6 +181,13 @@ void OpenNewRegularTab() {
   [ChromeEarlGrey waitForMainTabCount:(tab_count + 1)];
 }
 
+// Grant/revoke metrics consent and update MetricsServicesManager.
+void UpdateMetricsConsent(bool new_state) {
+  g_metrics_enabled = new_state;
+  GetApplicationContext()->GetMetricsServicesManager()->UpdateUploadPermissions(
+      true);
+}
+
 // Signs in to sync.
 void SignIn() {
   ChromeIdentity* identity = [SigninEarlGreyUtils fakeIdentity1];
@@ -283,9 +290,13 @@ void SignOut() {
   // Disable sync.
   SignOut();
   AssertSyncInitialized(false);
+  chrome_test_util::ClearSyncServerData();
 
   [super tearDown];
 }
+
+// The tests in this file should correspond with the ones in
+// //chrome/browser/metrics/ukm_browsertest.cc
 
 // Make sure that UKM is disabled while an incognito tab is open.
 - (void)testRegularPlusIncognito {
@@ -312,28 +323,61 @@ void SignOut() {
              @"Client ID was reset.");
 }
 
-// Make sure that UKM is disabled when sync is not enabled.
-- (void)testNoSync {
+// Make sure opening a real tab after Incognito doesn't enable UKM.
+- (void)testIncognitoPlusRegular {
   uint64_t original_client_id = metrics::UkmEGTestHelper::client_id();
+  chrome_test_util::CloseAllTabs();
+  [ChromeEarlGrey waitForMainTabCount:(0)];
 
-  SignOut();
-
+  OpenNewIncognitoTab();
   AssertUKMEnabled(false);
-  // Client ID should have been reset by signout.
-  GREYAssert(original_client_id != metrics::UkmEGTestHelper::client_id(),
-             @"Client ID was not reset.");
 
-  original_client_id = metrics::UkmEGTestHelper::client_id();
-  SignInWithPromo();
+  // Opening another regular tab mustn't enable UKM.
+  OpenNewRegularTab();
+  AssertUKMEnabled(false);
 
+  GREYAssert(chrome_test_util::CloseAllIncognitoTabs(), @"Tabs did not close");
+  [ChromeEarlGrey waitForIncognitoTabCount:0];
   AssertUKMEnabled(true);
+
   // Client ID should not have been reset.
   GREYAssert(original_client_id == metrics::UkmEGTestHelper::client_id(),
              @"Client ID was reset.");
 }
 
+// testOpenNonSync not needed, since there can't be multiple profiles.
+
+// Make sure that UKM is disabled when metrics consent is revoked.
+- (void)testMetricsConsent {
+  uint64_t original_client_id = metrics::UkmEGTestHelper::client_id();
+
+  UpdateMetricsConsent(false);
+
+  AssertUKMEnabled(false);
+
+  UpdateMetricsConsent(true);
+
+  AssertUKMEnabled(true);
+  // Client ID should have been reset.
+  GREYAssert(original_client_id != metrics::UkmEGTestHelper::client_id(),
+             @"Client ID was not reset.");
+}
+
+// Make sure that providing metrics consent doesn't enable UKM w/o sync.
+- (void)testConsentAddedButNoSync {
+  SignOut();
+  UpdateMetricsConsent(false);
+  AssertUKMEnabled(false);
+
+  UpdateMetricsConsent(true);
+  AssertUKMEnabled(false);
+
+  SignInWithPromo();
+  AssertUKMEnabled(true);
+}
+
 // Make sure that UKM is disabled when sync is disabled.
-- (void)testDisableSync {
+- (void)testSingleDisableSync {
   uint64_t original_client_id = metrics::UkmEGTestHelper::client_id();
 
   [ChromeEarlGreyUI openSettingsMenu];
@@ -377,27 +421,85 @@ void SignOut() {
       performAction:grey_tap()];
 }
 
-// Make sure that UKM is disabled when metrics consent is revoked.
-- (void)testNoConsent {
+// testMultiDisableSync not needed, since there can't be multiple profiles.
+
+// Make sure that UKM is disabled when a secondary passphrase is used.
+- (void)testSecondaryPassphrase {
   uint64_t original_client_id = metrics::UkmEGTestHelper::client_id();
 
-  // Revoke metrics consent and update MetricsServicesManager.
-  g_metrics_enabled = false;
-  GetApplicationContext()->GetMetricsServicesManager()->UpdateUploadPermissions(
-      true);
+  // This test hangs for a while when typing, and eventually causes the suite to
+  // timeout on iOS 11 iPad. crbug.com/811376
+  if (IsIPadIdiom()) {
+    if (@available(iOS 11, *)) {
+      EARL_GREY_TEST_DISABLED(@"Disabled on iOS 11 iPad");
+    }
+  }
+
+  [ChromeEarlGreyUI openSettingsMenu];
+  // Open accounts settings, then sync settings.
+  [[EarlGrey selectElementWithMatcher:SettingsAccountButton()]
+      performAction:grey_tap()];
+  [[EarlGrey selectElementWithMatcher:AccountsSyncButton()]
+      performAction:grey_tap()];
+  // Open sync encryption menu.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"kSettingsSyncId")]
+      performAction:grey_scrollToContentEdge(kGREYContentEdgeBottom)];
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(
+                                          l10n_util::GetNSStringWithFixup(
+                                              IDS_IOS_SYNC_ENCRYPTION_TITLE))]
+      performAction:grey_tap()];
+  // Select passphrase encryption.
+  [[EarlGrey selectElementWithMatcher:ButtonWithAccessibilityLabelId(
+                                          IDS_SYNC_FULL_ENCRYPTION_DATA)]
+      performAction:grey_tap()];
+  // Type and confirm passphrase, then submit.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityValue(@"Passphrase")]
+      performAction:grey_typeText(@"mypassphrase")];
+  [[EarlGrey
+      selectElementWithMatcher:grey_accessibilityValue(@"Confirm passphrase")]
+      performAction:grey_typeText(@"mypassphrase")];
+  [[EarlGrey selectElementWithMatcher:ButtonWithAccessibilityLabelId(
+                                          IDS_IOS_SYNC_DECRYPT_BUTTON)]
+      performAction:grey_tap()];
 
   AssertUKMEnabled(false);
-
-  // Grant metrics consent and update MetricsServicesManager.
-  g_metrics_enabled = true;
-  GetApplicationContext()->GetMetricsServicesManager()->UpdateUploadPermissions(
-      true);
-
-  AssertUKMEnabled(true);
   // Client ID should have been reset.
   GREYAssert(original_client_id != metrics::UkmEGTestHelper::client_id(),
              @"Client ID was not reset.");
+
+  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+      performAction:grey_tap()];
+
+  // Reset sync back to original state.
+  SignOut();
+  chrome_test_util::ClearSyncServerData();
+  SignInWithPromo();
+  AssertUKMEnabled(true);
 }
+
+// Make sure that UKM is disabled when sync is not enabled.
+- (void)testSingleSyncSignout {
+  uint64_t original_client_id = metrics::UkmEGTestHelper::client_id();
+
+  SignOut();
+
+  AssertUKMEnabled(false);
+  // Client ID should have been reset by signout.
+  GREYAssert(original_client_id != metrics::UkmEGTestHelper::client_id(),
+             @"Client ID was not reset.");
+
+  original_client_id = metrics::UkmEGTestHelper::client_id();
+  SignInWithPromo();
+
+  AssertUKMEnabled(true);
+  // Client ID should not have been reset.
+  GREYAssert(original_client_id == metrics::UkmEGTestHelper::client_id(),
+             @"Client ID was reset.");
+}
+
+// testMultiSyncSignout not needed, since there can't be multiple profiles.
+
+// testMetricsReporting not needed, since iOS doesn't use sampling.
 
 - (void)testHistoryDelete {
   uint64_t original_client_id = metrics::UkmEGTestHelper::client_id();

@@ -52,6 +52,7 @@
 #include "ui/views/controls/styled_label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/style/platform_style.h"
 #include "ui/views/widget/widget.h"
 
 namespace {
@@ -365,8 +366,8 @@ void TranslateBubbleView::ShowOptionsMenu(views::Button* source) {
       OptionsMenuItem::MORE_OPTIONS,
       IDS_TRANSLATE_BUBBLE_ADVANCED_MENU_BUTTON);
 
-  options_menu_runner_.reset(
-      new views::MenuRunner(options_menu_model_.get(), 0));
+  options_menu_runner_.reset(new views::MenuRunner(
+      options_menu_model_.get(), views::MenuRunner::COMBOBOX));
   gfx::Rect screen_bounds = source->GetBoundsInScreen();
   options_menu_runner_->RunMenuAt(source->GetWidget(), nullptr, screen_bounds,
                                   views::MENU_ANCHOR_TOPRIGHT,
@@ -583,45 +584,42 @@ views::View* TranslateBubbleView::CreateViewBeforeTranslate() {
 
   using views::GridLayout;
 
-  enum {
-    COLUMN_SET_ID_MESSAGE,
-    COLUMN_SET_ID_CONTENT,
-  };
-
   ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
-  const int button_spacing =
-      provider->GetDistanceMetric(views::DISTANCE_RELATED_BUTTON_HORIZONTAL);
 
-  views::ColumnSet* cs = layout->AddColumnSet(COLUMN_SET_ID_MESSAGE);
+  constexpr int kCheckboxColumnSetId = 0;
+  views::ColumnSet* cs = layout->AddColumnSet(kCheckboxColumnSetId);
   cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                 GridLayout::USE_PREF, 0, 0);
 
-  // Add padding between the text and the link.
-  cs->AddPaddingColumn(0, button_spacing);
-
-  cs->AddColumn(GridLayout::FILL, GridLayout::CENTER, 1,
-                GridLayout::USE_PREF, 0, 0);
-  cs->AddPaddingColumn(1, 0);
-
-  cs = layout->AddColumnSet(COLUMN_SET_ID_CONTENT);
+  constexpr int kButtonColumnSetId = 1;
+  cs = layout->AddColumnSet(kButtonColumnSetId);
   cs->AddPaddingColumn(1, 0);
   cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                 GridLayout::USE_PREF, 0, 0);
-  cs->AddPaddingColumn(0, button_spacing);
+  cs->AddPaddingColumn(0, provider->GetDistanceMetric(
+                              views::DISTANCE_RELATED_BUTTON_HORIZONTAL));
   cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                 GridLayout::USE_PREF, 0, 0);
 
-  layout->StartRow(0, COLUMN_SET_ID_MESSAGE);
+  if (model_->ShouldShowAlwaysTranslateShortcut()) {
+    layout->StartRow(0, kCheckboxColumnSetId);
+    before_always_translate_checkbox_ =
+        new views::Checkbox(l10n_util::GetStringFUTF16(
+            IDS_TRANSLATE_BUBBLE_ALWAYS_TRANSLATE_LANG,
+            model_->GetLanguageNameAt(model_->GetOriginalLanguageIndex())));
+    before_always_translate_checkbox_->set_id(BUTTON_ID_ALWAYS_TRANSLATE);
+    before_always_translate_checkbox_->set_listener(this);
+    layout->AddView(before_always_translate_checkbox_);
+  }
 
-  layout->AddPaddingRow(
-      0, provider->GetDistanceMetric(views::DISTANCE_RELATED_CONTROL_VERTICAL));
-
-  layout->StartRow(0, COLUMN_SET_ID_CONTENT);
+  layout->StartRowWithPadding(
+      0, kButtonColumnSetId, 0,
+      provider->GetDistanceMetric(views::DISTANCE_UNRELATED_CONTROL_VERTICAL));
   views::LabelButton* accept_button =
       views::MdTextButton::CreateSecondaryUiButton(
           this, l10n_util::GetStringUTF16(IDS_TRANSLATE_BUBBLE_ACCEPT));
   accept_button->set_id(BUTTON_ID_TRANSLATE);
-  layout->AddView(accept_button);
+
   accept_button->SetIsDefault(true);
   before_translate_options_button_ =
       views::MdTextButton::CreateSecondaryUiButton(
@@ -629,7 +627,14 @@ views::View* TranslateBubbleView::CreateViewBeforeTranslate() {
           l10n_util::GetStringUTF16(IDS_TRANSLATE_BUBBLE_OPTIONS_MENU_BUTTON));
   before_translate_options_button_->set_id(BUTTON_ID_OPTIONS_MENU);
   before_translate_options_button_->set_request_focus_on_press(true);
-  layout->AddView(before_translate_options_button_);
+
+  if (views::PlatformStyle::kIsOkButtonLeading) {
+    layout->AddView(accept_button);
+    layout->AddView(before_translate_options_button_);
+  } else {
+    layout->AddView(before_translate_options_button_);
+    layout->AddView(accept_button);
+  }
 
   return view;
 }
@@ -642,33 +647,23 @@ views::View* TranslateBubbleView::CreateViewTranslating() {
   views::GridLayout* layout =
       view->SetLayoutManager(std::make_unique<views::GridLayout>(view));
 
-  using views::GridLayout;
-
-  enum {
-    COLUMN_SET_ID_MESSAGE,
-    COLUMN_SET_ID_CONTENT,
-  };
-
   ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
-  views::ColumnSet* cs = layout->AddColumnSet(COLUMN_SET_ID_MESSAGE);
-  cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
-                GridLayout::USE_PREF, 0, 0);
-  cs->AddPaddingColumn(1, 0);
 
-  cs = layout->AddColumnSet(COLUMN_SET_ID_CONTENT);
+  constexpr int kColumnSetId = 0;
+  views::ColumnSet* cs = layout->AddColumnSet(kColumnSetId);
   cs->AddPaddingColumn(1, 0);
-  cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
-                GridLayout::USE_PREF, 0, 0);
+  cs->AddColumn(views::GridLayout::LEADING, views::GridLayout::CENTER, 0,
+                views::GridLayout::USE_PREF, 0, 0);
 
   cs->AddPaddingColumn(0, provider->GetDistanceMetric(
                               views::DISTANCE_RELATED_BUTTON_HORIZONTAL));
-  cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
-                GridLayout::USE_PREF, 0, 0);
+  cs->AddColumn(views::GridLayout::LEADING, views::GridLayout::CENTER, 0,
+                views::GridLayout::USE_PREF, 0, 0);
 
   layout->AddPaddingRow(0, provider->GetDistanceMetric(
                                views::DISTANCE_UNRELATED_CONTROL_VERTICAL));
 
-  layout->StartRow(0, COLUMN_SET_ID_CONTENT);
+  layout->StartRow(0, kColumnSetId);
   views::LabelButton* revert_button =
       views::MdTextButton::CreateSecondaryUiButton(
           this, l10n_util::GetStringUTF16(IDS_TRANSLATE_BUBBLE_REVERT));
@@ -686,38 +681,23 @@ views::View* TranslateBubbleView::CreateViewAfterTranslate() {
 
   using views::GridLayout;
 
-  enum {
-    COLUMN_SET_ID_MESSAGE,
-    COLUMN_SET_ID_CONTENT,
-  };
-
   ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
 
-  views::ColumnSet* cs = layout->AddColumnSet(COLUMN_SET_ID_MESSAGE);
-  const int button_spacing =
-      provider->GetDistanceMetric(views::DISTANCE_RELATED_BUTTON_HORIZONTAL);
-  // TODO(ftang) Restore icon without causing layout defects: crbug.com/610351
-
-  cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
-                GridLayout::USE_PREF, 0, 0);
-  cs->AddPaddingColumn(0, button_spacing);
-  cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
-                GridLayout::USE_PREF, 0, 0);
-  cs->AddPaddingColumn(1, 0);
-
-  cs = layout->AddColumnSet(COLUMN_SET_ID_CONTENT);
+  constexpr int kColumnSetId = 0;
+  views::ColumnSet* cs = layout->AddColumnSet(kColumnSetId);
   cs->AddPaddingColumn(1, 0);
   cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                 GridLayout::USE_PREF, 0, 0);
 
-  cs->AddPaddingColumn(0, button_spacing);
+  cs->AddPaddingColumn(0, provider->GetDistanceMetric(
+                              views::DISTANCE_RELATED_BUTTON_HORIZONTAL));
   cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                 GridLayout::USE_PREF, 0, 0);
 
   layout->AddPaddingRow(0, provider->GetDistanceMetric(
                                views::DISTANCE_UNRELATED_CONTROL_VERTICAL));
 
-  layout->StartRow(0, COLUMN_SET_ID_CONTENT);
+  layout->StartRow(0, kColumnSetId);
   views::LabelButton* button = views::MdTextButton::CreateSecondaryUiButton(
       this, l10n_util::GetStringUTF16(IDS_TRANSLATE_BUBBLE_REVERT));
   button->set_id(BUTTON_ID_SHOW_ORIGINAL);
@@ -742,39 +722,23 @@ views::View* TranslateBubbleView::CreateViewError() {
 
   using views::GridLayout;
 
-  enum {
-    COLUMN_SET_ID_MESSAGE,
-    COLUMN_SET_ID_CONTENT,
-  };
-
   ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
 
-  views::ColumnSet* cs = layout->AddColumnSet(COLUMN_SET_ID_MESSAGE);
-  const int button_spacing =
-      provider->GetDistanceMetric(views::DISTANCE_RELATED_BUTTON_HORIZONTAL);
-
-  // TODO(ftang) Restore icon without causing layout defects: crbug.com/610351
-
-  cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
-                GridLayout::USE_PREF, 0, 0);
-  cs->AddPaddingColumn(0, button_spacing);
-  cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
-                GridLayout::USE_PREF, 0, 0);
-  cs->AddPaddingColumn(1, 0);
-
-  cs = layout->AddColumnSet(COLUMN_SET_ID_CONTENT);
+  constexpr int kColumnSetId = 0;
+  views::ColumnSet* cs = layout->AddColumnSet(kColumnSetId);
   cs->AddPaddingColumn(1, 0);
   cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                 GridLayout::USE_PREF, 0, 0);
 
-  cs->AddPaddingColumn(0, button_spacing);
+  cs->AddPaddingColumn(0, provider->GetDistanceMetric(
+                              views::DISTANCE_RELATED_BUTTON_HORIZONTAL));
   cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                 GridLayout::USE_PREF, 0, 0);
 
   layout->AddPaddingRow(0, provider->GetDistanceMetric(
                                views::DISTANCE_UNRELATED_CONTROL_VERTICAL));
 
-  layout->StartRow(0, COLUMN_SET_ID_CONTENT);
+  layout->StartRow(0, kColumnSetId);
   views::LabelButton* try_again_button =
       views::MdTextButton::CreateSecondaryUiButton(
           this, l10n_util::GetStringUTF16(IDS_TRANSLATE_BUBBLE_TRY_AGAIN));
@@ -820,7 +784,8 @@ views::View* TranslateBubbleView::CreateViewAdvanced() {
 
   // In an incognito window, "Always translate" checkbox shouldn't be shown.
   if (!is_in_incognito_window_) {
-    advanced_always_translate_checkbox_ = new views::Checkbox(base::string16());
+    advanced_always_translate_checkbox_ = new views::Checkbox(
+        l10n_util::GetStringUTF16(IDS_TRANSLATE_BUBBLE_ALWAYS));
     advanced_always_translate_checkbox_->set_id(BUTTON_ID_ALWAYS_TRANSLATE);
     advanced_always_translate_checkbox_->set_listener(this);
   }
@@ -934,12 +899,6 @@ void TranslateBubbleView::SwitchToErrorView(
 }
 
 void TranslateBubbleView::UpdateAdvancedView() {
-  // "Always translate" checkbox doesn't exist in an incognito window.
-  if (advanced_always_translate_checkbox_) {
-    advanced_always_translate_checkbox_->SetText(
-        l10n_util::GetStringUTF16(IDS_TRANSLATE_BUBBLE_ALWAYS));
-  }
-
   DCHECK(advanced_done_button_);
   advanced_done_button_->SetText(
       l10n_util::GetStringUTF16(model_->IsPageTranslatedInCurrentLanguages()

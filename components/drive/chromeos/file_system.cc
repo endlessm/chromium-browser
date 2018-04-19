@@ -33,7 +33,6 @@
 #include "components/drive/drive.pb.h"
 #include "components/drive/drive_pref_names.h"
 #include "components/drive/file_change.h"
-#include "components/drive/file_system_core_util.h"
 #include "components/drive/job_scheduler.h"
 #include "components/drive/resource_entry_conversion.h"
 #include "components/prefs/pref_service.h"
@@ -654,14 +653,10 @@ void FileSystem::GetResourceEntryAfterRead(
   std::unique_ptr<ResourceEntry> entry(new ResourceEntry);
   ResourceEntry* entry_ptr = entry.get();
   base::PostTaskAndReplyWithResult(
-      blocking_task_runner_.get(),
-      FROM_HERE,
-      base::Bind(&GetLocallyStoredResourceEntry,
-                 resource_metadata_,
-                 cache_,
-                 file_path,
-                 entry_ptr),
-      base::Bind(&RunGetResourceEntryCallback, callback, base::Passed(&entry)));
+      blocking_task_runner_.get(), FROM_HERE,
+      base::BindOnce(&GetLocallyStoredResourceEntry, resource_metadata_, cache_,
+                     file_path, entry_ptr),
+      base::BindOnce(&RunGetResourceEntryCallback, callback, std::move(entry)));
 }
 
 void FileSystem::ReadDirectory(
@@ -681,8 +676,7 @@ void FileSystem::ReadDirectory(
       directory_path, entries_callback, completion_callback);
 
   // Also start loading all of the user's contents.
-  change_list_loader_->LoadIfNeeded(
-      base::Bind(&util::EmptyFileOperationCallback));
+  change_list_loader_->LoadIfNeeded(base::DoNothing());
 }
 
 void FileSystem::GetAvailableSpace(

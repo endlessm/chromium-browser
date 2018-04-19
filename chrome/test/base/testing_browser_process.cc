@@ -19,8 +19,8 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/resource_coordinator/tab_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/features.h"
 #include "chrome/test/base/testing_browser_process_platform_part.h"
 #include "components/network_time/network_time_tracker.h"
 #include "components/optimization_guide/optimization_guide_service.h"
@@ -34,7 +34,6 @@
 #include "net/url_request/url_request_context_getter.h"
 #include "printing/features/features.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/message_center/message_center.h"
 
 #if BUILDFLAG(ENABLE_BACKGROUND_MODE)
 #include "chrome/browser/background/background_mode_manager.h"
@@ -238,12 +237,6 @@ IconManager* TestingBrowserProcess::icon_manager() {
   return nullptr;
 }
 
-#if defined(OS_ANDROID)
-GpuDriverInfoManager* TestingBrowserProcess::gpu_driver_info_manager() {
-  return nullptr;
-}
-#endif
-
 GpuModeManager* TestingBrowserProcess::gpu_mode_manager() {
   return nullptr;
 }
@@ -310,18 +303,11 @@ TestingBrowserProcess::notification_platform_bridge() {
   return notification_platform_bridge_.get();
 }
 
-message_center::MessageCenter* TestingBrowserProcess::message_center() {
-  return message_center::MessageCenter::Get();
-}
-
 IntranetRedirectDetector* TestingBrowserProcess::intranet_redirect_detector() {
   return nullptr;
 }
 
-void TestingBrowserProcess::CreateDevToolsHttpProtocolHandler(
-    const std::string& ip,
-    uint16_t port) {
-}
+void TestingBrowserProcess::CreateDevToolsProtocolHandler() {}
 
 void TestingBrowserProcess::CreateDevToolsAutoOpener() {
 }

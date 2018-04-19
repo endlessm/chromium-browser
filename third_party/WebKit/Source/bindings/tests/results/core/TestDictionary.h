@@ -19,6 +19,7 @@
 #include "bindings/core/v8/double_or_string.h"
 #include "bindings/core/v8/float_or_boolean.h"
 #include "bindings/core/v8/long_or_boolean.h"
+#include "bindings/core/v8/test_enum_or_test_enum_or_null_sequence.h"
 #include "bindings/core/v8/test_enum_or_test_enum_sequence.h"
 #include "bindings/core/v8/test_interface_2_or_uint8_array.h"
 #include "bindings/tests/idls/core/TestInterface2.h"
@@ -53,7 +54,7 @@ class CORE_EXPORT TestDictionary : public IDLDictionaryBase {
   }
   void setAnyInRecordMember(const Vector<std::pair<String, ScriptValue>>&);
 
-  bool hasAnyMember() const { return !(any_member_.IsEmpty() || any_member_.IsNull() || any_member_.IsUndefined()); }
+  bool hasAnyMember() const { return !(any_member_.IsEmpty() || any_member_.IsUndefined()); }
   ScriptValue anyMember() const {
     return any_member_;
   }
@@ -78,6 +79,12 @@ class CORE_EXPORT TestDictionary : public IDLDictionaryBase {
     return boolean_member_;
   }
   inline void setBooleanMember(bool);
+
+  bool hasByteStringMember() const { return !byte_string_member_.IsNull(); }
+  const String& byteStringMember() const {
+    return byte_string_member_;
+  }
+  inline void setByteStringMember(const String&);
 
   bool hasCreateMember() const { return has_create_member_; }
   bool createMember() const {
@@ -159,6 +166,13 @@ class CORE_EXPORT TestDictionary : public IDLDictionaryBase {
     return enum_member_;
   }
   inline void setEnumMember(const String&);
+
+  bool hasEnumOrNullMember() const { return !enum_or_null_member_.IsNull(); }
+  const String& enumOrNullMember() const {
+    return enum_or_null_member_;
+  }
+  inline void setEnumOrNullMember(const String&);
+  inline void setEnumOrNullMemberToNull();
 
   bool hasEnumSequenceMember() const { return has_enum_sequence_member_; }
   const Vector<String>& enumSequenceMember() const {
@@ -296,6 +310,18 @@ class CORE_EXPORT TestDictionary : public IDLDictionaryBase {
   }
   void setStringSequenceMember(const Vector<String>&);
 
+  bool hasTestEnumOrNullOrTestEnumSequenceMember() const { return !test_enum_or_null_or_test_enum_sequence_member_.IsNull(); }
+  const TestEnumOrTestEnumSequence& testEnumOrNullOrTestEnumSequenceMember() const {
+    return test_enum_or_null_or_test_enum_sequence_member_;
+  }
+  void setTestEnumOrNullOrTestEnumSequenceMember(const TestEnumOrTestEnumSequence&);
+
+  bool hasTestEnumOrTestEnumOrNullSequenceMember() const { return !test_enum_or_test_enum_or_null_sequence_member_.IsNull(); }
+  const TestEnumOrTestEnumOrNullSequence& testEnumOrTestEnumOrNullSequenceMember() const {
+    return test_enum_or_test_enum_or_null_sequence_member_;
+  }
+  void setTestEnumOrTestEnumOrNullSequenceMember(const TestEnumOrTestEnumOrNullSequence&);
+
   bool hasTestEnumOrTestEnumSequenceMember() const { return !test_enum_or_test_enum_sequence_member_.IsNull(); }
   const TestEnumOrTestEnumSequence& testEnumOrTestEnumSequenceMember() const {
     return test_enum_or_test_enum_sequence_member_;
@@ -408,6 +434,13 @@ class CORE_EXPORT TestDictionary : public IDLDictionaryBase {
   }
   inline void setUnrestrictedDoubleMember(double);
 
+  bool hasUsvStringOrNullMember() const { return !usv_string_or_null_member_.IsNull(); }
+  const String& usvStringOrNullMember() const {
+    return usv_string_or_null_member_;
+  }
+  inline void setUsvStringOrNullMember(const String&);
+  inline void setUsvStringOrNullMemberToNull();
+
   v8::Local<v8::Value> ToV8Impl(v8::Local<v8::Object>, v8::Isolate*) const override;
   virtual void Trace(blink::Visitor*);
 
@@ -450,6 +483,7 @@ class CORE_EXPORT TestDictionary : public IDLDictionaryBase {
   int32_t applicable_to_type_long_member_;
   String applicable_to_type_string_member_;
   bool boolean_member_;
+  String byte_string_member_;
   bool create_member_;
   Dictionary dictionary_member_;
   double double_or_null_member_;
@@ -462,6 +496,7 @@ class CORE_EXPORT TestDictionary : public IDLDictionaryBase {
   HeapVector<std::pair<String, Member<Element>>> element_or_null_record_member_;
   HeapVector<Member<Element>> element_or_null_sequence_member_;
   String enum_member_;
+  String enum_or_null_member_;
   Vector<String> enum_sequence_member_;
   Member<EventTarget> event_target_member_;
   HeapVector<std::pair<String, Member<TestObject>>> garbage_collected_record_member_;
@@ -482,6 +517,8 @@ class CORE_EXPORT TestDictionary : public IDLDictionaryBase {
   Vector<std::pair<String, String>> string_or_null_record_member_;
   Vector<String> string_or_null_sequence_member_;
   Vector<String> string_sequence_member_;
+  TestEnumOrTestEnumSequence test_enum_or_null_or_test_enum_sequence_member_;
+  TestEnumOrTestEnumOrNullSequence test_enum_or_test_enum_or_null_sequence_member_;
   TestEnumOrTestEnumSequence test_enum_or_test_enum_sequence_member_;
   TestInterface2OrUint8Array test_interface_2_or_uint8_array_member_;
   Member<TestInterfaceGarbageCollected> test_interface_garbage_collected_member_;
@@ -499,6 +536,7 @@ class CORE_EXPORT TestDictionary : public IDLDictionaryBase {
   HeapVector<DoubleOrString> union_or_null_sequence_member_;
   FloatOrBoolean union_with_typedefs_;
   double unrestricted_double_member_;
+  String usv_string_or_null_member_;
 
   friend class V8TestDictionary;
 };
@@ -515,6 +553,10 @@ void TestDictionary::setApplicableToTypeStringMember(const String& value) {
 void TestDictionary::setBooleanMember(bool value) {
   boolean_member_ = value;
   has_boolean_member_ = true;
+}
+
+void TestDictionary::setByteStringMember(const String& value) {
+  byte_string_member_ = value;
 }
 
 void TestDictionary::setCreateMember(bool value) {
@@ -539,6 +581,13 @@ void TestDictionary::setElementOrNullMemberToNull() {
 
 void TestDictionary::setEnumMember(const String& value) {
   enum_member_ = value;
+}
+
+void TestDictionary::setEnumOrNullMember(const String& value) {
+  enum_or_null_member_ = value;
+}
+void TestDictionary::setEnumOrNullMemberToNull() {
+  enum_or_null_member_ = String();
 }
 
 void TestDictionary::setEventTargetMember(EventTarget* value) {
@@ -620,6 +669,13 @@ void TestDictionary::setUint8ArrayMember(NotShared<DOMUint8Array> value) {
 void TestDictionary::setUnrestrictedDoubleMember(double value) {
   unrestricted_double_member_ = value;
   has_unrestricted_double_member_ = true;
+}
+
+void TestDictionary::setUsvStringOrNullMember(const String& value) {
+  usv_string_or_null_member_ = value;
+}
+void TestDictionary::setUsvStringOrNullMemberToNull() {
+  usv_string_or_null_member_ = String();
 }
 
 }  // namespace blink

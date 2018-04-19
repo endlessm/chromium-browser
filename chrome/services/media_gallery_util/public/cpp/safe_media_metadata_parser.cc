@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/memory/ptr_util.h"
-#include "chrome/services/media_gallery_util/public/interfaces/constants.mojom.h"
+#include "chrome/services/media_gallery_util/public/mojom/constants.mojom.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/blob_reader.h"
@@ -64,7 +64,7 @@ void SafeMediaMetadataParser::Start(service_manager::Connector* connector,
   content::BrowserThread::PostTask(
       content::BrowserThread::IO, FROM_HERE,
       base::BindOnce(&SafeMediaMetadataParser::StartOnIOThread, this,
-                     base::Passed(&connector_ptr), callback));
+                     std::move(connector_ptr), callback));
 }
 
 SafeMediaMetadataParser::~SafeMediaMetadataParser() = default;
@@ -84,7 +84,7 @@ void SafeMediaMetadataParser::StartOnIOThread(
       base::Bind(&SafeMediaMetadataParser::ParseMediaMetadataFailed, this));
 
   chrome::mojom::MediaDataSourcePtr source;
-  media_data_source_ = base::MakeUnique<MediaDataSourceImpl>(this, &source);
+  media_data_source_ = std::make_unique<MediaDataSourceImpl>(this, &source);
   media_parser_ptr_->ParseMediaMetadata(
       mime_type_, blob_size_, get_attached_images_, std::move(source),
       base::Bind(&SafeMediaMetadataParser::ParseMediaMetadataDone, this));
@@ -97,14 +97,14 @@ void SafeMediaMetadataParser::ParseMediaMetadataFailed() {
   media_data_source_.reset();
 
   std::unique_ptr<base::DictionaryValue> metadata_dictionary =
-      base::MakeUnique<base::DictionaryValue>();
+      std::make_unique<base::DictionaryValue>();
   std::unique_ptr<std::vector<metadata::AttachedImage>> attached_images =
-      base::MakeUnique<std::vector<metadata::AttachedImage>>();
+      std::make_unique<std::vector<metadata::AttachedImage>>();
 
   content::BrowserThread::PostTask(
       content::BrowserThread::UI, FROM_HERE,
-      base::BindOnce(callback_, false, base::Passed(&metadata_dictionary),
-                     base::Passed(&attached_images)));
+      base::BindOnce(callback_, false, std::move(metadata_dictionary),
+                     std::move(attached_images)));
 }
 
 void SafeMediaMetadataParser::ParseMediaMetadataDone(
@@ -119,13 +119,12 @@ void SafeMediaMetadataParser::ParseMediaMetadataDone(
   // We need to make a scoped copy of this vector since it will be destroyed
   // at the end of the handler.
   std::unique_ptr<std::vector<metadata::AttachedImage>> attached_images_copy =
-      base::MakeUnique<std::vector<metadata::AttachedImage>>(attached_images);
+      std::make_unique<std::vector<metadata::AttachedImage>>(attached_images);
 
   content::BrowserThread::PostTask(
       content::BrowserThread::UI, FROM_HERE,
-      base::BindOnce(callback_, parse_success,
-                     base::Passed(&metadata_dictionary),
-                     base::Passed(&attached_images_copy)));
+      base::BindOnce(callback_, parse_success, std::move(metadata_dictionary),
+                     std::move(attached_images_copy)));
 }
 
 void SafeMediaMetadataParser::StartBlobRequest(

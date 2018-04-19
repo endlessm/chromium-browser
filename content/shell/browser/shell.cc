@@ -22,6 +22,7 @@
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents.h"
@@ -113,6 +114,10 @@ Shell::~Shell() {
   if (windows_.empty() && quit_message_loop_) {
     if (headless_)
       PlatformExit();
+    for (auto it = RenderProcessHost::AllHostsIterator(); !it.IsAtEnd();
+         it.Advance()) {
+      it.GetCurrentValue()->DisableKeepAliveRefCount();
+    }
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
   }
@@ -488,7 +493,8 @@ bool Shell::DidAddMessageToConsole(WebContents* source,
   return switches::IsRunLayoutTestSwitchPresent();
 }
 
-void Shell::RendererUnresponsive(WebContents* source) {
+void Shell::RendererUnresponsive(WebContents* source,
+                                 RenderWidgetHost* render_widget_host) {
   BlinkTestController* blink_test_controller = BlinkTestController::Get();
   if (blink_test_controller && switches::IsRunLayoutTestSwitchPresent())
     blink_test_controller->RendererUnresponsive();

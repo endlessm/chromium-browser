@@ -17,11 +17,8 @@ from tracing.value.diagnostics import reserved_infos
 class ReadHistogramsJsonValueQuestTest(unittest.TestCase):
 
   def testMinimumArguments(self):
-    arguments = {}
-
     expected = read_value.ReadHistogramsJsonValue(None, None, None)
-    self.assertEqual(read_value.ReadHistogramsJsonValue.FromDict(arguments),
-                     (arguments, expected))
+    self.assertEqual(read_value.ReadHistogramsJsonValue.FromDict({}), expected)
 
   def testAllArguments(self):
     arguments = {
@@ -34,7 +31,7 @@ class ReadHistogramsJsonValueQuestTest(unittest.TestCase):
     expected = read_value.ReadHistogramsJsonValue(
         'timeToFirst', 'pcv1-cold', 'trace_name', 'avg')
     self.assertEqual(read_value.ReadHistogramsJsonValue.FromDict(arguments),
-                     (arguments, expected))
+                     expected)
 
 
 class ReadGraphJsonValueQuestTest(unittest.TestCase):
@@ -58,7 +55,7 @@ class ReadGraphJsonValueQuestTest(unittest.TestCase):
 
     expected = read_value.ReadGraphJsonValue('chart_name', 'trace_name')
     self.assertEqual(read_value.ReadGraphJsonValue.FromDict(arguments),
-                     (arguments, expected))
+                     expected)
 
 
 class _ReadValueExecutionTest(unittest.TestCase):
@@ -430,6 +427,44 @@ class ReadHistogramsJsonValueTest(_ReadValueExecutionTest):
                     {'url': 'trace_url1', 'name': 'trace_url1'},
                     {'url': 'trace_url2', 'name': 'trace_url2'},
                     {'url': 'trace_url3', 'name': 'trace_url3'}
+                ]
+            }
+        },
+        execution.AsDict())
+    self.assertEqual(execution.result_arguments, {})
+
+    expected_calls = [mock.call('output hash'), mock.call('output json hash')]
+    self.assertEqual(self._retrieve.mock_calls, expected_calls)
+
+  def testReadHistogramsDiagnosticRefSkipTraceUrls(self):
+    hist = histogram_module.Histogram('hist', 'count')
+    hist.AddSample(0)
+    hist.diagnostics[reserved_infos.TRACE_URLS.name] = (
+        generic_set.GenericSet(['trace_url1', 'trace_url2']))
+    hist2 = histogram_module.Histogram('hist2', 'count')
+    hist2.diagnostics[reserved_infos.TRACE_URLS.name] = (
+        generic_set.GenericSet(['trace_url3']))
+    hist2.diagnostics[reserved_infos.TRACE_URLS.name].guid = 'foo'
+    histograms = histogram_set.HistogramSet([hist, hist2])
+    self.SetOutputFileContents(histograms.AsDicts())
+
+    quest = read_value.ReadHistogramsJsonValue(hist.name, None, None)
+    execution = quest.Start(None, 'output hash')
+    execution.Poll()
+
+    self.assertTrue(execution.completed)
+    self.assertFalse(execution.failed)
+    self.assertEqual(execution.result_values, (0,))
+    self.assertEqual(
+        {
+            'result_values': (0,),
+            'completed': True,
+            'exception': None,
+            'result_arguments': {},
+            'details': {
+                'traces': [
+                    {'url': 'trace_url1', 'name': 'trace_url1'},
+                    {'url': 'trace_url2', 'name': 'trace_url2'},
                 ]
             }
         },

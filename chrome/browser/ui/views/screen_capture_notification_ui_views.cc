@@ -7,6 +7,7 @@
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/views/chrome_views_export.h"
+#include "chrome/browser/ui/views_mode_controller.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
 #include "ui/base/hit_test.h"
@@ -23,7 +24,6 @@
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
-#include "ui/wm/core/shadow_types.h"
 
 #if defined(OS_WIN)
 #include "ui/views/win/hwnd_util.h"
@@ -328,6 +328,10 @@ void ScreenCaptureNotificationUIViews::NotifyStopped() {
 
 std::unique_ptr<ScreenCaptureNotificationUI>
 ScreenCaptureNotificationUI::Create(const base::string16& text) {
+#if defined(OS_MACOSX)
+  if (views_mode_controller::IsViewsBrowserCocoa())
+    return CreateCocoa(text);
+#endif
   return std::unique_ptr<ScreenCaptureNotificationUI>(
       new ScreenCaptureNotificationUIViews(text));
 }

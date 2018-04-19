@@ -43,14 +43,20 @@ class BuildTestStep:
 		raise Exception("Not implemented")
 
 class RunScript(BuildTestStep):
-	def __init__ (self, scriptPath):
-		self.scriptPath = scriptPath
+	def __init__ (self, scriptPath, getExtraArgs = None):
+		self.scriptPath		= scriptPath
+		self.getExtraArgs	= getExtraArgs
 
 	def getName (self):
 		return self.scriptPath
 
 	def run (self, env):
-		execute(["python", os.path.join(env.srcDir, self.scriptPath)])
+		args = ["python", os.path.join(env.srcDir, self.scriptPath)]
+
+		if self.getExtraArgs != None:
+			args += self.getExtraArgs(env)
+
+		execute(args)
 
 def makeCflagsArgs (cflags):
 	cflagsStr = " ".join(cflags)
@@ -121,7 +127,15 @@ def getClangVersion ():
 			return "-" + version
 	return ""
 
-COMMON_GCC_CFLAGS	= ["-Werror"]
+def runSteps (steps):
+	for step in steps:
+		if step.isAvailable(env):
+			print "Run: %s" % step.getName()
+			step.run(env)
+		else:
+			print "Skip: %s" % step.getName()
+
+COMMON_GCC_CFLAGS	= ["-Werror", "-Wno-error=unused-function"]
 COMMON_CLANG_CFLAGS	= COMMON_GCC_CFLAGS + ["-Wno-error=unused-command-line-argument"]
 GCC_32BIT_CFLAGS	= COMMON_GCC_CFLAGS + ["-m32"]
 CLANG_32BIT_CFLAGS	= COMMON_CLANG_CFLAGS + ["-m32"]
@@ -129,8 +143,17 @@ GCC_64BIT_CFLAGS	= COMMON_GCC_CFLAGS + ["-m64"]
 CLANG_64BIT_CFLAGS	= COMMON_CLANG_CFLAGS + ["-m64"]
 CLANG_VERSION		= getClangVersion()
 
-STEPS = [
-	RunScript(os.path.join("external", "fetch_sources.py")),
+# Always ran before any receipe
+PREREQUISITES		= [
+	RunScript(os.path.join("external", "fetch_sources.py"))
+]
+
+# Always ran after any receipe
+POST_CHECKS			= [
+	CheckSrcChanges()
+]
+
+BUILD_TARGETS		= [
 	Build("clang-64-debug",
 		  UnixConfig("null",
 					 "Debug",
@@ -155,19 +178,55 @@ STEPS = [
 	Build("vs-64-debug",
 		  VSConfig("Debug"),
 		  ANY_VS_X64_GENERATOR),
-	RunScript(os.path.join("scripts", "build_android_mustpass.py")),
-	RunScript(os.path.join("external", "vulkancts", "scripts", "build_mustpass.py")),
-	RunScript(os.path.join("scripts", "gen_egl.py")),
-	RunScript(os.path.join("scripts", "opengl", "gen_all.py")),
-	RunScript(os.path.join("scripts", "src_util", "check_all.py")),
-	RunScript(os.path.join("external", "vulkancts", "scripts", "gen_framework.py")),
-	CheckSrcChanges(),
 ]
+
+SPECIAL_RECIPES		= [
+	('android-mustpass', [
+			RunScript(os.path.join("scripts", "build_android_mustpass.py"),
+					  lambda env: ["--build-dir", os.path.join(env.tmpDir, "android-mustpass")]),
+		]),
+	('vulkan-mustpass', [
+			RunScript(os.path.join("external", "vulkancts", "scripts", "build_mustpass.py"),
+					  lambda env: ["--build-dir", os.path.join(env.tmpDir, "vulkan-mustpass")]),
+		]),
+	('spirv-binaries', [
+			RunScript(os.path.join("external", "vulkancts", "scripts", "build_spirv_binaries.py"),
+					  lambda env: ["--build-dir", os.path.join(env.tmpDir, "spirv-binaries")]),
+		]),
+	('gen-inl-files', [
+			RunScript(os.path.join("scripts", "gen_egl.py")),
+			RunScript(os.path.join("scripts", "opengl", "gen_all.py")),
+			RunScript(os.path.join("external", "vulkancts", "scripts", "gen_framework.py")),
+			RunScript(os.path.join("scripts", "gen_android_mk.py")),
+			RunScript(os.path.join("scripts", "src_util", "check_all.py")),
+		])
+]
+
+def getBuildRecipes ():
+	return [(b.getName(), [b]) for b in BUILD_TARGETS]
+
+def getAllRecipe (recipes):
+	allSteps = []
+	for name, steps in recipes:
+		allSteps += steps
+	return ("all", allSteps)
+
+def getRecipes ():
+	recipes = getBuildRecipes()
+	recipes += SPECIAL_RECIPES
+	return recipes
+
+def getRecipe (recipes, recipeName):
+	for curName, steps in recipes:
+		if curName == recipeName:
+			return (curName, steps)
+	return None
+
+RECIPES			= getRecipes()
 
 def parseArgs ():
 	parser = argparse.ArgumentParser(description = "Build and test source",
 									 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-
 	parser.add_argument("-s",
 						"--src-dir",
 						dest="srcDir",
@@ -178,17 +237,41 @@ def parseArgs ():
 						dest="tmpDir",
 						default=os.path.join(tempfile.gettempdir(), "deqp-build-test"),
 						help="Temporary directory")
+	parser.add_argument("-r",
+						"--recipe",
+						dest="recipe",
+						choices=[n for n, s in RECIPES] + ["all"],
+						default="all",
+						help="Build / test recipe")
+	parser.add_argument("-d",
+						"--dump-recipes",
+						dest="dumpRecipes",
+						action="store_true",
+						help="Print out recipes that have any available actions")
+	parser.add_argument("--skip-prerequisites",
+						dest="skipPrerequisites",
+						action="store_true",
+						help="Skip external dependency fetch")
+
 	return parser.parse_args()
 
 if __name__ == "__main__":
 	args	= parseArgs()
 	env		= Environment(args.srcDir, args.tmpDir)
 
-	for step in STEPS:
-		if step.isAvailable(env):
-			print "Run: %s" % step.getName()
-			step.run(env)
-		else:
-			print "Skip: %s" % step.getName()
+	if args.dumpRecipes:
+		for name, steps in RECIPES:
+			for step in steps:
+				if step.isAvailable(env):
+					print name
+					break
+	else:
+		name, steps	= getAllRecipe(RECIPES) if args.recipe == "all" \
+					  else getRecipe(RECIPES, args.recipe)
 
-	print "All steps completed successfully"
+		print "Running %s" % name
+
+		allSteps = (PREREQUISITES if (args.skipPrerequisites == False) else []) + steps + POST_CHECKS
+		runSteps(allSteps)
+
+		print "All steps completed successfully"

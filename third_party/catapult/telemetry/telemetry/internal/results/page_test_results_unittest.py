@@ -17,7 +17,6 @@ from telemetry.internal.results import html_output_formatter
 from telemetry.internal.results import page_test_results
 from telemetry import page as page_module
 from telemetry.testing import stream
-from telemetry.value import failure
 from telemetry.value import histogram
 from telemetry.value import improvement_direction
 from telemetry.value import scalar
@@ -29,6 +28,25 @@ from tracing.value import histogram_set
 from tracing.value.diagnostics import diagnostic
 from tracing.value.diagnostics import generic_set
 from tracing.value.diagnostics import reserved_infos
+
+
+class TelemetryInfoTest(unittest.TestCase):
+  def testBenchmarkDescriptionNotPopulatedIfNotSet(self):
+    ti = page_test_results.TelemetryInfo()
+    ti.benchmark_name = 'benchmark'
+    ti.benchmark_start_epoch = 123
+    ti_dict = ti.AsDict()
+    self.assertNotIn(reserved_infos.BENCHMARK_DESCRIPTIONS.name, ti_dict)
+
+  def testBenchmarkDescriptionPopulatedIfSet(self):
+    ti = page_test_results.TelemetryInfo()
+    ti.benchmark_name = 'benchmark'
+    ti.benchmark_start_epoch = 123
+    ti.benchmark_descriptions = 'foo'
+    ti_dict = ti.AsDict()
+    self.assertIn(reserved_infos.BENCHMARK_DESCRIPTIONS.name, ti_dict)
+    self.assertEqual(ti_dict[reserved_infos.BENCHMARK_DESCRIPTIONS.name],
+                     ['foo'])
 
 
 class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
@@ -52,8 +70,7 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
   def testFailures(self):
     results = page_test_results.PageTestResults()
     results.WillRunPage(self.pages[0])
-    results.AddValue(
-        failure.FailureValue(self.pages[0], self.CreateException()))
+    results.Fail(self.CreateException())
     results.DidRunPage(self.pages[0])
 
     results.WillRunPage(self.pages[1])
@@ -62,14 +79,15 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     self.assertEqual(set([self.pages[0]]), results.pages_that_failed)
     self.assertEqual(set([self.pages[1]]), results.pages_that_succeeded)
 
-    self.assertEqual(2, len(results.all_page_runs))
+    self.assertEqual(len(results.all_page_runs), 2)
+    self.assertTrue(results.had_failures)
     self.assertTrue(results.all_page_runs[0].failed)
     self.assertTrue(results.all_page_runs[1].ok)
 
   def testSkips(self):
     results = page_test_results.PageTestResults()
     results.WillRunPage(self.pages[0])
-    results.AddValue(skip.SkipValue(self.pages[0], 'testing reason'))
+    results.Skip('testing reason')
     results.DidRunPage(self.pages[0])
 
     results.WillRunPage(self.pages[1])
@@ -87,15 +105,14 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
   def testPassesNoSkips(self):
     results = page_test_results.PageTestResults()
     results.WillRunPage(self.pages[0])
-    results.AddValue(
-        failure.FailureValue(self.pages[0], self.CreateException()))
+    results.Fail(self.CreateException())
     results.DidRunPage(self.pages[0])
 
     results.WillRunPage(self.pages[1])
     results.DidRunPage(self.pages[1])
 
     results.WillRunPage(self.pages[2])
-    results.AddValue(skip.SkipValue(self.pages[2], 'testing reason'))
+    results.Skip('testing reason')
     results.DidRunPage(self.pages[2])
 
     self.assertEqual(set([self.pages[0]]), results.pages_that_failed)
@@ -247,14 +264,14 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     results.AddValue(scalar.ScalarValue(
         self.pages[0], 'a', 'seconds', 3,
         improvement_direction=improvement_direction.UP))
-    results.AddValue(failure.FailureValue.FromMessage(self.pages[0], 'message'))
+    results.Fail('message')
     results.DidRunPage(self.pages[0])
 
     results.WillRunPage(self.pages[1])
     results.AddValue(scalar.ScalarValue(
         self.pages[1], 'a', 'seconds', 7,
         improvement_direction=improvement_direction.UP))
-    results.AddValue(failure.FailureValue.FromMessage(self.pages[1], 'message'))
+    results.Fail('message')
     results.DidRunPage(self.pages[1])
 
     results.PrintSummary()
@@ -282,30 +299,6 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     value2 = scalar.ScalarValue(
         self.pages[1], 'a', 'seconds', 3,
         improvement_direction=improvement_direction.UP)
-    results.AddValue(value2)
-    results.DidRunPage(self.pages[1])
-
-    results.WillRunPage(self.pages[2])
-    value3 = scalar.ScalarValue(
-        self.pages[2], 'a', 'seconds', 3,
-        improvement_direction=improvement_direction.UP)
-    results.AddValue(value3)
-    results.DidRunPage(self.pages[2])
-
-    self.assertEquals(
-        [value1, value2, value3], results.all_page_specific_values)
-
-  def testGetAllValuesForSuccessfulPagesOnePageFails(self):
-    results = page_test_results.PageTestResults()
-    results.WillRunPage(self.pages[0])
-    value1 = scalar.ScalarValue(
-        self.pages[0], 'a', 'seconds', 3,
-        improvement_direction=improvement_direction.UP)
-    results.AddValue(value1)
-    results.DidRunPage(self.pages[0])
-
-    results.WillRunPage(self.pages[1])
-    value2 = failure.FailureValue.FromMessage(self.pages[1], 'Failure')
     results.AddValue(value2)
     results.DidRunPage(self.pages[1])
 
@@ -423,13 +416,25 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
         '{\n  \"enabled\": false,\n  ' +
         '\"benchmark_name\": \"benchmark_name\"\n}\n')
 
+  def testImportHistogramDicts(self):
+    hs = histogram_set.HistogramSet()
+    hs.AddHistogram(histogram_module.Histogram('foo', 'count'))
+    hs.AddSharedDiagnostic('bar', generic_set.GenericSet(['baz']))
+    histogram_dicts = hs.AsDicts()
+    results = page_test_results.PageTestResults()
+    results.telemetry_info.benchmark_start_epoch = 1501773200
+    results.WillRunPage(self.pages[0])
+    results.ImportHistogramDicts(histogram_dicts)
+    results.DidRunPage(self.pages[0])
+    self.assertEqual(results.AsHistogramDicts(), histogram_dicts)
+
   def testAddSharedDiagnostic(self):
     results = page_test_results.PageTestResults()
     results.telemetry_info.benchmark_start_epoch = 1501773200
     results.WillRunPage(self.pages[0])
     results.DidRunPage(self.pages[0])
     results.CleanUp()
-    results.histograms.AddSharedDiagnostic(
+    results.AddSharedDiagnostic(
         reserved_infos.BENCHMARKS.name,
         generic_set.GenericSet(['benchmark_name']))
 
@@ -457,8 +462,10 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
         'benchmark_name', 'benchmark_description')
     results.PopulateHistogramSet(benchmark_metadata)
 
-    self.assertEquals(1, len(results.histograms))
-    self.assertEquals('a', list(results.histograms)[0].name)
+    hs = histogram_set.HistogramSet()
+    hs.ImportDicts(results.AsHistogramDicts())
+    self.assertEquals(1, len(hs))
+    self.assertEquals('a', hs.GetFirstHistogram().name)
 
   def testPopulateHistogramSet_UsesHistogramSetData(self):
     original_diagnostic = generic_set.GenericSet(['benchmark_name'])
@@ -466,8 +473,8 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     results = page_test_results.PageTestResults()
     results.telemetry_info.benchmark_start_epoch = 1501773200
     results.WillRunPage(self.pages[0])
-    results.histograms.AddHistogram(histogram_module.Histogram('foo', 'count'))
-    results.histograms.AddSharedDiagnostic(
+    results.AddHistogram(histogram_module.Histogram('foo', 'count'))
+    results.AddSharedDiagnostic(
         reserved_infos.BENCHMARKS.name, original_diagnostic)
     results.DidRunPage(self.pages[0])
     results.CleanUp()
@@ -502,10 +509,10 @@ class PageTestResultsFilterTest(unittest.TestCase):
     return self.story_set.stories
 
   def testFilterValue(self):
-    def AcceptValueNamed_a(value, _):
-      return value.name == 'a'
+    def AcceptValueNamed_a(name, _):
+      return name == 'a'
     results = page_test_results.PageTestResults(
-        value_can_be_added_predicate=AcceptValueNamed_a)
+        should_add_value=AcceptValueNamed_a)
     results.WillRunPage(self.pages[0])
     results.AddValue(scalar.ScalarValue(
         self.pages[0], 'a', 'seconds', 3,
@@ -528,11 +535,27 @@ class PageTestResultsFilterTest(unittest.TestCase):
         [('a', 'http://www.foo.com/'), ('a', 'http://www.bar.com/')],
         [(v.name, v.page.url) for v in results.all_page_specific_values])
 
+  def testFilterValueWithImportHistogramDicts(self):
+    def AcceptValueNamed_a(name, _):
+      return name == 'a'
+    hs = histogram_set.HistogramSet()
+    hs.AddHistogram(histogram_module.Histogram('a', 'count'))
+    hs.AddHistogram(histogram_module.Histogram('b', 'count'))
+    results = page_test_results.PageTestResults(
+        should_add_value=AcceptValueNamed_a)
+    results.WillRunPage(self.pages[0])
+    results.ImportHistogramDicts(hs.AsDicts())
+    results.DidRunPage(self.pages[0])
+
+    new_hs = histogram_set.HistogramSet()
+    new_hs.ImportDicts(results.AsHistogramDicts())
+    self.assertEquals(len(new_hs), 1)
+
   def testFilterIsFirstResult(self):
     def AcceptSecondValues(_, is_first_result):
       return not is_first_result
     results = page_test_results.PageTestResults(
-        value_can_be_added_predicate=AcceptSecondValues)
+        should_add_value=AcceptSecondValues)
 
     # First results (filtered out)
     results.WillRunPage(self.pages[0])
@@ -579,43 +602,64 @@ class PageTestResultsFilterTest(unittest.TestCase):
                      for v in results.all_page_specific_values]
     self.assertEquals(expected_values, actual_values)
 
-  def testFailureValueCannotBeFiltered(self):
-    def AcceptValueNamed_a(value, _):
-      return value.name == 'a'
-    results = page_test_results.PageTestResults(
-        value_can_be_added_predicate=AcceptValueNamed_a)
-    results.WillRunPage(self.pages[0])
-    results.AddValue(scalar.ScalarValue(
-        self.pages[0], 'b', 'seconds', 8,
-        improvement_direction=improvement_direction.UP))
-    failure_value = failure.FailureValue.FromMessage(self.pages[0], 'failure')
-    results.AddValue(failure_value)
-    results.DidRunPage(self.pages[0])
-    results.PrintSummary()
-
-    # Although predicate says only accept values named 'a', the failure value is
-    # added anyway.
-    self.assertEquals(len(results.all_page_specific_values), 1)
-    self.assertIn(failure_value, results.all_page_specific_values)
-
   def testSkipValueCannotBeFiltered(self):
-    def AcceptValueNamed_a(value, _):
-      return value.name == 'a'
+    def AcceptValueNamed_a(name, _):
+      return name == 'a'
     results = page_test_results.PageTestResults(
-        value_can_be_added_predicate=AcceptValueNamed_a)
+        should_add_value=AcceptValueNamed_a)
     results.WillRunPage(self.pages[0])
-    skip_value = skip.SkipValue(self.pages[0], 'skip for testing')
     results.AddValue(scalar.ScalarValue(
         self.pages[0], 'b', 'seconds', 8,
         improvement_direction=improvement_direction.UP))
-    results.AddValue(skip_value)
+    results.Skip('skip for testing')
     results.DidRunPage(self.pages[0])
     results.PrintSummary()
 
     # Although predicate says only accept value with named 'a', skip value is
     # added anyway.
     self.assertEquals(len(results.all_page_specific_values), 1)
-    self.assertIn(skip_value, results.all_page_specific_values)
+    self.assertIsInstance(results.all_page_specific_values[0], skip.SkipValue)
+
+  def testFilterHistogram(self):
+    def AcceptValueNamed_a(name, _):
+      return name.startswith('a')
+    results = page_test_results.PageTestResults(
+        should_add_value=AcceptValueNamed_a)
+    results.WillRunPage(self.pages[0])
+    hist0 = histogram_module.Histogram('a', 'count')
+    # Necessary to make sure avg is added
+    hist0.AddSample(0)
+    results.AddHistogram(hist0)
+    hist1 = histogram_module.Histogram('b', 'count')
+    hist1.AddSample(0)
+    results.AddHistogram(hist1)
+
+    histogram_dicts = results.AsHistogramDicts()
+
+    self.assertEquals(len(histogram_dicts), 1)
+    self.assertEquals(histogram_dicts[0]['name'], 'a')
+
+  def testFilterHistogram_AllStatsNotFiltered(self):
+    def AcceptNonAverage(name, _):
+      return not name.endswith('avg')
+    results = page_test_results.PageTestResults(
+        should_add_value=AcceptNonAverage)
+    results.WillRunPage(self.pages[0])
+    hist0 = histogram_module.Histogram('a', 'count')
+    # Necessary to make sure avg is added
+    hist0.AddSample(0)
+    results.AddHistogram(hist0)
+    hist1 = histogram_module.Histogram('a_avg', 'count')
+    # Necessary to make sure avg is added
+    hist1.AddSample(0)
+    results.AddHistogram(hist1)
+
+    histogram_dicts = results.AsHistogramDicts()
+    histogram_dicts.sort(key=lambda h: h['name'])
+
+    self.assertEquals(len(histogram_dicts), 2)
+    self.assertEquals(histogram_dicts[0]['name'], 'a')
+    self.assertEquals(histogram_dicts[1]['name'], 'a_avg')
 
   @mock.patch('py_utils.cloud_storage.Insert')
   def testUploadArtifactsToCloud(self, cloud_storage_insert_patch):

@@ -156,6 +156,28 @@ int getMaskedMIMGOp(const MCInstrInfo &MII, unsigned Opc, unsigned NewChannels) 
   }
 }
 
+int getMaskedMIMGAtomicOp(const MCInstrInfo &MII, unsigned Opc, unsigned NewChannels) {
+  assert(AMDGPU::getNamedOperandIdx(Opc, AMDGPU::OpName::vdst) != -1);
+  assert(NewChannels == 1 || NewChannels == 2 || NewChannels == 4);
+
+  unsigned OrigChannels = rcToChannels(MII.get(Opc).OpInfo[0].RegClass);
+  assert(OrigChannels == 1 || OrigChannels == 2 || OrigChannels == 4);
+
+  if (NewChannels == OrigChannels) return Opc;
+
+  if (OrigChannels <= 2 && NewChannels <= 2) {
+    // This is an ordinary atomic (not an atomic_cmpswap)
+    return (OrigChannels == 1)?
+      AMDGPU::getMIMGAtomicOp1(Opc) : AMDGPU::getMIMGAtomicOp2(Opc);
+  } else if (OrigChannels >= 2 && NewChannels >= 2) {
+    // This is an atomic_cmpswap
+    return (OrigChannels == 2)?
+      AMDGPU::getMIMGAtomicOp1(Opc) : AMDGPU::getMIMGAtomicOp2(Opc);
+  } else { // invalid OrigChannels/NewChannels value
+    return -1;
+  }
+}
+
 // Wrapper for Tablegen'd function.  enum Subtarget is not defined in any
 // header files, so we need to wrap it in a function that takes unsigned
 // instead.
@@ -185,8 +207,6 @@ IsaVersion getIsaVersion(const FeatureBitset &Features) {
     return {7, 0, 4};
 
   // GCN GFX8 (Volcanic Islands (VI)).
-  if (Features.test(FeatureISAVersion8_0_0))
-    return {8, 0, 0};
   if (Features.test(FeatureISAVersion8_0_1))
     return {8, 0, 1};
   if (Features.test(FeatureISAVersion8_0_2))
@@ -425,7 +445,8 @@ bool isGlobalSegment(const GlobalValue *GV) {
 }
 
 bool isReadOnlySegment(const GlobalValue *GV) {
-  return GV->getType()->getAddressSpace() == AMDGPUAS::CONSTANT_ADDRESS;
+  return GV->getType()->getAddressSpace() == AMDGPUAS::CONSTANT_ADDRESS ||
+         GV->getType()->getAddressSpace() == AMDGPUAS::CONSTANT_ADDRESS_32BIT;
 }
 
 bool shouldEmitConstantsToTextSection(const Triple &TT) {
@@ -596,6 +617,18 @@ bool isEntryFunctionCC(CallingConv::ID CC) {
   default:
     return false;
   }
+}
+
+bool hasXNACK(const MCSubtargetInfo &STI) {
+  return STI.getFeatureBits()[AMDGPU::FeatureXNACK];
+}
+
+bool hasMIMG_R128(const MCSubtargetInfo &STI) {
+  return STI.getFeatureBits()[AMDGPU::FeatureMIMG_R128];
+}
+
+bool hasPackedD16(const MCSubtargetInfo &STI) {
+  return !STI.getFeatureBits()[AMDGPU::FeatureUnpackedD16VMem];
 }
 
 bool isSI(const MCSubtargetInfo &STI) {
@@ -871,24 +904,6 @@ bool isArgPassedInSGPR(const Argument *A) {
   }
 }
 
-// TODO: Should largely merge with AMDGPUTTIImpl::isSourceOfDivergence.
-bool isUniformMMO(const MachineMemOperand *MMO) {
-  const Value *Ptr = MMO->getValue();
-  // UndefValue means this is a load of a kernel input.  These are uniform.
-  // Sometimes LDS instructions have constant pointers.
-  // If Ptr is null, then that means this mem operand contains a
-  // PseudoSourceValue like GOT.
-  if (!Ptr || isa<UndefValue>(Ptr) ||
-      isa<Constant>(Ptr) || isa<GlobalValue>(Ptr))
-    return true;
-
-  if (const Argument *Arg = dyn_cast<Argument>(Ptr))
-    return isArgPassedInSGPR(Arg);
-
-  const Instruction *I = dyn_cast<Instruction>(Ptr);
-  return I && I->getMetadata("amdgpu.uniform");
-}
-
 int64_t getSMRDEncodedOffset(const MCSubtargetInfo &ST, int64_t ByteOffset) {
   if (isGCN3Encoding(ST))
     return ByteOffset;
@@ -909,18 +924,10 @@ namespace llvm {
 namespace AMDGPU {
 
 AMDGPUAS getAMDGPUAS(Triple T) {
-  auto Env = T.getEnvironmentName();
   AMDGPUAS AS;
-  if (Env == "amdgiz" || Env == "amdgizcl") {
-    AS.FLAT_ADDRESS     = 0;
-    AS.PRIVATE_ADDRESS  = 5;
-    AS.REGION_ADDRESS   = 4;
-  }
-  else {
-    AS.FLAT_ADDRESS     = 4;
-    AS.PRIVATE_ADDRESS  = 0;
-    AS.REGION_ADDRESS   = 5;
-   }
+  AS.FLAT_ADDRESS = 0;
+  AS.PRIVATE_ADDRESS = 5;
+  AS.REGION_ADDRESS = 2;
   return AS;
 }
 

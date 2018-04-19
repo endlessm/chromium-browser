@@ -9,7 +9,7 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
-#include "net/proxy/proxy_config_service_fixed.h"
+#include "net/proxy_resolution/proxy_config_service_fixed.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_builder.h"
 
@@ -26,7 +26,7 @@ net::URLRequestContext* URLRequestContextGetter::GetURLRequestContext() {
     builder.set_user_agent("chromedriver");
     builder.DisableHttpCache();
     builder.set_proxy_config_service(
-        base::MakeUnique<net::ProxyConfigServiceFixed>(
+        std::make_unique<net::ProxyConfigServiceFixed>(
             net::ProxyConfig::CreateDirect()));
     url_request_context_ = builder.Build();
   }

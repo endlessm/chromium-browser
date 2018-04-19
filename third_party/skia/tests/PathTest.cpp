@@ -987,13 +987,13 @@ static void test_poly(skiatest::Reporter* reporter, const SkPath& path,
                 srcPts++;
                 break;
             case SkPath::kQuad_Verb:
-                REPORTER_ASSERT_MESSAGE(reporter, false, "unexpected quad verb");
+                REPORTER_ASSERT(reporter, false, "unexpected quad verb");
                 break;
             case SkPath::kConic_Verb:
-                REPORTER_ASSERT_MESSAGE(reporter, false, "unexpected conic verb");
+                REPORTER_ASSERT(reporter, false, "unexpected conic verb");
                 break;
             case SkPath::kCubic_Verb:
-                REPORTER_ASSERT_MESSAGE(reporter, false, "unexpected cubic verb");
+                REPORTER_ASSERT(reporter, false, "unexpected cubic verb");
                 break;
             case SkPath::kClose_Verb:
                 REPORTER_ASSERT(reporter, !firstTime);
@@ -2508,14 +2508,16 @@ static void write_and_read_back(skiatest::Reporter* reporter,
     SkPath::Direction dir0, dir1;
     unsigned start0, start1;
     REPORTER_ASSERT(reporter, readBack.isOval(nullptr) == p.isOval(nullptr));
-    if (p.isOval(&oval0, &dir0, &start0) && readBack.isOval(&oval1, &dir1, &start1)) {
+    if (SkPathPriv::IsOval(p, &oval0, &dir0, &start0) &&
+        SkPathPriv::IsOval(readBack, &oval1, &dir1, &start1)) {
         REPORTER_ASSERT(reporter, oval0 == oval1);
         REPORTER_ASSERT(reporter, dir0 == dir1);
         REPORTER_ASSERT(reporter, start0 == start1);
     }
     REPORTER_ASSERT(reporter, readBack.isRRect(nullptr) == p.isRRect(nullptr));
     SkRRect rrect0, rrect1;
-    if (p.isRRect(&rrect0, &dir0, &start0) && readBack.isRRect(&rrect1, &dir1, &start1)) {
+    if (SkPathPriv::IsRRect(p, &rrect0, &dir0, &start0) &&
+        SkPathPriv::IsRRect(readBack, &rrect1, &dir1, &start1)) {
         REPORTER_ASSERT(reporter, rrect0 == rrect1);
         REPORTER_ASSERT(reporter, dir0 == dir1);
         REPORTER_ASSERT(reporter, start0 == start1);
@@ -2524,100 +2526,6 @@ static void write_and_read_back(skiatest::Reporter* reporter,
     const SkRect& readBackBounds = readBack.getBounds();
 
     REPORTER_ASSERT(reporter, origBounds == readBackBounds);
-}
-
-static void test_corrupt_flattening(skiatest::Reporter* reporter) {
-    SkPath path;
-    path.moveTo(1, 2);
-    path.lineTo(3, 2);
-    path.quadTo(4, 2, 5, 4);
-    path.conicTo(5, 6, 3, 7, 0.5f);
-    path.cubicTo(2, 6, 2, 4, 4, 1);
-    uint8_t buffer[1024];
-
-    // Make sure these properties are computed prior to serialization.
-    SkPathPriv::FirstDirection dir;
-    SkAssertResult(SkPathPriv::CheapComputeFirstDirection(path, &dir));
-    bool isConvex = path.isConvex();
-
-    SkDEBUGCODE(size_t size =) path.writeToMemory(buffer);
-    SkASSERT(size <= sizeof(buffer));
-
-    // find where the counts and verbs are stored : from the impl in SkPathRef.cpp
-    int32_t* vCount = (int32_t*)&buffer[16];
-    SkASSERT(*vCount == 5);
-    int32_t* pCount = (int32_t*)&buffer[20];
-    SkASSERT(*pCount == 9);
-    int32_t* cCount = (int32_t*)&buffer[24];
-    SkASSERT(*cCount == 1);
-    uint8_t* verbs = &buffer[28];
-
-    REPORTER_ASSERT(reporter, path.readFromMemory(buffer, sizeof(buffer)));
-
-    // check that we detect under/over-flow of counts
-
-    *vCount += 1;
-    REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
-    *vCount -= 1;   // restore
-
-    *pCount += 1;
-    REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
-    *pCount -= 2;
-    REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
-    *pCount += 1;   // restore
-
-    *cCount += 1;
-    REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
-    *cCount -= 2;
-    REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
-    *cCount += 1;   // restore
-
-    // Check that we detect when the verbs indicate more or fewer pts/conics
-
-    uint8_t save = verbs[0];
-    SkASSERT(save == SkPath::kCubic_Verb);
-    verbs[0] = SkPath::kQuad_Verb;
-    REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
-    verbs[0] = save;
-
-    save = verbs[1];
-    SkASSERT(save == SkPath::kConic_Verb);
-    verbs[1] = SkPath::kQuad_Verb;
-    REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
-    verbs[1] = SkPath::kCubic_Verb;
-    REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
-    verbs[1] = save;
-
-    // Check that we detect invalid verbs
-    save = verbs[1];
-    verbs[1] = 17;
-    REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
-    verbs[1] = save;
-
-    // kConvexity_SerializationShift defined privately in SkPath.h
-    static constexpr int32_t kConvexityMask = 0x7 << 16;
-    int32_t* packed = (int32_t*)buffer;
-    int32_t savedPacked = *packed;
-    SkPath::Convexity wrongConvexity =
-            isConvex ? SkPath::kConcave_Convexity : SkPath::kConvex_Convexity;
-    *packed = (savedPacked & ~kConvexityMask) | (wrongConvexity << 16);
-    REPORTER_ASSERT(reporter, path.readFromMemory(buffer, sizeof(buffer)));
-    // We should ignore the stored convexity and recompute from the deserialized data.
-    REPORTER_ASSERT(reporter, path.isConvex() == isConvex);
-    *packed = savedPacked;
-
-    // kDirection_SerializationShift defined privately in SkPath.h
-    static constexpr int32_t kDirectionMask = 0x3 << 26;
-    SkPathPriv::FirstDirection wrongDir = (dir == SkPathPriv::kCW_FirstDirection)
-                                                  ? SkPathPriv::kCCW_FirstDirection
-                                                  : SkPathPriv::kCW_FirstDirection;
-    *packed = (savedPacked & ~kDirectionMask) | (wrongDir << 26);
-    REPORTER_ASSERT(reporter, path.readFromMemory(buffer, sizeof(buffer)));
-    // We should ignore the stored direction and recompute from the deserialized data.
-    SkPathPriv::FirstDirection newDir;
-    SkAssertResult(SkPathPriv::CheapComputeFirstDirection(path, &newDir));
-    REPORTER_ASSERT(reporter, newDir == dir);
-    *packed = savedPacked;
 }
 
 static void test_flattening(skiatest::Reporter* reporter) {
@@ -2668,8 +2576,6 @@ static void test_flattening(skiatest::Reporter* reporter) {
 
         write_and_read_back(reporter, oval);
     }
-
-    test_corrupt_flattening(reporter);
 }
 
 static void test_transform(skiatest::Reporter* reporter) {
@@ -3291,7 +3197,7 @@ static void check_for_circle(skiatest::Reporter* reporter,
     REPORTER_ASSERT(reporter, path.isOval(&rect) == expectedCircle);
     SkPath::Direction isOvalDir;
     unsigned isOvalStart;
-    if (path.isOval(&rect, &isOvalDir, &isOvalStart)) {
+    if (SkPathPriv::IsOval(path, &rect, &isOvalDir, &isOvalStart)) {
         REPORTER_ASSERT(reporter, rect.height() == rect.width());
         REPORTER_ASSERT(reporter, SkPathPriv::AsFirstDirection(isOvalDir) == expectedDir);
         SkPath tmpPath;
@@ -3534,7 +3440,7 @@ static void test_oval(skiatest::Reporter* reporter) {
     path.transform(m, &tmp);
     // an oval rotated 90 degrees is still an oval. The start index changes from 1 to 2. Direction
     // is unchanged.
-    REPORTER_ASSERT(reporter, tmp.isOval(nullptr, &dir, &start));
+    REPORTER_ASSERT(reporter, SkPathPriv::IsOval(tmp, nullptr, &dir, &start));
     REPORTER_ASSERT(reporter, 2 == start);
     REPORTER_ASSERT(reporter, SkPath::kCW_Direction == dir);
 
@@ -3574,7 +3480,7 @@ static void test_oval(skiatest::Reporter* reporter) {
     tmp.reset();
     tmp.addOval(rect);
     path = tmp;
-    REPORTER_ASSERT(reporter, path.isOval(nullptr, &dir, &start));
+    REPORTER_ASSERT(reporter, SkPathPriv::IsOval(path, nullptr, &dir, &start));
     REPORTER_ASSERT(reporter, SkPath::kCW_Direction == dir);
     REPORTER_ASSERT(reporter, 1 == start);
 }
@@ -3739,7 +3645,7 @@ static void check_oval_arc(skiatest::Reporter* reporter, SkScalar start, SkScala
     SkRect r = SkRect::MakeEmpty();
     SkPath::Direction d = SkPath::kCCW_Direction;
     unsigned s = ~0U;
-    bool isOval = path.isOval(&r, &d, &s);
+    bool isOval = SkPathPriv::IsOval(path, &r, &d, &s);
     REPORTER_ASSERT(reporter, isOval);
     SkPath recreatedPath;
     recreatedPath.addOval(r, d, s);
@@ -4872,29 +4778,6 @@ DEF_TEST(PathRefSerialization, reporter) {
         REPORTER_ASSERT(reporter, readBack == path);
     }
 
-    // uint32_t[] offset into serialized path.
-    const size_t verbCountOffset = 4;
-    const size_t pointCountOffset = 5;
-    const size_t conicCountOffset = 6;
-
-    // Verify that this test is changing the right values.
-    const int* writtenValues = static_cast<const int*>(data->data());
-    REPORTER_ASSERT(reporter, writtenValues[verbCountOffset] == numVerbs);
-    REPORTER_ASSERT(reporter, writtenValues[pointCountOffset] == numPoints);
-    REPORTER_ASSERT(reporter, writtenValues[conicCountOffset] == numConics);
-
-    // Too many verbs, points, or conics fails to deserialize silently.
-    const int tooManyObjects = INT_MAX;
-    size_t offsets[] = {verbCountOffset, pointCountOffset, conicCountOffset};
-    for (size_t i = 0; i < 3; ++i) {
-        SkAutoMalloc storage_copy(bytesWritten);
-        memcpy(storage_copy.get(), data->data(), bytesWritten);
-        static_cast<int*>(storage_copy.get())[offsets[i]] = tooManyObjects;
-        SkPath readBack;
-        size_t bytesRead = readBack.readFromMemory(storage_copy.get(), bytesWritten);
-        REPORTER_ASSERT(reporter, !bytesRead);
-    }
-
     // One less byte (rounded down to alignment) than was written will also
     // fail to be deserialized.
     {
@@ -4982,5 +4865,37 @@ DEF_TEST(HugeGeometry, reporter) {
         }
     }
 
+}
+
+// Treat nonfinite paths as "empty" or "full", depending on inverse-filltype
+DEF_TEST(ClipPath_nonfinite, reporter) {
+    auto surf = SkSurface::MakeRasterN32Premul(10, 10);
+    SkCanvas* canvas = surf->getCanvas();
+
+    REPORTER_ASSERT(reporter, !canvas->isClipEmpty());
+    for (bool aa : {false, true}) {
+        for (SkPath::FillType ft : {SkPath::kWinding_FillType, SkPath::kInverseWinding_FillType}) {
+            for (SkScalar bad : {SK_ScalarInfinity, SK_ScalarNaN}) {
+                for (int bits = 1; bits <= 15; ++bits) {
+                    SkPoint p0 = { 0, 0 };
+                    SkPoint p1 = { 0, 0 };
+                    if (bits & 1) p0.fX = -bad;
+                    if (bits & 2) p0.fY = -bad;
+                    if (bits & 4) p1.fX = bad;
+                    if (bits & 8) p1.fY = bad;
+
+                    SkPath path;
+                    path.moveTo(p0);
+                    path.lineTo(p1);
+                    path.setFillType(ft);
+                    canvas->save();
+                    canvas->clipPath(path, aa);
+                    REPORTER_ASSERT(reporter, canvas->isClipEmpty() == !path.isInverseFillType());
+                    canvas->restore();
+                }
+            }
+        }
+    }
+    REPORTER_ASSERT(reporter, !canvas->isClipEmpty());
 }
 

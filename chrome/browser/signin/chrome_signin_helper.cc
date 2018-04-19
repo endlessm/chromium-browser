@@ -19,6 +19,7 @@
 #include "build/build_config.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile_io_data.h"
+#include "chrome/browser/signin/account_consistency_mode_manager.h"
 #include "chrome/browser/signin/account_reconcilor_factory.h"
 #include "chrome/browser/signin/chrome_signin_client.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
@@ -124,7 +125,7 @@ class DiceURLRequestUserData : public base::SupportsUserData::Data {
       const content::ResourceRequestInfo* info =
           content::ResourceRequestInfo::ForRequest(request);
       request->SetUserData(kDiceURLRequestUserDataKey,
-                           base::MakeUnique<DiceURLRequestUserData>(
+                           std::make_unique<DiceURLRequestUserData>(
                                info->GetWebContentsGetterForRequest()));
     }
   }
@@ -310,7 +311,7 @@ void ProcessDiceHeaderUIThread(
   bool is_sync_signin_tab = false;
   DiceTabHelper* tab_helper = DiceTabHelper::FromWebContents(web_contents);
   if (signin::IsDicePrepareMigrationEnabled() && tab_helper) {
-    is_sync_signin_tab = tab_helper->should_start_sync_after_web_signin();
+    is_sync_signin_tab = true;
     access_point = tab_helper->signin_access_point();
     reason = tab_helper->signin_reason();
   }
@@ -319,7 +320,7 @@ void ProcessDiceHeaderUIThread(
       DiceResponseHandler::GetForProfile(profile);
   dice_response_handler->ProcessDiceHeader(
       dice_params,
-      base::MakeUnique<ProcessDiceHeaderDelegateImpl>(
+      std::make_unique<ProcessDiceHeaderDelegateImpl>(
           web_contents, profile->GetPrefs(),
           SigninManagerFactory::GetForProfile(profile), is_sync_signin_tab,
           base::BindOnce(&CreateDiceTurnOnSyncHelper, base::Unretained(profile),
@@ -447,9 +448,14 @@ void FixAccountConsistencyRequestHeader(net::URLRequest* request,
     profile_mode_mask |= PROFILE_MODE_INCOGNITO_DISABLED;
   }
 
+  AccountConsistencyMethod account_consistency =
+      AccountConsistencyModeManager::GetMethodForPrefMember(
+          io_data->dice_enabled());
+
 #if defined(OS_CHROMEOS)
   // Mirror account consistency required by profile.
   if (io_data->account_consistency_mirror_required()->GetValue()) {
+    account_consistency = AccountConsistencyMethod::kMirror;
     // Can't add new accounts.
     profile_mode_mask |= PROFILE_MODE_ADD_ACCOUNT_DISABLED;
   }
@@ -462,7 +468,7 @@ void FixAccountConsistencyRequestHeader(net::URLRequest* request,
   // Dice header:
   bool dice_header_added = AppendOrRemoveDiceRequestHeader(
       request, redirect_url, account_id, io_data->IsSyncEnabled(),
-      io_data->SyncHasAuthError(), io_data->dice_enabled(),
+      io_data->SyncHasAuthError(), account_consistency,
       io_data->GetCookieSettings());
 
   // Block the AccountReconcilor while the Dice requests are in flight. This
@@ -471,18 +477,10 @@ void FixAccountConsistencyRequestHeader(net::URLRequest* request,
   if (dice_header_added)
     DiceURLRequestUserData::AttachToRequest(request);
 
-#if defined(OS_CHROMEOS)
-  bool mirror_enabled =
-      io_data->account_consistency_mirror_required()->GetValue() ||
-      IsAccountConsistencyMirrorEnabled();
-#else
-  bool mirror_enabled = IsAccountConsistencyMirrorEnabled();
-#endif
-
   // Mirror header:
-  AppendOrRemoveMirrorRequestHeader(request, redirect_url, account_id,
-                                    io_data->GetCookieSettings(),
-                                    mirror_enabled, profile_mode_mask);
+  AppendOrRemoveMirrorRequestHeader(
+      request, redirect_url, account_id, account_consistency,
+      io_data->GetCookieSettings(), profile_mode_mask);
 }
 
 void ProcessAccountConsistencyResponseHeaders(net::URLRequest* request,

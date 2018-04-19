@@ -20,12 +20,11 @@
 #include "components/sync/model/mutable_data_batch.h"
 #include "components/sync/protocol/model_type_state.pb.h"
 #include "components/sync/protocol/sync.pb.h"
+#include "specifics_translation.h"
 
 namespace chromeos {
 
 namespace {
-
-using Result = syncer::ModelTypeStore::Result;
 
 using syncer::ConflictResolution;
 using syncer::EntityChange;
@@ -50,10 +49,11 @@ std::unique_ptr<EntityData> CopyToEntityData(
 class PrintersSyncBridge::StoreProxy {
  public:
   StoreProxy(PrintersSyncBridge* owner,
-             const syncer::ModelTypeStoreFactory& callback)
+             syncer::OnceModelTypeStoreFactory callback)
       : owner_(owner), weak_ptr_factory_(this) {
-    callback.Run(syncer::PRINTERS, base::Bind(&StoreProxy::OnStoreCreated,
-                                              weak_ptr_factory_.GetWeakPtr()));
+    std::move(callback).Run(syncer::PRINTERS,
+                            base::BindOnce(&StoreProxy::OnStoreCreated,
+                                           weak_ptr_factory_.GetWeakPtr()));
   }
 
   // Returns true if the store has been initialized.
@@ -70,31 +70,31 @@ class PrintersSyncBridge::StoreProxy {
     DCHECK(store_);
     store_->CommitWriteBatch(
         std::move(batch),
-        base::Bind(&StoreProxy::OnCommit, weak_ptr_factory_.GetWeakPtr()));
+        base::BindOnce(&StoreProxy::OnCommit, weak_ptr_factory_.GetWeakPtr()));
   }
 
  private:
   // Callback for ModelTypeStore initialization.
-  void OnStoreCreated(Result result, std::unique_ptr<ModelTypeStore> store) {
-    if (result == Result::SUCCESS) {
-      store_ = std::move(store);
-      store_->ReadAllData(base::Bind(&StoreProxy::OnReadAllData,
-                                     weak_ptr_factory_.GetWeakPtr()));
-    } else {
-      owner_->change_processor()->ReportError(
-          FROM_HERE, "ModelTypeStore creation failed.");
-    }
-  }
-
-  void OnReadAllData(Result result,
-                     std::unique_ptr<ModelTypeStore::RecordList> record_list) {
-    if (result != Result::SUCCESS) {
-      owner_->change_processor()->ReportError(FROM_HERE,
-                                              "Initial load of data failed");
+  void OnStoreCreated(const base::Optional<syncer::ModelError>& error,
+                      std::unique_ptr<ModelTypeStore> store) {
+    if (error) {
+      owner_->change_processor()->ReportError(*error);
       return;
     }
 
-    bool error = false;
+    store_ = std::move(store);
+    store_->ReadAllData(base::BindOnce(&StoreProxy::OnReadAllData,
+                                       weak_ptr_factory_.GetWeakPtr()));
+  }
+
+  void OnReadAllData(const base::Optional<syncer::ModelError>& error,
+                     std::unique_ptr<ModelTypeStore::RecordList> record_list) {
+    if (error) {
+      owner_->change_processor()->ReportError(*error);
+      return;
+    }
+
+    bool parse_error = false;
     {
       base::AutoLock lock(owner_->data_lock_);
       for (const ModelTypeStore::Record& r : *record_list) {
@@ -103,37 +103,37 @@ class PrintersSyncBridge::StoreProxy {
           auto& dest = owner_->all_data_[specifics->id()];
           dest = std::move(specifics);
         } else {
-          error = true;
+          parse_error = true;
         }
       }
     }
     owner_->NotifyPrintersUpdated();
 
-    if (error) {
+    if (parse_error) {
       owner_->change_processor()->ReportError(
-          FROM_HERE, "Failed to deserialize all specifics.");
+          {FROM_HERE, "Failed to deserialize all specifics."});
       return;
     }
 
     // Data loaded.  Load metadata.
-    store_->ReadAllMetadata(base::Bind(&StoreProxy::OnReadAllMetadata,
-                                       weak_ptr_factory_.GetWeakPtr()));
+    store_->ReadAllMetadata(base::BindOnce(&StoreProxy::OnReadAllMetadata,
+                                           weak_ptr_factory_.GetWeakPtr()));
   }
 
   // Callback to handle commit errors.
-  void OnCommit(ModelTypeStore::Result result) {
-    if (result != Result::SUCCESS) {
+  void OnCommit(const base::Optional<syncer::ModelError>& error) {
+    if (error) {
       LOG(WARNING) << "Failed to commit operation to store";
-      owner_->change_processor()->ReportError(FROM_HERE,
-                                              "Failed to commit to store");
+      owner_->change_processor()->ReportError(*error);
+      return;
     }
   }
 
   void OnReadAllMetadata(
-      base::Optional<syncer::ModelError> error,
+      const base::Optional<syncer::ModelError>& error,
       std::unique_ptr<syncer::MetadataBatch> metadata_batch) {
     if (error) {
-      owner_->change_processor()->ReportError(error.value());
+      owner_->change_processor()->ReportError(*error);
       return;
     }
 
@@ -147,12 +147,12 @@ class PrintersSyncBridge::StoreProxy {
 };
 
 PrintersSyncBridge::PrintersSyncBridge(
-    const syncer::ModelTypeStoreFactory& callback,
+    syncer::OnceModelTypeStoreFactory callback,
     const base::RepeatingClosure& error_callback)
     : ModelTypeSyncBridge(base::BindRepeating(&ModelTypeChangeProcessor::Create,
                                               error_callback),
                           syncer::PRINTERS),
-      store_delegate_(std::make_unique<StoreProxy>(this, callback)),
+      store_delegate_(std::make_unique<StoreProxy>(this, std::move(callback))),
       observers_(new base::ObserverListThreadSafe<Observer>()) {}
 
 PrintersSyncBridge::~PrintersSyncBridge() {}
@@ -327,7 +327,7 @@ bool PrintersSyncBridge::UpdatePrinterLocked(
 
   // Modify the printer in-place then notify the change processor.
   sync_pb::PrinterSpecifics* merged = iter->second.get();
-  merged->MergeFrom(*printer);
+  MergePrinterToSpecifics(*SpecificsToPrinter(*printer), merged);
   merged->set_updated_timestamp(base::Time::Now().ToJavaTime());
   CommitPrinterPut(*merged);
 
@@ -375,6 +375,11 @@ base::Optional<sync_pb::PrinterSpecifics> PrintersSyncBridge::GetPrinter(
   }
 
   return {*iter->second};
+}
+
+bool PrintersSyncBridge::HasPrinter(const std::string& id) const {
+  base::AutoLock lock(data_lock_);
+  return all_data_.find(id) != all_data_.end();
 }
 
 void PrintersSyncBridge::CommitPrinterPut(

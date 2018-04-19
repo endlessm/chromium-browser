@@ -76,7 +76,7 @@
 #include "services/service_manager/public/cpp/bind_source_info.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "skia/ext/image_operations.h"
-#include "third_party/WebKit/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/WebKit/public/platform/WebReferrerPolicy.h"
 #include "ui/android/view_android.h"
 #include "ui/android/window_android.h"
@@ -166,6 +166,7 @@ TabAndroid::TabAndroid(JNIEnv* env, const JavaRef<jobject>& obj)
       content_layer_(cc::Layer::Create()),
       tab_content_manager_(NULL),
       synced_tab_delegate_(new browser_sync::SyncedTabDelegateAndroid(this)),
+      picture_in_picture_enabled_(false),
       embedded_media_experience_enabled_(false),
       weak_factory_(this) {
   Java_Tab_setNativePtr(env, obj, reinterpret_cast<intptr_t>(this));
@@ -797,6 +798,22 @@ bool TabAndroid::ShouldEnableEmbeddedMediaExperience() const {
   return embedded_media_experience_enabled_;
 }
 
+void TabAndroid::SetPictureInPictureEnabled(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& obj,
+    jboolean enabled) {
+  picture_in_picture_enabled_ = enabled;
+
+  if (!web_contents() || !web_contents()->GetRenderViewHost())
+    return;
+
+  web_contents()->GetRenderViewHost()->OnWebkitPreferencesChanged();
+}
+
+bool TabAndroid::IsPictureInPictureEnabled() const {
+  return picture_in_picture_enabled_;
+}
+
 void TabAndroid::AttachDetachedTab(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& obj) {
@@ -870,6 +887,17 @@ void TabAndroid::ClearThumbnailPlaceholder(JNIEnv* env,
                                            const JavaParamRef<jobject>& obj) {
   if (tab_content_manager_)
     tab_content_manager_->NativeRemoveTabThumbnail(GetAndroidId());
+}
+
+jint TabAndroid::GetCurrentRenderProcessId(JNIEnv* env,
+                                           const JavaParamRef<jobject>& obj) {
+  content::RenderViewHost* host = web_contents_->GetRenderViewHost();
+  DCHECK(host);
+  content::RenderProcessHost* render_process = host->GetProcess();
+  DCHECK(render_process);
+  if (render_process->HasConnection())
+    return render_process->GetHandle();
+  return 0;
 }
 
 void TabAndroid::OnInterfaceRequestFromFrame(

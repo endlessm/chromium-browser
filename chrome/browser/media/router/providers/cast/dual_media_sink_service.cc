@@ -4,21 +4,32 @@
 
 #include "chrome/browser/media/router/providers/cast/dual_media_sink_service.h"
 
-#include "base/memory/ref_counted.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/media/router/discovery/dial/dial_media_sink_service.h"
 #include "chrome/browser/media/router/discovery/mdns/cast_media_sink_service.h"
 #include "chrome/browser/media/router/media_router_feature.h"
+#include "chrome/browser/media/router/providers/cast/cast_app_discovery_service.h"
+#include "chrome/browser/media/router/providers/cast/chrome_cast_message_handler.h"
+#include "components/cast_channel/cast_socket_service.h"
 #include "content/public/browser/browser_thread.h"
-#include "net/url_request/url_request_context_getter.h"
 
 namespace media_router {
+
+DualMediaSinkService* DualMediaSinkService::instance_for_test_ = nullptr;
 
 // static
 DualMediaSinkService* DualMediaSinkService::GetInstance() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  if (instance_for_test_)
+    return instance_for_test_;
+
   static DualMediaSinkService* instance = new DualMediaSinkService();
   return instance;
+}
+
+// static
+void DualMediaSinkService::SetInstanceForTest(
+    DualMediaSinkService* instance_for_test) {
+  instance_for_test_ = instance_for_test;
 }
 
 DualMediaSinkService::Subscription
@@ -43,24 +54,37 @@ void DualMediaSinkService::StartMdnsDiscovery() {
     cast_media_sink_service_->StartMdnsDiscovery();
 }
 
-DualMediaSinkService::DualMediaSinkService() {
-  scoped_refptr<net::URLRequestContextGetter> request_context =
-      g_browser_process->system_request_context();
+void DualMediaSinkService::RegisterMediaSinksObserver(
+    MediaSinksObserver* observer) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  dial_media_sink_service_->RegisterMediaSinksObserver(observer);
+}
 
-  if (media_router::CastDiscoveryEnabled()) {
-    cast_media_sink_service_ =
-        std::make_unique<CastMediaSinkService>(request_context);
+void DualMediaSinkService::UnregisterMediaSinksObserver(
+    MediaSinksObserver* observer) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  dial_media_sink_service_->UnregisterMediaSinksObserver(observer);
+}
+
+DualMediaSinkService::DualMediaSinkService() {
+  OnDialSinkAddedCallback dial_sink_added_cb;
+  if (CastDiscoveryEnabled()) {
+    if (CastMediaRouteProviderEnabled()) {
+      cast_channel::CastSocketService* cast_socket_service =
+          cast_channel::CastSocketService::GetInstance();
+      cast_app_discovery_service_ = std::make_unique<CastAppDiscoveryService>(
+          GetCastMessageHandler(), cast_socket_service);
+    }
+
+    cast_media_sink_service_ = std::make_unique<CastMediaSinkService>();
     cast_media_sink_service_->Start(
         base::BindRepeating(&DualMediaSinkService::OnSinksDiscovered,
-                            base::Unretained(this), "cast"));
+                            base::Unretained(this), "cast"),
+        cast_app_discovery_service_.get());
+    dial_sink_added_cb = cast_media_sink_service_->GetDialSinkAddedCallback();
   }
 
-  OnDialSinkAddedCallback dial_sink_added_cb;
-  if (cast_media_sink_service_)
-    dial_sink_added_cb = cast_media_sink_service_->GetDialSinkAddedCallback();
-
-  dial_media_sink_service_ = std::make_unique<DialMediaSinkService>(
-      g_browser_process->system_request_context());
+  dial_media_sink_service_ = std::make_unique<DialMediaSinkService>();
   dial_media_sink_service_->Start(
       base::BindRepeating(&DualMediaSinkService::OnSinksDiscovered,
                           base::Unretained(this), "dial"),

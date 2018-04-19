@@ -47,6 +47,7 @@ void UiElementRenderer::Init() {
   shadow_renderer_ = std::make_unique<Shadow::Renderer>();
   stars_renderer_ = std::make_unique<Stars::Renderer>();
   background_renderer_ = std::make_unique<Background::Renderer>();
+  keyboard_renderer_ = std::make_unique<Keyboard::Renderer>();
 }
 
 void UiElementRenderer::DrawTexturedQuad(
@@ -96,14 +97,10 @@ void UiElementRenderer::DrawGradientGridQuad(
 }
 
 void UiElementRenderer::DrawController(
-    ControllerMesh::State state,
     float opacity,
     const gfx::Transform& model_view_proj_matrix) {
-  if (!controller_renderer_->IsSetUp()) {
-    return;
-  }
   FlushIfNecessary(controller_renderer_.get());
-  controller_renderer_->Draw(state, opacity, model_view_proj_matrix);
+  controller_renderer_->Draw(opacity, model_view_proj_matrix);
 }
 
 void UiElementRenderer::DrawLaser(
@@ -163,14 +160,16 @@ void UiElementRenderer::DrawBackground(
                              fullscreen_factor);
 }
 
+void UiElementRenderer::DrawKeyboard(const CameraModel& camera_model,
+                                     KeyboardDelegate* delegate) {
+  FlushIfNecessary(keyboard_renderer_.get());
+  keyboard_renderer_->Draw(camera_model, delegate);
+}
+
 void UiElementRenderer::Flush() {
   textured_quad_renderer_->Flush();
   external_textured_quad_renderer_->Flush();
   last_renderer_ = nullptr;
-}
-
-void UiElementRenderer::SetUpController(std::unique_ptr<ControllerMesh> mesh) {
-  controller_renderer_->SetUp(std::move(mesh));
 }
 
 void UiElementRenderer::FlushIfNecessary(BaseRenderer* renderer) {

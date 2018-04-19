@@ -68,7 +68,6 @@ import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.MenuUtils;
 import org.chromium.chrome.test.util.NewTabPageTestUtils;
 import org.chromium.chrome.test.util.OverviewModeBehaviorWatcher;
-import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.DOMUtils;
@@ -652,7 +651,7 @@ public class TabsTest {
      */
     @Test
     @FlakyTest
-    public void testOpenManyTabsInBursts() throws InterruptedException {
+    public void testOpenManyTabsInBursts() throws InterruptedException, TimeoutException {
         mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
         final int burstSize = 5;
         final String url = mTestServer.getURL(TEST_PAGE_FILE_PATH);
@@ -674,7 +673,7 @@ public class TabsTest {
      */
     @Test
     @FlakyTest(message = "crbug.com/223110")
-    public void testOpenManyTabsAtOnce10() throws InterruptedException {
+    public void testOpenManyTabsAtOnce10() throws InterruptedException, TimeoutException {
         openAndVerifyManyTestTabs(10);
     }
 
@@ -682,7 +681,8 @@ public class TabsTest {
      * Verify that we can open a large number of tabs all at once and that each
      * tab loads when selected.
      */
-    private void openAndVerifyManyTestTabs(final int num) throws InterruptedException {
+    private void openAndVerifyManyTestTabs(final int num)
+            throws InterruptedException, TimeoutException {
         mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
         final String url = mTestServer.getURL(TEST_PAGE_FILE_PATH);
         int startCount = mActivityTestRule.getActivity().getCurrentTabModel().getCount();
@@ -1381,9 +1381,10 @@ public class TabsTest {
         mActivityTestRule.loadUrlInNewTab(
                 mTestServer.getURL("/chrome/test/data/android/tabstest/text_page.html"));
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
-            ContentViewCore view =
-                    mActivityTestRule.getActivity().getActivityTab().getContentViewCore();
-            view.flingViewport(SystemClock.uptimeMillis(), 0, -2000, false);
+            WebContents webContents =
+                    mActivityTestRule.getActivity().getActivityTab().getWebContents();
+            webContents.getEventForwarder().onStartFling(
+                    SystemClock.uptimeMillis(), 0, -2000, false);
         });
         ChromeTabUtils.closeCurrentTab(
                 InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
@@ -1482,7 +1483,7 @@ public class TabsTest {
     @Feature({"Android-TabSwitcher"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     @RetryOnFailure
-    public void testToolbarSwipeOnlyTab() throws InterruptedException {
+    public void testToolbarSwipeOnlyTab() throws InterruptedException, TimeoutException {
         final TabModel tabModel =
                 mActivityTestRule.getActivity().getTabModelSelector().getModel(false);
 
@@ -1496,7 +1497,7 @@ public class TabsTest {
     @Feature({"Android-TabSwitcher"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     @RetryOnFailure
-    public void testToolbarSwipePrevTab() throws InterruptedException {
+    public void testToolbarSwipePrevTab() throws InterruptedException, TimeoutException {
         ChromeTabUtils.newTabFromMenu(
                 InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
         UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
@@ -1514,7 +1515,7 @@ public class TabsTest {
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     @RetryOnFailure
     @DisabledTest(message = "crbug.com/802183")
-    public void testToolbarSwipeNextTab() throws InterruptedException {
+    public void testToolbarSwipeNextTab() throws InterruptedException, TimeoutException {
         ChromeTabUtils.newTabFromMenu(
                 InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
         ChromeTabUtils.switchTabInCurrentTabModel(mActivityTestRule.getActivity(), 0);
@@ -1532,7 +1533,7 @@ public class TabsTest {
     @Feature({"Android-TabSwitcher"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     @RetryOnFailure
-    public void testToolbarSwipePrevTabNone() throws InterruptedException {
+    public void testToolbarSwipePrevTabNone() throws InterruptedException, TimeoutException {
         ChromeTabUtils.newTabFromMenu(
                 InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
         ChromeTabUtils.switchTabInCurrentTabModel(mActivityTestRule.getActivity(), 0);
@@ -1550,7 +1551,7 @@ public class TabsTest {
     @Feature({"Android-TabSwitcher"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     @RetryOnFailure
-    public void testToolbarSwipeNextTabNone() throws InterruptedException {
+    public void testToolbarSwipeNextTabNone() throws InterruptedException, TimeoutException {
         ChromeTabUtils.newTabFromMenu(
                 InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
         UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
@@ -1567,7 +1568,7 @@ public class TabsTest {
     @Feature({"Android-TabSwitcher"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     @RetryOnFailure
-    public void testToolbarSwipeNextThenPrevTab() throws InterruptedException {
+    public void testToolbarSwipeNextThenPrevTab() throws InterruptedException, TimeoutException {
         ChromeTabUtils.newTabFromMenu(
                 InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
         ChromeTabUtils.switchTabInCurrentTabModel(mActivityTestRule.getActivity(), 0);
@@ -1588,7 +1589,8 @@ public class TabsTest {
     @Feature({"Android-TabSwitcher"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     @RetryOnFailure
-    public void testToolbarSwipeNextThenPrevTabIncognito() throws InterruptedException {
+    public void testToolbarSwipeNextThenPrevTabIncognito()
+            throws InterruptedException, TimeoutException {
         mActivityTestRule.newIncognitoTabFromMenu();
         mActivityTestRule.newIncognitoTabFromMenu();
         ChromeTabUtils.switchTabInCurrentTabModel(mActivityTestRule.getActivity(), 0);
@@ -1605,7 +1607,7 @@ public class TabsTest {
     }
 
     private void runToolbarSideSwipeTestOnCurrentModel(ScrollDirection direction, int finalIndex,
-            boolean expectsSelection) throws InterruptedException {
+            boolean expectsSelection) throws InterruptedException, TimeoutException {
         final CallbackHelper selectCallback = new CallbackHelper();
         final int id =
                 mActivityTestRule.getActivity().getCurrentTabModel().getTabAt(finalIndex).getId();
@@ -1631,11 +1633,7 @@ public class TabsTest {
                 mActivityTestRule.getActivity().getCurrentTabModel().index());
 
         if (expectsSelection) {
-            try {
-                selectCallback.waitForCallback(0);
-            } catch (TimeoutException e) {
-                Assert.fail("Tab selected event was never received");
-            }
+            selectCallback.waitForCallback(0);
             ThreadUtils.runOnUiThreadBlocking(() -> {
                 TabModelSelector selector = mActivityTestRule.getActivity().getTabModelSelector();
                 for (TabModel tabModel : selector.getModels()) {
@@ -1946,7 +1944,7 @@ public class TabsTest {
      * @param numTabs The number of tabs to open.
      */
     private void loadUrlInManyNewTabs(final String url, final int numTabs)
-            throws InterruptedException {
+            throws InterruptedException, TimeoutException {
         final CallbackHelper[] pageLoadedCallbacks = new CallbackHelper[numTabs];
         final int[] tabIds = new int[numTabs];
         for (int i = 0; i < numTabs; ++i) {
@@ -1981,11 +1979,7 @@ public class TabsTest {
                     TabModelUtils.setIndex(tabModel, tabModel.indexOf(tab));
                 }
             });
-            try {
-                pageLoadedCallbacks[i].waitForCallback(0);
-            } catch (TimeoutException e) {
-                Assert.fail("PAGE_LOAD_FINISHED was not received for tabId=" + tabIds[i]);
-            }
+            pageLoadedCallbacks[i].waitForCallback(0);
         }
     }
 }

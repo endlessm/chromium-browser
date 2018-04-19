@@ -27,12 +27,14 @@
 #include "ash/system/tray/test_system_tray_item.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/lock_state_controller.h"
+#include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
 #include "base/command_line.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "ui/app_list/app_list_features.h"
 #include "ui/app_list/presenter/app_list.h"
 #include "ui/app_list/presenter/test/test_app_list_presenter.h"
@@ -1854,9 +1856,7 @@ TEST_F(ShelfLayoutManagerTest, AutohideShelfForAutohideWhenActiveWindow) {
   auto* shelf_window = shelf->GetWindow();
   aura::Window* container = shelf_window->GetRootWindow()->GetChildById(
       kShellWindowId_AlwaysOnTopContainer);
-  auto iter = std::find(container->children().begin(),
-                        container->children().end(), window_two);
-  EXPECT_NE(iter, container->children().end());
+  EXPECT_TRUE(base::ContainsValue(container->children(), window_two));
 
   widget_two->Maximize();
   EXPECT_EQ(SHELF_AUTO_HIDE, shelf->GetVisibilityState());
@@ -1979,6 +1979,35 @@ TEST_F(ShelfLayoutManagerTest, ShelfBackgroundColor) {
   w3.reset();
   w1.reset();
   EXPECT_EQ(SHELF_BACKGROUND_DEFAULT, GetShelfWidget()->GetBackgroundType());
+}
+
+// Test the background color for split view mode.
+TEST_F(ShelfLayoutManagerTest, ShelfBackgroundColorInSplitView) {
+  // Split view is only enabled in tablet mode.
+  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
+
+  std::unique_ptr<aura::Window> window1(CreateTestWindow());
+  window1->SetProperty(aura::client::kResizeBehaviorKey,
+                       ui::mojom::kResizeBehaviorCanResize |
+                           ui::mojom::kResizeBehaviorCanMaximize);
+  window1->Show();
+
+  SplitViewController* split_view_controller =
+      Shell::Get()->split_view_controller();
+  split_view_controller->SnapWindow(window1.get(), SplitViewController::LEFT);
+  EXPECT_EQ(SHELF_BACKGROUND_SPLIT_VIEW, GetShelfWidget()->GetBackgroundType());
+
+  std::unique_ptr<aura::Window> window2(CreateTestWindow());
+  window2->SetProperty(aura::client::kResizeBehaviorKey,
+                       ui::mojom::kResizeBehaviorCanResize |
+                           ui::mojom::kResizeBehaviorCanMaximize);
+  window2->Show();
+  split_view_controller->SnapWindow(window2.get(), SplitViewController::RIGHT);
+  EXPECT_EQ(SHELF_BACKGROUND_SPLIT_VIEW, GetShelfWidget()->GetBackgroundType());
+
+  // Ending split view mode will maximize the two windows.
+  split_view_controller->EndSplitView();
+  EXPECT_EQ(SHELF_BACKGROUND_MAXIMIZED, GetShelfWidget()->GetBackgroundType());
 }
 
 // Verify that the shelf doesn't have the opaque background if it's auto-hide
@@ -2122,8 +2151,8 @@ class ShelfLayoutManagerKeyboardTest : public AshTestBase {
     state.displaced_bounds = is_locked ? bounds : gfx::Rect();
     state.is_locked = is_locked;
     state.is_available = !bounds.IsEmpty();
-    layout_manager->OnKeyboardAvailabilityChanging(state.is_available);
-    layout_manager->OnKeyboardAppearanceChanging(state);
+    layout_manager->OnKeyboardAvailabilityChanged(state.is_available);
+    layout_manager->OnKeyboardAppearanceChanged(state);
   }
 
   const gfx::Rect& keyboard_bounds() const { return keyboard_bounds_; }

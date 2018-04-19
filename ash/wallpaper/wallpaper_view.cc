@@ -10,9 +10,9 @@
 #include "ash/shell.h"
 #include "ash/shell_port.h"
 #include "ash/wallpaper/wallpaper_controller.h"
-#include "ash/wallpaper/wallpaper_delegate.h"
 #include "ash/wallpaper/wallpaper_widget_controller.h"
 #include "ash/wm/overview/window_selector_controller.h"
+#include "ash/wm/window_animation_types.h"
 #include "ui/aura/window.h"
 #include "ui/display/display.h"
 #include "ui/display/manager/display_manager.h"
@@ -234,9 +234,9 @@ void WallpaperView::ShowContextMenuForView(views::View* source,
   ShellPort::Get()->ShowContextMenu(point, source_type);
 }
 
-views::Widget* CreateWallpaper(aura::Window* root_window, int container_id) {
+views::Widget* CreateWallpaperWidget(aura::Window* root_window,
+                                     int container_id) {
   WallpaperController* controller = Shell::Get()->wallpaper_controller();
-  WallpaperDelegate* wallpaper_delegate = Shell::Get()->wallpaper_delegate();
 
   views::Widget* wallpaper_widget = new views::Widget;
   views::Widget::InitParams params(
@@ -247,7 +247,10 @@ views::Widget* CreateWallpaper(aura::Window* root_window, int container_id) {
   params.parent = root_window->GetChildById(container_id);
   wallpaper_widget->Init(params);
   wallpaper_widget->SetContentsView(new LayerControlView(new WallpaperView()));
-  int animation_type = wallpaper_delegate->GetAnimationType();
+  int animation_type =
+      controller->ShouldShowInitialAnimation()
+          ? wm::WINDOW_VISIBILITY_ANIMATION_TYPE_BRIGHTNESS_GRAYSCALE
+          : ::wm::WINDOW_VISIBILITY_ANIMATION_TYPE_FADE;
   aura::Window* wallpaper_window = wallpaper_widget->GetNativeWindow();
   ::wm::SetWindowVisibilityAnimationType(wallpaper_window, animation_type);
 
@@ -256,17 +259,17 @@ views::Widget* CreateWallpaper(aura::Window* root_window, int container_id) {
   // 2. Wallpaper fades in from a non empty background.
   // 3. From an empty background, chrome transit to a logged in user session.
   // 4. From an empty background, guest user logged in.
-  if (wallpaper_delegate->ShouldShowInitialAnimation() ||
+  if (controller->ShouldShowInitialAnimation() ||
       RootWindowController::ForWindow(root_window)
-          ->animating_wallpaper_widget_controller() ||
+          ->wallpaper_widget_controller()
+          ->IsAnimating() ||
       Shell::Get()->session_controller()->NumberOfLoggedInUsers()) {
     ::wm::SetWindowVisibilityAnimationTransition(wallpaper_window,
                                                  ::wm::ANIMATE_SHOW);
-    int duration_override = wallpaper_delegate->GetAnimationDurationOverride();
-    if (duration_override) {
-      ::wm::SetWindowVisibilityAnimationDuration(
-          wallpaper_window,
-          base::TimeDelta::FromMilliseconds(duration_override));
+    base::TimeDelta animation_duration = controller->animation_duration();
+    if (!animation_duration.is_zero()) {
+      ::wm::SetWindowVisibilityAnimationDuration(wallpaper_window,
+                                                 animation_duration);
     }
   } else {
     // Disable animation if transition to login screen from an empty background.

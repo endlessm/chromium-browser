@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">כתובת, שורה 1</translation>
 <translation id="1545749641540134597">‏סרוק קוד QR</translation>
 <translation id="1580783302095112590">הדואר נשלח.</translation>
+<translation id="1582732959743469162">הפעולה תפסיק את ההורדה הנוכחית.</translation>
 <translation id="1612730193129642006">הצג רשת כרטיסיות</translation>
+<translation id="1644574205037202324">היסטוריה</translation>
 <translation id="1646446875146297738">המשמעות של הפעלת 'ללא מעקב' היא שהבקשה תיכלל בתנועת הגלישה שלך. התוצאה בפועל תלויה בתגובה של האתר לבקשה ובפרשנות שהוא מייחס לה, אם בכלל. 
 
 לדוגמה, אתרים מסוימים עשויים להגיב לבקשה זו על ידי הצגת מודעות שאינן מבוססות על אתרים אחרים שבהם ביקרת. אתרים רבים עדיין יאספו את נתוני הגלישה שלך וישתמשו בהם - לדוגמה, על מנת לשפר את האבטחה, לספק תוכן, שירותים, מודעות והמלצות באתרים שלהם וכדי ליצור נתונים סטטיסטיים לדיווח. <ph name="BEGIN_LINK" />למידע נוסף<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@
 <translation id="3175081911749765310">שירותי אינטרנט</translation>
 <translation id="3207960819495026254">מסומן בסימניה</translation>
 <translation id="3210163015918861891">הסנכרון כבוי</translation>
+<translation id="3224641773458703735">כדי שניתן יהיה לייצא את הסיסמאות, יש להגדיר קוד גישה במכשיר.</translation>
 <translation id="3240426699337459095">הקישור הועתק</translation>
 <translation id="3244271242291266297">MM</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> מתוך <ph name="NUM_SUGGESTIONS" /></translation>
@@ -153,6 +156,7 @@
 <translation id="3771033907050503522">כרטיסיות גלישה בסתר</translation>
 <translation id="3779810277399252432">אין חיבור לאינטרנט.</translation>
 <translation id="3783017676699494206">שמור תמונה</translation>
+<translation id="3789841737615482174">התקן</translation>
 <translation id="385051799172605136">חזור</translation>
 <translation id="3897092660631435901">תפריט</translation>
 <translation id="3928666092801078803">שילוב הנתונים שלי</translation>
@@ -220,7 +224,6 @@
 <translation id="5300589172476337783">הצג</translation>
 <translation id="5317780077021120954">שמור</translation>
 <translation id="5327248766486351172">שם</translation>
-<translation id="533632423981297619">כל מי שיוכל לגשת אל הקובץ המיוצא יוכל לראות גם את הסיסמאות שלך. אין לשתף את הקובץ עם אף אחד.</translation>
 <translation id="5388358297987318779">פתח תמונה</translation>
 <translation id="5409365236829784218">אין יישומים מותקנים שיכולים לפתוח את הקובץ הזה.</translation>
 <translation id="5433691172869980887">שם המשתמש הועתק</translation>
@@ -249,6 +252,7 @@
 <translation id="5871497086027727873">פריט אחד הועבר</translation>
 <translation id="5911030830365207728">Google Translate</translation>
 <translation id="5916664084637901428">פועל</translation>
+<translation id="5938160824633642847">המכשיר שלך כמעט מלא. צריך לפנות מקום ולנסות שוב.</translation>
 <translation id="5948291296578561264">מאפשר לך לשמור תמונות בספריית התמונות.</translation>
 <translation id="5955891643922670672">מציג גרסה לא מקוונת</translation>
 <translation id="5964480694698977962">יצירת כרטיסייה חדשה של גלישה בסתר.</translation>
@@ -280,7 +284,9 @@
 <translation id="633809752005859102">משהו לגמרי השתבש. נעבוד על זה.</translation>
 <translation id="6342069812937806050">זה עתה</translation>
 <translation id="6344783595350022745">טקסט נקי</translation>
+<translation id="6346549652287021269">להתחיל הורדה חדשה?</translation>
 <translation id="6362362396625799311">אין כרטיסיות של גלישה בסתר</translation>
+<translation id="6374469231428023295">נסה שוב</translation>
 <translation id="6380866119319257197">אם תשכח את ביטוי הסיסמה או תרצה לשנות את ההגדרה הזו, <ph name="BEGIN_LINK" />אפס את הסינכרון<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">שם על הכרטיס</translation>
 <translation id="6406506848690869874">סנכרן</translation>
@@ -289,6 +295,7 @@
 
 הנתונים שלך הוצפנו ב-<ph name="TIME" /> באמצעות ביטוי הסיסמה לסינכרון. הזן אותו כדי להתחיל בסינכרון.</translation>
 <translation id="6418346271604475326">‏מכין PDF</translation>
+<translation id="6434591244308415567">אירעה שגיאה. יש לנסות שוב מאוחר יותר.</translation>
 <translation id="6445051938772793705">ארץ</translation>
 <translation id="6445981559479772097">ההודעה נשלחה.</translation>
 <translation id="6464071786529933911">פתח בכרטיסיית גלישה בסתר חדשה</translation>
@@ -299,6 +306,7 @@
 <translation id="6657585470893396449">סיסמה</translation>
 <translation id="667999046851023355">מסמך</translation>
 <translation id="6713747756340119864">Google Apps</translation>
+<translation id="6730682669179532099">אי אפשר לייצא סיסמאות</translation>
 <translation id="6762156594045689028"><ph name="BEGIN_LINK" />אפס את הסינכרון<ph name="END_LINK" /> כדי לשנות את ההגדרה הזו</translation>
 <translation id="6780034285637185932">מיקוד</translation>
 <translation id="6785453220513215166">שולח דוח קריסה...</translation>
@@ -308,13 +316,16 @@
 <translation id="681368974849482173">הפריט נוצר</translation>
 <translation id="6896758677409633944">העתק</translation>
 <translation id="6903907808598579934">הפעל סנכרון</translation>
+<translation id="6914783257214138813">כל מי שיוכל לגשת אל הקובץ המיוצא יוכל לראות את הסיסמאות שלך.</translation>
 <translation id="6945221475159498467">בחר</translation>
 <translation id="6973630695168034713">תיקיות</translation>
 <translation id="7004499039102548441">כרטיסיות אחרונות</translation>
 <translation id="7006788746334555276">הגדרות תוכן</translation>
+<translation id="7029809446516969842">סיסמאות</translation>
 <translation id="7031882061095297553">סינכרון עם</translation>
 <translation id="7053983685419859001">חסום</translation>
 <translation id="7062545763355031412">קבל והחלף חשבונות</translation>
+<translation id="7102005569666697658">מוריד… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">הסתר</translation>
 <translation id="7133798577887235672">שם מלא</translation>
 <translation id="7136892417564438900">המצלמה לא זמינה</translation>
@@ -325,6 +336,7 @@
 <translation id="7203585745079012652">משוב לתשובות על-ידי דיבור</translation>
 <translation id="722055596168483966">‏התאמה אישית של שירותי Google</translation>
 <translation id="7272437679830969316">לא ניתן לאמת את הזהות שלך. הסיסמה לא הועתקה.</translation>
+<translation id="7291368939935408496">מכין סיסמאות...</translation>
 <translation id="7336264872878993241">הושלמה הורדה של <ph name="PERCENT" /> אחוז</translation>
 <translation id="7346909386216857016">בסדר, הבנתי</translation>
 <translation id="7400418766976504921">כתובת אתר</translation>
@@ -349,6 +361,7 @@
 <translation id="7769602470925380267">קבל וצא מהחשבון</translation>
 <translation id="7772032839648071052">אשר משפט-סיסמה</translation>
 <translation id="780301667611848630">לא תודה</translation>
+<translation id="7856733331829174190">ההורדה נכשלה</translation>
 <translation id="7859704718976024901">היסטוריית הגלישה</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">ייצוא סיסמאות...</translation>
@@ -396,7 +409,7 @@
 <translation id="8870413625673593573">נסגרו לאחרונה</translation>
 <translation id="8881801611828450202">חפש את התמונה הזו ב-<ph name="SEARCH_ENGINE" /></translation>
 <translation id="8904976895050290827">Chrome Sync</translation>
-<translation id="895541991026785598">דווח על בעיה</translation>
+<translation id="895541991026785598">דיווח על בעיה</translation>
 <translation id="8971089644512329999">בסדר, הבנתי</translation>
 <translation id="8981454092730389528">‏בחירת הפעילויות ב-Google</translation>
 <translation id="8985320356172329008">‏מחובר ל-Google בשם</translation>
@@ -409,6 +422,7 @@
 <translation id="9083392325882095631">פריט אחד</translation>
 <translation id="9100610230175265781">יש להזין ביטוי סיסמה</translation>
 <translation id="9148126808321036104">היכנס שוב</translation>
+<translation id="915371508759614899">לבטל את ההורדה?</translation>
 <translation id="9157836665414082580">הסתר תיבות דו-שיח</translation>
 <translation id="9188680907066685419">צא מהחשבון המנוהל</translation>
 <translation id="9203116392574189331">Handoff</translation>

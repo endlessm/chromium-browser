@@ -95,6 +95,9 @@ class BrowserPolicyConnectorChromeOS
   // Returns the device asset ID if it is set.
   std::string GetDeviceAssetID() const;
 
+  // Returns the device annotated location if it is set.
+  std::string GetDeviceAnnotatedLocation() const;
+
   // Returns the cloud directory API ID or an empty string if it is not set.
   std::string GetDirectoryApiID() const;
 
@@ -180,9 +183,8 @@ class BrowserPolicyConnectorChromeOS
 
  protected:
   // ChromeBrowserPolicyConnector:
-  void BuildPolicyProviders(
-      std::vector<std::unique_ptr<ConfigurationPolicyProvider>>* providers)
-      override;
+  std::vector<std::unique_ptr<policy::ConfigurationPolicyProvider>>
+  CreatePolicyProviders() override;
 
  private:
   // Set the timezone as soon as the policies are available.

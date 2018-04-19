@@ -72,7 +72,6 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/service_names.mojom.h"
-#include "content/public/common/simple_url_loader.h"
 #include "content/public/test/simple_url_loader_test_helper.h"
 #include "content/public/test/test_fileapi_operation_waiter.h"
 #include "content/public/test/test_navigation_observer.h"
@@ -92,9 +91,11 @@
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "services/network/public/interfaces/cookie_manager.mojom.h"
-#include "services/network/public/interfaces/network_service.mojom.h"
-#include "services/network/public/interfaces/network_service_test.mojom.h"
+#include "services/network/public/cpp/features.h"
+#include "services/network/public/cpp/simple_url_loader.h"
+#include "services/network/public/mojom/cookie_manager.mojom.h"
+#include "services/network/public/mojom/network_service.mojom.h"
+#include "services/network/public/mojom/network_service_test.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -635,8 +636,9 @@ void SimulateUnresponsiveRenderer(WebContents* web_contents,
 #if defined(USE_AURA)
 bool IsResizeComplete(aura::test::WindowEventDispatcherTestApi* dispatcher_test,
                       RenderWidgetHostImpl* widget_host) {
-  return !dispatcher_test->HoldingPointerMoves() &&
-      !widget_host->resize_ack_pending_for_testing();
+  dispatcher_test->WaitUntilPointerMovesDispatched();
+  widget_host->WasResized();
+  return !widget_host->resize_ack_pending_for_testing();
 }
 
 void WaitForResizeComplete(WebContents* web_contents) {
@@ -1374,7 +1376,7 @@ ui::AXNodeData GetFocusedAccessibilityNodeInfo(WebContents* web_contents) {
 
 bool AccessibilityTreeContainsNodeWithName(BrowserAccessibility* node,
                                            const std::string& name) {
-  if (node->GetStringAttribute(ui::AX_ATTR_NAME) == name)
+  if (node->GetStringAttribute(ax::mojom::StringAttribute::kName) == name)
     return true;
   for (unsigned i = 0; i < node->PlatformChildCount(); i++) {
     if (AccessibilityTreeContainsNodeWithName(node->PlatformGetChild(i), name))
@@ -1402,8 +1404,8 @@ void WaitForAccessibilityTreeToContainNodeWithName(WebContents* web_contents,
   FrameTree* frame_tree = web_contents_impl->GetFrameTree();
   while (!main_frame_manager || !AccessibilityTreeContainsNodeWithName(
              main_frame_manager->GetRoot(), name)) {
-    AccessibilityNotificationWaiter accessibility_waiter(main_frame,
-                                                         ui::AX_EVENT_NONE);
+    AccessibilityNotificationWaiter accessibility_waiter(
+        main_frame, ax::mojom::Event::kNone);
     for (FrameTreeNode* node : frame_tree->Nodes()) {
       accessibility_waiter.ListenToAdditionalFrame(
           node->current_frame_host());
@@ -1589,6 +1591,18 @@ bool SurfaceHitTestReadyNotifier::ContainsSurfaceId(
       return true;
   }
   return false;
+}
+
+RenderFrameMetadataProvider* RenderFrameMetadataProviderFromWebContents(
+    WebContents* web_contents) {
+  DCHECK(web_contents);
+  DCHECK(web_contents->GetRenderViewHost());
+  DCHECK(
+      RenderWidgetHostImpl::From(web_contents->GetRenderViewHost()->GetWidget())
+          ->render_frame_metadata_provider());
+  return RenderWidgetHostImpl::From(
+             web_contents->GetRenderViewHost()->GetWidget())
+      ->render_frame_metadata_provider();
 }
 
 }  // namespace
@@ -1851,33 +1865,57 @@ bool RequestFrame(WebContents* web_contents) {
       ->ScheduleComposite();
 }
 
-FrameWatcher::FrameWatcher() = default;
-
-FrameWatcher::FrameWatcher(WebContents* web_contents)
-    : WebContentsObserver(web_contents) {}
-
-FrameWatcher::~FrameWatcher() = default;
-
-void FrameWatcher::WaitFrames(int frames_to_wait) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  if (frames_to_wait <= 0)
-    return;
-  base::RunLoop run_loop;
-  base::AutoReset<base::Closure> reset_quit(&quit_, run_loop.QuitClosure());
-  base::AutoReset<int> reset_frames_to_wait(&frames_to_wait_, frames_to_wait);
-  run_loop.Run();
+RenderFrameSubmissionObserver::RenderFrameSubmissionObserver(
+    RenderFrameMetadataProvider* render_frame_metadata_provider)
+    : render_frame_metadata_provider_(render_frame_metadata_provider) {
+  render_frame_metadata_provider_->AddObserver(this);
+  render_frame_metadata_provider_->ReportAllFrameSubmissionsForTesting(true);
 }
 
-const viz::CompositorFrameMetadata& FrameWatcher::LastMetadata() {
-  return RenderWidgetHostImpl::From(
-             web_contents()->GetRenderViewHost()->GetWidget())
-      ->last_frame_metadata();
+RenderFrameSubmissionObserver::RenderFrameSubmissionObserver(
+    WebContents* web_contents)
+    : RenderFrameSubmissionObserver(
+          RenderFrameMetadataProviderFromWebContents(web_contents)) {}
+
+RenderFrameSubmissionObserver::~RenderFrameSubmissionObserver() {
+  render_frame_metadata_provider_->RemoveObserver(this);
+  render_frame_metadata_provider_->ReportAllFrameSubmissionsForTesting(false);
 }
 
-void FrameWatcher::DidReceiveCompositorFrame() {
-  --frames_to_wait_;
-  if (frames_to_wait_ == 0)
-    quit_.Run();
+void RenderFrameSubmissionObserver::WaitForAnyFrameSubmission() {
+  break_on_any_frame_ = true;
+  Wait();
+  break_on_any_frame_ = false;
+}
+
+void RenderFrameSubmissionObserver::WaitForMetadataChange() {
+  Wait();
+}
+
+const cc::RenderFrameMetadata&
+RenderFrameSubmissionObserver::LastRenderFrameMetadata() const {
+  return render_frame_metadata_provider_->LastRenderFrameMetadata();
+}
+
+void RenderFrameSubmissionObserver::Quit() {
+  if (run_loop_)
+    run_loop_->Quit();
+}
+
+void RenderFrameSubmissionObserver::Wait() {
+  run_loop_ = std::make_unique<base::RunLoop>();
+  run_loop_->Run();
+  run_loop_.reset();
+}
+
+void RenderFrameSubmissionObserver::OnRenderFrameMetadataChanged() {
+  Quit();
+}
+
+void RenderFrameSubmissionObserver::OnRenderFrameSubmission() {
+  render_frame_count_++;
+  if (break_on_any_frame_)
+    Quit();
 }
 
 MainThreadFrameObserver::MainThreadFrameObserver(
@@ -2132,6 +2170,7 @@ void TestNavigationManager::DidStartNavigation(NavigationHandle* handle) {
 void TestNavigationManager::DidFinishNavigation(NavigationHandle* handle) {
   if (handle != handle_)
     return;
+  was_successful_ = handle->HasCommitted() && !handle->IsErrorPage();
   current_state_ = NavigationState::FINISHED;
   navigation_paused_ = false;
   handle_ = nullptr;
@@ -2392,14 +2431,14 @@ WebContents* GetEmbedderForGuest(content::WebContents* guest) {
 }
 
 bool IsNetworkServiceRunningInProcess() {
-  return base::FeatureList::IsEnabled(features::kNetworkService) &&
+  return base::FeatureList::IsEnabled(network::features::kNetworkService) &&
          (base::CommandLine::ForCurrentProcess()->HasSwitch(
               switches::kSingleProcess) ||
           base::FeatureList::IsEnabled(features::kNetworkServiceInProcess));
 }
 
 void SimulateNetworkServiceCrash() {
-  CHECK(base::FeatureList::IsEnabled(features::kNetworkService));
+  CHECK(base::FeatureList::IsEnabled(network::features::kNetworkService));
   CHECK(!IsNetworkServiceRunningInProcess())
       << "Can't crash the network service if it's running in-process!";
   network::mojom::NetworkServiceTestPtr network_service_test;
@@ -2433,8 +2472,8 @@ int LoadBasicRequest(network::mojom::NetworkContext* network_context,
   request->render_frame_id = render_frame_id;
 
   content::SimpleURLLoaderTestHelper simple_loader_helper;
-  std::unique_ptr<content::SimpleURLLoader> simple_loader =
-      content::SimpleURLLoader::Create(std::move(request),
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
                                        TRAFFIC_ANNOTATION_FOR_TESTS);
 
   simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
@@ -2444,9 +2483,9 @@ int LoadBasicRequest(network::mojom::NetworkContext* network_context,
   return simple_loader->NetError();
 }
 
-std::map<std::string, base::WeakPtr<UtilityProcessHost>>*
-GetServiceManagerProcessGroups() {
-  return ServiceManagerContext::GetProcessGroupsForTesting();
+bool HasValidProcessForProcessGroup(const std::string& process_group_name) {
+  return ServiceManagerContext::HasValidProcessForProcessGroup(
+      process_group_name);
 }
 
 }  // namespace content

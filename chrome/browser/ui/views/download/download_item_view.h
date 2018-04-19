@@ -28,7 +28,7 @@
 #include "chrome/browser/download/download_commands.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/icon_manager.h"
-#include "content/public/browser/download_item.h"
+#include "components/download/public/common/download_item.h"
 #include "content/public/browser/download_manager.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/font_list.h"
@@ -38,10 +38,6 @@
 
 class DownloadShelfView;
 class DownloadShelfContextMenuView;
-
-namespace extensions {
-class ExperienceSamplingEvent;
-}
 
 namespace gfx {
 class Image;
@@ -65,10 +61,10 @@ class ViewHierarchyChangedDetails;
 class DownloadItemView : public views::InkDropHostView,
                          public views::ButtonListener,
                          public views::ContextMenuController,
-                         public content::DownloadItem::Observer,
+                         public download::DownloadItem::Observer,
                          public gfx::AnimationDelegate {
  public:
-  DownloadItemView(content::DownloadItem* download, DownloadShelfView* parent);
+  DownloadItemView(download::DownloadItem* download, DownloadShelfView* parent);
   ~DownloadItemView() override;
 
   // Timer callback for handling animations
@@ -82,7 +78,7 @@ class DownloadItemView : public views::InkDropHostView,
   void OnExtractIconComplete(gfx::Image* icon);
 
   // Returns the DownloadItem model object belonging to this item.
-  content::DownloadItem* download() { return model_.download(); }
+  download::DownloadItem* download() { return model_.download(); }
 
   // Submits download to download feedback service if the user has approved and
   // the download is suitable for submission, then apply |download_command|.
@@ -90,10 +86,10 @@ class DownloadItemView : public views::InkDropHostView,
   void MaybeSubmitDownloadToFeedbackService(
       DownloadCommands::Command download_command);
 
-  // content::DownloadItem::Observer:
-  void OnDownloadUpdated(content::DownloadItem* download) override;
-  void OnDownloadOpened(content::DownloadItem* download) override;
-  void OnDownloadDestroyed(content::DownloadItem* download) override;
+  // download::DownloadItem::Observer:
+  void OnDownloadUpdated(download::DownloadItem* download) override;
+  void OnDownloadOpened(download::DownloadItem* download) override;
+  void OnDownloadDestroyed(download::DownloadItem* download) override;
 
   // views::View:
   void Layout() override;
@@ -341,10 +337,6 @@ class DownloadItemView : public views::InkDropHostView,
   // item.  Store the path used, so that we can detect a change in the path
   // and reload the icon.
   base::FilePath last_download_item_path_;
-
-  // ExperienceSampling: This tracks dangerous/malicious downloads warning UI
-  // and the user's decisions about it.
-  std::unique_ptr<extensions::ExperienceSamplingEvent> sampling_event_;
 
   // Method factory used to delay reenabling of the item when opening the
   // downloaded file.

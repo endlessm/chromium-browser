@@ -4,11 +4,12 @@
 
 #include "ios/chrome/browser/passwords/account_select_fill_data.h"
 
-#include "base/strings/utf_string_conversions.cc"
+#include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/common/password_form_fill_data.h"
 #include "ios/chrome/browser/passwords/test_helpers.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "testing/platform_test.h"
 
 using autofill::PasswordFormFillData;
 using password_manager::AccountSelectFillData;
@@ -27,7 +28,7 @@ const char* kPasswords[] = {"password0", "secret"};
 const char* kAdditionalUsernames[] = {"u$er2", nullptr};
 const char* kAdditionalPasswords[] = {"secret", nullptr};
 
-class AccountSelectFillDataTest : public testing::Test {
+class AccountSelectFillDataTest : public PlatformTest {
  public:
   AccountSelectFillDataTest() {
     for (size_t i = 0; i < arraysize(form_data_); ++i) {

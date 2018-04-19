@@ -449,6 +449,33 @@ class GLSLTest : public ANGLETest
         return "";
     }
 
+    void validateComponentsInErrorMessage(const std::string &vertexShader,
+                                          const std::string &fragmentShader,
+                                          const std::string &expectedErrorType,
+                                          const std::string &expectedVariableFullName)
+    {
+        GLuint vs = CompileShader(GL_VERTEX_SHADER, vertexShader);
+        GLuint fs = CompileShader(GL_FRAGMENT_SHADER, fragmentShader);
+
+        GLuint program = glCreateProgram();
+        glAttachShader(program, vs);
+        glAttachShader(program, fs);
+        glLinkProgram(program);
+
+        glDetachShader(program, vs);
+        glDetachShader(program, fs);
+        glDeleteShader(vs);
+        glDeleteShader(fs);
+
+        const std::string &errorMessage = QueryErrorMessage(program);
+
+        EXPECT_NE(std::string::npos, errorMessage.find(expectedErrorType));
+        EXPECT_NE(std::string::npos, errorMessage.find(expectedVariableFullName));
+
+        glDeleteProgram(program);
+        ASSERT_GL_NO_ERROR();
+    }
+
     std::string mSimpleVSSource;
 };
 
@@ -515,11 +542,7 @@ TEST_P(GLSLTest, ScopedStructsOrderBug)
     // (http://anglebug.com/1292)
     // TODO(geofflang): Find out why this doesn't compile on AMD OpenGL drivers
     // (http://anglebug.com/1291)
-    if (IsDesktopOpenGL() && (IsOSX() || !IsNVIDIA()))
-    {
-        std::cout << "Test disabled on this OpenGL configuration." << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(IsDesktopOpenGL() && (IsOSX() || !IsNVIDIA()));
 
     const std::string fragmentShaderSource =
         R"(precision mediump float;
@@ -794,11 +817,7 @@ TEST_P(GLSLTest_ES3, InvariantVaryingOut)
 {
     // TODO: ESSL 3.00 -> GLSL 1.20 translation should add "invariant" in fragment shader
     // for varyings which are invariant in vertex shader (http://anglebug.com/1293)
-    if (IsDesktopOpenGL())
-    {
-        std::cout << "Test disabled on OpenGL." << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(IsDesktopOpenGL());
 
     const std::string fragmentShaderSource =
         "#version 300 es\n"
@@ -936,11 +955,7 @@ TEST_P(GLSLTest, InvariantAllBoth)
     // TODO: ESSL 1.00 -> GLSL 1.20 translation should add "invariant" in fragment shader
     // for varyings which are invariant in vertex shader individually,
     // and remove invariant(all) from fragment shader (http://anglebug.com/1293)
-    if (IsDesktopOpenGL())
-    {
-        std::cout << "Test disabled on OpenGL." << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(IsDesktopOpenGL());
 
     const std::string fragmentShaderSource =
         "#pragma STDGL invariant(all)\n"
@@ -1117,13 +1132,8 @@ TEST_P(GLSLTest_ES3, MissingReturnStructOfArrays)
     // TODO(cwallez) remove the suppression once NVIDIA drivers are updated across trybots, drivers
     // since late 2016 should have the fix. Last check on 2017-05-30 revealed that the Windows
     // Server 2008 bots still had the old, failing drivers.
-    if (IsNVIDIA() && IsOpenGLES())
-    {
-        std::cout << "Test skipped on NVIDIA OpenGL ES because it disallows returning "
-                     "structure of arrays"
-                  << std::endl;
-        return;
-    }
+    // It disallows returning structure of arrays on NVIDIA OpenGL ES.
+    ANGLE_SKIP_TEST_IF(IsNVIDIA() && IsOpenGLES());
 
     const std::string vertexShaderSource =
         "#version 300 es\n"
@@ -1228,11 +1238,7 @@ TEST_P(GLSLTest_ES3, InvariantAllOut)
     // TODO: ESSL 3.00 -> GLSL 1.20 translation should add "invariant" in fragment shader
     // for varyings which are invariant in vertex shader,
     // because of invariant(all) being used in vertex shader (http://anglebug.com/1293)
-    if (IsDesktopOpenGL())
-    {
-        std::cout << "Test disabled on OpenGL." << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(IsDesktopOpenGL());
 
     const std::string fragmentShaderSource =
         "#version 300 es\n"
@@ -1254,15 +1260,9 @@ TEST_P(GLSLTest_ES3, InvariantAllOut)
 
 TEST_P(GLSLTest, MaxVaryingVec4)
 {
-#if defined(__APPLE__)
-    // TODO(geofflang): Find out why this doesn't compile on Apple AND OpenGL drivers
+    // TODO(geofflang): Find out why this doesn't compile on Apple AMD OpenGL drivers
     // (http://anglebug.com/1291)
-    if (IsAMD() && getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE)
-    {
-        std::cout << "Test disabled on Apple AMD OpenGL." << std::endl;
-        return;
-    }
-#endif
+    ANGLE_SKIP_TEST_IF(IsOSX() && IsAMD() && IsOpenGL());
 
     GLint maxVaryings = 0;
     glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
@@ -1270,29 +1270,62 @@ TEST_P(GLSLTest, MaxVaryingVec4)
     VaryingTestBase(0, 0, 0, 0, 0, 0, maxVaryings, 0, false, false, false, true);
 }
 
-TEST_P(GLSLTest, MaxMinusTwoVaryingVec4PlusTwoSpecialVariables)
+// Verify we can pack registers with one builtin varying.
+TEST_P(GLSLTest, MaxVaryingVec4_OneBuiltin)
 {
     GLint maxVaryings = 0;
     glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
 
-    // Generate shader code that uses gl_FragCoord and gl_PointCoord, two special fragment shader variables.
+    // Generate shader code that uses gl_FragCoord.
+    VaryingTestBase(0, 0, 0, 0, 0, 0, maxVaryings - 1, 0, true, false, false, true);
+}
+
+// Verify we can pack registers with two builtin varyings.
+TEST_P(GLSLTest, MaxVaryingVec4_TwoBuiltins)
+{
+    GLint maxVaryings = 0;
+    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
+
+    // Generate shader code that uses gl_FragCoord and gl_PointCoord.
     VaryingTestBase(0, 0, 0, 0, 0, 0, maxVaryings - 2, 0, true, true, false, true);
 }
 
-TEST_P(GLSLTest, MaxMinusTwoVaryingVec4PlusThreeSpecialVariables)
+// Verify we can pack registers with three builtin varyings.
+TEST_P(GLSLTest, MaxVaryingVec4_ThreeBuiltins)
 {
-    // TODO(geofflang): Figure out why this fails on OpenGL AMD (http://anglebug.com/1291)
-    if (IsAMD() && getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE)
-    {
-        std::cout << "Test disabled on OpenGL." << std::endl;
-        return;
-    }
-
     GLint maxVaryings = 0;
     glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
 
     // Generate shader code that uses gl_FragCoord, gl_PointCoord and gl_PointSize.
-    VaryingTestBase(0, 0, 0, 0, 0, 0, maxVaryings - 2, 0, true, true, true, true);
+    VaryingTestBase(0, 0, 0, 0, 0, 0, maxVaryings - 3, 0, true, true, true, true);
+}
+
+// This covers a problematic case in D3D9 - we are limited by the number of available semantics,
+// rather than total register use.
+TEST_P(GLSLTest, MaxVaryingsSpecialCases)
+{
+    ANGLE_SKIP_TEST_IF(!IsD3D9());
+
+    GLint maxVaryings = 0;
+    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
+
+    VaryingTestBase(maxVaryings, 0, 0, 0, 0, 0, 0, 0, true, false, false, false);
+    VaryingTestBase(maxVaryings - 1, 0, 0, 0, 0, 0, 0, 0, true, true, false, false);
+    VaryingTestBase(maxVaryings - 2, 0, 0, 0, 0, 0, 0, 0, true, true, false, true);
+
+    // Special case for gl_PointSize: we get it for free on D3D9.
+    VaryingTestBase(maxVaryings - 2, 0, 0, 0, 0, 0, 0, 0, true, true, true, true);
+}
+
+// This covers a problematic case in D3D9 - we are limited by the number of available semantics,
+// rather than total register use.
+TEST_P(GLSLTest, MaxMinusTwoVaryingVec2PlusOneSpecialVariable)
+{
+    GLint maxVaryings = 0;
+    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
+
+    // Generate shader code that uses gl_FragCoord.
+    VaryingTestBase(0, 0, maxVaryings, 0, 0, 0, 0, 0, true, false, false, !IsD3D9());
 }
 
 TEST_P(GLSLTest, MaxVaryingVec3)
@@ -1311,93 +1344,51 @@ TEST_P(GLSLTest, MaxVaryingVec3Array)
     VaryingTestBase(0, 0, 0, 0, 0, maxVaryings / 2, 0, 0, false, false, false, true);
 }
 
-// Disabled because of a failure in D3D9
+// Only fails on D3D9 because of packing limitations.
 TEST_P(GLSLTest, MaxVaryingVec3AndOneFloat)
 {
-    if (IsD3D9())
-    {
-        std::cout << "Test disabled on D3D9." << std::endl;
-        return;
-    }
-
     GLint maxVaryings = 0;
     glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
 
-    VaryingTestBase(1, 0, 0, 0, maxVaryings, 0, 0, 0, false, false, false, true);
+    VaryingTestBase(1, 0, 0, 0, maxVaryings, 0, 0, 0, false, false, false, !IsD3D9());
 }
 
-// Disabled because of a failure in D3D9
+// Only fails on D3D9 because of packing limitations.
 TEST_P(GLSLTest, MaxVaryingVec3ArrayAndOneFloatArray)
 {
-    if (IsD3D9())
-    {
-        std::cout << "Test disabled on D3D9." << std::endl;
-        return;
-    }
-
     GLint maxVaryings = 0;
     glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
 
-    VaryingTestBase(0, 1, 0, 0, 0, maxVaryings / 2, 0, 0, false, false, false, true);
+    VaryingTestBase(0, 1, 0, 0, 0, maxVaryings / 2, 0, 0, false, false, false, !IsD3D9());
 }
 
-// Disabled because of a failure in D3D9
+// Only fails on D3D9 because of packing limitations.
 TEST_P(GLSLTest, TwiceMaxVaryingVec2)
 {
-    if (IsD3D9())
-    {
-        std::cout << "Test disabled on D3D9." << std::endl;
-        return;
-    }
+    // TODO(geofflang): Figure out why this fails on NVIDIA's GLES driver
+    ANGLE_SKIP_TEST_IF(IsNVIDIA() && IsOpenGLES());
 
-    if (getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE)
-    {
-        // TODO(geofflang): Figure out why this fails on NVIDIA's GLES driver
-        std::cout << "Test disabled on OpenGL ES." << std::endl;
-        return;
-    }
-
-#if defined(__APPLE__)
-    // TODO(geofflang): Find out why this doesn't compile on Apple AND OpenGL drivers
+    // TODO(geofflang): Find out why this doesn't compile on Apple AMD OpenGL drivers
     // (http://anglebug.com/1291)
-    if (IsAMD() && getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE)
-    {
-        std::cout << "Test disabled on Apple AMD OpenGL." << std::endl;
-        return;
-    }
-#endif
+    ANGLE_SKIP_TEST_IF(IsOSX() && IsAMD() && IsOpenGL());
 
     GLint maxVaryings = 0;
     glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
 
-    VaryingTestBase(0, 0, 2 * maxVaryings, 0, 0, 0, 0, 0, false, false, false, true);
+    VaryingTestBase(0, 0, 2 * maxVaryings, 0, 0, 0, 0, 0, false, false, false, !IsD3D9());
 }
 
 // Disabled because of a failure in D3D9
 TEST_P(GLSLTest, MaxVaryingVec2Arrays)
 {
-    if (IsD3DSM3())
-    {
-        std::cout << "Test disabled on SM3." << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(IsD3DSM3());
 
-    if (getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE)
-    {
-        // TODO(geofflang): Figure out why this fails on NVIDIA's GLES driver
-        std::cout << "Test disabled on OpenGL ES." << std::endl;
-        return;
-    }
+    // TODO(geofflang): Figure out why this fails on NVIDIA's GLES driver
+    ANGLE_SKIP_TEST_IF(IsOpenGLES());
 
-#if defined(__APPLE__)
-    // TODO(geofflang): Find out why this doesn't compile on Apple AND OpenGL drivers
+    // TODO(geofflang): Find out why this doesn't compile on Apple AMD OpenGL drivers
     // (http://anglebug.com/1291)
-    if (IsAMD() && getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE)
-    {
-        std::cout << "Test disabled on Apple AMD OpenGL." << std::endl;
-        return;
-    }
-#endif
+    ANGLE_SKIP_TEST_IF(IsOSX() && IsAMD() && IsOpenGL());
 
     GLint maxVaryings = 0;
     glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
@@ -1752,11 +1743,8 @@ TEST_P(GLSLTest, LoopIndexingValidation)
 // can actually be used.
 TEST_P(GLSLTest, VerifyMaxVertexUniformVectors)
 {
-    if (IsLinux() && IsIntel())
-    {
-        std::cout << "Test timed out on Linux Intel. See crbug.com/680631." << std::endl;
-        return;
-    }
+    // crbug.com/680631
+    ANGLE_SKIP_TEST_IF(IsOzone() && IsIntel());
 
     int maxUniforms = 10000;
     glGetIntegerv(GL_MAX_VERTEX_UNIFORM_VECTORS, &maxUniforms);
@@ -1770,12 +1758,7 @@ TEST_P(GLSLTest, VerifyMaxVertexUniformVectors)
 // can actually be used along with the maximum number of texture samplers.
 TEST_P(GLSLTest, VerifyMaxVertexUniformVectorsWithSamplers)
 {
-    if (GetParam().eglParameters.renderer == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE ||
-        GetParam().eglParameters.renderer == EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE)
-    {
-        std::cout << "Test disabled on OpenGL." << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(IsOpenGL() || IsOpenGLES());
 
     int maxUniforms = 10000;
     glGetIntegerv(GL_MAX_VERTEX_UNIFORM_VECTORS, &maxUniforms);
@@ -1804,11 +1787,8 @@ TEST_P(GLSLTest, VerifyMaxVertexUniformVectorsExceeded)
 // can actually be used.
 TEST_P(GLSLTest, VerifyMaxFragmentUniformVectors)
 {
-    if (IsLinux() && IsIntel())
-    {
-        std::cout << "Test timed out on Linux Intel. See crbug.com/680631." << std::endl;
-        return;
-    }
+    // crbug.com/680631
+    ANGLE_SKIP_TEST_IF(IsOzone() && IsIntel());
 
     int maxUniforms = 10000;
     glGetIntegerv(GL_MAX_FRAGMENT_UNIFORM_VECTORS, &maxUniforms);
@@ -1822,12 +1802,7 @@ TEST_P(GLSLTest, VerifyMaxFragmentUniformVectors)
 // can actually be used along with the maximum number of texture samplers.
 TEST_P(GLSLTest, VerifyMaxFragmentUniformVectorsWithSamplers)
 {
-    if (GetParam().eglParameters.renderer == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE ||
-        GetParam().eglParameters.renderer == EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE)
-    {
-        std::cout << "Test disabled on OpenGL." << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(IsOpenGL() || IsOpenGLES());
 
     int maxUniforms = 10000;
     glGetIntegerv(GL_MAX_FRAGMENT_UNIFORM_VECTORS, &maxUniforms);
@@ -1855,11 +1830,7 @@ TEST_P(GLSLTest, VerifyMaxFragmentUniformVectorsExceeded)
 // Test compiling shaders using the GL_EXT_shader_texture_lod extension
 TEST_P(GLSLTest, TextureLOD)
 {
-    if (!extensionEnabled("GL_EXT_shader_texture_lod"))
-    {
-        std::cout << "Test skipped due to missing GL_EXT_shader_texture_lod." << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!extensionEnabled("GL_EXT_shader_texture_lod"));
 
     const std::string source =
         "#extension GL_EXT_shader_texture_lod : require\n"
@@ -2020,11 +1991,7 @@ TEST_P(GLSLTest_ES3, LargeNumberOfFloat4Parameters)
 TEST_P(GLSLTest_ES3, InitGlobalArrayWithArrayIndexing)
 {
     // TODO(ynovikov): re-enable once root cause of http://anglebug.com/1428 is fixed
-    if (IsAndroid() && IsAdreno() && IsOpenGLES())
-    {
-        std::cout << "Test skipped on Adreno OpenGLES on Android." << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsAdreno() && IsOpenGLES());
 
     const std::string vertexShaderSource =
         "#version 300 es\n"
@@ -2053,10 +2020,7 @@ TEST_P(GLSLTest_ES3, InitGlobalArrayWithArrayIndexing)
 // Test that index-constant sampler array indexing is supported.
 TEST_P(GLSLTest, IndexConstantSamplerArrayIndexing)
 {
-    if (IsD3D11_FL93()) {
-        std::cout << "Test skipped on D3D11 FL 9.3." << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(IsD3D11_FL93());
 
     const std::string vertexShaderSource =
         "attribute vec4 vPosition;\n"
@@ -2425,12 +2389,7 @@ TEST_P(GLSLTest, NestedSequenceOperatorWithTernaryInside)
 // Test that using a sampler2D and samplerExternalOES in the same shader works (anglebug.com/1534)
 TEST_P(GLSLTest, ExternalAnd2DSampler)
 {
-    if (!extensionEnabled("GL_OES_EGL_image_external"))
-    {
-        std::cout << "Test skipped because GL_OES_EGL_image_external is not available."
-                  << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!extensionEnabled("GL_OES_EGL_image_external"));
 
     const std::string fragmentShader =
         R"(
@@ -2682,11 +2641,10 @@ TEST_P(WebGLGLSLTest, MaxVaryingVec3ArrayAndMaxPlusOneFloatArray)
 TEST_P(GLSLTest_ES31, FindMSBAndFindLSBCornerCases)
 {
     // Suspecting AMD driver bug - failure seen on bots running on AMD R5 230.
-    if (IsAMD() && IsOpenGL() && IsLinux())
-    {
-        std::cout << "Test skipped on AMD OpenGL Linux" << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(IsAMD() && IsOpenGL() && IsLinux());
+
+    // Failing on N5X Oreo http://anglebug.com/2304
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsAdreno() && IsOpenGLES());
 
     const std::string &fragmentShader =
         "#version 310 es\n"
@@ -2712,13 +2670,8 @@ TEST_P(GLSLTest_ES31, FindMSBAndFindLSBCornerCases)
 // Test that writing into a swizzled vector that is dynamically indexed succeeds.
 TEST_P(GLSLTest_ES3, WriteIntoDynamicIndexingOfSwizzledVector)
 {
-    if (IsOpenGL())
-    {
-        // http://anglebug.com/1924
-        std::cout << "Test skipped on all OpenGL configurations because it has incorrect results"
-                  << std::endl;
-        return;
-    }
+    // http://anglebug.com/1924
+    ANGLE_SKIP_TEST_IF(IsOpenGL());
 
     // The shader first assigns v.x to v.z (1.0)
     // Then v.y to v.y (2.0)
@@ -2747,11 +2700,8 @@ TEST_P(GLSLTest_ES3, NestedSamplingOperation)
 {
     // This seems to be bugged on some version of Android. Might not affect the newest versions.
     // TODO(jmadill): Lift suppression when Chromium bots are upgraded.
-    if (IsAndroid() && IsOpenGLES())
-    {
-        std::cout << "Test skipped on Android because of bug with Nexus 5X." << std::endl;
-        return;
-    }
+    // Test skipped on Android because of bug with Nexus 5X.
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
 
     const std::string &vertexShader =
         "#version 300 es\n"
@@ -2875,14 +2825,9 @@ TEST_P(GLSLTest_ES3, ConstantStatementAsLoopInit)
 // Test that uninitialized local variables are initialized to 0.
 TEST_P(GLSLTest_ES3, InitUninitializedLocals)
 {
-    if (IsAndroid() && IsOpenGLES())
-    {
-        // http://anglebug.com/2046
-        std::cout
-            << "Test skipped on Android GLES because local variable initialization is disabled."
-            << std::endl;
-        return;
-    }
+    // Test skipped on Android GLES because local variable initialization is disabled.
+    // http://anglebug.com/2046
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
 
     const std::string &fragmentShader =
         "#version 300 es\n"
@@ -2917,22 +2862,9 @@ TEST_P(GLSLTest_ES3, InitUninitializedLocals)
 // specifically tests with two different struct variables declared in the same block.
 TEST_P(GLSLTest, InitUninitializedStructContainingArrays)
 {
-    if (IsAndroid() && IsOpenGLES())
-    {
-        // http://anglebug.com/2046
-        std::cout
-            << "Test skipped on Android GLES because local variable initialization is disabled."
-            << std::endl;
-        return;
-    }
-
-    if (IsOSX() && IsOpenGL())
-    {
-        // http://anglebug.com/2041
-        std::cout << "Test skipped on Mac OpenGL because local variable initialization is disabled."
-                  << std::endl;
-        return;
-    }
+    // Test skipped on Android GLES because local variable initialization is disabled.
+    // http://anglebug.com/2046
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
 
     const std::string &fragmentShader =
         "precision mediump float;\n"
@@ -3014,22 +2946,9 @@ TEST_P(GLSLTest, StructureNameMatchingTest)
 // Test that an uninitialized nameless struct inside a for loop init statement works.
 TEST_P(GLSLTest_ES3, UninitializedNamelessStructInForInitStatement)
 {
-    if (IsAndroid() && IsOpenGLES())
-    {
-        // http://anglebug.com/2046
-        std::cout
-            << "Test skipped on Android GLES because local variable initialization is disabled."
-            << std::endl;
-        return;
-    }
-
-    if (IsOSX() && IsOpenGL())
-    {
-        // http://anglebug.com/2041
-        std::cout << "Test skipped on Mac OpenGL because local variable initialization is disabled."
-                  << std::endl;
-        return;
-    }
+    // Test skipped on Android GLES because local variable initialization is disabled.
+    // http://anglebug.com/2046
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
 
     const std::string &fragmentShader =
         "#version 300 es\n"
@@ -3267,12 +3186,8 @@ TEST_P(GLSLTest_ES3, VaryingStructUsedInFragmentShader)
 // This test covers passing an array of structs containing samplers as a function argument.
 TEST_P(GLSLTest, ArrayOfStructsWithSamplersAsFunctionArg)
 {
-    if (IsAndroid() && IsAdreno() && IsOpenGLES())
-    {
-        // Shader failed to compile on Android. http://anglebug.com/2114
-        std::cout << "Test skipped on Adreno OpenGLES on Android." << std::endl;
-        return;
-    }
+    // Shader failed to compile on Android. http://anglebug.com/2114
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsAdreno() && IsOpenGLES());
 
     const std::string &vertexShader =
         "attribute vec2 position;\n"
@@ -3329,12 +3244,8 @@ TEST_P(GLSLTest, ArrayOfStructsWithSamplersAsFunctionArg)
 // This test covers passing a struct containing an array of samplers as a function argument.
 TEST_P(GLSLTest, StructWithSamplerArrayAsFunctionArg)
 {
-    if (IsAndroid() && IsAdreno() && IsOpenGLES())
-    {
-        // Shader failed to compile on Android. http://anglebug.com/2114
-        std::cout << "Test skipped on Adreno OpenGLES on Android." << std::endl;
-        return;
-    }
+    // Shader failed to compile on Android. http://anglebug.com/2114
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsAdreno() && IsOpenGLES());
 
     const std::string &vertexShader =
         "attribute vec2 position;\n"
@@ -3991,6 +3902,250 @@ TEST_P(GLSLTest, ClearLinkErrorLog)
     glDeleteProgram(program);
 
     ASSERT_GL_NO_ERROR();
+}
+
+// Validate error messages when the link mismatch occurs on the type of a non-struct varying.
+TEST_P(GLSLTest, ErrorMessageOfVaryingMismatch)
+{
+    const std::string &vertexShader =
+        R"(
+
+        attribute vec4 inputAttribute;
+        varying vec4 vertex_out;
+        void main()
+        {
+            vertex_out = inputAttribute;
+            gl_Position = inputAttribute;
+        })";
+
+    const std::string &fragmentShader =
+        R"(
+
+        precision mediump float;
+        varying float vertex_out;
+        void main()
+        {
+            gl_FragColor = vec4(vertex_out, 0.0, 0.0, 1.0);
+        })";
+
+    validateComponentsInErrorMessage(vertexShader, fragmentShader, "Types", "varying 'vertex_out'");
+}
+
+// Validate error messages when the link mismatch occurs on the name of a varying field.
+TEST_P(GLSLTest_ES3, ErrorMessageOfVaryingStructFieldNameMismatch)
+{
+    const std::string &vertexShader =
+        R"(#version 300 es
+
+        in vec4 inputAttribute;
+        struct S {
+            float val1;
+            vec4 val2;
+        };
+        out S vertex_out;
+        void main()
+        {
+            vertex_out.val2 = inputAttribute;
+            vertex_out.val1 = inputAttribute[0];
+            gl_Position = inputAttribute;
+        })";
+
+    const std::string &fragmentShader =
+        R"(#version 300 es
+
+        precision mediump float;
+        struct S {
+            float val1;
+            vec4 val3;
+        };
+        in S vertex_out;
+        layout (location = 0) out vec4 frag_out;
+        void main()
+        {
+            frag_out = vec4(vertex_out.val1, 0.0, 0.0, 1.0);
+        })";
+
+    validateComponentsInErrorMessage(vertexShader, fragmentShader, "Field names",
+                                     "varying 'vertex_out'");
+}
+
+// Validate error messages when the link mismatch occurs on the type of a varying field.
+TEST_P(GLSLTest_ES3, ErrorMessageOfVaryingStructFieldMismatch)
+{
+    const std::string &vertexShader =
+        R"(#version 300 es
+
+        in vec4 inputAttribute;
+        struct S {
+            float val1;
+            vec4 val2;
+        };
+        out S vertex_out;
+        void main()
+        {
+            vertex_out.val2 = inputAttribute;
+            vertex_out.val1 = inputAttribute[0];
+            gl_Position = inputAttribute;
+        })";
+
+    const std::string &fragmentShader =
+        R"(#version 300 es
+
+        precision mediump float;
+        struct S {
+            float val1;
+            vec2 val2;
+        };
+        in S vertex_out;
+        layout (location = 0) out vec4 frag_out;
+        void main()
+        {
+            frag_out = vec4(vertex_out.val1, 0.0, 0.0, 1.0);
+        })";
+
+    validateComponentsInErrorMessage(vertexShader, fragmentShader, "Types",
+                                     "varying 'vertex_out' member 'vertex_out.val2'");
+}
+
+// Validate error messages when the link mismatch occurs on the name of a struct member of a uniform
+// field.
+TEST_P(GLSLTest, ErrorMessageOfLinkUniformStructFieldNameMismatch)
+{
+    const std::string &vertexShader =
+        R"(
+
+        struct T
+        {
+            vec2 t1;
+            vec3 t2;
+        };
+        struct S {
+            T val1;
+            vec4 val2;
+        };
+        uniform S uni;
+
+        attribute vec4 inputAttribute;
+        varying vec4 vertex_out;
+        void main()
+        {
+            vertex_out = uni.val2;
+            gl_Position = inputAttribute;
+        })";
+
+    const std::string &fragmentShader =
+        R"(
+
+        precision highp float;
+        struct T
+        {
+            vec2 t1;
+            vec3 t3;
+        };
+        struct S {
+            T val1;
+            vec4 val2;
+        };
+        uniform S uni;
+
+        varying vec4 vertex_out;
+        void main()
+        {
+            gl_FragColor = vec4(uni.val1.t1[0], 0.0, 0.0, 1.0);
+        })";
+
+    validateComponentsInErrorMessage(vertexShader, fragmentShader, "Field names",
+                                     "uniform 'uni' member 'uni.val1'");
+}
+
+// Validate error messages  when the link mismatch occurs on the type of a non-struct uniform block
+// field.
+TEST_P(GLSLTest_ES3, ErrorMessageOfLinkInterfaceBlockFieldMismatch)
+{
+    const std::string &vertexShader =
+        R"(#version 300 es
+
+        uniform S {
+            vec2 val1;
+            vec4 val2;
+        } uni;
+
+        in vec4 inputAttribute;
+        out vec4 vertex_out;
+        void main()
+        {
+            vertex_out = uni.val2;
+            gl_Position = inputAttribute;
+        })";
+
+    const std::string &fragmentShader =
+        R"(#version 300 es
+
+        precision highp float;
+        uniform S {
+            vec2 val1;
+            vec3 val2;
+        } uni;
+
+        in vec4 vertex_out;
+        layout (location = 0) out vec4 frag_out;
+        void main()
+        {
+            frag_out = vec4(uni.val1[0], 0.0, 0.0, 1.0);
+        })";
+
+    validateComponentsInErrorMessage(vertexShader, fragmentShader, "Types",
+                                     "interface block 'S' member 'S.val2'");
+}
+
+// Validate error messages  when the link mismatch occurs on the type of a member of a uniform block
+// struct field.
+TEST_P(GLSLTest_ES3, ErrorMessageOfLinkInterfaceBlockStructFieldMismatch)
+{
+    const std::string &vertexShader =
+        R"(#version 300 es
+
+        struct T
+        {
+            vec2 t1;
+            vec3 t2;
+        };
+        uniform S {
+            T val1;
+            vec4 val2;
+        } uni;
+
+        in vec4 inputAttribute;
+        out vec4 vertex_out;
+        void main()
+        {
+            vertex_out = uni.val2;
+            gl_Position = inputAttribute;
+        })";
+
+    const std::string &fragmentShader =
+        R"(#version 300 es
+
+        precision highp float;
+        struct T
+        {
+            vec2 t1;
+            vec4 t2;
+        };
+        uniform S {
+            T val1;
+            vec4 val2;
+        } uni;
+
+        in vec4 vertex_out;
+        layout (location = 0) out vec4 frag_out;
+        void main()
+        {
+            frag_out = vec4(uni.val1.t1[0], 0.0, 0.0, 1.0);
+        })";
+
+    validateComponentsInErrorMessage(vertexShader, fragmentShader, "Types",
+                                     "interface block 'S' member 'S.val1.t2'");
 }
 
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these tests should be run against.

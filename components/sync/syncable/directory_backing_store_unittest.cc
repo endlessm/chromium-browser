@@ -8,6 +8,7 @@
 
 #include <map>
 
+#include "base/bind_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/message_loop/message_loop.h"
@@ -4248,7 +4249,7 @@ TEST_F(DirectoryBackingStoreTest, MinorCorruptionAndUpgrade) {
     std::unique_ptr<OnDiskDirectoryBackingStoreForTest> dbs(
         new OnDiskDirectoryBackingStoreForTest(GetUsername(),
                                                GetDatabasePath()));
-    dbs->SetCatastrophicErrorHandler(base::Bind(&base::DoNothing));
+    dbs->SetCatastrophicErrorHandler(base::DoNothing());
 
     EXPECT_TRUE(LoadAndIgnoreReturnedData(dbs.get()));
     EXPECT_TRUE(dbs->DidFailFirstOpenAttempt());

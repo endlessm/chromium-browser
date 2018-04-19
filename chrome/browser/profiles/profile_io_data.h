@@ -23,20 +23,22 @@
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/storage_partition_descriptor.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/prefs/pref_member.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/resource_context.h"
-#include "content/public/network/url_request_context_owner.h"
 #include "extensions/features/features.h"
 #include "net/cookies/cookie_store.h"
 #include "net/http/http_cache.h"
 #include "net/http/http_network_session.h"
+#include "net/net_features.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_interceptor.h"
 #include "net/url_request/url_request_job_factory.h"
-#include "services/network/public/interfaces/network_service.mojom.h"
+#include "ppapi/features/features.h"
+#include "services/network/public/mojom/network_service.mojom.h"
+#include "services/network/url_request_context_owner.h"
 
 class ChromeHttpUserAgentSettings;
 class ChromeNetworkDelegate;
@@ -81,11 +83,15 @@ class ChannelIDService;
 class ClientCertStore;
 class CookieStore;
 class HttpTransactionFactory;
-class ReportingService;
 class ReportSender;
 class SSLConfigService;
 class URLRequestContextBuilder;
 class URLRequestJobFactoryImpl;
+
+#if BUILDFLAG(ENABLE_REPORTING)
+class NetworkErrorLoggingService;
+class ReportingService;
+#endif  // BUILDFLAG(ENABLE_REPORTING)
 }  // namespace net
 
 namespace policy {
@@ -184,6 +190,10 @@ class ProfileIOData {
     return &safe_browsing_enabled_;
   }
 
+  StringListPrefMember* safe_browsing_whitelist_domains() const {
+    return &safe_browsing_whitelist_domains_;
+  }
+
   IntegerPrefMember* network_prediction_options() const {
     return &network_prediction_options_;
   }
@@ -205,6 +215,12 @@ class ProfileIOData {
   IntegerPrefMember* incognito_availibility() const {
     return &incognito_availibility_pref_;
   }
+
+#if BUILDFLAG(ENABLE_PLUGINS)
+  BooleanPrefMember* always_open_pdf_externally() const {
+    return &always_open_pdf_externally_;
+  }
+#endif
 
 #if defined(OS_CHROMEOS)
   BooleanPrefMember* account_consistency_mirror_required() const {
@@ -298,8 +314,13 @@ class ProfileIOData {
     void SetHttpTransactionFactory(
         std::unique_ptr<net::HttpTransactionFactory> http_factory);
     void SetJobFactory(std::unique_ptr<net::URLRequestJobFactory> job_factory);
+#if BUILDFLAG(ENABLE_REPORTING)
     void SetReportingService(
         std::unique_ptr<net::ReportingService> reporting_service);
+    void SetNetworkErrorLoggingService(
+        std::unique_ptr<net::NetworkErrorLoggingService>
+            network_error_logging_service);
+#endif  // BUILDFLAG(ENABLE_REPORTING)
 
    private:
     ~AppRequestContext() override;
@@ -309,7 +330,11 @@ class ProfileIOData {
     std::unique_ptr<net::HttpNetworkSession> http_network_session_;
     std::unique_ptr<net::HttpTransactionFactory> http_factory_;
     std::unique_ptr<net::URLRequestJobFactory> job_factory_;
+#if BUILDFLAG(ENABLE_REPORTING)
     std::unique_ptr<net::ReportingService> reporting_service_;
+    std::unique_ptr<net::NetworkErrorLoggingService>
+        network_error_logging_service_;
+#endif  // BUILDFLAG(ENABLE_REPORTING)
   };
 
   // Created on the UI thread, read on the IO thread during ProfileIOData lazy
@@ -563,9 +588,13 @@ class ProfileIOData {
   mutable BooleanPrefMember force_google_safesearch_;
   mutable IntegerPrefMember force_youtube_restrict_;
   mutable BooleanPrefMember safe_browsing_enabled_;
+  mutable StringListPrefMember safe_browsing_whitelist_domains_;
   mutable StringPrefMember allowed_domains_for_apps_;
   mutable IntegerPrefMember network_prediction_options_;
   mutable IntegerPrefMember incognito_availibility_pref_;
+#if BUILDFLAG(ENABLE_PLUGINS)
+  mutable BooleanPrefMember always_open_pdf_externally_;
+#endif
 #if defined(OS_CHROMEOS)
   mutable BooleanPrefMember account_consistency_mirror_required_pref_;
 #endif
@@ -596,7 +625,7 @@ class ProfileIOData {
   // content::NetworkContext class that owns |main_request_context_|.
   mutable std::unique_ptr<network::mojom::NetworkContext> main_network_context_;
   // When the network service is disabled, this owns |system_request_context|.
-  mutable content::URLRequestContextOwner main_request_context_owner_;
+  mutable network::URLRequestContextOwner main_request_context_owner_;
   mutable net::URLRequestContext* main_request_context_;
 
   // Pointed to by the TransportSecurityState (owned by

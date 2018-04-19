@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">Adres 1</translation>
 <translation id="1545749641540134597">Zeskanuj kod QR</translation>
 <translation id="1580783302095112590">E-mail wysłany.</translation>
+<translation id="1582732959743469162">Spowoduje to zatrzymanie bieżącego pobierania.</translation>
 <translation id="1612730193129642006">Pokaż układ kart</translation>
+<translation id="1644574205037202324">Historia</translation>
 <translation id="1646446875146297738">Włączenie opcji „Bez śledzenia” oznacza, że podczas przeglądania będzie wysyłane żądanie. Jego wynik zależy od tego, czy strona na nie odpowie oraz jak zostanie ono zinterpretowane.
 
 Na przykład niektóre strony mogą na nie zareagować, wyświetlając reklamy bez związku ze stronami odwiedzonymi wcześniej. Wiele stron będzie nadal gromadzić Twoje dane przeglądania i używać ich np. do zwiększania bezpieczeństwa, dostarczania treści i usług, wyświetlania reklam i rekomendacji oraz do generowania statystyk. <ph name="BEGIN_LINK" />Więcej informacji<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@ Na przykład niektóre strony mogą na nie zareagować, wyświetlając reklamy b
 <translation id="3175081911749765310">Usługi internetowe</translation>
 <translation id="3207960819495026254">Dodano do zakładek</translation>
 <translation id="3210163015918861891">Synchronizacja jest wyłączona</translation>
+<translation id="3224641773458703735">Aby wyeksportować hasła, musisz najpierw ustawić kod dostępu na urządzeniu.</translation>
 <translation id="3240426699337459095">Link skopiowany</translation>
 <translation id="3244271242291266297">MM</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> z <ph name="NUM_SUGGESTIONS" /></translation>
@@ -153,6 +156,7 @@ Na przykład niektóre strony mogą na nie zareagować, wyświetlając reklamy b
 <translation id="3771033907050503522">Karty incognito</translation>
 <translation id="3779810277399252432">Brak połączenia z internetem.</translation>
 <translation id="3783017676699494206">Zapisz obraz</translation>
+<translation id="3789841737615482174">Zainstaluj</translation>
 <translation id="385051799172605136">Wstecz</translation>
 <translation id="3897092660631435901">Menu</translation>
 <translation id="3928666092801078803">Połącz moje dane</translation>
@@ -220,7 +224,6 @@ Dane zostały zaszyfrowane z użyciem Twojego hasła synchronizacji. Wpisz je, 
 <translation id="5300589172476337783">Pokaż</translation>
 <translation id="5317780077021120954">Zapisz</translation>
 <translation id="5327248766486351172">Nazwa</translation>
-<translation id="533632423981297619">Twoje hasła będą widoczne dla każdego, kto może zobaczyć wyeksportowany plik. Nie udostępniaj nikomu tego pliku.</translation>
 <translation id="5388358297987318779">Otwórz obraz</translation>
 <translation id="5409365236829784218">Nie masz aplikacji, w których można otworzyć ten plik.</translation>
 <translation id="5433691172869980887">Nazwa użytkownika została skopiowana</translation>
@@ -249,6 +252,7 @@ Funkcja Handoff musi być też włączona w sekcji Ogólne w Ustawieniach, a urz
 <translation id="5871497086027727873">Przeniosłeś 1 element</translation>
 <translation id="5911030830365207728">Tłumacz Google</translation>
 <translation id="5916664084637901428">Włączone</translation>
+<translation id="5938160824633642847">Na urządzeniu brakuje wolnego miejsca. Zwolnij miejsce i spróbuj ponownie.</translation>
 <translation id="5948291296578561264">Umożliwia zapisywanie zdjęć w ich bibliotece.</translation>
 <translation id="5955891643922670672">Wyświetlam wersję offline</translation>
 <translation id="5964480694698977962">Utwórz nową kartę incognito.</translation>
@@ -280,7 +284,9 @@ Funkcja Handoff musi być też włączona w sekcji Ogólne w Ustawieniach, a urz
 <translation id="633809752005859102">Coś poszło nie tak. Zajmiemy się tym.</translation>
 <translation id="6342069812937806050">Przed momentem</translation>
 <translation id="6344783595350022745">Wyczyść tekst</translation>
+<translation id="6346549652287021269">Rozpocząć nowe pobieranie?</translation>
 <translation id="6362362396625799311">Brak kart incognito</translation>
+<translation id="6374469231428023295">Spróbuj jeszcze raz</translation>
 <translation id="6380866119319257197">Jeśli nie pamiętasz hasła lub chcesz zmienić to ustawienie, <ph name="BEGIN_LINK" />zresetuj synchronizację<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">Imię i nazwisko na karcie</translation>
 <translation id="6406506848690869874">Synchronizacja</translation>
@@ -289,16 +295,18 @@ Funkcja Handoff musi być też włączona w sekcji Ogólne w Ustawieniach, a urz
 
 Twoje dane zostały zaszyfrowane z użyciem hasła synchronizacji w dniu <ph name="TIME" />. Wpisz je, by rozpocząć synchronizację.</translation>
 <translation id="6418346271604475326">Przygotowuję PDF</translation>
+<translation id="6434591244308415567">Wystąpił błąd. Spróbuj ponownie później.</translation>
 <translation id="6445051938772793705">Kraj</translation>
 <translation id="6445981559479772097">Wiadomość została wysłana.</translation>
 <translation id="6464071786529933911">Otwórz w karcie incognito</translation>
 <translation id="6482629121755362506">Usunięte elementy: <ph name="NUMBER_OF_SELECTED_BOOKMARKS" /></translation>
 <translation id="6541915733953096570">Ostatnia godzina</translation>
-<translation id="6570040839871198836">Autouzupełnianie formularzy</translation>
+<translation id="6570040839871198836">Autouzupełniaj formularze</translation>
 <translation id="6656103420185847513">Folder edytora</translation>
 <translation id="6657585470893396449">Hasło</translation>
 <translation id="667999046851023355">Dokument</translation>
 <translation id="6713747756340119864">Google Apps</translation>
+<translation id="6730682669179532099">Nie można wyeksportować haseł</translation>
 <translation id="6762156594045689028">Aby zmienić to ustawienie, <ph name="BEGIN_LINK" />zresetuj synchronizację<ph name="END_LINK" /></translation>
 <translation id="6780034285637185932">Kod pocztowy</translation>
 <translation id="6785453220513215166">Wysyłam raport o awarii...</translation>
@@ -308,13 +316,16 @@ Twoje dane zostały zaszyfrowane z użyciem hasła synchronizacji w dniu <ph n
 <translation id="681368974849482173">Utworzono element</translation>
 <translation id="6896758677409633944">Kopiuj</translation>
 <translation id="6903907808598579934">Włącz synchronizację</translation>
+<translation id="6914783257214138813">Twoje hasła będą widoczne dla każdego, kto może zobaczyć wyeksportowany plik.</translation>
 <translation id="6945221475159498467">Wybierz</translation>
 <translation id="6973630695168034713">Foldery</translation>
 <translation id="7004499039102548441">Niedawno używane karty</translation>
 <translation id="7006788746334555276">Ustawienia treści</translation>
+<translation id="7029809446516969842">Hasła</translation>
 <translation id="7031882061095297553">Synchronizuj z</translation>
 <translation id="7053983685419859001">Blokuj</translation>
 <translation id="7062545763355031412">Zaakceptuj i przełącz konta</translation>
+<translation id="7102005569666697658">Pobieram… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">Ukryj</translation>
 <translation id="7133798577887235672">Imię i nazwisko</translation>
 <translation id="7136892417564438900">Aparat jest niedostępny</translation>
@@ -325,6 +336,7 @@ Twoje dane zostały zaszyfrowane z użyciem hasła synchronizacji w dniu <ph n
 <translation id="7203585745079012652">Odczytuj odpowiedzi</translation>
 <translation id="722055596168483966">Dostosowywanie usług Google</translation>
 <translation id="7272437679830969316">Nie można zweryfikować Twojej tożsamości. Hasło nie zostało skopiowane.</translation>
+<translation id="7291368939935408496">Przygotowuję hasła…</translation>
 <translation id="7336264872878993241">Pobrano <ph name="PERCENT" /> procent</translation>
 <translation id="7346909386216857016">Rozumiem</translation>
 <translation id="7400418766976504921">Adres URL</translation>
@@ -349,6 +361,7 @@ Twoje dane zostały zaszyfrowane z użyciem hasła synchronizacji w dniu <ph n
 <translation id="7769602470925380267">Zaakceptuj i wyloguj się</translation>
 <translation id="7772032839648071052">Potwierdź hasło</translation>
 <translation id="780301667611848630">Nie, dziękuję</translation>
+<translation id="7856733331829174190">Nie udało się pobrać pliku</translation>
 <translation id="7859704718976024901">Historia przeglądania</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">Eksportuj hasła…</translation>
@@ -409,6 +422,7 @@ Twoje dane zostały zaszyfrowane z użyciem hasła synchronizacji w dniu <ph n
 <translation id="9083392325882095631">Jeden element</translation>
 <translation id="9100610230175265781">Wymagane jest hasło</translation>
 <translation id="9148126808321036104">Zaloguj się ponownie</translation>
+<translation id="915371508759614899">Anulować pobieranie?</translation>
 <translation id="9157836665414082580">Ukryj okna dialogowe</translation>
 <translation id="9188680907066685419">Wyloguj się z konta zarządzanego</translation>
 <translation id="9203116392574189331">Handoff</translation>

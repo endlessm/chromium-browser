@@ -102,9 +102,7 @@ class ManagePasswordsBubbleModel::InteractionKeeper {
     sign_in_promo_dismissal_reason_ = reason;
   }
 
-  void SetClockForTesting(std::unique_ptr<base::Clock> clock) {
-    clock_ = std::move(clock);
-  }
+  void SetClockForTesting(base::Clock* clock) { clock_ = clock; }
 
   void set_sign_in_promo_shown_count(int count) {
     sign_in_promo_shown_count = count;
@@ -135,7 +133,7 @@ class ManagePasswordsBubbleModel::InteractionKeeper {
   password_manager::InteractionsStats interaction_stats_;
 
   // Used to retrieve the current time, in base::Time units.
-  std::unique_ptr<base::Clock> clock_;
+  base::Clock* clock_;
 
   // Number of times the sign-in promo was shown to the user.
   int sign_in_promo_shown_count;
@@ -151,7 +149,7 @@ ManagePasswordsBubbleModel::InteractionKeeper::InteractionKeeper(
       update_password_submission_event_(metrics_util::NO_UPDATE_SUBMISSION),
       sign_in_promo_dismissal_reason_(metrics_util::CHROME_SIGNIN_DISMISSED),
       interaction_stats_(std::move(stats)),
-      clock_(new base::DefaultClock),
+      clock_(base::DefaultClock::GetInstance()),
       sign_in_promo_shown_count(0) {}
 
 void ManagePasswordsBubbleModel::InteractionKeeper::ReportInteractions(
@@ -306,13 +304,17 @@ ManagePasswordsBubbleModel::ManagePasswordsBubbleModel(
     UpdatePendingStateTitle();
   } else if (state_ == password_manager::ui::CONFIRMATION_STATE) {
     title_ =
-        l10n_util::GetStringUTF16(IDS_MANAGE_PASSWORDS_CONFIRM_GENERATED_TITLE);
+        l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_CONFIRM_SAVED_TITLE);
   } else if (state_ == password_manager::ui::AUTO_SIGNIN_STATE) {
     pending_password_ = delegate_->GetPendingPassword();
   } else if (state_ == password_manager::ui::MANAGE_STATE) {
     local_credentials_ = DeepCopyForms(delegate_->GetCurrentForms());
     UpdateManageStateTitle();
-    manage_link_ = l10n_util::GetStringUTF16(IDS_MANAGE_PASSWORDS_BUBBLE_LINK);
+    // TODO(pbos): Remove manage_link_ + accessors when the cocoa dialog goes
+    // away. This temporarily uses the button label which is equivalent with
+    // the previous link.
+    manage_link_ =
+        l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_MANAGE_PASSWORDS_BUTTON);
   }
 
   if (state_ == password_manager::ui::CONFIRMATION_STATE) {
@@ -502,13 +504,16 @@ void ManagePasswordsBubbleModel::OnPasswordAction(
     password_store->AddLogin(password_form);
 }
 
-void ManagePasswordsBubbleModel::OnSignInToChromeClicked() {
+void ManagePasswordsBubbleModel::OnSignInToChromeClicked(
+    const AccountInfo& account) {
+  // Enabling sync for an existing account and starting a new sign-in are
+  // triggered by the user interacting with the sign-in promo.
   interaction_keeper_->set_sign_in_promo_dismissal_reason(
       metrics_util::CHROME_SIGNIN_OK);
   GetProfile()->GetPrefs()->SetBoolean(
       password_manager::prefs::kWasSignInPasswordPromoClicked, true);
   if (delegate_)
-    delegate_->NavigateToChromeSignIn();
+    delegate_->EnableSync(account);
 }
 
 void ManagePasswordsBubbleModel::OnSkipSignInClicked() {
@@ -541,7 +546,8 @@ bool ManagePasswordsBubbleModel::ReplaceToShowPromotionIfNeeded() {
           prefs, sync_service)) {
     interaction_keeper_->ReportInteractions(this);
     title_brand_link_range_ = gfx::Range();
-    title_ = l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_SIGNIN_PROMO_TITLE);
+    title_ =
+        l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_CONFIRM_SAVED_TITLE);
     state_ = password_manager::ui::CHROME_SIGN_IN_PROMO_STATE;
     int show_count = prefs->GetInteger(
         password_manager::prefs::kNumberSignInPasswordPromoShown);
@@ -567,9 +573,8 @@ bool ManagePasswordsBubbleModel::ReplaceToShowPromotionIfNeeded() {
   return false;
 }
 
-void ManagePasswordsBubbleModel::SetClockForTesting(
-    std::unique_ptr<base::Clock> clock) {
-  interaction_keeper_->SetClockForTesting(std::move(clock));
+void ManagePasswordsBubbleModel::SetClockForTesting(base::Clock* clock) {
+  interaction_keeper_->SetClockForTesting(clock);
 }
 
 bool ManagePasswordsBubbleModel::RevealPasswords() {
@@ -592,7 +597,7 @@ void ManagePasswordsBubbleModel::UpdatePendingStateTitle() {
 
 void ManagePasswordsBubbleModel::UpdateManageStateTitle() {
   GetManagePasswordsDialogTitleText(GetWebContents()->GetVisibleURL(), origin_,
-                                    &title_);
+                                    !local_credentials_.empty(), &title_);
 }
 
 metrics_util::UpdatePasswordSubmissionEvent

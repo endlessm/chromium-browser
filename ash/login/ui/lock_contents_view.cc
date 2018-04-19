@@ -8,14 +8,16 @@
 
 #include "ash/focus_cycler.h"
 #include "ash/ime/ime_controller.h"
+#include "ash/keyboard/keyboard_observer_register.h"
 #include "ash/login/login_screen_controller.h"
+#include "ash/login/ui/layout_util.h"
 #include "ash/login/ui/lock_screen.h"
 #include "ash/login/ui/login_auth_user_view.h"
 #include "ash/login/ui/login_bubble.h"
-#include "ash/login/ui/login_display_style.h"
 #include "ash/login/ui/login_user_view.h"
 #include "ash/login/ui/non_accessible_view.h"
 #include "ash/login/ui/note_action_launch_button.h"
+#include "ash/login/ui/scrollable_users_list_view.h"
 #include "ash/root_window_controller.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_widget.h"
@@ -26,6 +28,7 @@
 #include "ash/system/tray/system_tray_notifier.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
+#include "mojo/common/values_struct_traits.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/display/display.h"
@@ -65,18 +68,6 @@ constexpr int kMediumDensityMarginLeftOfAuthUserPortraitDp = 0;
 constexpr int kMediumDensityDistanceBetweenAuthUserAndUsersLandscapeDp = 220;
 constexpr int kMediumDensityDistanceBetweenAuthUserAndUsersPortraitDp = 84;
 
-// Vertical padding between each entry in the medium density user row
-constexpr int kMediumDensityVerticalDistanceBetweenUsersDp = 53;
-
-// Horizontal padding left and right of the high density user list.
-constexpr int kHighDensityHorizontalPaddingLeftOfUserListLandscapeDp = 72;
-constexpr int kHighDensityHorizontalPaddingRightOfUserListLandscapeDp = 72;
-constexpr int kHighDensityHorizontalPaddingLeftOfUserListPortraitDp = 46;
-constexpr int kHighDensityHorizontalPaddingRightOfUserListPortraitDp = 12;
-
-// The vertical padding between each entry in the extra-small user row
-constexpr int kHighDensityVerticalDistanceBetweenUsersDp = 32;
-
 constexpr const char kLockContentsViewName[] = "LockContentsView";
 
 // A view which stores two preferred sizes. The embedder can control which one
@@ -99,35 +90,6 @@ class MultiSizedView : public views::View {
 
   DISALLOW_COPY_AND_ASSIGN(MultiSizedView);
 };
-
-// Returns true if landscape constants should be used for UI shown in |widget|.
-bool ShouldShowLandscape(views::Widget* widget) {
-  // |widget| is null when the view is being constructed. Default to landscape
-  // in that case. A new layout will happen when the view is attached to a
-  // widget (see LockContentsView::AddedToWidget), which will let us fetch the
-  // correct display orientation.
-  if (!widget)
-    return true;
-
-  // Get the orientation for |widget|.
-  const display::Display& display =
-      display::Screen::GetScreen()->GetDisplayNearestWindow(
-          widget->GetNativeWindow());
-  display::ManagedDisplayInfo info =
-      Shell::Get()->display_manager()->GetDisplayInfo(display.id());
-
-  // Return true if it is landscape.
-  switch (info.GetActiveRotation()) {
-    case display::Display::ROTATE_0:
-    case display::Display::ROTATE_180:
-      return true;
-    case display::Display::ROTATE_90:
-    case display::Display::ROTATE_270:
-      return false;
-  }
-  NOTREACHED();
-  return true;
-}
 
 // Returns the first or last focusable child of |root|. If |reverse| is false,
 // this returns the first focusable child. If |reverse| is true, this returns
@@ -195,6 +157,19 @@ views::Label* CreateInfoLabel() {
   return label;
 }
 
+keyboard::KeyboardController* GetKeyboardControllerForWidget(
+    const views::Widget* widget) {
+  keyboard::KeyboardController* keyboard_controller =
+      keyboard::KeyboardController::GetInstance();
+  if (!keyboard_controller)
+    return nullptr;
+
+  aura::Window* keyboard_window =
+      keyboard_controller->GetContainerWindow()->GetRootWindow();
+  aura::Window* this_window = widget->GetNativeWindow()->GetRootWindow();
+  return keyboard_window == this_window ? keyboard_controller : nullptr;
+}
+
 }  // namespace
 
 LockContentsView::TestApi::TestApi(LockContentsView* view) : view_(view) {}
@@ -209,9 +184,8 @@ LoginAuthUserView* LockContentsView::TestApi::opt_secondary_auth() const {
   return view_->opt_secondary_auth_;
 }
 
-const std::vector<LoginUserView*>& LockContentsView::TestApi::user_views()
-    const {
-  return view_->user_views_;
+ScrollableUsersListView* LockContentsView::TestApi::users_list() const {
+  return view_->users_list_;
 }
 
 views::View* LockContentsView::TestApi::note_action() const {
@@ -239,7 +213,8 @@ LockContentsView::LockContentsView(
     : NonAccessibleView(kLockContentsViewName),
       data_dispatcher_(data_dispatcher),
       display_observer_(this),
-      session_observer_(this) {
+      session_observer_(this),
+      keyboard_observer_(this) {
   data_dispatcher_->AddObserver(this);
   display_observer_.Add(display::Screen::GetScreen());
   Shell::Get()->login_screen_controller()->AddLockScreenAppsFocusObserver(this);
@@ -279,6 +254,7 @@ LockContentsView::LockContentsView(
   top_header_->AddChildView(note_action_);
 
   OnLockScreenNoteStateChanged(initial_note_action_state);
+  Shell::Get()->AddShellObserver(this);
 }
 
 LockContentsView::~LockContentsView() {
@@ -294,17 +270,27 @@ LockContentsView::~LockContentsView() {
     Shell::Get()->metrics()->login_metrics_recorder()->RecordNumLoginAttempts(
         unlock_attempt_, false /*success*/);
   }
+  Shell::Get()->RemoveShellObserver(this);
+  keyboard_observer_.RemoveAll();
 }
 
 void LockContentsView::Layout() {
   View::Layout();
   LayoutTopHeader();
 
-  if (scroller_)
-    scroller_->ClipHeightTo(size().height(), size().height());
+  if (users_list_)
+    users_list_->Layout();
 }
 
 void LockContentsView::AddedToWidget() {
+  // Register keyboard observer after view has been added to the widget. If
+  // virtual keyboard is activated before displaying lock screen we do not
+  // receive OnVirtualKeyboardStateChanged() callback and we need to register
+  // keyboard observer here.
+  keyboard::KeyboardController* keyboard_controller = GetKeyboardController();
+  if (keyboard_controller)
+    keyboard_observer_.Add(keyboard_controller);
+
   DoLayout();
 
   // Focus the primary user when showing the UI. This will focus the password.
@@ -337,11 +323,12 @@ void LockContentsView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   Shelf* shelf = Shelf::ForWindow(GetWidget()->GetNativeWindow());
   ShelfWidget* shelf_widget = shelf->shelf_widget();
   int next_id = views::AXAuraObjCache::GetInstance()->GetID(shelf_widget);
-  node_data->AddIntAttribute(ui::AX_ATTR_NEXT_FOCUS_ID, next_id);
+  node_data->AddIntAttribute(ax::mojom::IntAttribute::kNextFocusId, next_id);
 
   int previous_id =
       views::AXAuraObjCache::GetInstance()->GetID(shelf->GetStatusAreaWidget());
-  node_data->AddIntAttribute(ui::AX_ATTR_PREVIOUS_FOCUS_ID, previous_id);
+  node_data->AddIntAttribute(ax::mojom::IntAttribute::kPreviousFocusId,
+                             previous_id);
 }
 
 void LockContentsView::OnUsersChanged(
@@ -349,13 +336,18 @@ void LockContentsView::OnUsersChanged(
   // The debug view will potentially call this method many times. Make sure to
   // invalidate any child references.
   main_view_->RemoveAllChildViews(true /*delete_children*/);
-  user_views_.clear();
   opt_secondary_auth_ = nullptr;
-  scroller_ = nullptr;
+  users_list_ = nullptr;
   rotation_actions_.clear();
+  users_.clear();
+
+  // If there are no users we have no UI to build.
+  if (users.empty()) {
+    LOG(ERROR) << "Empty user list received";
+    return;
+  }
 
   // Build user state list.
-  users_.clear();
   for (const mojom::LoginUserInfoPtr& user : users)
     users_.push_back(UserState{user->basic_user_info->account_id});
 
@@ -530,6 +522,25 @@ void LockContentsView::OnLockStateChanged(bool locked) {
   }
 }
 
+void LockContentsView::OnVirtualKeyboardStateChanged(
+    bool activated,
+    aura::Window* root_window) {
+  const views::Widget* widget = GetWidget();
+  if (widget) {
+    UpdateKeyboardObserverFromStateChanged(
+        activated, root_window, widget->GetNativeWindow()->GetRootWindow(),
+        &keyboard_observer_);
+  }
+}
+
+void LockContentsView::OnStateChanged(
+    const keyboard::KeyboardControllerState state) {
+  if (state == keyboard::KeyboardControllerState::SHOWN ||
+      state == keyboard::KeyboardControllerState::HIDDEN) {
+    LayoutAuth(primary_auth_, opt_secondary_auth_, false /*animate*/);
+  }
+}
+
 void LockContentsView::FocusNextWidget(bool reverse) {
   Shelf* shelf = Shelf::ForWindow(GetWidget()->GetNativeWindow());
   // Tell the focus direction to the status area or the shelf so they can focus
@@ -573,21 +584,8 @@ void LockContentsView::CreateMediumDensityLayout(
       kMediumDensityDistanceBetweenAuthUserAndUsersLandscapeDp,
       kMediumDensityDistanceBetweenAuthUserAndUsersPortraitDp));
 
-  // Add additional users.
-  auto* row = new NonAccessibleView();
-  main_view_->AddChildView(row);
-  row->SetLayoutManager(std::make_unique<views::BoxLayout>(
-      views::BoxLayout::kVertical, gfx::Insets(),
-      kMediumDensityVerticalDistanceBetweenUsersDp));
-  for (std::size_t i = 1u; i < users.size(); ++i) {
-    auto* view =
-        new LoginUserView(LoginDisplayStyle::kSmall, false /*show_dropdown*/,
-                          base::Bind(&LockContentsView::SwapToAuthUser,
-                                     base::Unretained(this), i - 1) /*on_tap*/);
-    user_views_.push_back(view);
-    view->UpdateForUser(users[i], false /*animate*/);
-    row->AddChildView(view);
-  }
+  users_list_ = BuildScrollableUsersListView(users, LoginDisplayStyle::kSmall);
+  main_view_->AddChildView(users_list_);
 
   // Insert dynamic spacing on left/right of the content which changes based on
   // screen rotation and display size.
@@ -611,8 +609,6 @@ void LockContentsView::CreateMediumDensityLayout(
 
 void LockContentsView::CreateHighDensityLayout(
     const std::vector<mojom::LoginUserInfoPtr>& users) {
-  // TODO: Finish 7+ user layout.
-
   // Insert spacing before and after the auth view.
   auto* fill = new NonAccessibleView();
   main_view_->AddChildViewAt(fill, 0);
@@ -622,41 +618,13 @@ void LockContentsView::CreateHighDensityLayout(
   main_view_->AddChildView(fill);
   main_layout_->SetFlexForView(fill, 1);
 
-  // Padding left of user list.
-  main_view_->AddChildView(MakeOrientationViewWithWidths(
-      kHighDensityHorizontalPaddingLeftOfUserListLandscapeDp,
-      kHighDensityHorizontalPaddingLeftOfUserListPortraitDp));
-
-  // Add user list.
-  auto* row = new NonAccessibleView();
-  auto row_layout = std::make_unique<views::BoxLayout>(
-      views::BoxLayout::kVertical, gfx::Insets(),
-      kHighDensityVerticalDistanceBetweenUsersDp);
-  row_layout->set_minimum_cross_axis_size(
-      LoginUserView::WidthForLayoutStyle(LoginDisplayStyle::kExtraSmall));
-  row->SetLayoutManager(std::move(row_layout));
-  for (std::size_t i = 1u; i < users.size(); ++i) {
-    auto* view = new LoginUserView(
-        LoginDisplayStyle::kExtraSmall, false /*show_dropdown*/,
-        base::Bind(&LockContentsView::SwapToAuthUser, base::Unretained(this),
-                   i - 1) /*on_tap*/);
-    user_views_.push_back(view);
-    view->UpdateForUser(users[i], false /*animate*/);
-    row->AddChildView(view);
-  }
-  scroller_ = new views::ScrollView();
-  scroller_->SetContents(row);
-  scroller_->ClipHeightTo(size().height(), size().height());
-  main_view_->AddChildView(scroller_);
-
-  // Padding right of user list.
-  main_view_->AddChildView(MakeOrientationViewWithWidths(
-      kHighDensityHorizontalPaddingRightOfUserListLandscapeDp,
-      kHighDensityHorizontalPaddingRightOfUserListPortraitDp));
+  users_list_ =
+      BuildScrollableUsersListView(users, LoginDisplayStyle::kExtraSmall);
+  main_view_->AddChildView(users_list_);
 }
 
 void LockContentsView::DoLayout() {
-  bool landscape = ShouldShowLandscape(GetWidget());
+  bool landscape = login_layout_util::ShouldShowLandscape(GetWidget());
   for (auto& action : rotation_actions_)
     action.Run(landscape);
 
@@ -693,7 +661,7 @@ views::View* LockContentsView::MakeOrientationViewWithWidths(int landscape,
 }
 
 void LockContentsView::AddRotationAction(const OnRotate& on_rotate) {
-  on_rotate.Run(ShouldShowLandscape(GetWidget()));
+  on_rotate.Run(login_layout_util::ShouldShowLandscape(GetWidget()));
   rotation_actions_.push_back(on_rotate);
 }
 
@@ -744,7 +712,10 @@ void LockContentsView::LayoutAuth(LoginAuthUserView* to_update,
   uint32_t to_update_auth = LoginAuthUserView::AUTH_PASSWORD;
   UserState* state =
       FindStateForUser(to_update->current_user()->basic_user_info->account_id);
-  if (state->show_pin)
+  keyboard::KeyboardController* keyboard_controller = GetKeyboardController();
+  bool keyboard_visible =
+      keyboard_controller ? keyboard_controller->keyboard_visible() : false;
+  if (state->show_pin && !keyboard_visible)
     to_update_auth |= LoginAuthUserView::AUTH_PIN;
   if (state->enable_tap_auth)
     to_update_auth |= LoginAuthUserView::AUTH_TAP;
@@ -763,7 +734,9 @@ void LockContentsView::LayoutAuth(LoginAuthUserView* to_update,
 }
 
 void LockContentsView::SwapToAuthUser(int user_index) {
-  auto* view = user_views_[user_index];
+  DCHECK(users_list_);
+  auto* view = users_list_->GetUserViewAtIndex(user_index);
+  DCHECK(view);
   mojom::LoginUserInfoPtr previous_auth_user =
       primary_auth_->current_user()->Clone();
   mojom::LoginUserInfoPtr new_auth_user = view->current_user()->Clone();
@@ -894,6 +867,10 @@ void LockContentsView::OnEasyUnlockIconTapped() {
   }
 }
 
+keyboard::KeyboardController* LockContentsView::GetKeyboardController() const {
+  return GetWidget() ? GetKeyboardControllerForWidget(GetWidget()) : nullptr;
+}
+
 LoginAuthUserView* LockContentsView::AllocateLoginAuthUserView(
     const mojom::LoginUserInfoPtr& user,
     bool is_primary) {
@@ -929,6 +906,18 @@ LoginAuthUserView* LockContentsView::TryToFindAuthUser(
   }
 
   return view;
-};
+}
+
+ScrollableUsersListView* LockContentsView::BuildScrollableUsersListView(
+    const std::vector<mojom::LoginUserInfoPtr>& users,
+    LoginDisplayStyle display_style) {
+  auto* view = new ScrollableUsersListView(
+      users,
+      base::BindRepeating(&LockContentsView::SwapToAuthUser,
+                          base::Unretained(this)),
+      display_style);
+  view->ClipHeightTo(view->contents()->size().height(), size().height());
+  return view;
+}
 
 }  // namespace ash

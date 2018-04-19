@@ -52,8 +52,8 @@
 #include "chrome/installer/util/install_util.h"
 #include "chrome/installer/util/scoped_user_protocol_entry.h"
 #include "chrome/installer/util/shell_util.h"
-#include "chrome/services/util_win/public/interfaces/constants.mojom.h"
-#include "chrome/services/util_win/public/interfaces/shell_util_win.mojom.h"
+#include "chrome/services/util_win/public/mojom/constants.mojom.h"
+#include "chrome/services/util_win/public/mojom/shell_util_win.mojom.h"
 #include "components/variations/variations_associated_data.h"
 #include "content/public/common/service_manager_connection.h"
 #include "services/service_manager/public/cpp/connector.h"
@@ -235,7 +235,7 @@ DefaultWebClientState GetDefaultWebClientStateFromShellUtilDefaultState(
 }
 
 // A recorder of user actions in the Windows Settings app.
-class DefaultBrowserActionRecorder : public win::SettingsAppMonitor::Delegate {
+class DefaultBrowserActionRecorder : public SettingsAppMonitor::Delegate {
  public:
   // Creates the recorder and the monitor that drives it. |continuation| will be
   // run once the monitor's initialization completes (regardless of success or
@@ -297,7 +297,7 @@ class DefaultBrowserActionRecorder : public win::SettingsAppMonitor::Delegate {
 
   // Monitors user interaction with the Windows Settings app for the sake of
   // reporting user actions.
-  win::SettingsAppMonitor settings_app_monitor_;
+  SettingsAppMonitor settings_app_monitor_;
 
   DISALLOW_COPY_AND_ASSIGN(DefaultBrowserActionRecorder);
 };
@@ -403,7 +403,7 @@ class OpenSystemSettingsHelper {
   void AddRegistryKeyWatcher(const wchar_t* key_path) {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-    auto reg_key = base::MakeUnique<base::win::RegKey>(HKEY_CURRENT_USER,
+    auto reg_key = std::make_unique<base::win::RegKey>(HKEY_CURRENT_USER,
                                                        key_path, KEY_NOTIFY);
 
     if (reg_key->Valid() &&

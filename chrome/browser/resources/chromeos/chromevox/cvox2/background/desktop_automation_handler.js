@@ -11,6 +11,7 @@ goog.provide('DesktopAutomationHandler');
 goog.require('AutomationObjectConstructorInstaller');
 goog.require('BaseAutomationHandler');
 goog.require('ChromeVoxState');
+goog.require('CommandHandler');
 goog.require('CustomAutomationEvent');
 goog.require('editing.TextEditHandler');
 
@@ -112,6 +113,11 @@ DesktopAutomationHandler.KEYBOARD_URL =
 DesktopAutomationHandler.prototype = {
   __proto__: BaseAutomationHandler.prototype,
 
+  /** @type {editing.TextEditHandler} */
+  get textEditHandler() {
+    return this.textEditHandler_;
+  },
+
   /** @override */
   willHandleEvent_: function(evt) {
     return !cvox.ChromeVox.isActive;
@@ -156,13 +162,15 @@ DesktopAutomationHandler.prototype = {
    * @param {!AutomationEvent} evt
    */
   onEventIfInRange: function(evt) {
+    if (!DesktopAutomationHandler.announceActions && evt.eventFrom == 'action')
+      return;
+
     var prev = ChromeVoxState.instance.currentRange;
+    if (!prev)
+      return;
+
     if (prev.contentEquals(cursors.Range.fromNode(evt.target)) ||
         evt.target.state.focused) {
-      // Category flush here since previous focus events via navigation can
-      // cause double speak.
-      Output.forceModeForNextSpeechUtterance(cvox.QueueMode.CATEGORY_FLUSH);
-
       // Intentionally skip setting range.
       new Output()
           .withRichSpeechAndBraille(
@@ -183,15 +191,12 @@ DesktopAutomationHandler.prototype = {
   /**
    * @param {!AutomationEvent} evt
    */
-  onEventWithFlushedOutput: function(evt) {
-    Output.forceModeForNextSpeechUtterance(cvox.QueueMode.FLUSH);
-    this.onEventDefault(evt);
-  },
-
-  /**
-   * @param {!AutomationEvent} evt
-   */
   onAriaAttributeChanged: function(evt) {
+    if (evt.target.activeDescendant) {
+      this.onActiveDescendantChanged(evt);
+      return;
+    }
+
     if (evt.target.state.editable)
       return;
     this.onEventIfInRange(evt);
@@ -284,7 +289,6 @@ DesktopAutomationHandler.prototype = {
     if (!AutomationPredicate.checkable(evt.target))
       return;
 
-    Output.forceModeForNextSpeechUtterance(cvox.QueueMode.CATEGORY_FLUSH);
     var event = new CustomAutomationEvent(
         EventType.CHECKED_STATE_CHANGED, evt.target, evt.eventFrom);
     this.onEventIfInRange(event);
@@ -318,7 +322,7 @@ DesktopAutomationHandler.prototype = {
     }
 
     // Invalidate any previous editable text handler state.
-    if (!this.createTextEditHandlerIfNeeded_(evt.target))
+    if (!this.createTextEditHandlerIfNeeded_(evt.target, true))
       this.textEditHandler_ = null;
 
     var node = evt.target;
@@ -327,10 +331,6 @@ DesktopAutomationHandler.prototype = {
     if (node.role == RoleType.EMBEDDED_OBJECT || node.role == RoleType.WEB_VIEW)
       return;
 
-    // Category flush speech triggered by events with no source. This includes
-    // views.
-    if (evt.eventFrom == '')
-      Output.forceModeForNextSpeechUtterance(cvox.QueueMode.CATEGORY_FLUSH);
     if (!node.root)
       return;
 
@@ -363,7 +363,6 @@ DesktopAutomationHandler.prototype = {
 
       if (focusIsAncestor) {
         focus = evt.target;
-        Output.forceModeForNextSpeechUtterance(cvox.QueueMode.FLUSH);
       }
 
       // Create text edit handler, if needed, now in order not to miss initial
@@ -461,7 +460,7 @@ DesktopAutomationHandler.prototype = {
 
       if (fromDesktop &&
           (!this.lastValueTarget_ || this.lastValueTarget_ !== t)) {
-        output.withQueueMode(cvox.QueueMode.FLUSH);
+        output.withQueueMode(cvox.QueueMode.CATEGORY_FLUSH);
         var range = cursors.Range.fromNode(t);
         output.withRichSpeechAndBraille(
             range, range, Output.EventType.NAVIGATE);
@@ -506,7 +505,6 @@ DesktopAutomationHandler.prototype = {
       var override = evt.target.role == RoleType.MENU_ITEM ||
           (evt.target.root == focus.root &&
            focus.root.role == RoleType.DESKTOP);
-      Output.forceModeForNextSpeechUtterance(cvox.QueueMode.FLUSH);
       if (override || AutomationUtil.isDescendantOf(evt.target, focus))
         this.onEventDefault(evt);
     }.bind(this));
@@ -541,9 +539,11 @@ DesktopAutomationHandler.prototype = {
   /**
    * Create an editable text handler for the given node if needed.
    * @param {!AutomationNode} node
+   * @param {boolean=} opt_onFocus True if called within a focus event handler.
+   *     False by default.
    * @return {boolean} True if the handler exists (created/already present).
    */
-  createTextEditHandlerIfNeeded_: function(node) {
+  createTextEditHandlerIfNeeded_: function(node, opt_onFocus) {
     if (!node.state.editable)
       return false;
 
@@ -564,10 +564,11 @@ DesktopAutomationHandler.prototype = {
     voxTarget = AutomationUtil.getEditableRoot(voxTarget) || voxTarget;
 
     // It is possible that ChromeVox has range over some other node when a text
-    // field is focused. Only allow this when focus is on a desktop node or
-    // ChromeVox is over the keyboard.
+    // field is focused. Only allow this when focus is on a desktop node,
+    // ChromeVox is over the keyboard, or during focus events.
     if (!target || !voxTarget ||
-        (target != voxTarget && target.root.role != RoleType.DESKTOP &&
+        (!opt_onFocus && target != voxTarget &&
+         target.root.role != RoleType.DESKTOP &&
          voxTarget.root.role != RoleType.DESKTOP &&
          voxTarget.root.url.indexOf(DesktopAutomationHandler.KEYBOARD_URL) !=
              0))
@@ -625,7 +626,6 @@ DesktopAutomationHandler.prototype = {
 
     ChromeVoxState.instance.setCurrentRange(cursors.Range.fromNode(focus));
 
-    Output.forceModeForNextSpeechUtterance(cvox.QueueMode.FLUSH);
     o.withRichSpeechAndBraille(
          ChromeVoxState.instance.currentRange, null, evt.type)
         .go();
@@ -633,13 +633,18 @@ DesktopAutomationHandler.prototype = {
 };
 
 /**
+ * Global instance.
+ * @type {DesktopAutomationHandler}
+ */
+DesktopAutomationHandler.instance;
+
+/**
  * Initializes global state for DesktopAutomationHandler.
  * @private
  */
 DesktopAutomationHandler.init_ = function() {
   chrome.automation.getDesktop(function(desktop) {
-    ChromeVoxState.desktopAutomationHandler =
-        new DesktopAutomationHandler(desktop);
+    DesktopAutomationHandler.instance = new DesktopAutomationHandler(desktop);
   });
 };
 

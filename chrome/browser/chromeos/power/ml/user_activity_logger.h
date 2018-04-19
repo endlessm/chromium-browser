@@ -17,6 +17,7 @@
 #include "chrome/browser/chromeos/power/ml/user_activity_logger_delegate.h"
 #include "chromeos/dbus/power_manager/idle.pb.h"
 #include "chromeos/dbus/power_manager/policy.pb.h"
+#include "chromeos/dbus/power_manager/suspend.pb.h"
 #include "chromeos/dbus/power_manager_client.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/session_manager/core/session_manager_observer.h"
@@ -24,13 +25,11 @@
 #include "ui/base/user_activity/user_activity_detector.h"
 #include "ui/base/user_activity/user_activity_observer.h"
 
-namespace base {
-class Clock;
-}
-
 namespace chromeos {
 namespace power {
 namespace ml {
+
+class BootClock;
 
 // Logs user activity after an idle event is observed.
 // TODO(renjieliu): Add power-related activity as well.
@@ -40,6 +39,16 @@ class UserActivityLogger : public ui::UserActivityObserver,
                            public viz::mojom::VideoDetectorObserver,
                            public session_manager::SessionManagerObserver {
  public:
+  // Delay after screen idle event, used to trigger TIMEOUT for user activity
+  // logging.
+  static constexpr base::TimeDelta kIdleDelay =
+      base::TimeDelta::FromSeconds(10);
+
+  // If a suspend has sleep duration shorter than this, the suspend would be
+  // considered as cancelled and the event type will be REACTIVATE.
+  static constexpr base::TimeDelta kMinSuspendDuration =
+      base::TimeDelta::FromSeconds(10);
+
   UserActivityLogger(UserActivityLoggerDelegate* delegate,
                      IdleEventNotifier* idle_event_notifier,
                      ui::UserActivityDetector* detector,
@@ -60,6 +69,7 @@ class UserActivityLogger : public ui::UserActivityObserver,
                                const base::TimeTicks& timestamp) override;
   void ScreenIdleStateChanged(
       const power_manager::ScreenIdleState& proto) override;
+  void SuspendImminent(power_manager::SuspendImminent::Reason reason) override;
   void SuspendDone(const base::TimeDelta& sleep_duration) override;
   void InactivityDelaysChanged(
       const power_manager::PowerManagementPolicy::Delays& delays) override;
@@ -95,12 +105,11 @@ class UserActivityLogger : public ui::UserActivityObserver,
   // Set the task runner for testing purpose.
   void SetTaskRunnerForTesting(
       scoped_refptr<base::SequencedTaskRunner> task_runner,
-      std::unique_ptr<base::Clock> test_clock);
+      std::unique_ptr<BootClock> test_boot_clock);
 
   // Time when an idle event is received and we start logging. Null if an idle
   // event hasn't been observed.
-  // TODO(jiameng): replace it by base::TimeTicks (http://crbug.com/802942).
-  base::Time idle_event_start_;
+  base::Optional<base::TimeDelta> idle_event_start_since_boot_;
 
   chromeos::PowerManagerClient::LidState lid_state_ =
       chromeos::PowerManagerClient::LidState::NOT_PRESENT;
@@ -123,8 +132,12 @@ class UserActivityLogger : public ui::UserActivityObserver,
   // Features extracted when receives an idle event.
   UserActivityEvent::Features features_;
 
-  // It is base::DefaultClock, but will be set to a mock clock for tests.
-  std::unique_ptr<base::Clock> clock_;
+  // This is the reason for the in-progress suspend, i.e. it's set by
+  // SuspendImminent and used by SuspendDone.
+  base::Optional<power_manager::SuspendImminent::Reason> suspend_reason_;
+
+  // It is RealBootClock, but will be set to FakeBootClock for tests.
+  std::unique_ptr<BootClock> boot_clock_;
 
   UserActivityLoggerDelegate* const logger_delegate_;
 
@@ -144,10 +157,6 @@ class UserActivityLogger : public ui::UserActivityObserver,
   mojo::Binding<viz::mojom::VideoDetectorObserver> binding_;
 
   const chromeos::ChromeUserManager* const user_manager_;
-
-  // Delay after screen idle event, used to trigger TIMEOUT for user activity
-  // logging.
-  base::TimeDelta idle_delay_;
 
   // Timer to be triggered when a screen idle event is triggered.
   base::OneShotTimer screen_idle_timer_;

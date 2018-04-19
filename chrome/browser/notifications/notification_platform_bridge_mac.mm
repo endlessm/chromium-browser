@@ -31,7 +31,7 @@
 #include "chrome/browser/ui/cocoa/notifications/notification_constants_mac.h"
 #import "chrome/browser/ui/cocoa/notifications/notification_delivery.h"
 #import "chrome/browser/ui/cocoa/notifications/notification_response_builder_mac.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/crash/content/app/crashpad.h"
 #include "components/url_formatter/elide_url.h"
@@ -39,8 +39,8 @@
 #include "third_party/WebKit/public/platform/modules/notifications/WebNotificationConstants.h"
 #include "third_party/crashpad/crashpad/client/crashpad_client.h"
 #include "ui/base/l10n/l10n_util_mac.h"
-#include "ui/message_center/notification.h"
-#include "ui/message_center/notification_types.h"
+#include "ui/message_center/public/cpp/notification.h"
+#include "ui/message_center/public/cpp/notification_types.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -64,30 +64,6 @@
 
 namespace {
 
-// Callback to run once the profile has been loaded in order to perform a
-// given |operation| in a notification.
-void ProfileLoadedCallback(NotificationCommon::Operation operation,
-                           NotificationHandler::Type notification_type,
-                           const GURL& origin,
-                           const std::string& notification_id,
-                           const base::Optional<int>& action_index,
-                           const base::Optional<base::string16>& reply,
-                           const base::Optional<bool>& by_user,
-                           Profile* profile) {
-  if (!profile) {
-    // TODO(miguelg): Add UMA for this condition.
-    // Perhaps propagate this through PersistentNotificationStatus.
-    LOG(WARNING) << "Profile not loaded correctly";
-    return;
-  }
-
-  NotificationDisplayServiceImpl* display_service =
-      NotificationDisplayServiceImpl::GetForProfile(profile);
-  display_service->ProcessNotificationOperation(operation, notification_type,
-                                                origin, notification_id,
-                                                action_index, reply, by_user);
-}
-
 // Loads the profile and process the Notification response
 void DoProcessNotificationResponse(NotificationCommon::Operation operation,
                                    NotificationHandler::Type type,
@@ -105,8 +81,9 @@ void DoProcessNotificationResponse(NotificationCommon::Operation operation,
 
   profileManager->LoadProfile(
       profile_id, incognito,
-      base::Bind(&ProfileLoadedCallback, operation, type, origin,
-                 notification_id, action_index, reply, by_user));
+      base::Bind(&NotificationDisplayServiceImpl::ProfileLoadedCallback,
+                 operation, type, origin, notification_id, action_index, reply,
+                 by_user));
 }
 
 // This enum backs an UMA histogram, so it should be treated as append-only.

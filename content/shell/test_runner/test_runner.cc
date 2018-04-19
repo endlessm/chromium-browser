@@ -68,8 +68,8 @@
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/skia_util.h"
 
-#if defined(__linux__) || defined(ANDROID)
-#include "third_party/WebKit/public/web/linux/WebFontRendering.h"
+#if defined(OS_LINUX) || defined(OS_ANDROID) || defined(OS_FUCHSIA)
+#include "third_party/WebKit/public/platform/WebFontRenderStyle.h"
 #endif
 
 using namespace blink;
@@ -234,6 +234,7 @@ class TestRunnerBindings : public gin::Wrappable<TestRunnerBindings> {
   void SetPointerLockWillRespondAsynchronously();
   void SetPopupBlockingEnabled(bool block_popups);
   void SetPrinting();
+  void SetPrintingForFrame(const std::string& frame_name);
   void SetScriptsAllowed(bool allowed);
   void SetShouldGeneratePixelResults(bool);
   void SetShouldStayOnPageAfterHandlingBeforeUnload(bool value);
@@ -552,6 +553,8 @@ gin::ObjectTemplateBuilder TestRunnerBindings::GetObjectTemplateBuilder(
       .SetMethod("setPopupBlockingEnabled",
                  &TestRunnerBindings::SetPopupBlockingEnabled)
       .SetMethod("setPrinting", &TestRunnerBindings::SetPrinting)
+      .SetMethod("setPrintingForFrame",
+                 &TestRunnerBindings::SetPrintingForFrame)
       .SetMethod("setScriptsAllowed", &TestRunnerBindings::SetScriptsAllowed)
       .SetMethod("setScrollbarPolicy", &TestRunnerBindings::NotImplemented)
       .SetMethod("setShouldGeneratePixelResults",
@@ -1190,6 +1193,11 @@ void TestRunnerBindings::SetPrinting() {
     runner_->SetPrinting();
 }
 
+void TestRunnerBindings::SetPrintingForFrame(const std::string& frame_name) {
+  if (runner_)
+    runner_->SetPrintingForFrame(frame_name);
+}
+
 void TestRunnerBindings::ClearPrinting() {
   if (runner_)
     runner_->ClearPrinting();
@@ -1577,6 +1585,8 @@ void TestRunner::Install(
     base::WeakPtr<TestRunnerForSpecificView> view_test_runner) {
   TestRunnerBindings::Install(weak_factory_.GetWeakPtr(), view_test_runner,
                               frame, is_web_platform_tests_mode());
+  mock_screen_orientation_client_->OverrideAssociatedInterfaceProviderForFrame(
+      frame);
 }
 
 void TestRunner::SetDelegate(WebTestDelegate* delegate) {
@@ -1601,8 +1611,8 @@ void TestRunner::Reset() {
   drag_image_.Reset();
 
   WebSecurityPolicy::ResetOriginAccessWhitelists();
-#if defined(__linux__) || defined(ANDROID)
-  WebFontRendering::SetSubpixelPositioning(false);
+#if defined(OS_LINUX) || defined(OS_ANDROID) || defined(OS_FUCHSIA)
+  WebFontRenderStyle::SetSubpixelPositioning(false);
 #endif
 
   if (delegate_) {
@@ -1734,7 +1744,15 @@ void TestRunner::DumpPixelsAsync(
 
   // Request appropriate kind of pixel dump.
   if (layout_test_runtime_flags_.is_printing()) {
-    test_runner::PrintFrameAsync(frame, std::move(callback));
+    auto* target_frame = frame;
+    std::string frame_name = layout_test_runtime_flags_.printing_frame();
+    if (!frame_name.empty()) {
+      auto* frame_to_print =
+          frame->FindFrameByName(WebString::FromUTF8(frame_name));
+      if (frame_to_print && frame_to_print->IsWebLocalFrame())
+        target_frame = frame_to_print->ToWebLocalFrame();
+    }
+    test_runner::PrintFrameAsync(target_frame, std::move(callback));
   } else {
     // TODO(lukasza): Ask the |delegate_| to capture the pixels in the browser
     // process, so that OOPIF pixels are also captured.
@@ -2131,10 +2149,10 @@ void TestRunner::RemoveOriginAccessWhitelistEntry(
 }
 
 void TestRunner::SetTextSubpixelPositioning(bool value) {
-#if defined(__linux__) || defined(ANDROID)
+#if defined(OS_LINUX) || defined(OS_ANDROID) || defined(OS_FUCHSIA)
   // Since FontConfig doesn't provide a variable to control subpixel
   // positioning, we'll fall back to setting it globally for all fonts.
-  WebFontRendering::SetSubpixelPositioning(value);
+  WebFontRenderStyle::SetSubpixelPositioning(value);
 #endif
 }
 
@@ -2529,6 +2547,11 @@ void TestRunner::DumpSelectionRect() {
 }
 
 void TestRunner::SetPrinting() {
+  SetPrintingForFrame("");
+}
+
+void TestRunner::SetPrintingForFrame(const std::string& frame_name) {
+  layout_test_runtime_flags_.set_printing_frame(frame_name);
   layout_test_runtime_flags_.set_is_printing(true);
   OnLayoutTestRuntimeFlagsChanged();
 }

@@ -4,25 +4,44 @@
 
 #include "chrome/browser/ui/views/bubble_anchor_util_views.h"
 
+#include "build/build_config.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+#include "chrome/browser/ui/views_mode_controller.h"
 
 // This file contains the bubble_anchor_util implementation for a Views
 // browser window (BrowserView).
 
 namespace bubble_anchor_util {
 
-views::View* GetPageInfoAnchorView(Browser* browser) {
+views::View* GetPageInfoAnchorView(Browser* browser, Anchor anchor) {
+#if defined(OS_MACOSX)
+  if (views_mode_controller::IsViewsBrowserCocoa())
+    return nullptr;
+#endif
   if (!browser->SupportsWindowFeature(Browser::FEATURE_LOCATIONBAR))
     return nullptr;  // Fall back to GetAnchorPoint().
 
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser);
-  return browser_view->GetLocationBarView()->GetSecurityBubbleAnchorView();
+
+  if (anchor == kLocationBar)
+    return browser_view->GetLocationBarView()->GetSecurityBubbleAnchorView();
+  if (anchor == kHostedAppMenu) {
+    auto* frame_view = static_cast<BrowserNonClientFrameView*>(
+        browser_view->GetWidget()->non_client_view()->frame_view());
+    return frame_view->GetHostedAppMenuView();
+  }
+  NOTREACHED();
+  return nullptr;
 }
 
 gfx::Rect GetPageInfoAnchorRect(Browser* browser) {
+#if defined(OS_MACOSX)
+  if (views_mode_controller::IsViewsBrowserCocoa())
+    return GetPageInfoAnchorRectCocoa(browser);
+#endif
   // GetPageInfoAnchorView() should be preferred when there is a location bar.
   DCHECK(!browser->SupportsWindowFeature(Browser::FEATURE_LOCATIONBAR));
 

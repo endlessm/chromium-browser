@@ -19,6 +19,7 @@ namespace chromeos {
 
 namespace tether {
 
+class ConnectionPreserver;
 class HostScanDevicePrioritizer;
 class MessageWrapper;
 class TetherHostResponseRecorder;
@@ -36,7 +37,8 @@ class HostScannerOperation : public MessageTransferOperation {
         const std::vector<cryptauth::RemoteDevice>& devices_to_connect,
         BleConnectionManager* connection_manager,
         HostScanDevicePrioritizer* host_scan_device_prioritizer,
-        TetherHostResponseRecorder* tether_host_response_recorder);
+        TetherHostResponseRecorder* tether_host_response_recorder,
+        ConnectionPreserver* connection_preserver);
 
     static void SetInstanceForTesting(Factory* factory);
 
@@ -45,7 +47,8 @@ class HostScannerOperation : public MessageTransferOperation {
         const std::vector<cryptauth::RemoteDevice>& devices_to_connect,
         BleConnectionManager* connection_manager,
         HostScanDevicePrioritizer* host_scan_device_prioritizer,
-        TetherHostResponseRecorder* tether_host_response_recorder);
+        TetherHostResponseRecorder* tether_host_response_recorder,
+        ConnectionPreserver* connection_preserver);
 
    private:
     static Factory* factory_instance_;
@@ -78,17 +81,19 @@ class HostScannerOperation : public MessageTransferOperation {
         bool is_final_scan_result) = 0;
   };
 
-  HostScannerOperation(
-      const std::vector<cryptauth::RemoteDevice>& devices_to_connect,
-      BleConnectionManager* connection_manager,
-      HostScanDevicePrioritizer* host_scan_device_prioritizer,
-      TetherHostResponseRecorder* tether_host_response_recorder);
   ~HostScannerOperation() override;
 
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
 
  protected:
+  HostScannerOperation(
+      const std::vector<cryptauth::RemoteDevice>& devices_to_connect,
+      BleConnectionManager* connection_manager,
+      HostScanDevicePrioritizer* host_scan_device_prioritizer,
+      TetherHostResponseRecorder* tether_host_response_recorder,
+      ConnectionPreserver* connection_preserver);
+
   void NotifyObserversOfScannedDeviceList(bool is_final_scan_result);
 
   // MessageTransferOperation:
@@ -105,11 +110,12 @@ class HostScannerOperation : public MessageTransferOperation {
  private:
   friend class HostScannerOperationTest;
 
-  void SetClockForTest(std::unique_ptr<base::Clock> clock_for_test);
+  void SetClockForTest(base::Clock* clock_for_test);
   void RecordTetherAvailabilityResponseDuration(const std::string device_id);
 
   TetherHostResponseRecorder* tether_host_response_recorder_;
-  std::unique_ptr<base::Clock> clock_;
+  ConnectionPreserver* connection_preserver_;
+  base::Clock* clock_;
   base::ObserverList<Observer> observer_list_;
 
   std::vector<cryptauth::RemoteDevice> gms_core_notifications_disabled_devices_;

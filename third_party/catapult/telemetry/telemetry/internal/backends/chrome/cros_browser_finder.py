@@ -4,6 +4,7 @@
 """Finds CrOS browsers that can be controlled by telemetry."""
 
 import logging
+import os
 import posixpath
 
 from telemetry.core import cros_interface
@@ -15,6 +16,8 @@ from telemetry.internal.browser import browser
 from telemetry.internal.browser import browser_finder_exceptions
 from telemetry.internal.browser import possible_browser
 from telemetry.internal.platform import cros_device
+
+import py_utils
 
 
 class PossibleCrOSBrowser(possible_browser.PossibleBrowser):
@@ -47,6 +50,41 @@ class PossibleCrOSBrowser(possible_browser.PossibleBrowser):
   def _InitPlatformIfNeeded(self):
     pass
 
+  def _GetPathsForOsPageCacheFlushing(self):
+    return [self.profile_directory, self.browser_directory]
+
+  def SetUpEnvironment(self, browser_options):
+    super(PossibleCrOSBrowser, self).SetUpEnvironment(browser_options)
+
+    # Copy extensions to temp directories on the device.
+    # Note that we also perform this copy locally to ensure that
+    # the owner of the extensions is set to chronos.
+    cri = self._platform_backend.cri
+    for extension in self._browser_options.extensions_to_load:
+      extension_dir = cri.RunCmdOnDevice(
+          ['mktemp', '-d', '/tmp/extension_XXXXX'])[0].rstrip()
+      # TODO(crbug.com/807645): We should avoid having mutable objects
+      # stored within the browser options.
+      extension.local_path = posixpath.join(
+          extension_dir, os.path.basename(extension.path))
+      cri.PushFile(extension.path, extension_dir)
+      cri.Chown(extension_dir)
+
+    def browser_ready():
+      return cri.GetChromePid() is not None
+
+    cri.RestartUI(self._browser_options.clear_enterprise_policy)
+    py_utils.WaitFor(browser_ready, timeout=20)
+
+    # Delete test user's cryptohome vault (user data directory).
+    if not self._browser_options.dont_override_profile:
+      cri.RunCmdOnDevice(['cryptohome', '--action=remove', '--force',
+                          '--user=%s' % self._browser_options.username])
+
+  def _TearDownEnvironment(self):
+    for extension in self._browser_options.extensions_to_load:
+      self._platform_backend.cri.RmRF(posixpath.dirname(extension.local_path))
+
   def Create(self):
     startup_args = self.GetBrowserStartupArgs(self._browser_options)
 
@@ -55,7 +93,7 @@ class PossibleCrOSBrowser(possible_browser.PossibleBrowser):
         self.browser_directory, self.profile_directory,
         self._is_guest)
 
-    browser_backend.ClearCaches()
+    self._ClearCachesOnStart()
 
     if self._browser_options.create_browser_with_oobe:
       return cros_browser_with_oobe.CrOSBrowserWithOOBE(
@@ -82,8 +120,6 @@ class PossibleCrOSBrowser(possible_browser.PossibleBrowser):
         '--start-maximized',
         # Disable system startup sound.
         '--ash-disable-system-sounds',
-        # Ignore DMServer errors for policy fetches.
-        '--allow-failed-policy-fetch-for-test',
         # Skip user image selection screen, and post login screens.
         '--oobe-skip-postlogin',
         # Disable chrome logging redirect. crbug.com/724273.
@@ -91,6 +127,9 @@ class PossibleCrOSBrowser(possible_browser.PossibleBrowser):
         # Debug logging.
         '--vmodule=%s' % vmodule,
     ])
+
+    if not browser_options.expect_policy_fetch:
+      startup_args.append('--allow-failed-policy-fetch-for-test')
 
     # If we're using GAIA, skip to login screen, and do not disable GAIA
     # services.

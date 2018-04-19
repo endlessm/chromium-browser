@@ -15,6 +15,17 @@
 
 namespace web {
 
+namespace {
+
+// Returns a new unique ID for a NavigationContext during construction.
+// The returned ID is guaranteed to be nonzero (zero is the "no ID" indicator).
+int64_t CreateUniqueContextId() {
+  static int64_t unique_id_counter = 0;
+  return ++unique_id_counter;
+}
+
+}  // namespace
+
 // static
 std::unique_ptr<NavigationContextImpl>
 NavigationContextImpl::CreateNavigationContext(
@@ -41,6 +52,10 @@ WebState* NavigationContextImpl::GetWebState() {
   return web_state_;
 }
 
+int64_t NavigationContextImpl::GetNavigationId() const {
+  return navigation_id_;
+}
+
 const GURL& NavigationContextImpl::GetUrl() const {
   return url_;
 }
@@ -51,6 +66,14 @@ ui::PageTransition NavigationContextImpl::GetPageTransition() const {
 
 bool NavigationContextImpl::IsSameDocument() const {
   return is_same_document_;
+}
+
+bool NavigationContextImpl::HasCommitted() const {
+  return has_committed_;
+}
+
+bool NavigationContextImpl::IsDownload() const {
+  return is_download_;
 }
 
 bool NavigationContextImpl::IsPost() const {
@@ -75,6 +98,14 @@ void NavigationContextImpl::SetUrl(const GURL& url) {
 
 void NavigationContextImpl::SetIsSameDocument(bool is_same_document) {
   is_same_document_ = is_same_document;
+}
+
+void NavigationContextImpl::SetHasCommitted(bool has_committed) {
+  has_committed_ = has_committed;
+}
+
+void NavigationContextImpl::SetIsDownload(bool is_download) {
+  is_download_ = is_download;
 }
 
 void NavigationContextImpl::SetIsPost(bool is_post) {
@@ -116,6 +147,7 @@ NavigationContextImpl::NavigationContextImpl(WebState* web_state,
                                              ui::PageTransition page_transition,
                                              bool is_renderer_initiated)
     : web_state_(web_state),
+      navigation_id_(CreateUniqueContextId()),
       url_(url),
       page_transition_(page_transition),
       is_same_document_(false),

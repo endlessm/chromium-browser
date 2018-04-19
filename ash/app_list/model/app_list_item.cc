@@ -13,6 +13,7 @@ AppListItem::AppListItem(const std::string& id)
     : metadata_(ash::mojom::AppListItemMetadata::New(id,
                                                      std::string(),
                                                      std::string(),
+                                                     std::string(),
                                                      syncer::StringOrdinal(),
                                                      false)),
       highlighted_(false),
@@ -67,10 +68,6 @@ AppListItem* AppListItem::FindChildItem(const std::string& id) {
 }
 
 size_t AppListItem::ChildItemCount() const {
-  return 0;
-}
-
-size_t AppListItem::BadgedItemCount() const {
   return 0;
 }
 

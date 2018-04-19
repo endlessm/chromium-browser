@@ -25,10 +25,6 @@ AppListFolderItem::~AppListFolderItem() {
   folder_image_.RemoveObserver(this);
 }
 
-const gfx::ImageSkia& AppListFolderItem::GetTopIcon(size_t item_index) {
-  return folder_image_.GetTopIcon(item_index);
-}
-
 gfx::Rect AppListFolderItem::GetTargetIconRectInFolderForItem(
     AppListItem* item,
     const gfx::Rect& folder_icon_bounds) {
@@ -49,10 +45,6 @@ AppListItem* AppListFolderItem::FindChildItem(const std::string& id) {
 
 size_t AppListFolderItem::ChildItemCount() const {
   return item_list_->item_count();
-}
-
-size_t AppListFolderItem::BadgedItemCount() const {
-  return item_list_->BadgedItemCount();
 }
 
 bool AppListFolderItem::CompareForTest(const AppListItem* other) const {

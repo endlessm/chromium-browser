@@ -122,11 +122,12 @@ void NegativeApiTests::init (void)
 	using namespace eglw;
 	using namespace eglu;
 
-	static const EGLint s_emptyAttribList[]			= { EGL_NONE };
-	static const EGLint s_es1ContextAttribList[]	= { EGL_CONTEXT_CLIENT_VERSION, 1, EGL_NONE };
-	static const EGLint s_es2ContextAttribList[]	= { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
+	static const EGLint				s_emptyAttribList[]			= { EGL_NONE };
+	static const EGLint				s_es1ContextAttribList[]	= { EGL_CONTEXT_CLIENT_VERSION, 1, EGL_NONE };
+	static const EGLint				s_es2ContextAttribList[]	= { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
 
-	static const EGLenum s_renderAPIs[]				= { EGL_OPENGL_API, EGL_OPENGL_ES_API, EGL_OPENVG_API };
+	static const EGLenum			s_renderAPIs[]				= { EGL_OPENGL_API, EGL_OPENGL_ES_API, EGL_OPENVG_API };
+	static const eglu::ConfigFilter	s_renderAPIFilters[]		= { renderable<EGL_OPENGL_BIT>, renderable<EGL_OPENGL_ES_BIT>, renderable<EGL_OPENVG_BIT> };
 
 	TEGL_ADD_API_CASE(bind_api, "eglBindAPI() negative tests",
 		{
@@ -144,14 +145,19 @@ void NegativeApiTests::init (void)
 
 			log << TestLog::EndSection;
 
-			log << TestLog::Section("Test2", "EGL_BAD_PARAMETER is generated if the specified client API is not supported by the EGL implementation");
+			log << TestLog::Section("Test2", "EGL_BAD_PARAMETER is generated if the specified client API is not supported by the EGL display, or no configuration is provided for the specified API.");
 
 			for (int ndx = 0; ndx < DE_LENGTH_OF_ARRAY(s_renderAPIs); ndx++)
 			{
 				if (!isAPISupported(s_renderAPIs[ndx]))
 				{
-					expectFalse(eglBindAPI(s_renderAPIs[ndx]));
-					expectError(EGL_BAD_PARAMETER);
+					if (!eglBindAPI(s_renderAPIs[ndx]))
+						expectError(EGL_BAD_PARAMETER);
+					else
+					{
+						EGLConfig eglConfig;
+						expectFalse(getConfig(&eglConfig, FilterList() << s_renderAPIFilters[ndx]));
+					}
 				}
 			}
 
@@ -378,31 +384,55 @@ void NegativeApiTests::init (void)
 
 			log << TestLog::EndSection;
 
-			log << TestLog::Section("Test4", "EGL_BAD_CONFIG is generated if OpenGL ES 1.x context is requested and EGL_RENDERABLE_TYPE attribute of config does not contain EGL_OPENGL_ES_BIT");
+			log << TestLog::Section("Test4", "EGL_BAD_CONFIG or EGL_BAD_MATCH is generated if OpenGL ES 1.x context is requested and EGL_RENDERABLE_TYPE attribute of config does not contain EGL_OPENGL_ES_BIT");
 
 			if (isAPISupported(EGL_OPENGL_ES_API))
 			{
 				EGLConfig notES1Config;
 				if (getConfig(&notES1Config, FilterList() << notRenderable<EGL_OPENGL_ES_BIT>))
 				{
+					// EGL 1.4, EGL 1.5, and EGL_KHR_create_context contain contradictory language about the expected error.
+					Version version = eglu::getVersion(m_eglTestCtx.getLibrary(), display);
+					bool hasKhrCreateContext = eglu::hasExtension(m_eglTestCtx.getLibrary(), display, "EGL_KHR_create_context");
+
 					expectTrue(eglBindAPI(EGL_OPENGL_ES_API));
 					expectNoContext(eglCreateContext(display, notES1Config, EGL_NO_CONTEXT, s_es1ContextAttribList));
-					expectError(EGL_BAD_CONFIG);
+					if (hasKhrCreateContext)
+						expectEitherError(EGL_BAD_CONFIG, EGL_BAD_MATCH);
+					else
+					{
+						if (version >= eglu::Version(1, 5))
+							expectError(EGL_BAD_MATCH);
+						else
+							expectError(EGL_BAD_CONFIG);
+					}
 				}
 			}
 
 			log << TestLog::EndSection;
 
-			log << TestLog::Section("Test5", "EGL_BAD_CONFIG is generated if OpenGL ES 2.x context is requested and EGL_RENDERABLE_TYPE attribute of config does not contain EGL_OPENGL_ES2_BIT");
+			log << TestLog::Section("Test5", "EGL_BAD_CONFIG or EGL_BAD_MATCH is generated if OpenGL ES 2.x context is requested and EGL_RENDERABLE_TYPE attribute of config does not contain EGL_OPENGL_ES2_BIT");
 
 			if (isAPISupported(EGL_OPENGL_ES_API))
 			{
 				EGLConfig notES2Config;
 				if (getConfig(&notES2Config, FilterList() << notRenderable<EGL_OPENGL_ES2_BIT>))
 				{
+					// EGL 1.4, EGL 1.5, and EGL_KHR_create_context contain contradictory language about the expected error.
+					Version version = eglu::getVersion(m_eglTestCtx.getLibrary(), display);
+					bool hasKhrCreateContext = eglu::hasExtension(m_eglTestCtx.getLibrary(), display, "EGL_KHR_create_context");
+
 					expectTrue(eglBindAPI(EGL_OPENGL_ES_API));
 					expectNoContext(eglCreateContext(display, notES2Config, EGL_NO_CONTEXT, s_es2ContextAttribList));
-					expectError(EGL_BAD_CONFIG);
+					if (hasKhrCreateContext)
+						expectEitherError(EGL_BAD_CONFIG, EGL_BAD_MATCH);
+					else
+					{
+						if (version >= eglu::Version(1, 5))
+							expectError(EGL_BAD_MATCH);
+						else
+							expectError(EGL_BAD_CONFIG);
+					}
 				}
 			}
 
@@ -655,10 +685,10 @@ void NegativeApiTests::init (void)
 
 			log << TestLog::EndSection;
 
-			log << TestLog::Section("Test2", "EGL_BAD_CONFIG is generated if config is not an EGL frame buffer configuration");
+			log << TestLog::Section("Test2", "EGL_BAD_CONFIG or EGL_BAD_PARAMETER is generated if config is not an EGL frame buffer configuration or if the PixmapSurface call is not supported");
 
 			expectNoSurface(eglCreatePixmapSurface(display, (EGLConfig)-1, DE_NULL, s_emptyAttribList));
-			expectError(EGL_BAD_CONFIG);
+			expectEitherError(EGL_BAD_CONFIG, EGL_BAD_PARAMETER);
 
 			log << TestLog::EndSection;
 		});

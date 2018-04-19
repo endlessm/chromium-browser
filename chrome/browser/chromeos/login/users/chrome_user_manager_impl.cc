@@ -48,7 +48,6 @@
 #include "chrome/browser/chromeos/login/users/default_user_image/default_user_images.h"
 #include "chrome/browser/chromeos/login/users/multi_profile_user_controller.h"
 #include "chrome/browser/chromeos/login/users/supervised_user_manager_impl.h"
-#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/printing/external_printers.h"
 #include "chrome/browser/chromeos/printing/external_printers_factory.h"
@@ -111,9 +110,6 @@ const char kRegularUsers[] = "LoggedInUsers";
 
 // A vector pref of the device local accounts defined on this device.
 const char kDeviceLocalAccounts[] = "PublicAccounts";
-
-// Key for list of users that should be reported.
-const char kReportingUsers[] = "reporting_users";
 
 // A string pref that gets set when a device local account is removed but a
 // user is currently logged into that account, requiring the account's data to
@@ -198,7 +194,7 @@ void ChromeUserManagerImpl::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterListPref(kDeviceLocalAccounts);
   registry->RegisterStringPref(kDeviceLocalAccountPendingDataRemoval,
                                std::string());
-  registry->RegisterListPref(kReportingUsers);
+  registry->RegisterListPref(prefs::kReportingUsers);
 
   SupervisedUserManager::RegisterPrefs(registry);
   SessionLengthLimiter::RegisterPrefs(registry);
@@ -587,11 +583,9 @@ void ChromeUserManagerImpl::OnExternalDataSet(const std::string& policy,
       user_id, std::string() /* id */, AccountType::UNKNOWN);
   if (policy == policy::key::kUserAvatarImage)
     GetUserImageManager(account_id)->OnExternalDataSet(policy);
-  else if (policy == policy::key::kWallpaperImage)
-    WallpaperManager::Get()->OnPolicySet(policy, account_id);
   else if (policy == policy::key::kNativePrintersBulkConfiguration)
     GetExternalPrinters(account_id)->ClearData();
-  else
+  else if (policy != policy::key::kWallpaperImage)
     NOTREACHED();
 }
 
@@ -601,10 +595,10 @@ void ChromeUserManagerImpl::OnExternalDataCleared(const std::string& policy,
       user_id, std::string() /* id */, AccountType::UNKNOWN);
   if (policy == policy::key::kUserAvatarImage)
     GetUserImageManager(account_id)->OnExternalDataCleared(policy);
-  else if (policy == policy::key::kWallpaperImage)
-    WallpaperManager::Get()->OnPolicyCleared(policy, account_id);
   else if (policy == policy::key::kNativePrintersBulkConfiguration)
     GetExternalPrinters(account_id)->ClearData();
+  else if (policy == policy::key::kWallpaperImage)
+    WallpaperControllerClient::Get()->RemovePolicyWallpaper(account_id);
   else
     NOTREACHED();
 }
@@ -615,16 +609,17 @@ void ChromeUserManagerImpl::OnExternalDataFetched(
     std::unique_ptr<std::string> data) {
   const AccountId account_id = user_manager::known_user::GetAccountId(
       user_id, std::string() /* id */, AccountType::UNKNOWN);
-  if (policy == policy::key::kUserAvatarImage)
+  if (policy == policy::key::kUserAvatarImage) {
     GetUserImageManager(account_id)
         ->OnExternalDataFetched(policy, std::move(data));
-  else if (policy == policy::key::kWallpaperImage)
-    WallpaperManager::Get()->OnPolicyFetched(policy, account_id,
-                                             std::move(data));
-  else if (policy == policy::key::kNativePrintersBulkConfiguration)
+  } else if (policy == policy::key::kNativePrintersBulkConfiguration) {
     GetExternalPrinters(account_id)->SetData(std::move(data));
-  else
+  } else if (policy == policy::key::kWallpaperImage) {
+    WallpaperControllerClient::Get()->SetPolicyWallpaper(account_id,
+                                                         std::move(data));
+  } else {
     NOTREACHED();
+  }
 }
 
 void ChromeUserManagerImpl::OnPolicyUpdated(const std::string& user_id) {
@@ -817,7 +812,8 @@ void ChromeUserManagerImpl::GuestUserLoggedIn() {
       user_manager::User::USER_IMAGE_INVALID, false);
 
   // Initializes wallpaper after active_user_ is set.
-  WallpaperManager::Get()->ShowUserWallpaper(user_manager::GuestAccountId());
+  WallpaperControllerClient::Get()->ShowUserWallpaper(
+      user_manager::GuestAccountId());
 }
 
 void ChromeUserManagerImpl::RegularUserLoggedIn(
@@ -845,7 +841,7 @@ void ChromeUserManagerImpl::RegularUserLoggedInAsEphemeral(
   ChromeUserManager::RegularUserLoggedInAsEphemeral(account_id, user_type);
 
   GetUserImageManager(account_id)->UserLoggedIn(IsCurrentUserNew(), false);
-  WallpaperManager::Get()->ShowUserWallpaper(account_id);
+  WallpaperControllerClient::Get()->ShowUserWallpaper(account_id);
 }
 
 void ChromeUserManagerImpl::SupervisedUserLoggedIn(
@@ -853,7 +849,8 @@ void ChromeUserManagerImpl::SupervisedUserLoggedIn(
   // TODO(nkostylev): Refactor, share code with RegularUserLoggedIn().
 
   // Remove the user from the user list.
-  active_user_ = RemoveRegularOrSupervisedUserFromList(account_id);
+  active_user_ =
+      RemoveRegularOrSupervisedUserFromList(account_id, false /* notify */);
 
   // If the user was not found on the user list, create a new user.
   if (!GetActiveUser()) {
@@ -916,7 +913,7 @@ void ChromeUserManagerImpl::KioskAppLoggedIn(user_manager::User* user) {
       user_manager::User::USER_IMAGE_INVALID, false);
 
   const AccountId& kiosk_app_account_id = user->GetAccountId();
-  WallpaperManager::Get()->ShowUserWallpaper(kiosk_app_account_id);
+  WallpaperControllerClient::Get()->ShowUserWallpaper(kiosk_app_account_id);
 
   // TODO(bartfab): Add KioskAppUsers to the users_ list and keep metadata like
   // the kiosk_app_id in these objects, removing the need to re-parse the
@@ -986,7 +983,8 @@ void ChromeUserManagerImpl::DemoAccountLoggedIn() {
           *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
               IDR_LOGIN_DEFAULT_USER)),
       user_manager::User::USER_IMAGE_INVALID, false);
-  WallpaperManager::Get()->ShowUserWallpaper(user_manager::DemoAccountId());
+  WallpaperControllerClient::Get()->ShowUserWallpaper(
+      user_manager::DemoAccountId());
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   command_line->AppendSwitch(::switches::kForceAppMode);
@@ -1336,19 +1334,19 @@ void ChromeUserManagerImpl::SetUserAffiliation(
 
 bool ChromeUserManagerImpl::ShouldReportUser(const std::string& user_id) const {
   const base::ListValue& reporting_users =
-      *(GetLocalState()->GetList(kReportingUsers));
+      *(GetLocalState()->GetList(prefs::kReportingUsers));
   base::Value user_id_value(FullyCanonicalize(user_id));
   return !(reporting_users.Find(user_id_value) == reporting_users.end());
 }
 
 void ChromeUserManagerImpl::AddReportingUser(const AccountId& account_id) {
-  ListPrefUpdate users_update(GetLocalState(), kReportingUsers);
+  ListPrefUpdate users_update(GetLocalState(), prefs::kReportingUsers);
   users_update->AppendIfNotPresent(
       std::make_unique<base::Value>(account_id.GetUserEmail()));
 }
 
 void ChromeUserManagerImpl::RemoveReportingUser(const AccountId& account_id) {
-  ListPrefUpdate users_update(GetLocalState(), kReportingUsers);
+  ListPrefUpdate users_update(GetLocalState(), prefs::kReportingUsers);
   users_update->Remove(
       base::Value(FullyCanonicalize(account_id.GetUserEmail())), NULL);
 }
@@ -1425,13 +1423,13 @@ base::string16 ChromeUserManagerImpl::GetResourceStringUTF16(
 
 void ChromeUserManagerImpl::ScheduleResolveLocale(
     const std::string& locale,
-    const base::Closure& on_resolved_callback,
+    base::OnceClosure on_resolved_callback,
     std::string* out_resolved_locale) const {
   base::PostTaskWithTraitsAndReply(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
       base::BindOnce(ResolveLocale, locale,
                      base::Unretained(out_resolved_locale)),
-      on_resolved_callback);
+      std::move(on_resolved_callback));
 }
 
 bool ChromeUserManagerImpl::IsValidDefaultUserImageId(int image_index) const {

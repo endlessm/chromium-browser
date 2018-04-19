@@ -14,6 +14,7 @@
 #include "CodeGenFunction.h"
 #include "CGObjCRuntime.h"
 #include "CodeGenModule.h"
+#include "ConstantEmitter.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclTemplate.h"
@@ -85,7 +86,7 @@ public:
   void EmitMoveFromReturnSlot(const Expr *E, RValue Src);
 
   void EmitArrayInit(Address DestPtr, llvm::ArrayType *AType,
-                     QualType elementType, InitListExpr *E);
+                     QualType ArrayQTy, InitListExpr *E);
 
   AggValueSlot::NeedsGCBarriers_t needsGC(QualType T) {
     if (CGF.getLangOpts().getGC() && TypeRequiresGCollection(T))
@@ -298,7 +299,9 @@ void AggExprEmitter::EmitCopy(QualType type, const AggValueSlot &dest,
   // If the result of the assignment is used, copy the LHS there also.
   // It's volatile if either side is.  Use the minimum alignment of
   // the two sides.
-  CGF.EmitAggregateCopy(dest.getAddress(), src.getAddress(), type,
+  LValue DestLV = CGF.MakeAddrLValue(dest.getAddress(), type);
+  LValue SrcLV = CGF.MakeAddrLValue(src.getAddress(), type);
+  CGF.EmitAggregateCopy(DestLV, SrcLV, type,
                         dest.isVolatile() || src.isVolatile());
 }
 
@@ -392,11 +395,14 @@ static bool isTrivialFiller(Expr *E) {
 
 /// \brief Emit initialization of an array from an initializer list.
 void AggExprEmitter::EmitArrayInit(Address DestPtr, llvm::ArrayType *AType,
-                                   QualType elementType, InitListExpr *E) {
+                                   QualType ArrayQTy, InitListExpr *E) {
   uint64_t NumInitElements = E->getNumInits();
 
   uint64_t NumArrayElements = AType->getNumElements();
   assert(NumInitElements <= NumArrayElements);
+
+  QualType elementType =
+      CGF.getContext().getAsArrayType(ArrayQTy)->getElementType();
 
   // DestPtr is an array*.  Construct an elementType* by drilling
   // down a level.
@@ -408,6 +414,29 @@ void AggExprEmitter::EmitArrayInit(Address DestPtr, llvm::ArrayType *AType,
   CharUnits elementSize = CGF.getContext().getTypeSizeInChars(elementType);
   CharUnits elementAlign =
     DestPtr.getAlignment().alignmentOfArrayElement(elementSize);
+
+  // Consider initializing the array by copying from a global. For this to be
+  // more efficient than per-element initialization, the size of the elements
+  // with explicit initializers should be large enough.
+  if (NumInitElements * elementSize.getQuantity() > 16 &&
+      elementType.isTriviallyCopyableType(CGF.getContext())) {
+    CodeGen::CodeGenModule &CGM = CGF.CGM;
+    ConstantEmitter Emitter(CGM);
+    LangAS AS = ArrayQTy.getAddressSpace();
+    if (llvm::Constant *C = Emitter.tryEmitForInitializer(E, AS, ArrayQTy)) {
+      auto GV = new llvm::GlobalVariable(
+          CGM.getModule(), C->getType(),
+          CGM.isTypeConstant(ArrayQTy, /* ExcludeCtorDtor= */ true),
+          llvm::GlobalValue::PrivateLinkage, C, "constinit",
+          /* InsertBefore= */ nullptr, llvm::GlobalVariable::NotThreadLocal,
+          CGM.getContext().getTargetAddressSpace(AS));
+      Emitter.finalize(GV);
+      CharUnits Align = CGM.getContext().getTypeAlignInChars(ArrayQTy);
+      GV->setAlignment(Align.getQuantity());
+      EmitFinalDestCopy(ArrayQTy, CGF.MakeAddrLValue(GV, ArrayQTy, Align));
+      return;
+    }
+  }
 
   // Exception safety requires us to destroy all the
   // already-constructed members if an initializer throws.
@@ -1156,11 +1185,8 @@ void AggExprEmitter::VisitInitListExpr(InitListExpr *E) {
 
   // Handle initialization of an array.
   if (E->getType()->isArrayType()) {
-    QualType elementType =
-        CGF.getContext().getAsArrayType(E->getType())->getElementType();
-
     auto AType = cast<llvm::ArrayType>(Dest.getAddress().getElementType());
-    EmitArrayInit(Dest.getAddress(), AType, elementType, E);
+    EmitArrayInit(Dest.getAddress(), AType, E->getType(), E);
     return;
   }
 
@@ -1541,11 +1567,13 @@ LValue CodeGenFunction::EmitAggExprToLValue(const Expr *E) {
   return LV;
 }
 
-void CodeGenFunction::EmitAggregateCopy(Address DestPtr,
-                                        Address SrcPtr, QualType Ty,
-                                        bool isVolatile,
+void CodeGenFunction::EmitAggregateCopy(LValue Dest, LValue Src,
+                                        QualType Ty, bool isVolatile,
                                         bool isAssignment) {
   assert(!Ty->isAnyComplexType() && "Shouldn't happen for complex");
+
+  Address DestPtr = Dest.getAddress();
+  Address SrcPtr = Src.getAddress();
 
   if (getLangOpts().CPlusPlus) {
     if (const RecordType *RT = Ty->getAs<RecordType>()) {
@@ -1562,7 +1590,7 @@ void CodeGenFunction::EmitAggregateCopy(Address DestPtr,
         return;
     }
   }
-  
+
   // Aggregate assignment turns into llvm.memcpy.  This is almost valid per
   // C99 6.5.16.1p3, which states "If the value being stored in an object is
   // read from another object that overlaps in anyway the storage of the first
@@ -1657,4 +1685,10 @@ void CodeGenFunction::EmitAggregateCopy(Address DestPtr,
   // the optimizer wishes to expand it in to scalar memory operations.
   if (llvm::MDNode *TBAAStructTag = CGM.getTBAAStructInfo(Ty))
     Inst->setMetadata(llvm::LLVMContext::MD_tbaa_struct, TBAAStructTag);
+
+  if (CGM.getCodeGenOpts().NewStructPathTBAA) {
+    TBAAAccessInfo TBAAInfo = CGM.mergeTBAAInfoForMemoryTransfer(
+        Dest.getTBAAInfo(), Src.getTBAAInfo());
+    CGM.DecorateInstructionWithTBAA(Inst, TBAAInfo);
+  }
 }

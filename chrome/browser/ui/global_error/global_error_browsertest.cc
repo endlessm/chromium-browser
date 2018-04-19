@@ -9,7 +9,6 @@
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/extensions/extension_creator.h"
 #include "chrome/browser/extensions/extension_disabled_ui.h"
 #include "chrome/browser/extensions/extension_error_controller.h"
 #include "chrome/browser/extensions/extension_error_ui_default.h"
@@ -25,6 +24,7 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "content/public/test/test_utils.h"
+#include "extensions/browser/extension_creator.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
@@ -134,9 +134,9 @@ void GlobalErrorBubbleTest::ShowUi(const std::string& name) {
         ->OnBlacklistUpdated();
     base::RunLoop().RunUntilIdle();
     base::RunLoop flush_io;
-    content::BrowserThread::PostTaskAndReply(
-        content::BrowserThread::IO, FROM_HERE, base::BindOnce(&base::DoNothing),
-        flush_io.QuitClosure());
+    content::BrowserThread::PostTaskAndReply(content::BrowserThread::IO,
+                                             FROM_HERE, base::DoNothing(),
+                                             flush_io.QuitClosure());
     flush_io.Run();
 
     // Oh no! This relies on RunUntilIdle() to show the bubble. The bubble is

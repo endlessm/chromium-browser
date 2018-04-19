@@ -30,6 +30,7 @@
 #include "ui/base/ime/input_method_factory.h"
 #include "ui/base/ime/text_edit_commands.h"
 #include "ui/base/ime/text_input_client.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/base/ui_base_switches_util.h"
 #include "ui/events/event.h"
@@ -688,15 +689,29 @@ class TextfieldTest : public ViewsTestBase, public TextfieldController {
     const bool is_all_selected = !text.empty() &&
         textfield_->GetSelectedRange().length() == text.length();
 
-    EXPECT_EQ(can_undo, menu->IsEnabledAt(0 /* UNDO */));
-    EXPECT_TRUE(menu->IsEnabledAt(1 /* Separator */));
-    EXPECT_EQ(textfield_has_selection, menu->IsEnabledAt(2 /* CUT */));
-    EXPECT_EQ(textfield_has_selection, menu->IsEnabledAt(3 /* COPY */));
+    int menu_index = 0;
+#if defined(OS_MACOSX)
+    // On Mac, the Look Up item should appear at the top of the menu if the
+    // textfield has a selection.
+    if (textfield_has_selection) {
+      EXPECT_TRUE(menu->IsEnabledAt(menu_index++ /* LOOK UP */));
+      EXPECT_TRUE(menu->IsEnabledAt(menu_index++ /* Separator */));
+    }
+#endif
+
+    EXPECT_EQ(can_undo, menu->IsEnabledAt(menu_index++ /* UNDO */));
+    EXPECT_TRUE(menu->IsEnabledAt(menu_index++ /* Separator */));
+    EXPECT_EQ(textfield_has_selection,
+              menu->IsEnabledAt(menu_index++ /* CUT */));
+    EXPECT_EQ(textfield_has_selection,
+              menu->IsEnabledAt(menu_index++ /* COPY */));
     EXPECT_NE(GetClipboardText(ui::CLIPBOARD_TYPE_COPY_PASTE).empty(),
-              menu->IsEnabledAt(4 /* PASTE */));
-    EXPECT_EQ(textfield_has_selection, menu->IsEnabledAt(5 /* DELETE */));
-    EXPECT_TRUE(menu->IsEnabledAt(6 /* Separator */));
-    EXPECT_EQ(!is_all_selected, menu->IsEnabledAt(7 /* SELECT ALL */));
+              menu->IsEnabledAt(menu_index++ /* PASTE */));
+    EXPECT_EQ(textfield_has_selection,
+              menu->IsEnabledAt(menu_index++ /* DELETE */));
+    EXPECT_TRUE(menu->IsEnabledAt(menu_index++ /* Separator */));
+    EXPECT_EQ(!is_all_selected,
+              menu->IsEnabledAt(menu_index++ /* SELECT ALL */));
   }
 
   void PressMouseButton(ui::EventFlags mouse_button_flags, int extra_flags) {
@@ -890,9 +905,11 @@ TEST_F(TextfieldTest, ControlAndSelectTest) {
 
   // Test word select.
   SendWordEvent(ui::VKEY_RIGHT, true);
-#if defined(OS_WIN)  // Select word right includes space/punctuation.
+#if defined(OS_WIN)  // Windows breaks on word starts and includes spaces.
+  EXPECT_STR_EQ("one ", textfield_->GetSelectedText());
+  SendWordEvent(ui::VKEY_RIGHT, true);
   EXPECT_STR_EQ("one two ", textfield_->GetSelectedText());
-#else  // Non-Windows: select word right does NOT include space/punctuation.
+#else  // Non-Windows breaks on word ends and does NOT include spaces.
   EXPECT_STR_EQ("one two", textfield_->GetSelectedText());
 #endif
   SendWordEvent(ui::VKEY_RIGHT, true);
@@ -1441,6 +1458,9 @@ TEST_F(TextfieldTest, CursorMovement) {
   // Ctrl+Right, then Ctrl+Left should move the cursor to the beginning of the
   // first word.
   SendWordEvent(ui::VKEY_RIGHT, shift);
+#if defined(OS_WIN)  // Windows breaks on word start, move further to pass "ne".
+  SendWordEvent(ui::VKEY_RIGHT, shift);
+#endif
   SendWordEvent(ui::VKEY_LEFT, shift);
   SendKeyEvent(ui::VKEY_O);
   EXPECT_STR_EQ(" one two", textfield_->text());
@@ -3214,18 +3234,18 @@ TEST_F(TextfieldTest, AccessiblePasswordTest) {
 
   ui::AXNodeData node_data_regular;
   textfield_->GetAccessibleNodeData(&node_data_regular);
-  EXPECT_EQ(ui::AX_ROLE_TEXT_FIELD, node_data_regular.role);
-  EXPECT_EQ(ASCIIToUTF16("password"),
-            node_data_regular.GetString16Attribute(ui::AX_ATTR_VALUE));
-  EXPECT_FALSE(node_data_regular.HasState(ui::AX_STATE_PROTECTED));
+  EXPECT_EQ(ax::mojom::Role::kTextField, node_data_regular.role);
+  EXPECT_EQ(ASCIIToUTF16("password"), node_data_regular.GetString16Attribute(
+                                          ax::mojom::StringAttribute::kValue));
+  EXPECT_FALSE(node_data_regular.HasState(ax::mojom::State::kProtected));
 
   textfield_->SetTextInputType(ui::TEXT_INPUT_TYPE_PASSWORD);
   ui::AXNodeData node_data_protected;
   textfield_->GetAccessibleNodeData(&node_data_protected);
-  EXPECT_EQ(ui::AX_ROLE_TEXT_FIELD, node_data_protected.role);
-  EXPECT_EQ(UTF8ToUTF16("••••••••"),
-            node_data_protected.GetString16Attribute(ui::AX_ATTR_VALUE));
-  EXPECT_TRUE(node_data_protected.HasState(ui::AX_STATE_PROTECTED));
+  EXPECT_EQ(ax::mojom::Role::kTextField, node_data_protected.role);
+  EXPECT_EQ(UTF8ToUTF16("••••••••"), node_data_protected.GetString16Attribute(
+                                         ax::mojom::StringAttribute::kValue));
+  EXPECT_TRUE(node_data_protected.HasState(ax::mojom::State::kProtected));
 }
 
 // Verify that cursor visibility is controlled by SetCursorEnabled.
@@ -3399,5 +3419,66 @@ TEST_F(TextfieldTest, SendingDeletePreservesShiftFlag) {
   SendKeyPress(ui::VKEY_DELETE, ui::EF_SHIFT_DOWN);
   EXPECT_EQ(ui::EF_SHIFT_DOWN, textfield_->event_flags());
 }
+
+#if defined(OS_MACOSX)
+// Tests to see if the BiDi submenu items are updated correctly when the
+// textfield's text direction is changed.
+TEST_F(TextfieldTest, TextServicesContextMenuTextDirectionTest) {
+  InitTextfield();
+  EXPECT_TRUE(textfield_->context_menu_controller());
+
+  EXPECT_TRUE(GetContextMenuModel());
+
+  textfield_->ChangeTextDirectionAndLayoutAlignment(
+      base::i18n::TextDirection::LEFT_TO_RIGHT);
+  test_api_->UpdateContextMenu();
+
+  EXPECT_FALSE(test_api_->IsTextDirectionCheckedInContextMenu(
+      base::i18n::TextDirection::UNKNOWN_DIRECTION));
+  EXPECT_TRUE(test_api_->IsTextDirectionCheckedInContextMenu(
+      base::i18n::TextDirection::LEFT_TO_RIGHT));
+  EXPECT_FALSE(test_api_->IsTextDirectionCheckedInContextMenu(
+      base::i18n::TextDirection::RIGHT_TO_LEFT));
+
+  textfield_->ChangeTextDirectionAndLayoutAlignment(
+      base::i18n::TextDirection::RIGHT_TO_LEFT);
+  test_api_->UpdateContextMenu();
+
+  EXPECT_FALSE(test_api_->IsTextDirectionCheckedInContextMenu(
+      base::i18n::TextDirection::UNKNOWN_DIRECTION));
+  EXPECT_FALSE(test_api_->IsTextDirectionCheckedInContextMenu(
+      base::i18n::TextDirection::LEFT_TO_RIGHT));
+  EXPECT_TRUE(test_api_->IsTextDirectionCheckedInContextMenu(
+      base::i18n::TextDirection::RIGHT_TO_LEFT));
+}
+
+// Tests to see if the look up item is updated when the textfield's selected
+// text has changed.
+TEST_F(TextfieldTest, LookUpItemUpdate) {
+  InitTextfield();
+  EXPECT_TRUE(textfield_->context_menu_controller());
+
+  const base::string16 kTextOne = ASCIIToUTF16("crake");
+  textfield_->SetText(kTextOne);
+  textfield_->SelectAll(false);
+
+  ui::MenuModel* context_menu = GetContextMenuModel();
+  EXPECT_TRUE(context_menu);
+  EXPECT_GT(context_menu->GetItemCount(), 0);
+  EXPECT_EQ(context_menu->GetLabelAt(0),
+            l10n_util::GetStringFUTF16(IDS_CONTENT_CONTEXT_LOOK_UP, kTextOne));
+
+  const base::string16 kTextTwo = ASCIIToUTF16("rail");
+  textfield_->SetText(kTextTwo);
+  textfield_->SelectAll(false);
+
+  context_menu = GetContextMenuModel();
+  EXPECT_TRUE(context_menu);
+  EXPECT_GT(context_menu->GetItemCount(), 0);
+  EXPECT_EQ(context_menu->GetLabelAt(0),
+            l10n_util::GetStringFUTF16(IDS_CONTENT_CONTEXT_LOOK_UP, kTextTwo));
+}
+
+#endif  // defined(OS_MACOSX)
 
 }  // namespace views

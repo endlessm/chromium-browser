@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">ที่อยู่ 1</translation>
 <translation id="1545749641540134597">สแกนโค้ด QR</translation>
 <translation id="1580783302095112590">ส่งอีเมลแล้ว</translation>
+<translation id="1582732959743469162">การดำเนินการนี้จะหยุดการดาวน์โหลดที่ดำเนินอยู่ทั้งหมด</translation>
 <translation id="1612730193129642006">แสดงตารางแท็บ</translation>
+<translation id="1644574205037202324">ประวัติการเข้าชม</translation>
 <translation id="1646446875146297738">การเปิดใช้ "ไม่ติดตาม" จะทำให้คำขอหนึ่งๆ ไปรวมอยู่กับการรับส่งข้อมูลในการเรียกดูของคุณ ผลที่จะเกิดขึ้นขึ้นอยู่กับว่าเว็บไซต์ตอบสนองต่อคำขอหรือไม่และคำขอนั้นถูกตีความอย่างไร ตัวอย่างเช่น บางเว็บไซต์อาจตอบสนองต่อคำขอนี้ด้วยการแสดงโฆษณาที่ไม่ได้อยู่บนเว็บไซต์อื่นๆ ที่คุณเคยเยี่ยมชมให้คุณเห็น เว็บไซต์จำนวนมากจะยังคงเก็บรวบรวมและใช้ข้อมูลการท่องเว็บของคุณไว้ เพื่อปรับปรุงการรักษาความปลอดภัย จัดเตรียมเนื้อหา บริการ โฆษณา และคำแนะนำบนเว็บไซต์ รวมทั้งเพื่อสร้างสถิติการรายงาน เป็นต้น <ph name="BEGIN_LINK" />เรียนรู้เพิ่มเติม<ph name="END_LINK" /></translation>
 <translation id="1657011748321897393">การแชร์ล้มเหลวเนื่องจากคุณไม่ได้เชื่อมต่อเครือข่าย</translation>
 <translation id="165877110639533037">ไม่มีแท็บที่เปิดไว้</translation>
@@ -121,6 +123,7 @@
 <translation id="3175081911749765310">บริการทางเว็บ</translation>
 <translation id="3207960819495026254">บุ๊กมาร์กแล้ว</translation>
 <translation id="3210163015918861891">ซิงค์ปิดอยู่</translation>
+<translation id="3224641773458703735">หากต้องการส่งออกรหัสผ่าน คุณต้องตั้งรหัสผ่านในอุปกรณ์ก่อน</translation>
 <translation id="3240426699337459095">คัดลอกลิงก์แล้ว</translation>
 <translation id="3244271242291266297">ดด</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> จาก <ph name="NUM_SUGGESTIONS" /></translation>
@@ -151,6 +154,7 @@
 <translation id="3771033907050503522">แท็บที่ไม่ระบุตัวตน</translation>
 <translation id="3779810277399252432">ไม่มีการเชื่อมต่ออินเทอร์เน็ต</translation>
 <translation id="3783017676699494206">บันทึกภาพ</translation>
+<translation id="3789841737615482174">ติดตั้ง</translation>
 <translation id="385051799172605136">กลับ</translation>
 <translation id="3897092660631435901">เมนู</translation>
 <translation id="3928666092801078803">รวมข้อมูลของฉัน</translation>
@@ -218,7 +222,6 @@
 <translation id="5300589172476337783">แสดง</translation>
 <translation id="5317780077021120954">บันทึก</translation>
 <translation id="5327248766486351172">ชื่อ</translation>
-<translation id="533632423981297619">คนที่ดูไฟล์ที่ส่งออกได้จะเห็นรหัสผ่านของคุณ อย่าแชร์ไฟล์นี้กับผู้อื่น</translation>
 <translation id="5388358297987318779">เปิดภาพ</translation>
 <translation id="5409365236829784218">ไม่ได้ติดตั้งแอปพลิเคชันที่สามารถเปิดไฟล์นี้</translation>
 <translation id="5433691172869980887">คัดลอกชื่อผู้ใช้แล้ว</translation>
@@ -247,6 +250,7 @@
 <translation id="5871497086027727873">ย้ายแล้ว 1 รายการ</translation>
 <translation id="5911030830365207728">Google แปลภาษา</translation>
 <translation id="5916664084637901428">เปิด</translation>
+<translation id="5938160824633642847">พื้นที่ในอุปกรณ์เกือบเต็มแล้ว เพิ่มพื้นที่ว่างแล้วลองอีกครั้ง</translation>
 <translation id="5948291296578561264">ช่วยให้คุณบันทึกรูปภาพในคลังภาพได้</translation>
 <translation id="5955891643922670672">การดูเวอร์ชันออฟไลน์</translation>
 <translation id="5964480694698977962">สร้างแท็บที่ไม่ระบุตัวตนใหม่</translation>
@@ -278,7 +282,9 @@
 <translation id="633809752005859102">มีบางสิ่งผิดปกติอย่างมาก เราจะแก้ไขปัญหานี้</translation>
 <translation id="6342069812937806050">เพิ่งเสร็จ</translation>
 <translation id="6344783595350022745">ข้อความที่ชัดเจน</translation>
+<translation id="6346549652287021269">เริ่มดาวน์โหลดใหม่ใช่ไหม</translation>
 <translation id="6362362396625799311">ไม่มีแท็บที่ไม่ระบุตัวตน</translation>
+<translation id="6374469231428023295">ลองอีกครั้ง</translation>
 <translation id="6380866119319257197">หากคุณลืมรหัสผ่านหรือต้องการเปลี่ยนการตั้งค่านี้ โปรด<ph name="BEGIN_LINK" />รีเซ็ตการซิงค์<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">ชื่อบนบัตร</translation>
 <translation id="6406506848690869874">การซิงค์ข้อมูล</translation>
@@ -287,6 +293,7 @@
 
 ข้อมูลของคุณได้รับการเข้ารหัสด้วยรหัสผ่านการซิงค์เมื่อวันที่ <ph name="TIME" /> โปรดป้อนรหัสผ่านเพื่อเริ่มซิงค์</translation>
 <translation id="6418346271604475326">กำลังเตรียม PDF</translation>
+<translation id="6434591244308415567">เกิดข้อผิดพลาด โปรดลองอีกครั้งในภายหลัง</translation>
 <translation id="6445051938772793705">ประเทศ</translation>
 <translation id="6445981559479772097">ส่งข้อความแล้ว</translation>
 <translation id="6464071786529933911">เปิดในแท็บที่ไม่ระบุตัวตนใหม่</translation>
@@ -297,6 +304,7 @@
 <translation id="6657585470893396449">รหัสผ่าน</translation>
 <translation id="667999046851023355">เอกสาร</translation>
 <translation id="6713747756340119864">Google Apps</translation>
+<translation id="6730682669179532099">ส่งออกรหัสผ่านไม่ได้</translation>
 <translation id="6762156594045689028">หากต้องการเปลี่ยนการตั้งค่านี้ โปรด<ph name="BEGIN_LINK" />รีเซ็ตการซิงค์<ph name="END_LINK" /></translation>
 <translation id="6780034285637185932">รหัสไปรษณีย์</translation>
 <translation id="6785453220513215166">กำลังส่งรายงานข้อขัดข้อง...</translation>
@@ -306,13 +314,16 @@
 <translation id="681368974849482173">สร้างรายการแล้ว</translation>
 <translation id="6896758677409633944">คัดลอก</translation>
 <translation id="6903907808598579934">เปิดการซิงค์</translation>
+<translation id="6914783257214138813">คนที่ดูไฟล์ที่ส่งออกได้จะเห็นรหัสผ่านของคุณ</translation>
 <translation id="6945221475159498467">เลือก</translation>
 <translation id="6973630695168034713">โฟลเดอร์</translation>
 <translation id="7004499039102548441">แท็บล่าสุด</translation>
 <translation id="7006788746334555276">การตั้งค่าเนื้อหา</translation>
+<translation id="7029809446516969842">รหัสผ่าน</translation>
 <translation id="7031882061095297553">ซิงค์กับ</translation>
 <translation id="7053983685419859001">บล็อก</translation>
 <translation id="7062545763355031412">ยอมรับและเปลี่ยนบัญชี</translation>
+<translation id="7102005569666697658">กำลังดาวน์โหลด… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">ซ่อน</translation>
 <translation id="7133798577887235672">ชื่อและนามสกุล</translation>
 <translation id="7136892417564438900">กล้องถ่ายรูปไม่พร้อมใช้งาน</translation>
@@ -323,6 +334,7 @@
 <translation id="7203585745079012652">พูดคำตอบกลับ</translation>
 <translation id="722055596168483966">ปรับเปลี่ยนบริการ Google ในแบบของคุณ</translation>
 <translation id="7272437679830969316">ยืนยันตัวตนของคุณไม่ได้ คัดลอกรหัสผ่านไม่สำเร็จ</translation>
+<translation id="7291368939935408496">กำลังเตรียมรหัสผ่าน...</translation>
 <translation id="7336264872878993241">ดาวน์โหลดแล้ว <ph name="PERCENT" /> เปอร์เซ็นต์</translation>
 <translation id="7346909386216857016">รับทราบ</translation>
 <translation id="7400418766976504921">URL</translation>
@@ -347,6 +359,7 @@
 <translation id="7769602470925380267">ยอมรับและออกจากระบบ</translation>
 <translation id="7772032839648071052">ยืนยันข้อความรหัสผ่าน</translation>
 <translation id="780301667611848630">ไม่ ขอบคุณ</translation>
+<translation id="7856733331829174190">ดาวน์โหลดไม่ได้</translation>
 <translation id="7859704718976024901">ประวัติการเข้าชม</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">ส่งออกรหัสผ่าน...</translation>
@@ -407,6 +420,7 @@
 <translation id="9083392325882095631">1 รายการ</translation>
 <translation id="9100610230175265781">ต้องระบุรหัสผ่าน</translation>
 <translation id="9148126808321036104">ลงชื่อเข้าใช้อีกครั้ง</translation>
+<translation id="915371508759614899">ยกเลิกการดาวน์โหลดใช่ไหม</translation>
 <translation id="9157836665414082580">ระงับกล่องโต้ตอบ</translation>
 <translation id="9188680907066685419">ออกจากระบบบัญชีที่มีการจัดการ</translation>
 <translation id="9203116392574189331">แฮนด์ออฟ</translation>

@@ -14,11 +14,6 @@ def CommonChecks(input_api, output_api):
       name='run_content_test_gpu_unittests', cmd=[
         input_api.python_executable, 'run_unittests.py', 'gpu_tests'],
       kwargs={}, message=output_api.PresubmitError),
-
-    input_api.Command(
-      name='trigger_gpu_test_unittest', cmd=[
-        input_api.python_executable, 'trigger_gpu_test_unittest.py'],
-      kwargs={}, message=output_api.PresubmitError),
   ]
   return input_api.RunTests(commands)
 

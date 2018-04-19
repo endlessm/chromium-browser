@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
@@ -189,8 +190,8 @@ class ModelTypeControllerTest : public testing::Test, public FakeSyncClient {
   // Runs any tasks posted on the model thread.
   void PumpModelThread() {
     base::RunLoop run_loop;
-    model_thread_.task_runner()->PostTaskAndReply(
-        FROM_HERE, base::Bind(&base::DoNothing), run_loop.QuitClosure());
+    model_thread_.task_runner()->PostTaskAndReply(FROM_HERE, base::DoNothing(),
+                                                  run_loop.QuitClosure());
     run_loop.Run();
   }
 

@@ -34,7 +34,7 @@
 #include "content/public/common/push_messaging_status.mojom.h"
 #include "content/public/common/url_constants.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
-#include "third_party/WebKit/common/page/page_visibility_state.mojom.h"
+#include "third_party/WebKit/public/mojom/page/page_visibility_state.mojom.h"
 #include "third_party/WebKit/public/platform/modules/budget_service/budget_service.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
@@ -188,7 +188,7 @@ void PushMessagingNotificationManager::DidGetNotificationsFromDatabase(
       platform_notification_service->OnPersistentNotificationClose(
           profile_, notification_database_data.notification_id,
           notification_database_data.origin, false /* by_user */,
-          base::BindOnce(&base::DoNothing));
+          base::DoNothing());
 
       break;
     }

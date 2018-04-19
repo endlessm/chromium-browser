@@ -25,7 +25,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/tab_modal_confirm_dialog.h"
 #include "chrome/browser/ui/tab_modal_confirm_dialog_delegate.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/component_updater/component_updater_service.h"
@@ -109,6 +109,7 @@ class PluginObserver::ComponentObserver
         plugin_renderer_interface_->UpdateDownloading();
         break;
       case Events::COMPONENT_NOT_UPDATED:
+      case Events::COMPONENT_UPDATE_ERROR:
         plugin_renderer_interface_->UpdateFailure();
         observer_->RemoveComponentObserver(this);
         break;
@@ -204,7 +205,7 @@ void PluginObserver::BlockedOutdatedPlugin(
   PluginInstaller* installer = NULL;
   std::unique_ptr<PluginMetadata> plugin;
   if (finder->FindPluginWithIdentifier(identifier, &installer, &plugin)) {
-    auto plugin_placeholder = base::MakeUnique<PluginPlaceholderHost>(
+    auto plugin_placeholder = std::make_unique<PluginPlaceholderHost>(
         this, plugin->name(), installer, std::move(plugin_renderer));
     plugin_placeholders_[plugin_placeholder.get()] =
         std::move(plugin_placeholder);
@@ -220,7 +221,7 @@ void PluginObserver::BlockedOutdatedPlugin(
 void PluginObserver::BlockedComponentUpdatedPlugin(
     chrome::mojom::PluginRendererPtr plugin_renderer,
     const std::string& identifier) {
-  auto component_observer = base::MakeUnique<ComponentObserver>(
+  auto component_observer = std::make_unique<ComponentObserver>(
       this, identifier, std::move(plugin_renderer));
   component_observers_[component_observer.get()] =
       std::move(component_observer);

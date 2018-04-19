@@ -6,10 +6,12 @@
 
 #include "base/macros.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ui/autofill/password_generation_popup_controller.h"
 #include "chrome/browser/ui/autofill/popup_constants.h"
 #include "chrome/browser/ui/views/harmony/chrome_typography.h"
+#include "chrome/browser/ui/views_mode_controller.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -202,7 +204,7 @@ void PasswordGenerationPopupViewViews::PasswordSelectionUpdated() {
     return;
 
   if (controller_->password_selected())
-    NotifyAccessibilityEvent(ui::AX_EVENT_SELECTION, true);
+    NotifyAccessibilityEvent(ax::mojom::Event::kSelection, true);
 
   password_view_->SetBackground(views::CreateThemedSolidBackground(
       password_view_,
@@ -261,6 +263,10 @@ bool PasswordGenerationPopupViewViews::IsPointInPasswordBounds(
 
 PasswordGenerationPopupView* PasswordGenerationPopupView::Create(
     PasswordGenerationPopupController* controller) {
+#if defined(OS_MACOSX)
+  if (views_mode_controller::IsViewsBrowserCocoa())
+    return CreateCocoa(controller);
+#endif
   views::Widget* observing_widget =
       views::Widget::GetTopLevelWidgetForNativeView(
           controller->container_view());
@@ -276,7 +282,7 @@ PasswordGenerationPopupView* PasswordGenerationPopupView::Create(
 void PasswordGenerationPopupViewViews::GetAccessibleNodeData(
     ui::AXNodeData* node_data) {
   node_data->SetName(controller_->SuggestedText());
-  node_data->role = ui::AX_ROLE_MENU_ITEM;
+  node_data->role = ax::mojom::Role::kMenuItem;
 }
 
 }  // namespace autofill

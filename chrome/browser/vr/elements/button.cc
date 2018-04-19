@@ -25,14 +25,11 @@ constexpr float kDefaultHoverOffsetDMM = 0.048f;
 
 Button::Button(base::RepeatingCallback<void()> click_handler)
     : click_handler_(click_handler), hover_offset_(kDefaultHoverOffsetDMM) {
-  set_hit_testable(false);
-
   auto background = std::make_unique<Rect>();
   background->SetType(kTypeButtonBackground);
   background->set_bubble_events(true);
   background->set_contributes_to_parent_bounds(false);
   background->SetTransitionedProperties({TRANSFORM});
-  background->set_hit_testable(false);
   background_ = background.get();
   AddChild(std::move(background));
 
@@ -134,7 +131,7 @@ void Button::OnSetCornerRadii(const CornerRadii& radii) {
 
 void Button::NotifyClientSizeAnimated(const gfx::SizeF& size,
                                       int target_property_id,
-                                      cc::Animation* animation) {
+                                      cc::KeyframeModel* animation) {
   if (target_property_id == BOUNDS) {
     background_->SetSize(size.width(), size.height());
     hit_plane_->SetSize(size.width(), size.height());

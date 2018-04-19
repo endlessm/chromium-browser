@@ -298,7 +298,8 @@ bool IsInternalURL(const GURL& url) {
 }
 
 - (void)showWindow:(id)sender {
-  BrowserWindowController* controller = [[self parentWindow] windowController];
+  BrowserWindowController* controller = [BrowserWindowController
+      browserWindowControllerForWindow:[self parentWindow]];
   LocationBarViewMac* locationBar = [controller locationBarBridge];
   if (locationBar) {
     decoration_ = locationBar->page_info_decoration();
@@ -1228,8 +1229,8 @@ bool IsInternalURL(const GURL& url) {
       [label setFrameOrigin:point];
     }
 
-    label.textColor = skia::SkColorToSRGBNSColor(
-        PageInfoUI::GetPermissionDecisionTextColor());
+    label.textColor =
+        skia::SkColorToSRGBNSColor(PageInfoUI::GetSecondaryTextColor());
     point.y += NSHeight(label.frame);
   }
 
@@ -1500,10 +1501,11 @@ void PageInfoUIBridge::DidFinishNavigation(
 void ShowPageInfoDialogImpl(Browser* browser,
                             content::WebContents* web_contents,
                             const GURL& virtual_url,
-                            const security_state::SecurityInfo& security_info) {
+                            const security_state::SecurityInfo& security_info,
+                            bubble_anchor_util::Anchor anchor) {
   if (chrome::ShowAllDialogsWithViewsToolkit()) {
     chrome::ShowPageInfoBubbleViews(browser, web_contents, virtual_url,
-                                    security_info);
+                                    security_info, anchor);
     return;
   }
 

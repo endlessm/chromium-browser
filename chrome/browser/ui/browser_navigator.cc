@@ -18,6 +18,7 @@
 #include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/prerender/prerender_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/renderer_host/chrome_navigation_ui_data.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/task_manager/web_contents_tags.h"
 #include "chrome/browser/ui/browser.h"
@@ -150,7 +151,7 @@ std::pair<Browser*, int> GetBrowserAndTabForDisposition(
         }
       }
 #endif
-    // fall through
+      FALLTHROUGH;
     case WindowOpenDisposition::CURRENT_TAB:
       if (params.browser)
         return {params.browser, -1};
@@ -162,7 +163,7 @@ std::pair<Browser*, int> GetBrowserAndTabForDisposition(
       if (index >= 0)
         return {params.browser, index};
     }
-    // fall through
+      FALLTHROUGH;
     case WindowOpenDisposition::NEW_FOREGROUND_TAB:
     case WindowOpenDisposition::NEW_BACKGROUND_TAB:
       // See if we can open the tab in the window this navigator is bound to.
@@ -254,7 +255,7 @@ void NormalizeDisposition(NavigateParams* params) {
       // automatically.
       if (params->window_action == NavigateParams::NO_ACTION)
         params->window_action = NavigateParams::SHOW_WINDOW;
-      // Fall-through.
+      FALLTHROUGH;
     }
     case WindowOpenDisposition::NEW_FOREGROUND_TAB:
     case WindowOpenDisposition::SINGLETON_TAB:
@@ -301,6 +302,15 @@ void LoadURLInContents(WebContents* target_contents,
   load_url_params.is_renderer_initiated = params->is_renderer_initiated;
   load_url_params.started_from_context_menu = params->started_from_context_menu;
   load_url_params.suggested_filename = params->suggested_filename;
+  load_url_params.has_user_gesture = params->user_gesture;
+
+  // |frame_tree_node_id| is kNoFrameTreeNodeId for main frame navigations.
+  if (params->frame_tree_node_id ==
+      content::RenderFrameHost::kNoFrameTreeNodeId) {
+    load_url_params.navigation_ui_data =
+        ChromeNavigationUIData::CreateForMainFrameNavigation(
+            target_contents, params->disposition);
+  }
 
   if (params->uses_post) {
     load_url_params.load_type = NavigationController::LOAD_TYPE_HTTP_POST;
@@ -699,8 +709,7 @@ bool IsURLAllowedInIncognito(const GURL& url,
   // chrome://extensions is on the list because it redirects to
   // chrome://settings.
   if (url.scheme() == content::kChromeUIScheme &&
-      (url.host_piece() == chrome::kChromeUIDownloadInternalsHost ||
-       url.host_piece() == chrome::kChromeUISettingsHost ||
+      (url.host_piece() == chrome::kChromeUISettingsHost ||
        url.host_piece() == chrome::kChromeUIHelpHost ||
        url.host_piece() == chrome::kChromeUIHistoryHost ||
        url.host_piece() == chrome::kChromeUIExtensionsHost ||

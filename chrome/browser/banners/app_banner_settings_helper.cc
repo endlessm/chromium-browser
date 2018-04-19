@@ -71,18 +71,18 @@ double gTotalEngagementToTrigger = kDefaultTotalEngagementToTrigger;
 unsigned int gDaysAfterDismissedToShow = kMinimumBannerBlockedToBannerShown;
 unsigned int gDaysAfterIgnoredToShow = kMinimumDaysBetweenBannerShows;
 
-std::unique_ptr<base::DictionaryValue> GetOriginDict(
+std::unique_ptr<base::DictionaryValue> GetOriginAppBannerData(
     HostContentSettingsMap* settings,
     const GURL& origin_url) {
   if (!settings)
-    return base::MakeUnique<base::DictionaryValue>();
+    return std::make_unique<base::DictionaryValue>();
 
   std::unique_ptr<base::DictionaryValue> dict =
       base::DictionaryValue::From(settings->GetWebsiteSetting(
           origin_url, origin_url, CONTENT_SETTINGS_TYPE_APP_BANNER,
           std::string(), NULL));
   if (!dict)
-    return base::MakeUnique<base::DictionaryValue>();
+    return std::make_unique<base::DictionaryValue>();
 
   return dict;
 }
@@ -223,7 +223,7 @@ void AppBannerSettingsHelper::RecordBannerEvent(
   HostContentSettingsMap* settings =
       HostContentSettingsMapFactory::GetForProfile(profile);
   std::unique_ptr<base::DictionaryValue> origin_dict =
-      GetOriginDict(settings, origin_url);
+      GetOriginAppBannerData(settings, origin_url);
   if (!origin_dict)
     return;
 
@@ -306,7 +306,7 @@ base::Time AppBannerSettingsHelper::GetSingleBannerEvent(
   HostContentSettingsMap* settings =
       HostContentSettingsMapFactory::GetForProfile(profile);
   std::unique_ptr<base::DictionaryValue> origin_dict =
-      GetOriginDict(settings, origin_url);
+      GetOriginAppBannerData(settings, origin_url);
 
   if (!origin_dict)
     return base::Time();
@@ -352,7 +352,7 @@ bool AppBannerSettingsHelper::WasLaunchedRecently(Profile* profile,
   HostContentSettingsMap* settings =
       HostContentSettingsMapFactory::GetForProfile(profile);
   std::unique_ptr<base::DictionaryValue> origin_dict =
-      GetOriginDict(settings, origin_url);
+      GetOriginAppBannerData(settings, origin_url);
 
   if (!origin_dict)
     return false;
@@ -418,7 +418,7 @@ AppBannerSettingsHelper::GetHomescreenLanguageOption() {
   if (param.empty() || !base::StringToUint(param, &language_option) ||
       language_option < LANGUAGE_OPTION_MIN ||
       language_option > LANGUAGE_OPTION_MAX) {
-    return LANGUAGE_OPTION_ADD;
+    return LANGUAGE_OPTION_DEFAULT;
   }
 
   return static_cast<LanguageOption>(language_option);

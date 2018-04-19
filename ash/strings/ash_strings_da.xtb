@@ -23,8 +23,10 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" /> (HDMI/DP)</translation>
 <translation id="1510238584712386396">Appliste</translation>
 <translation id="1525508553941733066">AFVIS</translation>
+<translation id="1537254971476575106">Forstørrelse af fuld skærm</translation>
 <translation id="15373452373711364">Stor musemarkør</translation>
 <translation id="1550523713251050646">Klik for at se flere muligheder</translation>
+<translation id="1608626060424371292">Fjern denne bruger</translation>
 <translation id="1621499497873603021">Tid tilbage, indtil batteriet er tomt, <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">Din adgangskode kunne stadig ikke bekræftes. Bemærk! Hvis du har ændret din adgangskode for nylig, anvendes din nye adgangskode først, når du har logget ud. Du skal bruge den gamle adgangskode her.</translation>
 <translation id="1677472565718498478"><ph name="TIME" /> tilbage</translation>
@@ -43,12 +45,15 @@
 <translation id="1951012854035635156">Assistent</translation>
 <translation id="1957803754585243749">0°</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
+<translation id="1995660704900986789">Sluk</translation>
 <translation id="2012624427112548395">Ctrl+Søg+H</translation>
 <translation id="2049639323467105390">Denne enhed administreres af <ph name="DOMAIN" />.</translation>
 <translation id="2050339315714019657">Stående</translation>
 <translation id="2067602449040652523">Lysstyrke for tastatur</translation>
+<translation id="2081529251031312395">$1 kan stadig logge ind senere.</translation>
 <translation id="2122028596993374965">Stop med at caste <ph name="TAB_NAME" /> til <ph name="RECEIVER_NAME" /></translation>
 <translation id="2127372758936585790">Oplader ved lav kraft</translation>
+<translation id="2135456203358955318">Lup for fast visning</translation>
 <translation id="2144487987174258011">Genstart for at opdatere Adobe Flash Player</translation>
 <translation id="2208323208084708176">Samlet skrivebordstilstand</translation>
 <translation id="2220572644011485463">Pin- eller adgangskode</translation>
@@ -73,7 +78,6 @@
 <translation id="2653659639078652383">Indsend</translation>
 <translation id="2675319268637823299">En administrator har afvist samlet login fra flere konti for <ph name="USER_EMAIL" />.
     Alle brugere skal logge ud for at fortsætte.</translation>
-<translation id="2700058918926273959">Sessionen slutter om <ph name="SESSION_TIME_REMAINING" />. Du vil blive logget af.</translation>
 <translation id="2727977024730340865">Tilsluttet en oplader med lav kraft. Batteriopladningen er muligvis ikke pålidelig.</translation>
 <translation id="2761704814324807722">Statusbakke, tid <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581">Genopretter forbindelsen til <ph name="NAME" /></translation>
@@ -83,6 +87,7 @@
 <translation id="2844169650293029770">USB-C-enhed (porten foran i venstre side)</translation>
 <translation id="2865888419503095837">Netværksoplysninger</translation>
 <translation id="2872961005593481000">Sluk</translation>
+<translation id="2878884018241093801">Der er ingen nye elementer</translation>
 <translation id="2903844815300039659">Der er forbindelse til <ph name="NAME" />, <ph name="STRENGTH" /></translation>
 <translation id="2911940648265863620">Du deler din skærm</translation>
 <translation id="2942516765047364088">Hyldeplacering</translation>
@@ -109,7 +114,6 @@
 <translation id="3413817803639110246">Der er intet at se endnu</translation>
 <translation id="3445925074670675829">USB-C-enhed</translation>
 <translation id="3465566417615315331">Klik på dit foto</translation>
-<translation id="3473479545200714844">Skærmforstørrer</translation>
 <translation id="3477079411857374384">Ctrl-Shift-mellemrumstast</translation>
 <translation id="3510164367642747937">Fremhæv musemarkør</translation>
 <translation id="3513798432020909783">Kontoen administreres af <ph name="MANAGER_EMAIL" /></translation>
@@ -131,6 +135,7 @@
 <translation id="3891340733213178823">Tryk på Ctrl+Shift+Q to gange for at logge ud.</translation>
 <translation id="3893630138897523026">ChromeVox (talefeedback)</translation>
 <translation id="3899995891769452915">Indtaling</translation>
+<translation id="3900355044994618856">Din session slutter om <ph name="SESSION_TIME_REMAINING" /></translation>
 <translation id="3901991538546252627">Opretter forbindelse til <ph name="NAME" /></translation>
 <translation id="394485226368336402">Lydindstillinger</translation>
 <translation id="397105322502079400">Beregner...</translation>
@@ -139,6 +144,7 @@
 <translation id="4072264167173457037">Middel signal</translation>
 <translation id="4279490309300973883">Spejling</translation>
 <translation id="4321179778687042513">ctrl</translation>
+<translation id="4331809312908958774">Chrome OS</translation>
 <translation id="4338109981321384717">Forstørrelsesglas</translation>
 <translation id="4351433414020964307">Assistenten indlæses...</translation>
 <translation id="4378551569595875038">Opretter forbindelse...</translation>
@@ -183,6 +189,7 @@
 <translation id="5744083938413354016">Tryk og træk</translation>
 <translation id="5777841717266010279">Vil du afslutte skærmdeling?</translation>
 <translation id="57838592816432529">Slå lyden fra</translation>
+<translation id="5820394555380036790">Chromium OS</translation>
 <translation id="5832805196449965646">Tilføj person</translation>
 <translation id="5860033963881614850">Fra</translation>
 <translation id="5895138241574237353">Genstart</translation>
@@ -206,6 +213,8 @@
 <translation id="607652042414456612">Din computer kan registreres af Bluetooth-enheder i nærheden, og den vil blive vist som "<ph name="NAME" />" med adressen <ph name="ADDRESS" /></translation>
 <translation id="6106745654298855237">Oplader <ph name="POWER_SOURCE" /></translation>
 <translation id="615957422585914272">Vis skærmtastatur</translation>
+<translation id="6164005077879661055">Alle filer og lokale data, der er knyttet til den administrerede bruger, 
+slettes permanent, når den administrerede bruger fjernes. Besøgte websites og indstillinger for denne administrerede bruger er muligvis stadig synlige for administratoren på <ph name="MANAGEMENT_URL" />.</translation>
 <translation id="6165508094623778733">Flere oplysninger</translation>
 <translation id="6267036997247669271"><ph name="NAME" />: Aktiverer...</translation>
 <translation id="6284232397434400372">Opløsningen blev ændret</translation>
@@ -240,6 +249,7 @@ Brug kun denne funktion til konti, du har tillid til.</translation>
 <translation id="6857811139397017780">Aktivér <ph name="NETWORKSERVICE" /></translation>
 <translation id="6911468394164995108">Vælg et andet...</translation>
 <translation id="6981982820502123353">Hjælpefunktioner</translation>
+<translation id="698231206551913481">Alle filer og lokale data, der er knyttet til denne bruger, slettes permanent, når brugeren fjernes.</translation>
 <translation id="7029814467594812963">Afslut session</translation>
 <translation id="7034339000180558234">Caster <ph name="TAB_NAME" /> til <ph name="RECEIVER_NAME" /></translation>
 <translation id="7052914147756339792">Vælg baggrund...</translation>
@@ -247,6 +257,7 @@ Brug kun denne funktion til konti, du har tillid til.</translation>
 <translation id="7066646422045619941">Din administrator har deaktiveret dette netværk.</translation>
 <translation id="7067196344162293536">Automatisk rotering</translation>
 <translation id="7098389117866926363">USB-C-enhed (porten bagpå i venstre side)</translation>
+<translation id="7131634465328662194">Du logges automatisk ud.</translation>
 <translation id="7165278925115064263">Alt+Shift+K</translation>
 <translation id="7168224885072002358">Fortryder og vender tilbage til den gamle opløsning om <ph name="TIMEOUT_SECONDS" /> sekunder.</translation>
 <translation id="7256634071279256947">Mikrofon på bagsiden</translation>
@@ -303,6 +314,7 @@ Brug kun denne funktion til konti, du har tillid til.</translation>
 <translation id="8484916590211895857"><ph name="NAME" />: Genopretter forbindelsen...</translation>
 <translation id="8517041960877371778">Din <ph name="DEVICE_TYPE" /> kan muligvis ikke oplades, mens den er tændt.</translation>
 <translation id="8639760480004882931"><ph name="PERCENTAGE" /> tilbage</translation>
+<translation id="8649101189709089199">Tekstoplæsning</translation>
 <translation id="8652175077544655965">Luk indstillinger</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">Oplader med lav kraft er tilsluttet</translation>
@@ -312,6 +324,7 @@ Brug kun denne funktion til konti, du har tillid til.</translation>
 Efterfølgende underretninger, vinduer og dialogbokse kan blive delt mellem skriveborde.</translation>
 <translation id="8825534185036233643">Spejling med mere end to skærme understøttes ikke.</translation>
 <translation id="8828714802988429505">90°</translation>
+<translation id="8841375032071747811">Knappen Tilbage</translation>
 <translation id="8850991929411075241">Søg+Esc</translation>
 <translation id="8870509716567206129">Appen understøtter ikke delt skærm.</translation>
 <translation id="8878886163241303700">Udvider skærm</translation>

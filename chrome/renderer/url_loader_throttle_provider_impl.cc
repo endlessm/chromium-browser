@@ -13,12 +13,14 @@
 #include "chrome/renderer/chrome_content_renderer_client.h"
 #include "chrome/renderer/prerender/prerender_dispatcher.h"
 #include "chrome/renderer/prerender/prerender_helper.h"
+#include "components/safe_browsing/features.h"
 #include "components/safe_browsing/renderer/renderer_url_loader_throttle.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/service_names.mojom.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/render_view.h"
+#include "services/network/public/cpp/features.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 
@@ -49,7 +51,8 @@ URLLoaderThrottleProviderImpl::URLLoaderThrottleProviderImpl(
       chrome_content_renderer_client_(chrome_content_renderer_client) {
   DETACH_FROM_THREAD(thread_checker_);
 
-  if (base::FeatureList::IsEnabled(features::kNetworkService)) {
+  if (base::FeatureList::IsEnabled(network::features::kNetworkService) ||
+      base::FeatureList::IsEnabled(safe_browsing::kCheckByURLLoaderThrottle)) {
     content::RenderThread::Get()->GetConnector()->BindInterface(
         content::mojom::kBrowserServiceName,
         mojo::MakeRequest(&safe_browsing_info_));
@@ -70,7 +73,7 @@ URLLoaderThrottleProviderImpl::CreateThrottles(
   std::vector<std::unique_ptr<content::URLLoaderThrottle>> throttles;
 
   bool network_service_enabled =
-      base::FeatureList::IsEnabled(features::kNetworkService);
+      base::FeatureList::IsEnabled(network::features::kNetworkService);
   // Some throttles have already been added in the browser for frame resources.
   // Don't add them for frame requests.
   bool is_frame_resource = content::IsResourceTypeFrame(resource_type);
@@ -78,7 +81,10 @@ URLLoaderThrottleProviderImpl::CreateThrottles(
   DCHECK(!is_frame_resource ||
          type_ == content::URLLoaderThrottleProviderType::kFrame);
 
-  if (network_service_enabled && !is_frame_resource) {
+  if ((network_service_enabled ||
+       base::FeatureList::IsEnabled(
+           safe_browsing::kCheckByURLLoaderThrottle)) &&
+      !is_frame_resource) {
     if (safe_browsing_info_)
       safe_browsing_.Bind(std::move(safe_browsing_info_));
     throttles.push_back(

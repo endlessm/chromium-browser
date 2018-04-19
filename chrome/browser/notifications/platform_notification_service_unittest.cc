@@ -154,14 +154,14 @@ TEST_F(PlatformNotificationServiceTest, OnPersistentNotificationClick) {
   EXPECT_CALL(*mock_logger_, LogPersistentNotificationClickWithoutPermission());
   service()->OnPersistentNotificationClick(
       profile_, "jskdcjdslkcjlds", GURL("https://example.com/"), base::nullopt,
-      base::nullopt, base::BindOnce(&base::DoNothing));
+      base::nullopt, base::DoNothing());
 }
 
 TEST_F(PlatformNotificationServiceTest, OnPersistentNotificationClosedByUser) {
   EXPECT_CALL(*mock_logger_, LogPersistentNotificationClosedByUser());
   service()->OnPersistentNotificationClose(
       profile_, "some_random_id_123", GURL("https://example.com/"),
-      true /* by_user */, base::BindOnce(&base::DoNothing));
+      true /* by_user */, base::DoNothing());
 }
 
 TEST_F(PlatformNotificationServiceTest,
@@ -169,7 +169,7 @@ TEST_F(PlatformNotificationServiceTest,
   EXPECT_CALL(*mock_logger_, LogPersistentNotificationClosedProgrammatically());
   service()->OnPersistentNotificationClose(
       profile_, "some_random_id_738", GURL("https://example.com/"),
-      false /* by_user */, base::BindOnce(&base::DoNothing));
+      false /* by_user */, base::DoNothing());
 }
 
 TEST_F(PlatformNotificationServiceTest, DisplayNonPersistentPropertiesMatch) {
@@ -247,9 +247,9 @@ TEST_F(PlatformNotificationServiceTest, DisplayPersistentPropertiesMatch) {
   const auto& buttons = notification.buttons();
   ASSERT_EQ(2u, buttons.size());
   EXPECT_EQ("Button 1", base::UTF16ToUTF8(buttons[0].title));
-  EXPECT_EQ(message_center::ButtonType::BUTTON, buttons[0].type);
+  EXPECT_FALSE(buttons[0].placeholder);
   EXPECT_EQ("Button 2", base::UTF16ToUTF8(buttons[1].title));
-  EXPECT_EQ(message_center::ButtonType::TEXT, buttons[1].type);
+  EXPECT_TRUE(buttons[1].placeholder);
 }
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)

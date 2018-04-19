@@ -8,9 +8,11 @@
 
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/extensions/media_gallery_checkbox_view.h"
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
+#include "chrome/browser/ui/views_mode_controller.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/locale_settings.h"
 #include "components/constrained_window/constrained_window_views.h"
@@ -216,6 +218,10 @@ base::string16 MediaGalleriesDialogViews::GetWindowTitle() const {
   return controller_->GetHeader();
 }
 
+bool MediaGalleriesDialogViews::ShouldShowCloseButton() const {
+  return false;
+}
+
 void MediaGalleriesDialogViews::DeleteDelegate() {
   controller_->DialogFinished(accepted_);
 }
@@ -329,5 +335,9 @@ void MediaGalleriesDialogViews::OnMenuClosed() {
 // static
 MediaGalleriesDialog* MediaGalleriesDialog::Create(
     MediaGalleriesDialogController* controller) {
+#if defined(OS_MACOSX)
+  if (views_mode_controller::IsViewsBrowserCocoa())
+    return MediaGalleriesDialog::CreateCocoa(controller);
+#endif
   return new MediaGalleriesDialogViews(controller);
 }

@@ -18,8 +18,6 @@
 @class CastController;
 @class ExternalAppLauncher;
 @class FormInputAccessoryViewController;
-@class LegacyFullscreenController;
-@protocol LegacyFullscreenControllerDelegate;
 class GURL;
 @class OpenInController;
 @class OverscrollActionsController;
@@ -33,7 +31,6 @@ class GURL;
 @class Tab;
 @protocol TabHeadersDelegate;
 @class TabModel;
-@protocol FindInPageControllerDelegate;
 
 namespace ios {
 class ChromeBrowserState;
@@ -100,17 +97,6 @@ extern NSString* const kProxyPassthroughHeaderValue;
 @property(nonatomic, readonly) BOOL canGoForward;
 @property(nonatomic, weak) id<TabDelegate> delegate;
 @property(nonatomic, weak) id<TabHeadersDelegate> tabHeadersDelegate;
-@property(nonatomic, readonly) id<FindInPageControllerDelegate>
-    findInPageControllerDelegate;
-
-// Whether or not desktop user agent is used for the currently visible page.
-@property(nonatomic, readonly) BOOL usesDesktopUserAgent;
-
-// The delegate to use for the legacy fullscreen controller.  It should not be
-// set if the new fullscreen is enabled.
-// TODO(crbug.com/778823): Remove this property.
-@property(nonatomic, weak) id<LegacyFullscreenControllerDelegate>
-    legacyFullscreenControllerDelegate;
 
 @property(nonatomic, readonly)
     OverscrollActionsController* overscrollActionsController;
@@ -171,23 +157,16 @@ extern NSString* const kProxyPassthroughHeaderValue;
 // Updates the timestamp of the last time the tab is visited.
 - (void)updateLastVisitedTimestamp;
 
+// Called before capturing a snapshot for Tab.
+- (void)willUpdateSnapshot;
+
+// Whether or not desktop user agent is used for the currently visible page.
+@property(nonatomic, readonly) BOOL usesDesktopUserAgent;
+
 // Loads the original url of the last non-redirect item (including non-history
 // items). Used by request desktop/mobile site so that the updated user agent is
 // used.
 - (void)reloadWithUserAgentType:(web::UserAgentType)userAgentType;
-
-// Ensures the toolbar visibility matches |visible|.
-// TODO(crbug.com/778823): Remove this code.
-- (void)updateFullscreenWithToolbarVisible:(BOOL)visible;
-
-// Called when this tab is shown.
-- (void)wasShown;
-
-// Called when this tab is hidden.
-- (void)wasHidden;
-
-// Called before capturing a snapshot for Tab.
-- (void)willUpdateSnapshot;
 
 // Evaluates U2F result.
 - (void)evaluateU2FResultFromURL:(const GURL&)url;

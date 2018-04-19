@@ -60,8 +60,7 @@ void ErrorCallbackFunction(const std::string& error_name,
 
 void SetConnected(const std::string& service_path) {
   DBusThreadManager::Get()->GetShillServiceClient()->Connect(
-      dbus::ObjectPath(service_path),
-      base::Bind(&base::DoNothing),
+      dbus::ObjectPath(service_path), base::DoNothing(),
       base::Bind(&ErrorCallbackFunction));
   base::RunLoop().RunUntilIdle();
 }
@@ -94,15 +93,14 @@ class NetworkPortalDetectorImplBrowserTest
                              true /* add_to_visible */);
     DBusThreadManager::Get()->GetShillServiceClient()->SetProperty(
         dbus::ObjectPath(kWifiServicePath), shill::kStateProperty,
-        base::Value(shill::kStatePortal), base::Bind(&base::DoNothing),
+        base::Value(shill::kStatePortal), base::DoNothing(),
         base::Bind(&ErrorCallbackFunction));
 
     display_service_ = std::make_unique<NotificationDisplayServiceTester>(
         chromeos::ProfileHelper::GetSigninProfile());
 
     network_portal_detector_ = new NetworkPortalDetectorImpl(
-        g_browser_process->system_request_context(),
-        true /* create_notification_controller */);
+        test_loader_factory(), true /* create_notification_controller */);
     network_portal_detector::InitializeForTesting(network_portal_detector_);
     network_portal_detector_->Enable(false /* start_detection */);
     set_detector(network_portal_detector_->captive_portal_detector_.get());

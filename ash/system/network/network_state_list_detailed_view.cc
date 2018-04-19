@@ -29,7 +29,6 @@
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/layout_manager.h"
 #include "ui/views/widget/widget.h"
-#include "ui/wm/core/shadow_types.h"
 
 using chromeos::DeviceState;
 using chromeos::NetworkHandler;
@@ -42,14 +41,17 @@ namespace tray {
 namespace {
 
 // Delay between scan requests.
-const int kRequestScanDelaySeconds = 10;
+constexpr int kRequestScanDelaySeconds = 10;
 
 // This margin value is used throughout the bubble:
 // - margins inside the border
 // - horizontal spacing between bubble border and parent bubble border
 // - distance between top of this bubble's border and the bottom of the anchor
 //   view (horizontal rule).
-const int kBubbleMargin = 8;
+constexpr int kBubbleMargin = 8;
+
+// Elevation used for the bubble shadow effect (tiny).
+constexpr int kBubbleShadowElevation = 2;
 
 }  // namespace
 
@@ -94,7 +96,8 @@ class NetworkStateListDetailedView::InfoBubble
   void OnMouseExited(const ui::MouseEvent& event) override {
     // Like the user switching bubble/menu, hide the bubble when the mouse
     // exits.
-    detailed_view_->ResetInfoBubble();
+    if (detailed_view_)
+      detailed_view_->ResetInfoBubble();
   }
 
   // BubbleDialogDelegateView:
@@ -103,7 +106,7 @@ class NetworkStateListDetailedView::InfoBubble
   void OnBeforeBubbleWidgetInit(views::Widget::InitParams* params,
                                 views::Widget* widget) const override {
     params->shadow_type = views::Widget::InitParams::SHADOW_TYPE_DROP;
-    params->shadow_elevation = ::wm::ShadowElevation::TINY;
+    params->shadow_elevation = kBubbleShadowElevation;
     params->name = "NetworkStateListDetailedView::InfoBubble";
   }
 
@@ -257,15 +260,13 @@ void NetworkStateListDetailedView::CreateExtraTitleRowButtons() {
   DCHECK(!info_button_);
   tri_view()->SetContainerVisible(TriView::Container::END, true);
 
-  info_button_ = new SystemMenuButton(
-      this, TrayPopupInkDropStyle::HOST_CENTERED, kSystemMenuInfoIcon,
-      IDS_ASH_STATUS_TRAY_NETWORK_INFO);
+  info_button_ = new SystemMenuButton(this, kSystemMenuInfoIcon,
+                                      IDS_ASH_STATUS_TRAY_NETWORK_INFO);
   tri_view()->AddView(TriView::Container::END, info_button_);
 
   DCHECK(!settings_button_);
-  settings_button_ = new SystemMenuButton(
-      this, TrayPopupInkDropStyle::HOST_CENTERED, kSystemMenuSettingsIcon,
-      IDS_ASH_STATUS_TRAY_NETWORK_SETTINGS);
+  settings_button_ = new SystemMenuButton(this, kSystemMenuSettingsIcon,
+                                          IDS_ASH_STATUS_TRAY_NETWORK_SETTINGS);
   tri_view()->AddView(TriView::Container::END, settings_button_);
 }
 
@@ -306,7 +307,7 @@ void NetworkStateListDetailedView::ToggleInfoBubble() {
 
   info_bubble_ = new InfoBubble(tri_view(), CreateNetworkInfoView(), this);
   views::BubbleDialogDelegateView::CreateBubble(info_bubble_)->Show();
-  info_bubble_->NotifyAccessibilityEvent(ui::AX_EVENT_ALERT, false);
+  info_bubble_->NotifyAccessibilityEvent(ax::mojom::Event::kAlert, false);
 }
 
 bool NetworkStateListDetailedView::ResetInfoBubble() {

@@ -224,11 +224,14 @@ public class CronetUrlRequestContext extends CronetEngineBase {
     @Override
     public UrlRequestBase createRequest(String url, UrlRequest.Callback callback, Executor executor,
             int priority, Collection<Object> requestAnnotations, boolean disableCache,
-            boolean disableConnectionMigration, boolean allowDirectExecutor) {
+            boolean disableConnectionMigration, boolean allowDirectExecutor,
+            boolean trafficStatsTagSet, int trafficStatsTag, boolean trafficStatsUidSet,
+            int trafficStatsUid) {
         synchronized (mLock) {
             checkHaveAdapter();
             return new CronetUrlRequest(this, url, priority, callback, executor, requestAnnotations,
-                    disableCache, disableConnectionMigration, allowDirectExecutor);
+                    disableCache, disableConnectionMigration, allowDirectExecutor,
+                    trafficStatsTagSet, trafficStatsTag, trafficStatsUidSet, trafficStatsUid);
         }
     }
 
@@ -236,12 +239,15 @@ public class CronetUrlRequestContext extends CronetEngineBase {
     protected ExperimentalBidirectionalStream createBidirectionalStream(String url,
             BidirectionalStream.Callback callback, Executor executor, String httpMethod,
             List<Map.Entry<String, String>> requestHeaders, @StreamPriority int priority,
-            boolean delayRequestHeadersUntilFirstFlush, Collection<Object> requestAnnotations) {
+            boolean delayRequestHeadersUntilFirstFlush, Collection<Object> requestAnnotations,
+            boolean trafficStatsTagSet, int trafficStatsTag, boolean trafficStatsUidSet,
+            int trafficStatsUid) {
         synchronized (mLock) {
             checkHaveAdapter();
             return new CronetBidirectionalStream(this, url, priority, callback, executor,
                     httpMethod, requestHeaders, delayRequestHeadersUntilFirstFlush,
-                    requestAnnotations);
+                    requestAnnotations, trafficStatsTagSet, trafficStatsTag, trafficStatsUidSet,
+                    trafficStatsUid);
         }
     }
 

@@ -16,18 +16,16 @@
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_scroll_end_animator.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_scroll_to_top_animator.h"
 #include "ios/chrome/browser/ui/rtl_geometry.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_button.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_button_factory.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button_factory.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_component_options.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_constants.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tools_menu_button.h"
 #import "ios/chrome/browser/ui/toolbar/clean/toolbar_button_updater.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_component_options.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_configuration.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_constants.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_tools_menu_button.h"
 #import "ios/chrome/browser/ui/toolbar/clean/toolbar_view.h"
 #import "ios/chrome/browser/ui/toolbar/public/omnibox_focuser.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
-#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_constants.h"
-#import "ios/chrome/browser/ui/toolbar/public/web_toolbar_controller_constants.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
@@ -39,6 +37,12 @@
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
+
+namespace {
+// Fullscreen constants.
+const CGFloat kIPadToolbarY = 53;
+const CGFloat kScrollFadeDistance = 30;
+}
 
 @interface ToolbarViewController ()<ToolbarViewFullscreenDelegate>
 @property(nonatomic, strong) ToolbarButtonFactory* buttonFactory;
@@ -326,6 +330,12 @@
   return self.view.toolsMenuButton;
 }
 
+- (UIColor*)backgroundColor {
+  if (self.view.backgroundView.hidden || self.view.backgroundView.alpha == 0)
+    return nil;
+  return self.view.backgroundView.backgroundColor;
+}
+
 #pragma mark - Components Setup
 
 - (void)setUpToolbarButtons {
@@ -462,6 +472,10 @@
   _loading = loading;
   self.view.reloadButton.hiddenInCurrentState = loading;
   self.view.stopButton.hiddenInCurrentState = !loading;
+
+  if (IsIPadIdiom())
+    return;
+
   if (!loading) {
     [self stopProgressBar];
   } else if (self.view.progressBar.hidden) {
@@ -471,6 +485,10 @@
     // backward when opening a page from the NTP.
     [self.view.progressBar layoutIfNeeded];
   }
+}
+
+- (void)setIsNTP:(BOOL)isNTP {
+  // This boolean is unused in the clean toolbar.
 }
 
 - (void)setLoadingProgressFraction:(double)progress {
@@ -538,6 +556,10 @@
 
 - (void)setShareMenuEnabled:(BOOL)enabled {
   self.view.shareButton.enabled = enabled;
+}
+
+- (void)setSearchIcon:(UIImage*)searchIcon {
+  // No-op, no search icon in the non-adaptive toolbar.
 }
 
 #pragma mark - ToolbarViewFullscreenDelegate

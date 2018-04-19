@@ -17,9 +17,11 @@
 #include "ui/app_list/views/apps_grid_view.h"
 #include "ui/app_list/views/contents_view.h"
 #include "ui/app_list/views/folder_background_view.h"
+#include "ui/app_list/views/page_switcher.h"
 #include "ui/app_list/views/search_box_view.h"
 #include "ui/app_list/views/suggestions_container_view.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/chromeos/search_box/search_box_constants.h"
 #include "ui/events/event.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/textfield/textfield.h"
@@ -36,24 +38,23 @@ constexpr int kSearchBoxPeekingTopPadding = 24;
 constexpr int kSearchBoxMinimumTopPadding = 24;
 
 AppsContainerView::AppsContainerView(AppListMainView* app_list_main_view,
-                                     AppListModel* model)
-    : is_fullscreen_app_list_enabled_(features::IsFullscreenAppListEnabled()) {
+                                     AppListModel* model) {
   apps_grid_view_ =
       new AppsGridView(app_list_main_view->contents_view(), nullptr);
-  if (is_fullscreen_app_list_enabled_) {
-    apps_grid_view_->SetLayout(kPreferredCols, kPreferredRows);
-  } else {
-    apps_grid_view_->SetLayout(kPreferredCols, kPreferredRows);
-  }
+  apps_grid_view_->SetLayout(kPreferredCols, kPreferredRows);
   AddChildView(apps_grid_view_);
 
-  folder_background_view_ = new FolderBackgroundView();
-  AddChildView(folder_background_view_);
+  // Page switcher should be initialized after AppsGridView.
+  page_switcher_ = new PageSwitcher(apps_grid_view_->pagination_model(),
+                                    true /* vertical */);
+  AddChildView(page_switcher_);
 
   app_list_folder_view_ =
       new AppListFolderView(this, model, app_list_main_view);
   // The folder view is initially hidden.
   app_list_folder_view_->SetVisible(false);
+  folder_background_view_ = new FolderBackgroundView(app_list_folder_view_);
+  AddChildView(folder_background_view_);
   AddChildView(app_list_folder_view_);
 
   apps_grid_view_->SetModel(model);
@@ -61,34 +62,39 @@ AppsContainerView::AppsContainerView(AppListMainView* app_list_main_view,
   SetShowState(SHOW_APPS, false);
 }
 
-AppsContainerView::~AppsContainerView() = default;
+AppsContainerView::~AppsContainerView() {
+  // Make sure |page_switcher_| is deleted before |apps_grid_view_| because
+  // |page_switcher_| uses the PaginationModel owned by |apps_grid_view_|.
+  delete page_switcher_;
+}
 
 void AppsContainerView::ShowActiveFolder(AppListFolderItem* folder_item) {
   // Prevent new animations from starting if there are currently animations
   // pending. This fixes crbug.com/357099.
-  if (top_icon_animation_pending_count_)
+  if (app_list_folder_view_->IsAnimationRunning())
     return;
 
   app_list_folder_view_->SetAppListFolderItem(folder_item);
+
   SetShowState(SHOW_ACTIVE_FOLDER, false);
 
-  CreateViewsForFolderTopItemsAnimation(folder_item, true);
-
+  // Disable all the items behind the folder so that they will not be reached
+  // during focus traversal.
   contents_view()->GetSearchBoxView()->search_box()->RequestFocus();
+  apps_grid_view_->DisableFocusForShowingActiveFolder(true);
 }
 
 void AppsContainerView::ShowApps(AppListFolderItem* folder_item) {
-  if (top_icon_animation_pending_count_)
+  if (app_list_folder_view_->IsAnimationRunning())
     return;
 
-  PrepareToShowApps(folder_item);
-  SetShowState(SHOW_APPS, true);
+  SetShowState(SHOW_APPS, folder_item ? true : false);
+  apps_grid_view_->DisableFocusForShowingActiveFolder(false);
 }
 
 void AppsContainerView::ResetForShowApps() {
   SetShowState(SHOW_APPS, false);
-  folder_background_view_->UpdateFolderContainerBubble(
-      FolderBackgroundView::NO_BUBBLE);
+  apps_grid_view_->DisableFocusForShowingActiveFolder(false);
 }
 
 void AppsContainerView::SetDragAndDropHostOfCurrentAppList(
@@ -100,11 +106,10 @@ void AppsContainerView::SetDragAndDropHostOfCurrentAppList(
 
 void AppsContainerView::ReparentFolderItemTransit(
     AppListFolderItem* folder_item) {
-  if (top_icon_animation_pending_count_)
+  if (app_list_folder_view_->IsAnimationRunning())
     return;
-
-  PrepareToShowApps(folder_item);
   SetShowState(SHOW_ITEM_REPARENT, false);
+  apps_grid_view_->DisableFocusForShowingActiveFolder(false);
 }
 
 bool AppsContainerView::IsInFolderView() const {
@@ -116,13 +121,40 @@ void AppsContainerView::ReparentDragEnded() {
   show_state_ = AppsContainerView::SHOW_APPS;
 }
 
-gfx::Size AppsContainerView::CalculatePreferredSize() const {
-  const gfx::Size grid_size = apps_grid_view_->GetPreferredSize();
-  const gfx::Size folder_view_size = app_list_folder_view_->GetPreferredSize();
+void AppsContainerView::UpdateControlVisibility(AppListViewState app_list_state,
+                                                bool is_in_drag) {
+  apps_grid_view_->UpdateControlVisibility(app_list_state, is_in_drag);
+  page_switcher_->SetVisible(
+      app_list_state == AppListViewState::FULLSCREEN_ALL_APPS || is_in_drag);
+}
 
-  int width = std::max(grid_size.width(), folder_view_size.width());
-  int height = std::max(grid_size.height(), folder_view_size.height());
-  return gfx::Size(width, height);
+void AppsContainerView::UpdateOpacity() {
+  apps_grid_view_->UpdateOpacity();
+
+  // Updates the opacity of page switcher buttons. The same rule as all apps in
+  // AppsGridView.
+  AppListView* app_list_view = contents_view()->app_list_view();
+  bool should_restore_opacity =
+      !app_list_view->is_in_drag() &&
+      (app_list_view->app_list_state() != AppListViewState::CLOSED);
+  int screen_bottom = app_list_view->GetScreenBottom();
+  gfx::Rect switcher_bounds = page_switcher_->GetBoundsInScreen();
+  float centerline_above_work_area =
+      std::max<float>(screen_bottom - switcher_bounds.CenterPoint().y(), 0.f);
+  float opacity =
+      std::min(std::max((centerline_above_work_area - kAllAppsOpacityStartPx) /
+                            (kAllAppsOpacityEndPx - kAllAppsOpacityStartPx),
+                        0.f),
+               1.0f);
+  page_switcher_->layer()->SetOpacity(should_restore_opacity ? 1.0f : opacity);
+}
+
+gfx::Size AppsContainerView::CalculatePreferredSize() const {
+  gfx::Size size = apps_grid_view_->GetPreferredSize();
+  // Add padding to both side of the apps grid to keep it horizontally
+  // centered since we place page switcher on the right side.
+  size.Enlarge(kAppsGridLeftRightPadding * 2, 0);
+  return size;
 }
 
 void AppsContainerView::Layout() {
@@ -131,13 +163,26 @@ void AppsContainerView::Layout() {
     return;
 
   switch (show_state_) {
-    case SHOW_APPS:
-      apps_grid_view_->SetBoundsRect(rect);
+    case SHOW_APPS: {
+      gfx::Rect grid_rect = rect;
+      grid_rect.Inset(kAppsGridLeftRightPadding, 0);
+      apps_grid_view_->SetBoundsRect(grid_rect);
+
+      gfx::Rect page_switcher_rect = rect;
+      const int page_switcher_width =
+          page_switcher_->GetPreferredSize().width();
+      page_switcher_rect.set_x(page_switcher_rect.right() -
+                               page_switcher_width);
+      page_switcher_rect.set_width(page_switcher_width);
+      page_switcher_->SetBoundsRect(page_switcher_rect);
       break;
-    case SHOW_ACTIVE_FOLDER:
+    }
+    case SHOW_ACTIVE_FOLDER: {
       folder_background_view_->SetBoundsRect(rect);
-      app_list_folder_view_->SetBoundsRect(rect);
+      app_list_folder_view_->SetBoundsRect(
+          app_list_folder_view_->preferred_bounds());
       break;
+    }
     case SHOW_ITEM_REPARENT:
       break;
     default:
@@ -173,10 +218,7 @@ gfx::Rect AppsContainerView::GetSearchBoxBounds() const {
 }
 
 gfx::Rect AppsContainerView::GetSearchBoxBoundsForState(
-    AppListModel::State state) const {
-  if (!is_fullscreen_app_list_enabled_)
-    return AppListPage::GetSearchBoxBounds();
-
+    ash::AppListState state) const {
   gfx::Rect search_box_bounds(contents_view()->GetDefaultSearchBoxBounds());
   bool is_in_drag = false;
   if (contents_view()->app_list_view())
@@ -184,7 +226,7 @@ gfx::Rect AppsContainerView::GetSearchBoxBoundsForState(
   if (is_in_drag) {
     search_box_bounds.set_y(GetSearchBoxTopPaddingDuringDragging());
   } else {
-    if (state == AppListModel::STATE_START)
+    if (state == ash::AppListState::kStateStart)
       search_box_bounds.set_y(kSearchBoxPeekingTopPadding);
     else
       search_box_bounds.set_y(GetSearchBoxFinalTopPadding());
@@ -194,19 +236,14 @@ gfx::Rect AppsContainerView::GetSearchBoxBoundsForState(
 }
 
 gfx::Rect AppsContainerView::GetPageBoundsForState(
-    AppListModel::State state) const {
+    ash::AppListState state) const {
   gfx::Rect onscreen_bounds = GetDefaultContentsBounds();
 
-  if (!is_fullscreen_app_list_enabled_) {
-    if (state == AppListModel::STATE_APPS)
-      return onscreen_bounds;
-    return GetBelowContentsOffscreenBounds(onscreen_bounds.size());
-  }
-
   // Both STATE_START and STATE_APPS are AppsContainerView page.
-  if (state == AppListModel::STATE_APPS || state == AppListModel::STATE_START) {
+  if (state == ash::AppListState::kStateApps ||
+      state == ash::AppListState::kStateStart) {
     int y = GetSearchBoxBoundsForState(state).bottom();
-    if (state == AppListModel::STATE_START)
+    if (state == ash::AppListState::kStateStart)
       y -= (kSearchBoxBottomPadding - kSearchBoxPeekingBottomPadding);
     onscreen_bounds.set_y(y);
     return onscreen_bounds;
@@ -216,7 +253,7 @@ gfx::Rect AppsContainerView::GetPageBoundsForState(
 }
 
 gfx::Rect AppsContainerView::GetPageBoundsDuringDragging(
-    AppListModel::State state) const {
+    ash::AppListState state) const {
   float app_list_y_position_in_screen =
       contents_view()->app_list_view()->app_list_y_position_in_screen();
   float drag_amount =
@@ -225,7 +262,7 @@ gfx::Rect AppsContainerView::GetPageBoundsDuringDragging(
 
   float y = 0;
   float peeking_final_y =
-      kSearchBoxPeekingTopPadding + kSearchBoxPreferredHeight +
+      kSearchBoxPeekingTopPadding + search_box::kSearchBoxPreferredHeight +
       kSearchBoxPeekingBottomPadding - kSearchBoxBottomPadding;
   if (drag_amount <= (kPeekingAppListHeight - kShelfSize)) {
     // App list is dragged from collapsed to peeking, which moved up at most
@@ -240,7 +277,8 @@ gfx::Rect AppsContainerView::GetPageBoundsDuringDragging(
     // App list is dragged from peeking to fullscreen, which moved up at most
     // |peeking_to_fullscreen_height|. The top padding of apps container view
     // changes from |peeking_final_y| to |final_y|.
-    float final_y = GetSearchBoxFinalTopPadding() + kSearchBoxPreferredHeight;
+    float final_y =
+        GetSearchBoxFinalTopPadding() + search_box::kSearchBoxPreferredHeight;
     float peeking_to_fullscreen_height =
         contents_view()->GetDisplayHeight() - kPeekingAppListHeight;
     y = std::ceil((final_y - peeking_final_y) *
@@ -252,7 +290,8 @@ gfx::Rect AppsContainerView::GetPageBoundsDuringDragging(
 
   gfx::Rect onscreen_bounds = GetPageBoundsForState(state);
   // Both STATE_START and STATE_APPS are AppsContainerView page.
-  if (state == AppListModel::STATE_APPS || state == AppListModel::STATE_START)
+  if (state == ash::AppListState::kStateApps ||
+      state == ash::AppListState::kStateStart)
     onscreen_bounds.set_y(y);
 
   return onscreen_bounds;
@@ -264,19 +303,21 @@ views::View* AppsContainerView::GetSelectedView() const {
              : apps_grid_view_->GetSelectedView();
 }
 
-void AppsContainerView::OnTopIconAnimationsComplete() {
-  --top_icon_animation_pending_count_;
-
-  if (!top_icon_animation_pending_count_) {
-    // Clean up the transitional views used for top item icon animation.
-    top_icon_views_.clear();
-
-    // Show the folder icon when closing the folder.
-    if ((show_state_ == SHOW_APPS || show_state_ == SHOW_ITEM_REPARENT) &&
-        apps_grid_view_->activated_folder_item_view()) {
-      apps_grid_view_->activated_folder_item_view()->SetVisible(true);
-    }
+views::View* AppsContainerView::GetFirstFocusableView() {
+  if (IsInFolderView()) {
+    // The pagination inside a folder is set horizontally, so focus should be
+    // set on the first item view in the selected page when it is moved down
+    // from the search box.
+    return app_list_folder_view_->items_grid_view()
+        ->GetCurrentPageFirstItemViewInFolder();
   }
+  return GetFocusManager()->GetNextFocusableView(
+      this, GetWidget(), false /* reverse */, false /* dont_loop */);
+}
+
+views::View* AppsContainerView::GetLastFocusableView() {
+  return GetFocusManager()->GetNextFocusableView(
+      this, GetWidget(), true /* reverse */, false /* dont_loop */);
 }
 
 void AppsContainerView::SetShowState(ShowState show_state,
@@ -286,83 +327,30 @@ void AppsContainerView::SetShowState(ShowState show_state,
 
   show_state_ = show_state;
 
+  // Layout before showing animation because the animation's target bounds are
+  // calculated based on the layout.
+  Layout();
+
   switch (show_state_) {
     case SHOW_APPS:
       folder_background_view_->SetVisible(false);
-      if (show_apps_with_animation) {
+      apps_grid_view_->ResetForShowApps();
+      if (show_apps_with_animation)
         app_list_folder_view_->ScheduleShowHideAnimation(false, false);
-        apps_grid_view_->ScheduleShowHideAnimation(true);
-      } else {
+      else
         app_list_folder_view_->HideViewImmediately();
-        apps_grid_view_->ResetForShowApps();
-      }
       break;
     case SHOW_ACTIVE_FOLDER:
       folder_background_view_->SetVisible(true);
-      apps_grid_view_->ScheduleShowHideAnimation(false);
       app_list_folder_view_->ScheduleShowHideAnimation(true, false);
       break;
     case SHOW_ITEM_REPARENT:
       folder_background_view_->SetVisible(false);
-      folder_background_view_->UpdateFolderContainerBubble(
-          FolderBackgroundView::NO_BUBBLE);
       app_list_folder_view_->ScheduleShowHideAnimation(false, true);
-      apps_grid_view_->ScheduleShowHideAnimation(true);
       break;
     default:
       NOTREACHED();
   }
-
-  app_list_folder_view_->SetBackButtonLabel(IsInFolderView());
-  Layout();
-}
-
-std::vector<gfx::Rect> AppsContainerView::GetTopItemIconBoundsInActiveFolder() {
-  // Get the active folder's icon bounds relative to AppsContainerView.
-  AppListItemView* folder_item_view =
-      apps_grid_view_->activated_folder_item_view();
-  gfx::Rect to_grid_view =
-      folder_item_view->ConvertRectToParent(folder_item_view->GetIconBounds());
-  gfx::Rect to_container = apps_grid_view_->ConvertRectToParent(to_grid_view);
-
-  return FolderImage::GetTopIconsBounds(to_container);
-}
-
-void AppsContainerView::CreateViewsForFolderTopItemsAnimation(
-    AppListFolderItem* active_folder,
-    bool open_folder) {
-  top_icon_views_.clear();
-  std::vector<gfx::Rect> top_items_bounds =
-      GetTopItemIconBoundsInActiveFolder();
-  top_icon_animation_pending_count_ =
-      std::min(FolderImage::kNumFolderTopItems,
-               active_folder->item_list()->item_count());
-  for (size_t i = 0; i < top_icon_animation_pending_count_; ++i) {
-    if (active_folder->GetTopIcon(i).isNull())
-      continue;
-
-    TopIconAnimationView* icon_view = new TopIconAnimationView(
-        active_folder->GetTopIcon(i), top_items_bounds[i], open_folder);
-    icon_view->AddObserver(this);
-    top_icon_views_.push_back(icon_view);
-
-    // Add the transitional views into child views, and set its bounds to the
-    // same location of the item in the folder list view.
-    AddChildView(top_icon_views_[i]);
-    top_icon_views_[i]->SetBoundsRect(
-        app_list_folder_view_->ConvertRectToParent(
-            app_list_folder_view_->GetItemIconBoundsAt(i)));
-    static_cast<TopIconAnimationView*>(top_icon_views_[i])->TransformView();
-  }
-}
-
-void AppsContainerView::PrepareToShowApps(AppListFolderItem* folder_item) {
-  if (folder_item)
-    CreateViewsForFolderTopItemsAnimation(folder_item, false);
-
-  // Hide the active folder item until the animation completes.
-  if (apps_grid_view_->activated_folder_item_view())
-    apps_grid_view_->activated_folder_item_view()->SetVisible(false);
 }
 
 int AppsContainerView::GetSearchBoxFinalTopPadding() const {

@@ -185,11 +185,11 @@ UIColor* InterpolateFromColorToColor(UIColor* firstColor,
                                      CGFloat fraction);
 
 // Whether the |environment| has a compact horizontal size class.
-bool IsCompact(id<UITraitEnvironment> environment);
+bool IsCompactWidth(id<UITraitEnvironment> environment);
 
 // Whether the main application window's rootViewController has a compact
 // horizontal size class.
-bool IsCompact();
+bool IsCompactWidth();
 
 // Whether the |environment| has a compact iPad horizontal size class.
 bool IsCompactTablet(id<UITraitEnvironment> environment);
@@ -197,6 +197,21 @@ bool IsCompactTablet(id<UITraitEnvironment> environment);
 // Whether the main application window's rootViewController has a compact
 // iPad horizontal size class.
 bool IsCompactTablet();
+
+// Whether the main application window's rootViewController has a compact
+// vertical size class.
+bool IsCompactHeight();
+
+// Whether the |environment| has a compact vertical size class.
+bool IsCompactHeight(id<UITraitEnvironment> environment);
+
+// Returns whether the toolbar is split between top and bottom toolbar or if it
+// is displayed as only one toolbar.
+bool IsSplitToolbarMode();
+
+// Returns whether the |environment|'s toolbar is split between top and bottom
+// toolbar or if it is displayed as only one toolbar.
+bool IsSplitToolbarMode(id<UITraitEnvironment> environment);
 
 // Returns the current first responder.
 UIResponder* GetFirstResponder();

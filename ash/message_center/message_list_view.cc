@@ -14,9 +14,8 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/geometry/insets.h"
-#include "ui/message_center/notification.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
-#include "ui/message_center/public/cpp/message_center_switches.h"
+#include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/views/message_view.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
@@ -52,8 +51,6 @@ MessageListView::MessageListView()
   SetLayoutManager(std::move(layout));
 
   if (!switches::IsSidebarEnabled()) {
-    SetBackground(
-        views::CreateSolidBackground(MessageCenterView::kBackgroundColor));
     SetBorder(views::CreateEmptyBorder(
         gfx::Insets(message_center::kMarginBetweenItemsInList)));
   }
@@ -413,6 +410,8 @@ void MessageListView::DoUpdateIfPossible() {
     return;
   }
 
+  ExpandTopNotification();
+
   AnimateNotifications();
 
   // Should calculate and set new size after calling AnimateNotifications()
@@ -425,6 +424,27 @@ void MessageListView::DoUpdateIfPossible() {
 
   if (!animator_.IsAnimating() && GetWidget())
     GetWidget()->SynthesizeMouseMoveEvent();
+}
+
+void MessageListView::ExpandTopNotification() {
+  bool is_top = true;
+  for (int i = 0; i < child_count(); ++i) {
+    MessageView* view = static_cast<MessageView*>(child_at(i));
+    if (!IsValidChild(view))
+      continue;
+
+    if (is_top) {
+      // Expands the notification at top if its expand status is never manually
+      // changed.
+      if (!view->IsManuallyExpandedOrCollapsed() && !view->IsExpanded())
+        view->SetExpanded(true);
+      is_top = false;
+    } else {
+      // Other notifications should be collapsed.
+      if (!view->IsManuallyExpandedOrCollapsed() && view->IsExpanded())
+        view->SetExpanded(false);
+    }
+  }
 }
 
 std::vector<int> MessageListView::ComputeRepositionOffsets(
@@ -584,10 +604,6 @@ void MessageListView::AnimateClearingOneNotification() {
         base::TimeDelta::FromMilliseconds(
             kAnimateClearingNextNotificationDelayMS));
   }
-}
-
-void MessageListView::SetRepositionTargetForTest(const gfx::Rect& target_rect) {
-  SetRepositionTarget(target_rect);
 }
 
 }  // namespace ash

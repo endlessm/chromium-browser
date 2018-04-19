@@ -39,6 +39,10 @@
 
 using namespace llvm;
 
+static cl::opt<unsigned> NonGlobalValueMaxNameSize(
+    "non-global-value-max-name-size", cl::Hidden, cl::init(1024),
+    cl::desc("Maximum size for the name of non-global values."));
+
 //===----------------------------------------------------------------------===//
 //                                Value Class
 //===----------------------------------------------------------------------===//
@@ -243,6 +247,11 @@ void Value::setNameImpl(const Twine &NewName) {
   // Name isn't changing?
   if (getName() == NameRef)
     return;
+
+  // Cap the size of non-GlobalValue names.
+  if (NameRef.size() > NonGlobalValueMaxNameSize && !isa<GlobalValue>(this))
+    NameRef =
+        NameRef.substr(0, std::max(1u, (unsigned)NonGlobalValueMaxNameSize));
 
   assert(!getType()->isVoidTy() && "Cannot assign a name to void values!");
 
@@ -578,9 +587,9 @@ Value::stripAndAccumulateInBoundsConstantOffsets(const DataLayout &DL,
   if (!getType()->isPointerTy())
     return this;
 
-  assert(Offset.getBitWidth() == DL.getPointerSizeInBits(cast<PointerType>(
+  assert(Offset.getBitWidth() == DL.getIndexSizeInBits(cast<PointerType>(
                                      getType())->getAddressSpace()) &&
-         "The offset must have exactly as many bits as our pointer.");
+         "The offset bit width does not match the DL specification.");
 
   // Even though we don't look through PHI nodes, we could be called on an
   // instruction in an unreachable block, which may be on a cycle.

@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/compiler_specific.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
 #include "base/stl_util.h"
@@ -223,7 +224,7 @@ bool UpdatePrintJob(const ::printing::PrinterStatus& printer_status,
     case ::printing::CupsJob::ABORTED:
     case ::printing::CupsJob::CANCELED:
       print_job->set_error_code(ErrorCodeFromReasons(printer_status));
-    // fall through
+      FALLTHROUGH;
     default:
       print_job->set_state(ConvertState(job.state));
       break;
@@ -305,18 +306,10 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
   // Must be run from the UI thread.
   void CancelPrintJob(CupsPrintJob* job) override {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-    // Copy job_id and printer_id.  |job| is about to be freed.
-    const int job_id = job->job_id();
-    const std::string printer_id = job->printer().id();
-
-    // Stop montioring jobs after we cancel them.  The user no longer cares.
-    jobs_.erase(job->GetUniqueId());
-
-    query_runner_->PostTask(
-        FROM_HERE,
-        base::Bind(&CupsWrapper::CancelJobImpl,
-                   base::Unretained(cups_wrapper_.get()), printer_id, job_id));
+    job->set_state(CupsPrintJob::State::STATE_CANCELLED);
+    NotifyJobCanceled(job->GetWeakPtr());
+    // Ideally we should wait for IPP response.
+    FinishPrintJob(job);
   }
 
   bool SuspendPrintJob(CupsPrintJob* job) override {
@@ -379,11 +372,11 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
     jobs_[key] = std::move(cpj);
 
     CupsPrintJob* job = jobs_[key].get();
-    NotifyJobCreated(job);
+    NotifyJobCreated(job->GetWeakPtr());
 
     // Always start jobs in the waiting state.
     job->set_state(CupsPrintJob::State::STATE_WAITING);
-    NotifyJobUpdated(job);
+    NotifyJobUpdated(job->GetWeakPtr());
 
     // Run a query now.
     content::BrowserThread::GetTaskRunnerForThread(content::BrowserThread::UI)
@@ -393,6 +386,20 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
     ScheduleQuery();
 
     return true;
+  }
+
+  void FinishPrintJob(CupsPrintJob* job) {
+    // Copy job_id and printer_id.  |job| is about to be freed.
+    const int job_id = job->job_id();
+    const std::string printer_id = job->printer().id();
+
+    // Stop montioring jobs after we cancel them.  The user no longer cares.
+    jobs_.erase(job->GetUniqueId());
+
+    query_runner_->PostTask(
+        FROM_HERE, base::BindOnce(&CupsWrapper::CancelJobImpl,
+                                  base::Unretained(cups_wrapper_.get()),
+                                  printer_id, job_id));
   }
 
   // Schedule a query of CUPS for print job status with a delay of |delay|.
@@ -466,17 +473,17 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
 
         if (UpdatePrintJob(queue.printer_status, job, print_job)) {
           // The state of the job changed, notify observers.
-          NotifyJobStateUpdate(print_job);
+          NotifyJobStateUpdate(print_job->GetWeakPtr());
         }
 
         if (print_job->expired()) {
           // Job needs to be forcibly cancelled.
           RecordJobResult(TIMEOUT_CANCEL);
-          CancelPrintJob(print_job);
+          FinishPrintJob(print_job);
           // Beware, print_job was removed from jobs_ and deleted.
         } else if (print_job->PipelineDead()) {
           RecordJobResult(FILTER_FAILED);
-          CancelPrintJob(print_job);
+          FinishPrintJob(print_job);
         } else if (print_job->IsJobFinished()) {
           // Cleanup completed jobs.
           VLOG(1) << "Removing Job " << print_job->document_title();
@@ -509,15 +516,18 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
       RecordJobResult(LOST);
       CupsPrintJob* job = entry.second.get();
       job->set_state(CupsPrintJob::State::STATE_ERROR);
-      NotifyJobStateUpdate(job);
+      NotifyJobStateUpdate(job->GetWeakPtr());
     }
 
     jobs_.clear();
   }
 
   // Notify observers that a state update has occured for |job|.
-  void NotifyJobStateUpdate(CupsPrintJob* job) {
+  void NotifyJobStateUpdate(base::WeakPtr<CupsPrintJob> job) {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+    if (!job)
+      return;
 
     switch (job->state()) {
       case State::STATE_NONE:

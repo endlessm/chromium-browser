@@ -9,6 +9,7 @@ from __future__ import print_function
 
 import argparse
 import distutils.version
+import multiprocessing
 import os
 import re
 
@@ -36,6 +37,7 @@ class VM(object):
   """Class for managing a VM."""
 
   SSH_PORT = 9222
+  IMAGE_FORMAT = 'raw'
 
   def __init__(self, argv):
     """Initialize VM.
@@ -48,12 +50,18 @@ class VM(object):
 
     self.qemu_path = opts.qemu_path
     self.qemu_bios_path = opts.qemu_bios_path
+    self.qemu_m = opts.qemu_m
+    self.qemu_cpu = opts.qemu_cpu
+    self.qemu_smp = opts.qemu_smp
+    if self.qemu_smp == 0:
+      self.qemu_smp = min(8, multiprocessing.cpu_count)
     self.enable_kvm = opts.enable_kvm
     # We don't need sudo access for software emulation or if /dev/kvm is
     # writeable.
     self.use_sudo = self.enable_kvm and not os.access('/dev/kvm', os.W_OK)
     self.display = opts.display
     self.image_path = opts.image_path
+    self.image_format = opts.image_format
     self.board = opts.board
     self.ssh_port = opts.ssh_port
     self.dry_run = opts.dry_run
@@ -62,7 +70,8 @@ class VM(object):
     self.stop = opts.stop
     self.cmd = opts.args[1:] if opts.cmd else None
 
-    self.vm_dir = os.path.join(osutils.GetGlobalTempDir(), 'cros_vm')
+    self.vm_dir = os.path.join(osutils.GetGlobalTempDir(),
+                               'cros_vm_%d' % self.ssh_port)
     if os.path.exists(self.vm_dir):
       # For security, ensure that vm_dir is not a symlink, and is owned by us or
       # by root.
@@ -101,6 +110,24 @@ class VM(object):
     if recreate:
       osutils.SafeMakedirs(self.vm_dir)
 
+  def _GetCachePath(self, key):
+    """Get cache path for key.
+
+    Args:
+      key: cache key.
+    """
+    tarball_cache = cache.TarballCache(os.path.join(
+        path_util.GetCacheDir(),
+        cros_chrome_sdk.COMMAND_NAME,
+        cros_chrome_sdk.SDKFetcher.TARBALL_CACHE))
+    sdk_version = os.environ.get(cros_chrome_sdk.SDKFetcher.SDK_VERSION_ENV)
+    if sdk_version:
+      cache_key = (self.board, sdk_version, key)
+      with tarball_cache.Lookup(cache_key) as ref:
+        if ref.Exists():
+          return ref.path
+    return None
+
   @cros_build_lib.MemoizedSingleCall
   def QemuVersion(self):
     """Determine QEMU version."""
@@ -130,38 +157,53 @@ class VM(object):
 
   def _SetQemuPath(self):
     """Find a suitable Qemu executable."""
+    qemu_exe = 'qemu-system-x86_64'
+    qemu_exe_path = os.path.join('usr/bin', qemu_exe)
+
+    # Check SDK cache.
     if not self.qemu_path:
-      self.qemu_path = osutils.Which('qemu-system-x86_64')
+      qemu_dir = self._GetCachePath(cros_chrome_sdk.SDKFetcher.QEMU_BIN_KEY)
+      if qemu_dir:
+        qemu_path = os.path.join(qemu_dir, qemu_exe_path)
+        if os.path.isfile(qemu_path):
+          self.qemu_path = qemu_path
+
+    # Check chroot.
     if not self.qemu_path:
-      raise VMError('Qemu not found.')
-    logging.debug('Qemu path: %s', self.qemu_path)
+      qemu_path = os.path.join(
+          constants.SOURCE_ROOT, constants.DEFAULT_CHROOT_DIR, qemu_exe_path)
+      if os.path.isfile(qemu_path):
+        self.qemu_path = qemu_path
+
+    # Check system.
+    if not self.qemu_path:
+      self.qemu_path = osutils.Which(qemu_exe)
+
+    if not self.qemu_path or not os.path.isfile(self.qemu_path):
+      raise VMError('QEMU not found.')
+    logging.debug('QEMU path: %s', self.qemu_path)
     self._CheckQemuMinVersion()
 
   def _GetBuiltVMImagePath(self):
     """Get path of a locally built VM image."""
-    return os.path.join(constants.SOURCE_ROOT, 'src/build/images',
-                        cros_build_lib.GetBoard(self.board),
-                        'latest', constants.VM_IMAGE_BIN)
+    vm_image_path = os.path.join(constants.SOURCE_ROOT, 'src/build/images',
+                                 cros_build_lib.GetBoard(self.board),
+                                 'latest', constants.VM_IMAGE_BIN)
+    return vm_image_path if os.path.isfile(vm_image_path) else None
 
-  def _GetDownloadedVMImagePath(self):
-    """Get path of a downloaded VM image."""
-    tarball_cache = cache.TarballCache(os.path.join(
-        path_util.GetCacheDir(),
-        cros_chrome_sdk.COMMAND_NAME,
-        cros_chrome_sdk.SDKFetcher.TARBALL_CACHE))
-    lkgm = cros_chrome_sdk.SDKFetcher.GetChromeLKGM()
-    if not lkgm:
-      return None
-    cache_key = (self.board, lkgm, constants.VM_IMAGE_TAR)
-    with tarball_cache.Lookup(cache_key) as ref:
-      if ref.Exists():
-        return os.path.join(ref.path, constants.VM_IMAGE_BIN)
+  def _GetCacheVMImagePath(self):
+    """Get path of a cached VM image."""
+    cache_path = self._GetCachePath(constants.VM_IMAGE_TAR)
+    if cache_path:
+      vm_image = os.path.join(cache_path, constants.VM_IMAGE_BIN)
+      if os.path.isfile(vm_image):
+        return vm_image
     return None
 
   def _SetVMImagePath(self):
     """Detect VM image path in SDK and chroot."""
     if not self.image_path:
-      self.image_path = (self._GetDownloadedVMImagePath() or
+      self.image_path = (self._GetCacheVMImagePath() or
                          self._GetBuiltVMImagePath())
     if not self.image_path:
       raise VMError('No VM image found. Use cros chrome-sdk --download-vm.')
@@ -208,12 +250,14 @@ class VM(object):
       qemu_args += ['-L', self.qemu_bios_path]
 
     qemu_args += [
-        '-m', '2G', '-smp', '4', '-vga', 'virtio', '-daemonize',
-        '-usbdevice', 'tablet',
+        '-m', self.qemu_m, '-smp', str(self.qemu_smp), '-vga', 'virtio',
+        '-daemonize', '-usbdevice', 'tablet',
         '-pidfile', self.pidfile,
         '-chardev', 'pipe,id=control_pipe,path=%s' % self.kvm_monitor,
         '-serial', 'file:%s' % self.kvm_serial,
         '-mon', 'chardev=control_pipe',
+        # Append 'check' to warn if the requested CPU is not fully supported.
+        '-cpu', self.qemu_cpu + ',check',
         # Qemu-vlans are used by qemu to separate out network traffic on the
         # slirp network bridge. qemu forwards traffic on a slirp vlan to all
         # ports conected on that vlan. By default, slirp ports are on vlan
@@ -222,17 +266,18 @@ class VM(object):
         '-net', 'nic,model=virtio,vlan=%d' % self.ssh_port,
         '-net', 'user,hostfwd=tcp:127.0.0.1:%d-:22,vlan=%d'
         % (self.ssh_port, self.ssh_port),
-        '-drive', 'file=%s,index=0,media=disk,cache=unsafe,format=raw'
-        % self.image_path,
+        '-drive', 'file=%s,index=0,media=disk,cache=unsafe,format=%s'
+        % (self.image_path, self.image_format),
     ]
     if self.enable_kvm:
       qemu_args.append('-enable-kvm')
     if not self.display:
       qemu_args.extend(['-display', 'none'])
-    logging.info(cros_build_lib.CmdToStr(qemu_args))
     logging.info('Pid file: %s', self.pidfile)
     if not self.dry_run:
       self._RunCommand(qemu_args)
+    else:
+      logging.info(cros_build_lib.CmdToStr(qemu_args))
 
   def _GetVMPid(self):
     """Get the pid of the VM.
@@ -365,8 +410,20 @@ class VM(object):
                         help='Stop the VM.')
     parser.add_argument('--image-path', type='path',
                         help='Path to VM image to launch with --start.')
+    parser.add_argument('--image-format', default=VM.IMAGE_FORMAT,
+                        help='Format of the VM image (raw, qcow2, ...).')
     parser.add_argument('--qemu-path', type='path',
                         help='Path of qemu binary to launch with --start.')
+    parser.add_argument('--qemu-m', type=str, default='8G',
+                        help='Memory argument that will be passed to qemu.')
+    parser.add_argument('--qemu-smp', type=int, default='0',
+                        help='SMP argument that will be passed to qemu. (0 '
+                             'means auto-detection.)')
+    # TODO(pwang): replace SandyBridge to Haswell-noTSX once lab machine
+    # running VMTest all migrate to GCE.
+    parser.add_argument('--qemu-cpu', type=str,
+                        default='SandyBridge,-invpcid,-tsc-deadline',
+                        help='CPU argument that will be passed to qemu.')
     parser.add_argument('--qemu-bios-path', type='path',
                         help='Path of directory with qemu bios files.')
     parser.add_argument('--disable-kvm', dest='enable_kvm',

@@ -10,7 +10,7 @@ login.createScreen('ArcTermsOfServiceScreen', 'arc-tos', function() {
   return {
     EXTERNAL_API: [
       'setMetricsMode', 'setBackupAndRestoreMode', 'setLocationServicesMode',
-      'loadPlayStoreToS'
+      'loadPlayStoreToS', 'setArcManaged'
     ],
 
     /** @override */
@@ -29,7 +29,7 @@ login.createScreen('ArcTermsOfServiceScreen', 'arc-tos', function() {
     getCurrentLanguage_: function() {
       var languageList = loadTimeData.getValue('languageList');
       if (languageList) {
-        var language = Oobe.getSelectedValue(languageList);
+        var language = getSelectedValue(languageList);
         if (language) {
           return language;
         }
@@ -135,6 +135,9 @@ login.createScreen('ArcTermsOfServiceScreen', 'arc-tos', function() {
       metrics.querySelector('#learn-more-link-metrics').onclick = function() {
         self.showLearnMoreOverlay(leanMoreStatisticsText);
       };
+      // For device owner set up, this may come after the page is loaded.
+      // Recaculate the ToS webview height.
+      this.updateTermViewHight_();
     },
 
     /**
@@ -222,7 +225,16 @@ login.createScreen('ArcTermsOfServiceScreen', 'arc-tos', function() {
       } else {
         this.reloadPlayStoreToS();
       }
+    },
 
+    /**
+     * Sets if Arc is managed. ToS webview should not be visible if Arc is
+     * manged.
+     * @param {boolean} managed Defines whether this setting is set by policy.
+     */
+    setArcManaged: function(managed) {
+      var visibility = managed ? 'hidden' : 'visible';
+      this.getElement_('arc-tos-view-container').style.visibility = visibility;
     },
 
     /**
@@ -248,6 +260,15 @@ login.createScreen('ArcTermsOfServiceScreen', 'arc-tos', function() {
       retryButton.addEventListener('click', this.reloadPlayStoreToS.bind(this));
       buttons.push(retryButton);
 
+      var nextButton = this.ownerDocument.createElement('button');
+      nextButton.id = 'arc-tos-next-button';
+      nextButton.disabled = this.classList.contains('arc-tos-loading');
+      nextButton.classList.add('preserve-disabled-state');
+      nextButton.textContent =
+          loadTimeData.getString('arcTermsOfServiceNextButton');
+      nextButton.addEventListener('click', this.onNext.bind(this));
+      buttons.push(nextButton);
+
       var acceptButton = this.ownerDocument.createElement('button');
       acceptButton.id = 'arc-tos-accept-button';
       acceptButton.disabled = this.classList.contains('arc-tos-loading');
@@ -258,6 +279,21 @@ login.createScreen('ArcTermsOfServiceScreen', 'arc-tos', function() {
       buttons.push(acceptButton);
 
       return buttons;
+    },
+
+    /**
+     * Handles Next button click.
+     */
+    onNext: function() {
+      this.getElement_('arc-location-service').hidden = false;
+      this.getElement_('arc-pai-service').hidden = false;
+      this.getElement_('arc-google-service-confirmation').hidden = false;
+      this.getElement_('arc-tos-container').style.overflowY = 'auto';
+      this.getElement_('arc-tos-container').scrollTop =
+          this.getElement_('arc-tos-container').scrollHeight;
+      this.getElement_('arc-tos-next-button').hidden = true;
+      this.getElement_('arc-tos-accept-button').hidden = false;
+      this.getElement_('arc-tos-accept-button').focus();
     },
 
     /**
@@ -273,7 +309,7 @@ login.createScreen('ArcTermsOfServiceScreen', 'arc-tos', function() {
 
       chrome.send(
           'arcTermsOfServiceAccept',
-          [isBackupRestoreEnabled, isLocationServiceEnabled]);
+          [isBackupRestoreEnabled, isLocationServiceEnabled, this.tosContent_]);
     },
 
     /**
@@ -388,13 +424,43 @@ login.createScreen('ArcTermsOfServiceScreen', 'arc-tos', function() {
         return;
       }
 
+      var getToSContent = {code: 'getToSContent();'};
+      var termsView = this.getElement_('arc-tos-view');
+      termsView.executeScript(getToSContent, this.onGetToSContent_.bind(this));
+    },
+
+    /**
+     * Handles callback for getToSContent.
+     */
+    onGetToSContent_: function(results) {
+      if (!results || results.length != 1 || typeof results[0] !== 'string') {
+        this.showError_();
+        return;
+      }
+
+      this.tosContent_ = results[0];
       this.removeClass_('arc-tos-loading');
       this.removeClass_('error');
       this.addClass_('arc-tos-loaded');
 
       this.enableButtons_(true);
-      this.getElement_('arc-tos-accept-button').focus();
+      this.getElement_('arc-location-service').hidden = true;
+      this.getElement_('arc-pai-service').hidden = true;
+      this.getElement_('arc-google-service-confirmation').hidden = true;
+      this.getElement_('arc-tos-container').style.overflow = 'hidden';
+      this.getElement_('arc-tos-accept-button').hidden = true;
+      this.getElement_('arc-tos-next-button').hidden = false;
+      this.getElement_('arc-tos-next-button').focus();
 
+      this.updateTermViewHight_();
+    },
+
+    /**
+     * Updates ToS webview height.
+     *
+     * @private
+     */
+    updateTermViewHight_() {
       var termsView = this.getElement_('arc-tos-view');
       var termsViewContainer = this.getElement_('arc-tos-view-container');
       var setTermsHeight = function() {
@@ -412,6 +478,14 @@ login.createScreen('ArcTermsOfServiceScreen', 'arc-tos', function() {
      * Handles event when terms view cannot be loaded.
      */
     onTermsViewErrorOccurred: function(details) {
+      this.showError_();
+    },
+
+    /**
+     * Shows error UI when terms view cannot be loaded or terms content cannot
+     * be fetched from webview.
+     */
+    showError_: function() {
       this.termsError = true;
       this.removeClass_('arc-tos-loading');
       this.removeClass_('arc-tos-loaded');
@@ -436,6 +510,10 @@ login.createScreen('ArcTermsOfServiceScreen', 'arc-tos', function() {
           'https://play.google.com/about/images/play_logo.png';
 
       this.hideOverlay();
+      // ToS content may be loaded before the page is shown. In that case,
+      // height of ToS webview is not correctly caculated. Recaculate the
+      // height here.
+      this.updateTermViewHight_();
     },
 
     /**
@@ -474,24 +552,33 @@ login.createScreen('ArcTermsOfServiceScreen', 'arc-tos', function() {
     setLearnMoreHandlers_: function() {
       var self = this;
 
-      var leanMoreBackupAndRestoreText =
+      var learnMoreBackupAndRestoreText =
           loadTimeData.getString('arcLearnMoreBackupAndRestore');
       var backupAndRestore = this.getElement_('arc-enable-backup-restore');
       backupAndRestore.parentElement
           .querySelector('#learn-more-link-backup-restore')
           .onclick = function(event) {
         event.stopPropagation();
-        self.showLearnMoreOverlay(leanMoreBackupAndRestoreText);
+        self.showLearnMoreOverlay(learnMoreBackupAndRestoreText);
       };
 
-      var leanMoreLocationServiceText =
+      var learnMoreLocationServiceText =
           loadTimeData.getString('arcLearnMoreLocationService');
       var locationService = this.getElement_('arc-enable-location-service');
       locationService.parentElement
           .querySelector('#learn-more-link-location-service')
           .onclick = function(event) {
         event.stopPropagation();
-        self.showLearnMoreOverlay(leanMoreLocationServiceText);
+        self.showLearnMoreOverlay(learnMoreLocationServiceText);
+      };
+
+      var learnMorePaiServiceText =
+          loadTimeData.getString('arcLearnMorePaiService');
+      var paiService = this.getElement_('arc-pai-service');
+      paiService.querySelector('#learn-more-link-pai').onclick = function(
+          event) {
+        event.stopPropagation();
+        self.showLearnMoreOverlay(learnMorePaiServiceText);
       };
     }
   };

@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/format_macros.h"
 #include "base/guid.h"
 #include "base/json/json_writer.h"
@@ -674,7 +675,7 @@ void NetworkConfigurationHandler::RequestRefreshIPConfigs(
   if (!network_state || network_state->device_path().empty())
     return;
   network_device_handler_->RequestRefreshIPConfigs(
-      network_state->device_path(), base::Bind(&base::DoNothing),
+      network_state->device_path(), base::DoNothing(),
       network_handler::ErrorCallback());
 }
 

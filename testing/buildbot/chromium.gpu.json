@@ -2413,7 +2413,7 @@
       }
     ]
   },
-  "Win7 Debug (NVIDIA)": {
+  "Win10 Debug (NVIDIA)": {
     "gtest_tests": [
       {
         "args": [
@@ -2424,13 +2424,35 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
         },
         "test": "angle_unittests",
+        "use_xvfb": false
+      },
+      {
+        "args": [
+          "--enable-gpu",
+          "--test-launcher-bot-mode",
+          "--test-launcher-jobs=1",
+          "--gtest_filter=VrBrowserTest*",
+          "--gtest_also_run_disabled_tests"
+        ],
+        "name": "vr_browser_tests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
+              "pool": "Chrome-GPU"
+            }
+          ]
+        },
+        "test": "browser_tests",
         "use_xvfb": false
       },
       {
@@ -2442,8 +2464,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2461,8 +2483,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2478,8 +2500,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2498,8 +2520,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2527,8 +2549,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2552,8 +2574,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2577,8 +2599,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2602,8 +2624,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2631,8 +2653,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2663,8 +2685,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2703,8 +2725,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2729,8 +2751,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2754,8 +2776,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2779,8 +2801,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ],
@@ -2789,7 +2811,7 @@
       }
     ]
   },
-  "Win7 Release (NVIDIA)": {
+  "Win10 Release (NVIDIA)": {
     "gtest_tests": [
       {
         "args": [
@@ -2800,8 +2822,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2809,10 +2831,12 @@
         "test": "angle_unittests",
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         },
         "use_xvfb": false
       },
@@ -2828,8 +2852,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2837,10 +2861,43 @@
         "test": "browser_tests",
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
+        },
+        "use_xvfb": false
+      },
+      {
+        "args": [
+          "--enable-gpu",
+          "--test-launcher-bot-mode",
+          "--test-launcher-jobs=1",
+          "--gtest_filter=VrBrowserTest*",
+          "--gtest_also_run_disabled_tests"
+        ],
+        "name": "vr_browser_tests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
+              "pool": "Chrome-GPU"
+            }
+          ]
+        },
+        "test": "browser_tests",
+        "trigger_script": {
+          "args": [
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
+          ],
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         },
         "use_xvfb": false
       },
@@ -2853,8 +2910,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2862,10 +2919,12 @@
         "test": "gl_tests",
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         },
         "use_xvfb": false
       },
@@ -2879,8 +2938,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2888,10 +2947,12 @@
         "test": "gl_tests",
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         },
         "use_xvfb": false
       },
@@ -2903,8 +2964,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2912,10 +2973,12 @@
         "test": "gl_unittests",
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         },
         "use_xvfb": false
       },
@@ -2930,8 +2993,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
@@ -2939,10 +3002,12 @@
         "test": "video_decode_accelerator_unittest",
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         },
         "use_xvfb": false
       }
@@ -2966,18 +3031,20 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
         },
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         }
       },
       {
@@ -2998,18 +3065,20 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
         },
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         }
       },
       {
@@ -3030,18 +3099,20 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
         },
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         }
       },
       {
@@ -3062,18 +3133,20 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
         },
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         }
       },
       {
@@ -3098,18 +3171,20 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
         },
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         }
       },
       {
@@ -3137,18 +3212,20 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
         },
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         }
       },
       {
@@ -3184,18 +3261,20 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
         },
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         }
       },
       {
@@ -3217,18 +3296,20 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
         },
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         }
       },
       {
@@ -3249,18 +3330,20 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ]
         },
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         }
       },
       {
@@ -3281,8 +3364,8 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "gpu": "10de:1cb3-23.21.13.8792",
-              "os": "Windows-2008ServerR2-SP1",
+              "gpu": "10de:1cb3-23.21.13.8816",
+              "os": "Windows-10",
               "pool": "Chrome-GPU"
             }
           ],
@@ -3290,10 +3373,12 @@
         },
         "trigger_script": {
           "args": [
-            "--gpu-trigger-configs",
-            "[{\"gpu\": \"10de:1cb3-23.21.13.8792\", \"os\": \"Windows-2008ServerR2-SP1\", \"pool\": \"Chrome-GPU\"}]"
+            "--multiple-trigger-configs",
+            "[{\"gpu\": \"10de:1cb3-23.21.13.8816\", \"os\": \"Windows-10\", \"pool\": \"Chrome-GPU\"}]",
+            "--multiple-dimension-script-verbose",
+            "True"
           ],
-          "script": "//content/test/gpu/trigger_gpu_test.py"
+          "script": "//testing/trigger_scripts/trigger_multiple_dimensions.py"
         }
       }
     ]

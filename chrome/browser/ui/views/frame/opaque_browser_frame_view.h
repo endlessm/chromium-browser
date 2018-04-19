@@ -55,7 +55,6 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
   int GetThemeBackgroundXInset() const override;
   void UpdateThrobber(bool running) override;
   gfx::Size GetMinimumSize() const override;
-  views::View* GetProfileSwitcherView() const override;
 
   // views::NonClientFrameView:
   gfx::Rect GetBoundsForClientView() const override;
@@ -86,6 +85,7 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
   gfx::ImageSkia GetFaviconForTabIconView() override;
 
   // OpaqueBrowserFrameViewLayoutDelegate implementation:
+  bool IsIncognito() const override;
   bool ShouldShowWindowIcon() const override;
   bool ShouldShowWindowTitle() const override;
   base::string16 GetWindowTitle() const override;
@@ -115,16 +115,13 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
 
   // BrowserNonClientFrameView:
   bool ShouldPaintAsThemed() const override;
-  void UpdateProfileIcons() override;
+  AvatarButtonStyle GetAvatarButtonStyle() const override;
 
   OpaqueBrowserFrameViewLayout* layout() { return layout_; }
 
   // If native window frame buttons are enabled, redraws the image resources
   // associated with |{minimize,maximize,restore,close}_button_|.
   virtual void MaybeRedrawFrameButtons();
-
-  // Wrapper around the in-frame avatar switcher.
-  AvatarButtonManager profile_switcher_;
 
  private:
   // Creates, adds and returns a new image button with |this| as its listener.

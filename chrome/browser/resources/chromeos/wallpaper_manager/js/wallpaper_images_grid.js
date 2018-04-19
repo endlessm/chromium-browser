@@ -11,6 +11,17 @@ cr.define('wallpapers', function() {
   /** @const */ var ShowSpinnerDelayMs = 500;
 
   /**
+   * The number of images that appear in the slideshow of the daily refresh
+   * item.
+   */
+  var DAILY_REFRESH_IMAGES_NUM = 5;
+
+  /**
+   * The following values should be kept in sync with the style sheet.
+   */
+  var GRID_SIZE_CSS = 160;
+
+  /**
    * Creates a new wallpaper thumbnails grid item.
    * @param {{wallpaperId: number, baseURL: string, layout: string,
    *          source: string, availableOffline: boolean,
@@ -63,6 +74,11 @@ cr.define('wallpapers', function() {
       // Removes garbage created by GridItem.
       this.innerText = '';
 
+      if (this.dataItem.isDailyRefreshItem) {
+        this.callback_(this.dataModelId_);
+        return;
+      }
+
       if (this.thumbnail_) {
         this.appendChild(this.thumbnail_);
         this.callback_(this.dataModelId_);
@@ -74,14 +90,12 @@ cr.define('wallpapers', function() {
       cr.defineProperty(imageEl, 'offline', cr.PropertyKind.BOOL_ATTR);
       imageEl.offline = this.dataItem.availableOffline;
       this.appendChild(imageEl);
-      var self = this;
 
       switch (this.dataItem.source) {
         case Constants.WallpaperSourceEnum.AddNew:
           this.id = 'add-new';
           this.addEventListener('click', function(e) {
-            var checkbox = $('surprise-me').querySelector('#checkbox');
-            if (!checkbox.classList.contains('checked'))
+            if (!WallpaperUtil.getSurpriseMeCheckboxValue())
               $('wallpaper-selection-container').hidden = false;
           });
           // Delay dispatching the completion callback until all items have
@@ -89,79 +103,14 @@ cr.define('wallpapers', function() {
           window.setTimeout(this.callback_.bind(this, this.dataModelId_), 0);
           break;
         case Constants.WallpaperSourceEnum.Custom:
-          var errorHandler = function(e) {
-            self.callback_(self.dataModelId_);
-            console.error('Can not access file system.');
-          };
-          var wallpaperDirectories = WallpaperDirectories.getInstance();
-          var getThumbnail = function(fileName) {
-            var setURL = function(fileEntry) {
-              imageEl.src = fileEntry.toURL();
-              self.callback_(
-                  self.dataModelId_, self.dataItem.wallpaperId, imageEl);
-            };
-            var fallback = function() {
-              wallpaperDirectories.getDirectory(
-                  Constants.WallpaperDirNameEnum.ORIGINAL, function(dirEntry) {
-                    dirEntry.getFile(
-                        fileName, {create: false}, setURL, errorHandler);
-                  }, errorHandler);
-            };
-            var success = function(dirEntry) {
-              dirEntry.getFile(fileName, {create: false}, setURL, fallback);
-            };
-            wallpaperDirectories.getDirectory(
-                Constants.WallpaperDirNameEnum.THUMBNAIL, success,
-                errorHandler);
-          };
-          getThumbnail(self.dataItem.baseURL);
+          if (loadTimeData.getBoolean('useNewWallpaperPicker'))
+            this.decorateCustomWallpaper_(imageEl, this.dataItem);
+          else
+            this.decorateCustomWallpaperForOldPicker_(imageEl, this.dataItem);
           break;
         case Constants.WallpaperSourceEnum.OEM:
         case Constants.WallpaperSourceEnum.Online:
-          chrome.wallpaperPrivate.getThumbnail(
-              this.dataItem.baseURL, this.dataItem.source, function(data) {
-                if (data) {
-                  var blob =
-                      new Blob([new Int8Array(data)], {'type': 'image\/png'});
-                  imageEl.src = window.URL.createObjectURL(blob);
-                  imageEl.addEventListener('load', function(e) {
-                    self.callback_(
-                        self.dataModelId_, self.dataItem.wallpaperId, imageEl);
-                    window.URL.revokeObjectURL(this.src);
-                  });
-                } else if (
-                    self.dataItem.source ==
-                    Constants.WallpaperSourceEnum.Online) {
-                  var xhr = new XMLHttpRequest();
-                  xhr.open(
-                      'GET',
-                      self.dataItem.baseURL +
-                          Constants.OnlineWallpaperThumbnailUrlSuffix,
-                      true);
-                  xhr.responseType = 'arraybuffer';
-                  xhr.send(null);
-                  xhr.addEventListener('load', function(e) {
-                    if (xhr.status === 200) {
-                      chrome.wallpaperPrivate.saveThumbnail(
-                          self.dataItem.baseURL, xhr.response);
-                      var blob = new Blob(
-                          [new Int8Array(xhr.response)],
-                          {'type': 'image\/png'});
-                      imageEl.src = window.URL.createObjectURL(blob);
-                      // TODO(bshe): We currently use empty div to reserve space
-                      // for thumbnail. Use a placeholder like "loading" image
-                      // may better.
-                      imageEl.addEventListener('load', function(e) {
-                        self.callback_(
-                            self.dataModelId_, self.dataItem.wallpaperId, this);
-                        window.URL.revokeObjectURL(this.src);
-                      });
-                    } else {
-                      self.callback_(self.dataModelId_);
-                    }
-                  });
-                }
-              });
+          this.decorateOnlineOrOEMWallpaper_(imageEl, this.dataItem);
           break;
         case Constants.WallpaperSourceEnum.Daily:
         case Constants.WallpaperSourceEnum.ThirdParty:
@@ -173,6 +122,138 @@ cr.define('wallpapers', function() {
           // begun loading and are tracked.
           window.setTimeout(this.callback_.bind(this, this.dataModelId_), 0);
       }
+    },
+
+    /**
+     * Initializes the grid item for custom wallpapers. Used by the new
+     * wallpaper picker.
+     * @param {Object} imageElement The image element.
+     * @param {{filePath: string, baseURL: string, layout: string,
+     *          source: string, availableOffline: boolean}
+     *     dataItem The info related to the wallpaper image.
+     * @private
+     */
+    decorateCustomWallpaper_(imageElement, dataItem) {
+      if (dataItem.source != Constants.WallpaperSourceEnum.Custom) {
+        console.error(
+            '|decorateCustomWallpaper_| is called but the wallpaper source ' +
+            'is not custom.');
+        return;
+      }
+      // Read the image data from |filePath|.
+      chrome.wallpaperPrivate.getLocalImageData(
+          dataItem.filePath, imageData => {
+            if (chrome.runtime.lastError || !imageData) {
+              // TODO(crbug.com/810892): Decide the UI: either hide the grid or
+              // show an error icon.
+              console.error(
+                  'Initialization of custom wallpaper grid failed for path ' +
+                  dataItem.filePath);
+              this.callback_(
+                  this.dataModelId_, null /*opt_wallpaperId=*/, imageElement);
+              return;
+            }
+
+            // |opt_wallpaperId| is used as the key to cache the image data, but
+            // we do not want to cache local image data since it may change
+            // frequently.
+            WallpaperUtil.displayImage(
+                imageElement, imageData,
+                this.callback_.bind(
+                    this, this.dataModelId_, null /*opt_wallpaperId=*/,
+                    imageElement));
+          });
+    },
+
+    /**
+     * Initializes the grid item for custom wallpapers. Used by the old
+     * wallpaper picker (to be deprecated).
+     * @param {Object} imageElement The image element.
+     * @param {{filePath: string, baseURL: string, layout: string,
+     *          source: string, availableOffline: boolean}
+     *     dataItem The info related to the wallpaper image.
+     * @private
+     */
+    decorateCustomWallpaperForOldPicker_(imageElement, dataItem) {
+      if (dataItem.source != Constants.WallpaperSourceEnum.Custom) {
+        console.error(
+            '|decorateCustomWallpaperForOldPicker_| is called but the ' +
+            'wallpaper source is not custom.');
+        return;
+      }
+      var errorHandler = e => {
+        console.error('Can not access file system.');
+        this.callback_(this.dataModelId_);
+      };
+      var setURL = fileEntry => {
+        imageElement.src = fileEntry.toURL();
+        this.callback_(this.dataModelId_, dataItem.wallpaperId, imageElement);
+      };
+      var wallpaperDirectories = WallpaperDirectories.getInstance();
+      var fallback = () => {
+        wallpaperDirectories.getDirectory(
+            Constants.WallpaperDirNameEnum.ORIGINAL, function(dirEntry) {
+              dirEntry.getFile(
+                  dataItem.baseURL, {create: false}, setURL, errorHandler);
+            }, errorHandler);
+      };
+      var success = dirEntry => {
+        dirEntry.getFile(dataItem.baseURL, {create: false}, setURL, fallback);
+      };
+      wallpaperDirectories.getDirectory(
+          Constants.WallpaperDirNameEnum.THUMBNAIL, success, errorHandler);
+    },
+
+    /**
+     * Initializes the grid item for online or OEM wallpapers.
+     * @param {Object} imageElement The image element.
+     * @param {{filePath: string, baseURL: string, layout: string,
+     *          source: string, availableOffline: boolean}
+     *     dataItem The info related to the wallpaper image.
+     * @private
+     */
+    decorateOnlineOrOEMWallpaper_(imageElement, dataItem) {
+      if (dataItem.source != Constants.WallpaperSourceEnum.Online &&
+          dataItem.source != Constants.WallpaperSourceEnum.OEM) {
+        console.error(
+            '|decorateOnlineOrOEMWallpaper_| is called but the wallpaper ' +
+            'source is not online or OEM.');
+        return;
+      }
+      chrome.wallpaperPrivate
+          .getThumbnail(
+              dataItem.baseURL, dataItem.source, data => {
+                if (data) {
+                  WallpaperUtil.displayImage(
+                      imageElement, data,
+                      this.callback_.bind(
+                          this, this.dataModelId_, dataItem.wallpaperId,
+                          imageElement));
+                } else if (
+                    dataItem.source == Constants.WallpaperSourceEnum.Online) {
+                  var xhr = new XMLHttpRequest();
+                  xhr.open(
+                      'GET',
+                      dataItem.baseURL +
+                          WallpaperUtil.getOnlineWallpaperThumbnailSuffix(),
+                      true);
+                  xhr.responseType = 'arraybuffer';
+                  xhr.send(null);
+                  xhr.addEventListener('load', e => {
+                    if (xhr.status === 200) {
+                      chrome.wallpaperPrivate.saveThumbnail(
+                          dataItem.baseURL, xhr.response);
+                      WallpaperUtil.displayImage(
+                          imageElement, xhr.response,
+                          this.callback_.bind(
+                              this, this.dataModelId_, dataItem.wallpaperId,
+                              imageElement));
+                    } else {
+                      this.callback_(this.dataModelId_);
+                    }
+                  });
+                }
+              });
     },
   };
 
@@ -238,6 +319,18 @@ cr.define('wallpapers', function() {
     spinnerTimeout_: 0,
 
     /**
+     * The timer of the slideshow of the daily refresh item.
+     * @private
+     */
+    dailyRefreshTimer_: undefined,
+
+    /**
+     * The cached list of images that can be used in the slideshow.
+     * @private
+     */
+    dailyRefreshCacheList_: [],
+
+    /**
      * The item in data model which should have a checkmark.
      * @type {{baseURL: string, dynamicURL: string, layout: string,
      *         author: string, authorWebsite: string,
@@ -254,6 +347,32 @@ cr.define('wallpapers', function() {
 
     get activeItem() {
       return this.activeItem_;
+    },
+
+    /**
+     * Whether the daily refresh item is visible.
+     * @type {boolean}
+     */
+    get isShowingDailyRefresh() {
+      return this.dataModel.item(0).isDailyRefreshItem;
+    },
+
+    /**
+     * The grid item corresponding to daily refresh.
+     * @type {Object}
+     */
+    get dailyRefreshItem() {
+      return this.isShowingDailyRefresh ?
+          this.getListItem(this.dataModel.item(0)) :
+          null;
+    },
+
+    /**
+     * The list of images that are currently in the slideshow.
+     * @type {Array<Object>}
+     */
+    get dailyRefreshImages() {
+      return this.dailyRefreshItem.querySelectorAll('.slide-show');
     },
 
     /**
@@ -285,13 +404,24 @@ cr.define('wallpapers', function() {
         // item is constructed in function itemConstructor below.
         this.pendingItems_ = 0;
 
-        this.style.visibility = 'hidden';
-        // If spinner is hidden, schedule to show the spinner after
-        // ShowSpinnerDelayMs delay. Otherwise, keep it spinning.
-        if ($('spinner-container').hidden) {
-          this.spinnerTimeout_ = window.setTimeout(function() {
-            $('spinner-container').hidden = false;
-          }, ShowSpinnerDelayMs);
+        // Only show the spinner on the old wallpaper picker.
+        if (!this.useNewWallpaperPicker_) {
+          this.style.visibility = 'hidden';
+          // If spinner is hidden, schedule to show the spinner after
+          // ShowSpinnerDelayMs delay. Otherwise, keep it spinning.
+          if ($('spinner-container').hidden) {
+            this.spinnerTimeout_ = window.setTimeout(function() {
+              $('spinner-container').hidden = false;
+            }, ShowSpinnerDelayMs);
+          }
+        }
+
+        // Add a daily refresh item as the first element of the grid when
+        // showing online wallpapers on the new wallpaper picker.
+        if (this.useNewWallpaperPicker_ &&
+            dataModel.item(0).source == Constants.WallpaperSourceEnum.Online) {
+          dataModel.splice(
+              0, 0, {isDailyRefreshItem: true, availableOffline: false});
         }
       } else {
         // Sets dataModel to null should hide spinner immediately.
@@ -312,6 +442,39 @@ cr.define('wallpapers', function() {
     },
 
     /**
+     * Crops the image to diplay it in a square grid of size |GRID_SIZE_CSS|, by
+     * adjusting its relative position with the outer image grid.
+     * @param {object} image The wallpaper image.
+     * @private
+     */
+    cropImageToFitGrid_: function(image) {
+      var newHeight;
+      var newWidth;
+      if (image.offsetWidth == 0 || image.offsetHeight == 0) {
+        newHeight = GRID_SIZE_CSS;
+        newWidth = GRID_SIZE_CSS;
+      } else {
+        var aspectRatio = image.offsetWidth / image.offsetHeight;
+        if (aspectRatio > 1) {
+          newHeight = GRID_SIZE_CSS;
+          newWidth = GRID_SIZE_CSS * aspectRatio;
+          // The center portion is visible, and the overflow area on the left
+          // and right will be hidden.
+          image.style.left = (GRID_SIZE_CSS - newWidth) / 2 + 'px';
+        } else {
+          newWidth = GRID_SIZE_CSS;
+          newHeight = GRID_SIZE_CSS / aspectRatio;
+          // The center portion is visible, and the overflow area on the top and
+          // buttom will be hidden.
+          image.style.top = (GRID_SIZE_CSS - newHeight) / 2 + 'px';
+        }
+      }
+
+      image.style.height = newHeight + 'px';
+      image.style.width = newWidth + 'px';
+    },
+
+    /**
      * Check if new thumbnail grid finished loading. This reduces the count of
      * remaining items to be loaded and when 0, shows the thumbnail grid. Note
      * it does not reduce the count on a previous |dataModelId|.
@@ -328,11 +491,29 @@ cr.define('wallpapers', function() {
       this.pendingItems_--;
       if (opt_wallpaperId != null)
         this.thumbnailList_[opt_wallpaperId] = opt_thumbnail;
+
+      if (opt_thumbnail && this.useNewWallpaperPicker_) {
+        this.cropImageToFitGrid_(opt_thumbnail);
+
+        if (this.isShowingDailyRefresh)
+          this.cacheDailyRefreshThumbnailImages_(opt_thumbnail);
+      }
+
       if (this.pendingItems_ == 0) {
         this.style.visibility = 'visible';
         window.clearTimeout(this.spinnerTimeout_);
         this.spinnerTimeout_ = 0;
         $('spinner-container').hidden = true;
+        if (this.useNewWallpaperPicker_) {
+          // TODO(crbug.com/812725): Decide what to show in the top header bar
+          // if the current wallpaper in use was not selected from the picker.
+          // For now, show the info of the first wallpaper in this collection.
+          var startingIndex = this.isShowingDailyRefresh ? 1 : 0;
+          wallpaperManager.setWallpaperAttribution(
+              this.dataModel.item(startingIndex));
+          if (this.isShowingDailyRefresh)
+            this.decorateDailyRefreshItem_();
+        }
       }
     },
 
@@ -346,6 +527,8 @@ cr.define('wallpapers', function() {
       this.checkmark_.classList.add('check');
       this.dataModel = new ArrayDataModel([]);
       this.thumbnailList_ = new ArrayDataModel([]);
+      this.useNewWallpaperPicker_ =
+          loadTimeData.getBoolean('useNewWallpaperPicker');
       var self = this;
       this.itemConstructor = function(value) {
         var dataModelId = self.dataModelId_;
@@ -426,6 +609,89 @@ cr.define('wallpapers', function() {
       if (!selectedGridItem)
         return;
       selectedGridItem.appendChild(this.checkmark_);
+    },
+
+    /**
+     * Cache the thumbnail images so that they can be used in the slideshow of
+     * the daily refresh item.
+     * @param {Object} image The thumbnail image.
+     * @private
+     */
+    cacheDailyRefreshThumbnailImages_: function(image) {
+      // Decide heuristically if the image should be cached. There's no need to
+      // cache everything if the list already contains the number of images
+      // needed.
+      if (this.dailyRefreshCacheList_.length == 0 ||
+          Math.random() <
+              DAILY_REFRESH_IMAGES_NUM / this.dailyRefreshCacheList_.length) {
+        this.dailyRefreshCacheList_.push(image.cloneNode(true /*deep=*/));
+      }
+    },
+
+    /**
+     * Initializes the UI of the daily refresh item.
+     * @private
+     */
+    decorateDailyRefreshItem_: function() {
+      if (!this.isShowingDailyRefresh || !this.dailyRefreshItem ||
+          this.dailyRefreshImages.length >= DAILY_REFRESH_IMAGES_NUM ||
+          this.dailyRefreshCacheList_.length == 0) {
+        return;
+      }
+
+      this.dailyRefreshItem.classList.add('daily-refresh-item');
+
+      // Randomly select images from the cache list.
+      var startingIndex =
+          Math.floor(this.dailyRefreshCacheList_.length * Math.random());
+      var imageCount = Math.min(
+          DAILY_REFRESH_IMAGES_NUM, this.dailyRefreshCacheList_.length);
+      for (var i = 0; i < imageCount; ++i) {
+        var index = (startingIndex + i) % this.dailyRefreshCacheList_.length;
+        var image = this.dailyRefreshCacheList_[index];
+        image.classList.add('slide-show');
+        image.style.opacity = 0;
+        this.dailyRefreshItem.appendChild(image);
+      }
+
+      // Add the daily refresh label and toggle.
+      if (!this.dailyRefreshItem.querySelector('.daily-refresh-banner')) {
+        var dailyRefreshBanner = document.querySelector('.daily-refresh-banner')
+                                     .cloneNode(true /*deep=*/);
+        dailyRefreshBanner.hidden = false;
+        dailyRefreshBanner.querySelector('.daily-refresh-slider')
+            .addEventListener(
+                'click',
+                WallpaperManager.prototype.toggleSurpriseMe.bind(
+                    wallpaperManager));
+        this.dailyRefreshItem.appendChild(dailyRefreshBanner);
+      }
+
+      window.clearTimeout(this.dailyRefreshTimer_);
+      this.showNextImage_(0);
+    },
+
+    /**
+     * Shows the next image for the daily refresh item and hides the currently
+     * visible one.
+     * @param {number} index The index of the image to be shown.
+     * @private
+     */
+    showNextImage_: function(index) {
+      var images = this.dailyRefreshImages;
+      if (images.length == 0)
+        return;
+      images[index].style.opacity = 1;
+
+      if (images.length > 1) {
+        var previousIndex = (index - 1) % images.length;
+        if (previousIndex < 0)
+          previousIndex += images.length;
+        images[previousIndex].style.opacity = 0;
+        var nextIndex = (index + 1) % images.length;
+        this.dailyRefreshTimer_ =
+            window.setTimeout(this.showNextImage_.bind(this, nextIndex), 3000);
+      }
     },
 
     /**

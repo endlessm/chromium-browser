@@ -90,7 +90,8 @@ class CHROMEOS_EXPORT FakePowerManagerClient : public PowerManagerClient {
   void GetInactivityDelays(
       DBusMethodCallback<power_manager::PowerManagementPolicy::Delays> callback)
       override;
-  base::Closure GetSuspendReadinessCallback() override;
+  base::Closure GetSuspendReadinessCallback(
+      const base::Location& from_where) override;
   int GetNumPendingSuspendReadinessCallbacks() override;
 
   // Pops the first report from |video_activity_reports_|, returning whether the
@@ -100,7 +101,7 @@ class CHROMEOS_EXPORT FakePowerManagerClient : public PowerManagerClient {
   // Emulates the power manager announcing that the system is starting or
   // completing a suspend attempt.
   void SendSuspendImminent(power_manager::SuspendImminent::Reason reason);
-  void SendSuspendDone();
+  void SendSuspendDone(base::TimeDelta sleep_duration = base::TimeDelta());
   void SendDarkSuspendImminent();
 
   // Emulates the power manager announcing that the system is changing

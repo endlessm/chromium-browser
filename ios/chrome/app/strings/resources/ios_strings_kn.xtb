@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">ವಿಳಾಸ 1</translation>
 <translation id="1545749641540134597">QR ಕೋಡ್ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ</translation>
 <translation id="1580783302095112590">ಮೇಲ್ ಕಳುಹಿಸಲಾಗಿದೆ.</translation>
+<translation id="1582732959743469162">ಇದು ನಿಮ್ಮ ಪ್ರಸ್ತುತ ಡೌನ್‌ಲೋಡ್‌ಗಾಗಿ ಎಲ್ಲಾ ಪ್ರಕ್ರಿಯೆಗಳನ್ನು ನಿಲ್ಲಿಸುತ್ತದೆ.</translation>
 <translation id="1612730193129642006">ಟ್ಯಾಬ್‌ ಗ್ರಿಡ್‌ ತೋರಿಸಿ</translation>
+<translation id="1644574205037202324">ಇತಿಹಾಸ</translation>
 <translation id="1646446875146297738">‘ಟ್ರ್ಯಾಕ್ ಮಾಡಬೇಡಿ’ ಅನ್ನು ಸಕ್ರಿಯಗೊಳಿಸುವುದೆಂದರೆ ವಿನಂತಿಯನ್ನು ನಿಮ್ಮ ಬ್ರೌಸಿಂಗ್ ದಟ್ಟಣೆಯೊಂದಿಗೆ ಸೇರಿಸುವುದು ಎಂದರ್ಥ. ಯಾವುದೇ ಪರಿಣಾಮವು ವೆಬ್‌ಸೈಟ್ ವಿನಂತಿಗೆ ಪ್ರತಿಕ್ರಿಯಿಸುತ್ತದೆಯೆ ಮತ್ತು ವಿನಂತಿಯನ್ನು ಹೇಗೆ ಅರ್ಥೈಸಲಾಗುತ್ತದೆ ಎಂಬುದರ ಮೇಲೆ ಅವಲಂಬಿತವಾಗಿರುತ್ತದೆ.
 
 ಉದಾಹರಣೆಗೆ, ಕೆಲವು ವೆಬ್‌ಸೈಟ್‌ಗಳು, ನೀವು ಭೇಟಿ ನೀಡುವ ಇತರ ವೆಬ್‌ಸೈಟ್‌ಗಳನ್ನು ಆಧರಿಸದಿರುವ ಜಾಹೀರಾತುಗಳನ್ನು ನಿಮಗೆ ಪ್ರದರ್ಶಿಸುವ ಮೂಲಕ ಈ ವಿನಂತಿಗೆ ಪ್ರತಿಕ್ರಿಯೆಯನ್ನು ನೀಡಬಹುದು. ಹಲವಾರು ವೆಬ್‌ಸೈಟ್‌ಗಳು ಈಗಲೂ ಸಹ ನಿಮ್ಮ ಬ್ರೌಸಿಂಗ್ ಡೇಟಾವನ್ನು ಸಂಗ್ರಹಿಸುತ್ತವೆ ಮತ್ತು ಬಳಸುತ್ತವೆ - ಉದಾಹರಣೆಗೆ ಭದ್ರತೆಯನ್ನು ಸುಧಾರಿಸಲು, ತಮ್ಮ ವೆಬ್‌ಸೈಟ್‌ಗಳಲ್ಲಿ ವಿಷಯಗಳು, ಸೇವೆಗಳು, ಜಾಹೀರಾತುಗಳು ಮತ್ತು ಶಿಫಾರಸುಗಳನ್ನು ಒದಗಿಸಲು, ಮತ್ತು ವರದಿ ಅಂಕಿಅಂಶಗಳನ್ನು ಸೃಷ್ಟಿಸಲು ಬಳಸುತ್ತವೆ. <ph name="BEGIN_LINK" />ಇನ್ನಷ್ಟು ತಿಳಿಯಿರಿ<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@
 <translation id="3175081911749765310">ವೆಬ್‌ ಸೇವೆಗಳು</translation>
 <translation id="3207960819495026254">ಬುಕ್‌ಮಾರ್ಕ್‌ ಮಾಡಲಾಗಿದೆ</translation>
 <translation id="3210163015918861891">ಸಿಂಕ್ ಆಫ್ ಆಗಿದೆ</translation>
+<translation id="3224641773458703735">ಪಾಸ್‌ವರ್ಡ್‌ಗಳನ್ನು ರಫ್ತು ಮಾಡಲು, ನೀವು ಮೊದಲು ನಿಮ್ಮ ಸಾಧನದಲ್ಲಿ ಪಾಸ್‌ಕೋಡ್ ಅನ್ನು ಹೊಂದಿಸಬೇಕು.</translation>
 <translation id="3240426699337459095">ಲಿಂಕ್ ನಕಲಿಸಲಾಗಿದೆ</translation>
 <translation id="3244271242291266297">ಮಿಮೀ</translation>
 <translation id="3252394070589632019"><ph name="NUM_SUGGESTIONS" /> ರಲ್ಲಿ <ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /></translation>
@@ -153,6 +156,7 @@
 <translation id="3771033907050503522">ಅದೃಶ್ಯ ಟ್ಯಾಬ್‌ಗಳು</translation>
 <translation id="3779810277399252432">ಇಂಟರ್ನೆಟ್‌ ಸಂಪರ್ಕ ಇಲ್ಲ.</translation>
 <translation id="3783017676699494206">ಚಿತ್ರವನ್ನು ಉಳಿಸಿ</translation>
+<translation id="3789841737615482174">ಸ್ಥಾಪಿಸು</translation>
 <translation id="385051799172605136">ಹಿಂದೆ</translation>
 <translation id="3897092660631435901">ಮೆನು</translation>
 <translation id="3928666092801078803">ನನ್ನ ಡೇಟಾ ಒಂದುಗೂಡಿಸಿ</translation>
@@ -220,7 +224,6 @@
 <translation id="5300589172476337783">ಪ್ರದರ್ಶಿಸಿ</translation>
 <translation id="5317780077021120954">ಉಳಿಸು</translation>
 <translation id="5327248766486351172">ಹೆಸರು</translation>
-<translation id="533632423981297619">ರಫ್ತು ಮಾಡಲಾದ ಫೈಲ್ ಅನ್ನು ನೋಡುವ ಯಾರಿಗಾದರೂ ನಿಮ್ಮ ಪಾಸ್‌ವರ್ಡ್‌ಗಳು ಗೋಚರಿಸುತ್ತವೆ. ಫೈಲ್ ಅನ್ನು ಯಾರೊಂದಿಗೂ ಹಂಚಿಕೊಳ್ಳಬೇಡಿ.</translation>
 <translation id="5388358297987318779">ಚಿತ್ರವನ್ನು ತೆರೆಯಿರಿ</translation>
 <translation id="5409365236829784218">ಈ ಫೈಲ್ ಅನ್ನು ತೆರೆಯಬಹುದಾದ ಯಾವುದೇ ಅಪ್ಲಿಕೇಶನ್‌ಗಳನ್ನು ಸ್ಥಾಪಿಸಲಾಗಿಲ್ಲ.</translation>
 <translation id="5433691172869980887">ಬಳಕೆದಾರ ಹೆಸರನ್ನು ನಕಲಿಸಲಾಗಿದೆ</translation>
@@ -249,6 +252,7 @@
 <translation id="5871497086027727873">1 ಐಟಂ ಸರಿಸಲಾಗಿದೆ</translation>
 <translation id="5911030830365207728">Google ಅನುವಾದ</translation>
 <translation id="5916664084637901428">ಆನ್‌</translation>
+<translation id="5938160824633642847">ನಿಮ್ಮ ಸಾಧನ ಬಹುತೇಕ ಭರ್ತಿಯಾಗಿದೆ. ಸ್ಥಳಾವಕಾಶ ಮುಕ್ತಗೊಳಿಸಿ, ಪುನಃ ಪ್ರಯತ್ನಿಸಿ.</translation>
 <translation id="5948291296578561264">ನಿಮ್ಮ ಫೋಟೋ ಲೈಬ್ರರಿಗೆ ಫೋಟೋಗಳನ್ನು ಉಳಿಸಲು ಇದು ನಿಮ್ಮನ್ನು ಅನುಮತಿಸುತ್ತದೆ.</translation>
 <translation id="5955891643922670672">ಆಫ್‌ಲೈನ್ ಆವೃತ್ತಿ ಅನ್ನು ವೀಕ್ಷಿಸಲಾಗುತ್ತಿದೆ</translation>
 <translation id="5964480694698977962">ಹೊಸ ಅದೃಶ್ಯ ಟ್ಯಾಬ್ ರಚಿಸಿ.</translation>
@@ -280,7 +284,9 @@
 <translation id="633809752005859102">ನಿಜವಾಗಿಯೂ ಯಾವುದೋ ತಪ್ಪು ಸಂಭವಿಸಿದೆ. ನಾವು ಅದರ ಕುರಿತು ಕ್ರಮ ಕೈಗೊಳ್ಳುತ್ತೇವೆ.</translation>
 <translation id="6342069812937806050">ಇದೀಗ</translation>
 <translation id="6344783595350022745">ಪಠ್ಯವನ್ನು ತೆರವುಗೊಳಿಸಿ</translation>
+<translation id="6346549652287021269">ಹೊಸ ಡೌನ್‌ಲೋಡ್‌ ಪ್ರಾರಂಭಿಸುವುದೇ?</translation>
 <translation id="6362362396625799311">ಯಾವುದೇ ಅದೃಶ್ಯ ಟ್ಯಾಬ್‌ಗಳಿಲ್ಲ</translation>
+<translation id="6374469231428023295">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ</translation>
 <translation id="6380866119319257197">ನಿಮ್ಮ ಪಾಸ್‍‍ಫ್ರೇಸ್‍‍ ಅನ್ನು ನೀವು ಮರೆತರೆ ಅಥವಾ ಈ ಸೆಟ್ಟಿಂಗ್ ಬದಲಾಯಿಸಲು ಬಯಸಿದರೆ, <ph name="BEGIN_LINK" />ಸಿಂಕ್ ಮರುಹೊಂದಿಸಿ<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">ಕಾರ್ಡ್‌ನಲ್ಲಿರುವ ಹೆಸರು</translation>
 <translation id="6406506848690869874">ಸಿಂಕ್</translation>
@@ -289,6 +295,7 @@
 
 ನಿಮ್ಮ ಡೇಟಾವನ್ನು <ph name="TIME" /> ರಂದು ನಿಮ್ಮ ಸಿಂಕ್ ಪಾಸ್‌ಫ್ರೇಸ್‌ನೊಂದಿಗೆ ಎನ್‌ಕ್ರಿಪ್ಟ್ ಮಾಡಲಾಗಿದೆ. ಸಿಂಕ್ ಪ್ರಾರಂಭಿಸಲು ಅದನ್ನು ನಮೂದಿಸಿ.</translation>
 <translation id="6418346271604475326">PDF ಸಿದ್ಧಪಡಿಸಲಾಗುತ್ತಿದೆ</translation>
+<translation id="6434591244308415567">ಒಂದು ದೋಷ ಸಂಭವಿಸಿದೆ. ಆನಂತರ ಪುನಃ ಪ್ರಯತ್ನಿಸಿ.</translation>
 <translation id="6445051938772793705">ರಾಷ್ಟ್ರ</translation>
 <translation id="6445981559479772097">ಸಂದೇಶ ಕಳುಹಿಸಲಾಗಿದೆ.</translation>
 <translation id="6464071786529933911">ಹೊಸ ಅದೃಶ್ಯ ಟ್ಯಾಬ್‌ನಲ್ಲಿ ತೆರೆಯಿರಿ</translation>
@@ -299,6 +306,7 @@
 <translation id="6657585470893396449">ಪಾಸ್‌ವರ್ಡ್</translation>
 <translation id="667999046851023355">ಡಾಕ್ಯುಮೆಂಟ್</translation>
 <translation id="6713747756340119864">Google Apps</translation>
+<translation id="6730682669179532099">ಪಾಸ್‌ವರ್ಡ್‌ಗಳನ್ನು ಎಕ್ಸ್‌ಪೋರ್ಟ್ ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ</translation>
 <translation id="6762156594045689028">ಈ ಸೆಟ್ಟಿಂಗ್ ಬದಲಾಯಿಸಲು, <ph name="BEGIN_LINK" />ಸಿಂಕ್ ಮರುಹೊಂದಿಸಿ<ph name="END_LINK" /></translation>
 <translation id="6780034285637185932">ಪಿನ್‌ ಕೋಡ್</translation>
 <translation id="6785453220513215166">ಕ್ರ್ಯಾಶ್ ವರದಿಯನ್ನು ಕಳುಹಿಸಲಾಗುತ್ತಿದೆ ...</translation>
@@ -308,13 +316,16 @@
 <translation id="681368974849482173">ಐಟಂ ರಚಿಸಲಾಗಿದೆ</translation>
 <translation id="6896758677409633944">ನಕಲಿಸು</translation>
 <translation id="6903907808598579934">ಸಿಂಕ್‌ ಆನ್‌ ಮಾಡಿ</translation>
+<translation id="6914783257214138813">ರಫ್ತು ಮಾಡಲಾದ ಫೈಲ್ ಅನ್ನು ನೋಡುವ ಯಾರಿಗಾದರೂ ನಿಮ್ಮ ಪಾಸ್‌ವರ್ಡ್‌ಗಳು ಗೋಚರಿಸುತ್ತವೆ.</translation>
 <translation id="6945221475159498467">ಆಯ್ಕೆಮಾಡಿ</translation>
 <translation id="6973630695168034713">ಫೋಲ್ಡರ್‌ಗಳು</translation>
 <translation id="7004499039102548441">ಇತ್ತೀಚಿನ ಟ್ಯಾಬ್‌ಗಳು</translation>
 <translation id="7006788746334555276">ವಿಷಯ ಸೆಟ್ಟಿಂಗ್‌ಗಳು</translation>
+<translation id="7029809446516969842">ಪಾಸ್‌ವರ್ಡ್‌ಗಳು</translation>
 <translation id="7031882061095297553">ಇದಕ್ಕೆ ಸಿಂಕ್ ಮಾಡಿ</translation>
 <translation id="7053983685419859001">ನಿರ್ಬಂಧಿಸು</translation>
 <translation id="7062545763355031412">ಸಮ್ಮತಿಸಿ ಮತ್ತು ಖಾತೆಗಳನ್ನು ಬದಲಾಯಿಸಿ</translation>
+<translation id="7102005569666697658">ಡೌನ್‌ಲೋಡ್‌ ಮಾಡಲಾಗುತ್ತಿದೆ… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">ಮರೆಮಾಡಿ</translation>
 <translation id="7133798577887235672">ಪೂರ್ಣ ಹೆಸರು</translation>
 <translation id="7136892417564438900">ಕ್ಯಾಮರಾ ಲಭ್ಯವಿಲ್ಲ</translation>
@@ -325,6 +336,7 @@
 <translation id="7203585745079012652">ಉತ್ತರಗಳನ್ನು ಮತ್ತೆ ಮಾತನಾಡಿ</translation>
 <translation id="722055596168483966">Google ಸೇವೆಗಳನ್ನು ವೈಯಕ್ತೀಕರಿಸಿ</translation>
 <translation id="7272437679830969316">ನಿಮ್ಮ ಗುರುತನ್ನು ಪರಿಶೀಲಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ಪಾಸ್‌ವರ್ಡ್‌ ಅನ್ನು ನಕಲಿಸಲಾಗಿಲ್ಲ.</translation>
+<translation id="7291368939935408496">ಪಾಸ್‌ವರ್ಡ್‌ಗಳನ್ನು ಸಿದ್ಧಪಡಿಸಲಾಗುತ್ತಿದೆ...</translation>
 <translation id="7336264872878993241"><ph name="PERCENT" /> ಪ್ರತಿಶತ ಡೌನ್‌ಲೋಡ್‌ ಮಾಡಲಾಗಿದೆ</translation>
 <translation id="7346909386216857016">ಸರಿ, ಅರ್ಥವಾಯಿತು</translation>
 <translation id="7400418766976504921">URL</translation>
@@ -349,6 +361,7 @@
 <translation id="7769602470925380267">ಸಮ್ಮತಿಸಿ ಮತ್ತು ಸೈನ್ ಔಟ್ ಮಾಡಿ</translation>
 <translation id="7772032839648071052">ಪಾಸ್‌ಫ್ರೇಸ್ ಅನ್ನು ದೃಢೀಕರಿಸಿ</translation>
 <translation id="780301667611848630">ಬೇಡ, ಧನ್ಯವಾದಗಳು</translation>
+<translation id="7856733331829174190">ಡೌನ್‌ಲೋಡ್‌ ಮಾಡಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ</translation>
 <translation id="7859704718976024901">ಬ್ರೌಸಿಂಗ್ ಇತಿಹಾಸ</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">ಪಾಸ್‌ವರ್ಡ್‌ಗಳನ್ನು ಎಕ್ಸ್‌ಪೋರ್ಟ್ ಮಾಡಿ...</translation>
@@ -409,6 +422,7 @@
 <translation id="9083392325882095631">1 ಐಟಂ</translation>
 <translation id="9100610230175265781">ಪಾಸ್‌ಫ್ರೇಸ್ ಅಗತ್ಯವಿದೆ</translation>
 <translation id="9148126808321036104">ಪುನಃ ಸೈನ್ ಇನ್  ಆಗಿ</translation>
+<translation id="915371508759614899">ಡೌನ್‌ಲೋಡ್ ರದ್ದುಮಾಡುವುದೇ?</translation>
 <translation id="9157836665414082580">ಸಂವಾದಗಳನ್ನು ನಿಗ್ರಹಿಸಿ</translation>
 <translation id="9188680907066685419">ನಿರ್ವಹಿಸಲಾದ ಖಾತೆಯಿಂದ ಸೈನ್ ಔಟ್ ಮಾಡಿ</translation>
 <translation id="9203116392574189331">ಹ್ಯಾಂಡ್ಆಫ್</translation>

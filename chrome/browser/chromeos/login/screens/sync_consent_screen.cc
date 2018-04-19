@@ -9,13 +9,17 @@
 #include "base/logging.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/common/pref_names.h"
 #include "components/browser_sync/profile_sync_service.h"
+#include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
 
 namespace chromeos {
 namespace {
 
-constexpr const char kUserActionButtonClicked[] = "save-and-continue";
+constexpr const char kUserActionConinueAndReview[] = "continue-and-review";
+constexpr const char kUserActionContinueWithDefaults[] =
+    "continue-with-defaults";
 
 browser_sync::ProfileSyncService* GetSyncService(Profile* profile) {
   if (ProfileSyncServiceFactory::HasProfileSyncService(profile))
@@ -54,7 +58,13 @@ void SyncConsentScreen::Hide() {
 }
 
 void SyncConsentScreen::OnUserAction(const std::string& action_id) {
-  if (action_id == kUserActionButtonClicked) {
+  if (action_id == kUserActionConinueAndReview) {
+    profile_->GetPrefs()->SetBoolean(prefs::kShowSyncSettingsOnSessionStart,
+                                     true);
+    Finish(ScreenExitCode::SYNC_CONSENT_FINISHED);
+    return;
+  }
+  if (action_id == kUserActionContinueWithDefaults) {
     Finish(ScreenExitCode::SYNC_CONSENT_FINISHED);
     return;
   }

@@ -137,8 +137,6 @@ class _PresubmitResult(object):
     """
     self._message = message
     self._items = items or []
-    if items:
-      self._items = items
     self._long_text = long_text.rstrip()
 
   def handle(self, output):
@@ -1685,7 +1683,6 @@ def main(argv=None):
   except PresubmitFailure, e:
     print >> sys.stderr, e
     print >> sys.stderr, 'Maybe your depot_tools is out of date?'
-    print >> sys.stderr, 'If all fails, contact maruel@'
     return 2
 
 

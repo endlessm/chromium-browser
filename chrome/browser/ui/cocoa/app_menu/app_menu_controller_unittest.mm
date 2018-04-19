@@ -37,7 +37,6 @@
 #include "components/sync/driver/sync_client.h"
 #include "components/sync/model/fake_sync_change_processor.h"
 #include "components/sync/model/sync_error_factory_mock.h"
-#include "components/sync_sessions/fake_sync_sessions_client.h"
 #include "components/sync_sessions/sessions_sync_manager.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -133,7 +132,7 @@ class AppMenuControllerTest : public CocoaProfileTest {
         ProfileSyncServiceFactory::GetForProfile(profile())
             ->GetSyncClient()
             ->GetSyncSessionsClient(),
-        sync_prefs_.get(), local_device_.get(), &dummy_router_, base::Closure(),
+        sync_prefs_.get(), local_device_.get(), &dummy_router_,
         base::Closure());
 
     manager_->MergeDataAndStartSyncing(
@@ -178,7 +177,7 @@ class AppMenuControllerTest : public CocoaProfileTest {
                 IsDataTypeControllerRunning(syncer::PROXY_TABS))
         .WillRepeatedly(Return(true));
     EXPECT_CALL(*mock_sync_service_, GetOpenTabsUIDelegateMock())
-        .WillRepeatedly(Return(manager_.get()));
+        .WillRepeatedly(Return(manager_->GetOpenTabsUIDelegate()));
   }
 
   AppMenuController* controller() {

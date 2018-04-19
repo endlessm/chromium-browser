@@ -176,7 +176,7 @@ class HardwareVideoEncoder implements VideoEncoder {
       codec = MediaCodec.createByCodecName(codecName);
     } catch (IOException | IllegalArgumentException e) {
       Logging.e(TAG, "Cannot create media encoder " + codecName);
-      return VideoCodecStatus.ERROR;
+      return VideoCodecStatus.FALLBACK_SOFTWARE;
     }
 
     final int colorFormat = useSurfaceMode ? surfaceColorFormat : yuvColorFormat;
@@ -218,7 +218,7 @@ class HardwareVideoEncoder implements VideoEncoder {
     } catch (IllegalStateException e) {
       Logging.e(TAG, "initEncodeInternal failed", e);
       release();
-      return VideoCodecStatus.ERROR;
+      return VideoCodecStatus.FALLBACK_SOFTWARE;
     }
 
     running = true;
@@ -415,7 +415,18 @@ class HardwareVideoEncoder implements VideoEncoder {
   @Override
   public ScalingSettings getScalingSettings() {
     encodeThreadChecker.checkIsOnValidThread();
-    return new ScalingSettings(automaticResizeOn);
+    if (automaticResizeOn) {
+      if (codecType == VideoCodecType.VP8) {
+        final int kLowVp8QpThreshold = 29;
+        final int kHighVp8QpThreshold = 95;
+        return new ScalingSettings(kLowVp8QpThreshold, kHighVp8QpThreshold);
+      } else if (codecType == VideoCodecType.H264) {
+        final int kLowH264QpThreshold = 24;
+        final int kHighH264QpThreshold = 37;
+        return new ScalingSettings(kLowH264QpThreshold, kHighH264QpThreshold);
+      }
+    }
+    return ScalingSettings.OFF;
   }
 
   @Override
@@ -506,11 +517,11 @@ class HardwareVideoEncoder implements VideoEncoder {
           frameBuffer = ByteBuffer.allocateDirect(info.size + configBuffer.capacity());
           configBuffer.rewind();
           frameBuffer.put(configBuffer);
+          frameBuffer.put(codecOutputBuffer);
+          frameBuffer.rewind();
         } else {
-          frameBuffer = ByteBuffer.allocateDirect(info.size);
+          frameBuffer = codecOutputBuffer.slice();
         }
-        frameBuffer.put(codecOutputBuffer);
-        frameBuffer.rewind();
 
         final EncodedImage.FrameType frameType = isKeyFrame
             ? EncodedImage.FrameType.VideoFrameKey

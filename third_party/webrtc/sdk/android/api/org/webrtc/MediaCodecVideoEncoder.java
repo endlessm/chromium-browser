@@ -176,8 +176,17 @@ public class MediaCodecVideoEncoder {
       "OMX.qcom.", Build.VERSION_CODES.KITKAT, BitrateAdjustmentType.NO_ADJUSTMENT);
   private static final MediaCodecProperties exynosH264HwProperties = new MediaCodecProperties(
       "OMX.Exynos.", Build.VERSION_CODES.LOLLIPOP, BitrateAdjustmentType.FRAMERATE_ADJUSTMENT);
-  private static final MediaCodecProperties[] h264HwList =
-      new MediaCodecProperties[] {qcomH264HwProperties, exynosH264HwProperties};
+  private static final MediaCodecProperties mediatekH264HwProperties = new MediaCodecProperties(
+      "OMX.MTK.", Build.VERSION_CODES.O_MR1, BitrateAdjustmentType.FRAMERATE_ADJUSTMENT);
+  private static final MediaCodecProperties[] h264HwList() {
+    final ArrayList<MediaCodecProperties> supported_codecs = new ArrayList<MediaCodecProperties>();
+    supported_codecs.add(qcomH264HwProperties);
+    supported_codecs.add(exynosH264HwProperties);
+    if (PeerConnectionFactory.fieldTrialsFindFullName("WebRTC-MediaTekH264").equals("Enabled")) {
+      supported_codecs.add(mediatekH264HwProperties);
+    }
+    return supported_codecs.toArray(new MediaCodecProperties[supported_codecs.size()]);
+  }
 
   // List of supported HW H.264 high profile encoders.
   private static final MediaCodecProperties exynosH264HighProfileHwProperties =
@@ -277,7 +286,7 @@ public class MediaCodecVideoEncoder {
   @CalledByNative
   public static boolean isH264HwSupported() {
     return !hwEncoderDisabledTypes.contains(H264_MIME_TYPE)
-        && (findHwEncoder(H264_MIME_TYPE, h264HwList, supportedColorList) != null);
+        && (findHwEncoder(H264_MIME_TYPE, h264HwList(), supportedColorList) != null);
   }
 
   public static boolean isH264HighProfileHwSupported() {
@@ -297,7 +306,7 @@ public class MediaCodecVideoEncoder {
 
   public static boolean isH264HwSupportedUsingTextures() {
     return !hwEncoderDisabledTypes.contains(H264_MIME_TYPE)
-        && (findHwEncoder(H264_MIME_TYPE, h264HwList, supportedSurfaceColorList) != null);
+        && (findHwEncoder(H264_MIME_TYPE, h264HwList(), supportedSurfaceColorList) != null);
   }
 
   // Helper struct for findHwEncoder() below.
@@ -464,8 +473,8 @@ public class MediaCodecVideoEncoder {
       keyFrameIntervalSec = 100;
     } else if (type == VideoCodecType.VIDEO_CODEC_H264) {
       mime = H264_MIME_TYPE;
-      properties = findHwEncoder(
-          H264_MIME_TYPE, h264HwList, useSurface ? supportedSurfaceColorList : supportedColorList);
+      properties = findHwEncoder(H264_MIME_TYPE, h264HwList(),
+          useSurface ? supportedSurfaceColorList : supportedColorList);
       if (profile == H264Profile.CONSTRAINED_HIGH.getValue()) {
         EncoderProperties h264HighProfileProperties = findHwEncoder(H264_MIME_TYPE,
             h264HighProfileHwList, useSurface ? supportedSurfaceColorList : supportedColorList);
@@ -625,10 +634,10 @@ public class MediaCodecVideoEncoder {
    * Encodes a new style VideoFrame. |bufferIndex| is -1 if we are not encoding in surface mode.
    */
   @CalledByNativeUnchecked
-  boolean encodeFrame(long nativeEncoder, boolean isKeyframe, VideoFrame frame, int bufferIndex) {
+  boolean encodeFrame(long nativeEncoder, boolean isKeyframe, VideoFrame frame, int bufferIndex,
+      long presentationTimestampUs) {
     checkOnMediaCodecThread();
     try {
-      long presentationTimestampUs = TimeUnit.NANOSECONDS.toMicros(frame.getTimestampNs());
       checkKeyFrameRequired(isKeyframe, presentationTimestampUs);
 
       VideoFrame.Buffer buffer = frame.getBuffer();
@@ -640,7 +649,7 @@ public class MediaCodecVideoEncoder {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
         VideoFrameDrawer.drawTexture(drawer, textureBuffer, new Matrix() /* renderMatrix */, width,
             height, 0 /* viewportX */, 0 /* viewportY */, width, height);
-        eglBase.swapBuffers(frame.getTimestampNs());
+        eglBase.swapBuffers(TimeUnit.MICROSECONDS.toNanos(presentationTimestampUs));
       } else {
         VideoFrame.I420Buffer i420Buffer = buffer.toI420();
         final int chromaHeight = (height + 1) / 2;

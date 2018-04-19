@@ -25,6 +25,7 @@
 
 #include "tcuTestLog.hpp"
 #include "tcuRenderTarget.hpp"
+#include "tcuStringTemplate.hpp"
 #include "tcuSurface.hpp"
 #include "tcuTextureUtil.hpp"
 #include "tcuVectorUtil.hpp"
@@ -120,6 +121,36 @@ static tcu::IVec4 getViewportBoundingBoxArea (const ProjectedBBox& bbox, const t
 	return pixelBox;
 }
 
+static std::string specializeShader(Context& context, const char* code)
+{
+	const glu::GLSLVersion				glslVersion			= glu::getContextTypeGLSLVersion(context.getRenderContext().getType());
+	std::map<std::string, std::string>	specializationMap;
+
+	specializationMap["GLSL_VERSION_DECL"] = glu::getGLSLVersionDeclaration(glslVersion);
+
+	if (glu::contextSupports(context.getRenderContext().getType(), glu::ApiType::es(3, 2)))
+	{
+		specializationMap["GEOMETRY_SHADER_REQUIRE"] = "";
+		specializationMap["GEOMETRY_POINT_SIZE"] = "#extension GL_EXT_geometry_point_size : require";
+		specializationMap["GPU_SHADER5_REQUIRE"] = "";
+		specializationMap["TESSELLATION_SHADER_REQUIRE"] = "";
+		specializationMap["TESSELLATION_POINT_SIZE_REQUIRE"] = "#extension GL_EXT_tessellation_point_size : require";
+		specializationMap["PRIMITIVE_BOUNDING_BOX_REQUIRE"] = "";
+		specializationMap["PRIM_GL_BOUNDING_BOX"] = "gl_BoundingBox";
+	}
+	else
+	{
+		specializationMap["GEOMETRY_SHADER_REQUIRE"] = "#extension GL_EXT_geometry_shader : require";
+		specializationMap["GEOMETRY_POINT_SIZE"] = "#extension GL_EXT_geometry_point_size : require";
+		specializationMap["GPU_SHADER5_REQUIRE"] = "#extension GL_EXT_gpu_shader5 : require";
+		specializationMap["TESSELLATION_SHADER_REQUIRE"] = "#extension GL_EXT_tessellation_shader : require";
+		specializationMap["TESSELLATION_POINT_SIZE_REQUIRE"] = "#extension GL_EXT_tessellation_point_size : require";
+		specializationMap["PRIMITIVE_BOUNDING_BOX_REQUIRE"] = "#extension GL_EXT_primitive_bounding_box : require";
+		specializationMap["PRIM_GL_BOUNDING_BOX"] = "gl_BoundingBoxEXT";
+	}
+
+	return tcu::StringTemplate(code).specialize(specializationMap);
+}
 
 class InitialValueCase : public TestCase
 {
@@ -137,7 +168,9 @@ InitialValueCase::InitialValueCase (Context& context, const char* name, const ch
 
 void InitialValueCase::init (void)
 {
-	if (!m_context.getContextInfo().isExtensionSupported("GL_EXT_primitive_bounding_box"))
+	const bool supportsES32 = glu::contextSupports(m_context.getRenderContext().getType(), glu::ApiType::es(3, 2));
+
+	if (!supportsES32 && !m_context.getContextInfo().isExtensionSupported("GL_EXT_primitive_bounding_box"))
 		throw tcu::NotSupportedError("Test requires GL_EXT_primitive_bounding_box extension");
 }
 
@@ -213,7 +246,9 @@ QueryCase::QueryCase (Context& context, const char* name, const char* desc, Quer
 
 void QueryCase::init (void)
 {
-	if (!m_context.getContextInfo().isExtensionSupported("GL_EXT_primitive_bounding_box"))
+	const bool supportsES32 = glu::contextSupports(m_context.getRenderContext().getType(), glu::ApiType::es(3, 2));
+
+	if (!supportsES32 && !m_context.getContextInfo().isExtensionSupported("GL_EXT_primitive_bounding_box"))
 		throw tcu::NotSupportedError("Test requires GL_EXT_primitive_bounding_box extension");
 }
 
@@ -608,13 +643,14 @@ void BBoxRenderCase::init (void)
 	const tcu::IVec2		renderTargetSize	= (m_renderTarget == RENDERTARGET_DEFAULT) ?
 													(tcu::IVec2(m_context.getRenderTarget().getWidth(), m_context.getRenderTarget().getHeight())) :
 													(tcu::IVec2(FBO_SIZE, FBO_SIZE));
+	const bool				supportsES32		= glu::contextSupports(m_context.getRenderContext().getType(), glu::ApiType::es(3, 2));
 
 	// requirements
-	if (!m_context.getContextInfo().isExtensionSupported("GL_EXT_primitive_bounding_box"))
+	if (!supportsES32 && !m_context.getContextInfo().isExtensionSupported("GL_EXT_primitive_bounding_box"))
 		throw tcu::NotSupportedError("Test requires GL_EXT_primitive_bounding_box extension");
-	if (m_hasTessellationStage && !m_context.getContextInfo().isExtensionSupported("GL_EXT_tessellation_shader"))
+	if (!supportsES32 && m_hasTessellationStage && !m_context.getContextInfo().isExtensionSupported("GL_EXT_tessellation_shader"))
 		throw tcu::NotSupportedError("Test requires GL_EXT_tessellation_shader extension");
-	if (m_hasGeometryStage && !m_context.getContextInfo().isExtensionSupported("GL_EXT_geometry_shader"))
+	if (!supportsES32 && m_hasGeometryStage && !m_context.getContextInfo().isExtensionSupported("GL_EXT_geometry_shader"))
 		throw tcu::NotSupportedError("Test requires GL_EXT_geometry_shader extension");
 	if (m_renderTarget == RENDERTARGET_DEFAULT && (renderTargetSize.x() < RENDER_TARGET_MIN_SIZE || renderTargetSize.y() < RENDER_TARGET_MIN_SIZE))
 		throw tcu::NotSupportedError(std::string() + "Test requires " + de::toString<int>(RENDER_TARGET_MIN_SIZE) + "x" + de::toString<int>(RENDER_TARGET_MIN_SIZE) + " default framebuffer");
@@ -643,14 +679,14 @@ void BBoxRenderCase::init (void)
 
 	{
 		glu::ProgramSources sources;
-		sources << glu::VertexSource(genVertexSource());
-		sources << glu::FragmentSource(genFragmentSource());
+		sources << glu::VertexSource(specializeShader(m_context, genVertexSource().c_str()));
+		sources << glu::FragmentSource(specializeShader(m_context, genFragmentSource().c_str()));
 
 		if (m_hasTessellationStage)
-			sources << glu::TessellationControlSource(genTessellationControlSource())
-					<< glu::TessellationEvaluationSource(genTessellationEvaluationSource());
+			sources << glu::TessellationControlSource(specializeShader(m_context, genTessellationControlSource().c_str()))
+					<< glu::TessellationEvaluationSource(specializeShader(m_context, genTessellationEvaluationSource().c_str()));
 		if (m_hasGeometryStage)
-			sources << glu::GeometrySource(genGeometrySource());
+			sources << glu::GeometrySource(specializeShader(m_context, genGeometrySource().c_str()));
 
 		m_program = de::MovePtr<glu::ShaderProgram>(new glu::ShaderProgram(m_context.getRenderContext(), sources));
 		GLU_EXPECT_NO_ERROR(gl.getError(), "build program");
@@ -964,7 +1000,7 @@ std::string GridRenderCase::genVertexSource (void) const
 {
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
 			"in highp vec4 a_position;\n"
 			"in highp vec4 a_color;\n"
 			"out highp vec4 vtx_color;\n"
@@ -1012,7 +1048,7 @@ std::string GridRenderCase::genFragmentSource (void) const
 	const char* const	colorInputName = (m_hasGeometryStage) ? ("geo_color") : (m_hasTessellationStage) ? ("tess_color") : ("vtx_color");
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
 			"in mediump vec4 " << colorInputName << ";\n"
 			"layout(location = 0) out mediump vec4 o_color;\n"
 		<<	genShaderFunction(SHADER_FUNC_INSIDE_BBOX)
@@ -1035,9 +1071,9 @@ std::string GridRenderCase::genTessellationControlSource (void) const
 {
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
-			"#extension GL_EXT_tessellation_shader : require\n"
-			"#extension GL_EXT_primitive_bounding_box : require\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
+			"${TESSELLATION_SHADER_REQUIRE}\n"
+			"${PRIMITIVE_BOUNDING_BOX_REQUIRE}\n"
 			"layout(vertices=3) out;\n"
 			"\n"
 			"in highp vec4 vtx_color[];\n"
@@ -1099,8 +1135,8 @@ std::string GridRenderCase::genTessellationControlSource (void) const
 
 	if (!m_useGlobalState)
 		buf <<	"\n"
-				"	gl_BoundingBoxEXT[0] = bboxMin;\n"
-				"	gl_BoundingBoxEXT[1] = bboxMax;\n";
+				"	${PRIM_GL_BOUNDING_BOX}[0] = bboxMin;\n"
+				"	${PRIM_GL_BOUNDING_BOX}[1] = bboxMax;\n";
 
 	buf <<	"	vp_bbox_expansionSize = 0.0;\n"
 			"	vp_bbox_clipMin = min(vec3(bboxMin.x, bboxMin.y, bboxMin.z) / bboxMin.w,\n"
@@ -1116,9 +1152,9 @@ std::string GridRenderCase::genTessellationEvaluationSource (void) const
 {
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
-			"#extension GL_EXT_tessellation_shader : require\n"
-			"#extension GL_EXT_gpu_shader5 : require\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
+			"${TESSELLATION_SHADER_REQUIRE}\n"
+			"${GPU_SHADER5_REQUIRE}\n"
 			"layout(triangles) in;\n"
 			"\n"
 			"in highp vec4 tess_ctrl_color[];\n"
@@ -1154,8 +1190,8 @@ std::string GridRenderCase::genGeometrySource (void) const
 	const char* const	colorInputName = (m_hasTessellationStage) ? ("tess_color") : ("vtx_color");
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
-			"#extension GL_EXT_geometry_shader : require\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
+			"${GEOMETRY_SHADER_REQUIRE}\n"
 			"layout(triangles) in;\n"
 			"layout(max_vertices=9, triangle_strip) out;\n"
 			"\n"
@@ -1402,6 +1438,11 @@ private:
 	{
 		SCANRESULT_NUM_LINES_OK_BIT		= (1 << 0),
 		SCANRESULT_LINE_WIDTH_OK_BIT	= (1 << 1),
+		SCANRESULT_LINE_WIDTH_WARN_BIT	= (1 << 2),
+		SCANRESULT_LINE_WIDTH_ERR_BIT	= (1 << 3),
+		SCANRESULT_LINE_CONT_OK_BIT		= (1 << 4),
+		SCANRESULT_LINE_CONT_ERR_BIT	= (1 << 5),
+		SCANRESULT_LINE_CONT_WARN_BIT	= (1 << 6),
 	};
 
 	void				init							(void);
@@ -1418,11 +1459,12 @@ private:
 	void				verifyRenderResult				(const IterationConfig& config);
 
 	tcu::IVec2			getNumberOfLinesRange			(int queryAreaBegin, int queryAreaEnd, float patternStart, float patternSize, int viewportArea, QueryDirection queryDir) const;
-	deUint8				scanRow							(const tcu::ConstPixelBufferAccess& access, int row, int rowBegin, int rowEnd, const tcu::IVec2& numLines, int& floodCounter) const;
-	deUint8				scanColumn						(const tcu::ConstPixelBufferAccess& access, int column, int columnBegin, int columnEnd, const tcu::IVec2& numLines, int& floodCounter) const;
+	deUint8				scanRow							(const tcu::ConstPixelBufferAccess& access, int row, int rowBegin, int rowEnd, int rowViewportBegin, int rowViewportEnd, const tcu::IVec2& numLines, int& floodCounter) const;
+	deUint8				scanColumn						(const tcu::ConstPixelBufferAccess& access, int column, int columnBegin, int columnEnd, int columnViewportBegin, int columnViewportEnd, const tcu::IVec2& numLines, int& floodCounter) const;
 	bool				checkAreaNumLines				(const tcu::ConstPixelBufferAccess& access, const tcu::IVec4& area, int& floodCounter, int componentNdx, const tcu::IVec2& numLines) const;
+	deUint8				checkLineContinuity				(const tcu::ConstPixelBufferAccess& access, const tcu::IVec2& begin, const tcu::IVec2& end, int componentNdx, int& messageLimitCounter) const;
 	tcu::IVec2			getNumMinimaMaxima				(const tcu::ConstPixelBufferAccess& access, int componentNdx) const;
-	bool				checkLineWidths					(const tcu::ConstPixelBufferAccess& access, const tcu::IVec2& begin, const tcu::IVec2& end, int componentNdx, int& floodCounter) const;
+	deUint8				checkLineWidths					(const tcu::ConstPixelBufferAccess& access, const tcu::IVec2& begin, const tcu::IVec2& end, int componentNdx, int& floodCounter) const;
 	void				printLineWidthError				(const tcu::IVec2& pos, int detectedLineWidth, const tcu::IVec2& lineWidthRange, bool isHorizontal, int& floodCounter) const;
 
 	const int			m_patternSide;
@@ -1468,7 +1510,7 @@ std::string LineRenderCase::genVertexSource (void) const
 {
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
 			"in highp vec4 a_position;\n"
 			"in highp vec4 a_color;\n"
 			"out highp vec4 vtx_color;\n"
@@ -1514,7 +1556,7 @@ std::string LineRenderCase::genFragmentSource (void) const
 	const char* const	colorInputName = (m_hasGeometryStage) ? ("geo_color") : (m_hasTessellationStage) ? ("tess_color") : ("vtx_color");
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
 			"in mediump vec4 " << colorInputName << ";\n"
 			"layout(location = 0) out mediump vec4 o_color;\n"
 		<<	genShaderFunction(SHADER_FUNC_INSIDE_BBOX)
@@ -1537,9 +1579,9 @@ std::string LineRenderCase::genTessellationControlSource (void) const
 {
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
-			"#extension GL_EXT_tessellation_shader : require\n"
-			"#extension GL_EXT_primitive_bounding_box : require\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
+			"${TESSELLATION_SHADER_REQUIRE}\n"
+			"${PRIMITIVE_BOUNDING_BOX_REQUIRE}\n"
 			"layout(vertices=2) out;"
 			"\n"
 			"in highp vec4 vtx_color[];\n"
@@ -1598,8 +1640,8 @@ std::string LineRenderCase::genTessellationControlSource (void) const
 
 	if (!m_useGlobalState)
 		buf <<	"\n"
-				"	gl_BoundingBoxEXT[0] = bboxMin;\n"
-				"	gl_BoundingBoxEXT[1] = bboxMax;\n";
+				"	${PRIM_GL_BOUNDING_BOX}[0] = bboxMin;\n"
+				"	${PRIM_GL_BOUNDING_BOX}[1] = bboxMax;\n";
 
 	buf <<	"	vp_bbox_expansionSize = u_lineWidth;\n"
 			"	vp_bbox_clipMin = min(vec3(bboxMin.x, bboxMin.y, bboxMin.z) / bboxMin.w,\n"
@@ -1615,8 +1657,8 @@ std::string LineRenderCase::genTessellationEvaluationSource (void) const
 {
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
-			"#extension GL_EXT_tessellation_shader : require\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
+			"${TESSELLATION_SHADER_REQUIRE}\n"
 			"layout(isolines) in;"
 			"\n"
 			"in highp vec4 tess_ctrl_color[];\n"
@@ -1648,8 +1690,8 @@ std::string LineRenderCase::genGeometrySource (void) const
 	const char* const	colorInputName = (m_hasTessellationStage) ? ("tess_color") : ("vtx_color");
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
-			"#extension GL_EXT_geometry_shader : require\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
+			"${GEOMETRY_SHADER_REQUIRE}\n"
 			"layout(lines) in;\n"
 			"layout(max_vertices=5, line_strip) out;\n"
 			"\n"
@@ -1787,23 +1829,38 @@ void LineRenderCase::renderTestPattern (const IterationConfig& config)
 
 void LineRenderCase::verifyRenderResult (const IterationConfig& config)
 {
-	const glw::Functions&	gl						= m_context.getRenderContext().getFunctions();
-	const bool				isMsaa					= m_context.getRenderTarget().getNumSamples() > 1;
-	const ProjectedBBox		projectedBBox			= projectBoundingBox(config.bbox);
-	const float				lineWidth				= (m_isWideLineCase) ? ((float)m_wideLineLineWidth) : (1.0f);
-	const tcu::IVec4		viewportBBoxArea		= getViewportBoundingBoxArea(projectedBBox, config.viewportSize, lineWidth);
-	const tcu::IVec4		viewportPatternArea		= getViewportPatternArea(config.patternPos, config.patternSize, config.viewportSize, ROUND_INWARDS);
-	const tcu::IVec2		expectedHorizontalLines	= getNumberOfLinesRange(viewportBBoxArea.y(), viewportBBoxArea.w(), config.patternPos.y(), config.patternSize.y(), config.viewportSize.y(), DIRECTION_VERTICAL);
-	const tcu::IVec2		expectedVerticalLines	= getNumberOfLinesRange(viewportBBoxArea.x(), viewportBBoxArea.z(), config.patternPos.x(), config.patternSize.x(), config.viewportSize.x(), DIRECTION_HORIZONTAL);
-	const tcu::IVec4		verificationArea		= tcu::IVec4(de::max(viewportBBoxArea.x(), 0),
-																 de::max(viewportBBoxArea.y(), 0),
-																 de::min(viewportBBoxArea.z(), config.viewportSize.x()),
-																 de::min(viewportBBoxArea.w(), config.viewportSize.y()));
+	const glw::Functions&	gl							= m_context.getRenderContext().getFunctions();
+	const bool				isMsaa						= m_context.getRenderTarget().getNumSamples() > 1;
+	const ProjectedBBox		projectedBBox				= projectBoundingBox(config.bbox);
+	const float				lineWidth					= (m_isWideLineCase) ? ((float)m_wideLineLineWidth) : (1.0f);
+	const tcu::IVec4		viewportBBoxArea			= getViewportBoundingBoxArea(projectedBBox, config.viewportSize, lineWidth);
+	const tcu::IVec4		viewportPatternArea			= getViewportPatternArea(config.patternPos, config.patternSize, config.viewportSize, ROUND_INWARDS);
+	const tcu::IVec2		expectedHorizontalLines		= getNumberOfLinesRange(viewportBBoxArea.y(), viewportBBoxArea.w(), config.patternPos.y(), config.patternSize.y(), config.viewportSize.y(), DIRECTION_VERTICAL);
+	const tcu::IVec2		expectedVerticalLines		= getNumberOfLinesRange(viewportBBoxArea.x(), viewportBBoxArea.z(), config.patternPos.x(), config.patternSize.x(), config.viewportSize.x(), DIRECTION_HORIZONTAL);
+	const tcu::IVec4		verificationArea			= tcu::IVec4(de::max(viewportBBoxArea.x(), 0),
+																	 de::max(viewportBBoxArea.y(), 0),
+																	 de::min(viewportBBoxArea.z(), config.viewportSize.x()),
+																	 de::min(viewportBBoxArea.w(), config.viewportSize.y()));
 
-	tcu::Surface			viewportSurface			(config.viewportSize.x(), config.viewportSize.y());
-	bool					anyError				= false;
-	bool					msaaRelaxationRequired	= false;
-	int						messageLimitCounter		= 8;
+	tcu::Surface			viewportSurface				(config.viewportSize.x(), config.viewportSize.y());
+	int						messageLimitCounter			= 8;
+
+	enum ScanResultCodes
+	{
+		SCANRESULT_NUM_LINES_ERR	= 0,
+		SCANRESULT_LINE_WIDTH_MSAA	= 1,
+		SCANRESULT_LINE_WIDTH_WARN	= 2,
+		SCANRESULT_LINE_WIDTH_ERR	= 3,
+		SCANRESULT_LINE_CONT_ERR	= 4,
+		SCANRESULT_LINE_CONT_WARN	= 5,
+		SCANRESULT_LINE_LAST
+	};
+
+	int						rowScanResult[SCANRESULT_LINE_LAST]		= {0, 0, 0, 0, 0, 0};
+	int						columnScanResult[SCANRESULT_LINE_LAST]	= {0, 0, 0, 0, 0, 0};
+	bool					anyError								= false;
+	bool					msaaRelaxationRequired					= false;
+	bool					hwIssueRelaxationRequired				= false;
 
 	if (!m_calcPerPrimitiveBBox)
 		m_testCtx.getLog()
@@ -1841,20 +1898,34 @@ void LineRenderCase::verifyRenderResult (const IterationConfig& config)
 									   y,
 									   verificationArea.x(),
 									   verificationArea.z(),
+									   de::max(verificationArea.x(), viewportPatternArea.x()),
+									   de::min(verificationArea.z(), viewportPatternArea.z()),
 									   expectedVerticalLines,
 									   messageLimitCounter);
 
 		if ((result & SCANRESULT_NUM_LINES_OK_BIT) == 0)
-			anyError = true;
+			rowScanResult[SCANRESULT_NUM_LINES_ERR]++;
+		if ((result & SCANRESULT_LINE_CONT_OK_BIT) == 0)
+		{
+			if ((result & SCANRESULT_LINE_CONT_WARN_BIT) != 0)
+				rowScanResult[SCANRESULT_LINE_CONT_WARN]++;
+			else
+				rowScanResult[SCANRESULT_LINE_CONT_ERR]++;
+		}
 		else if ((result & SCANRESULT_LINE_WIDTH_OK_BIT) == 0)
 		{
 			if (m_isWideLineCase && isMsaa)
 			{
 				// multisampled wide lines might not be supported
-				msaaRelaxationRequired = true;
+				rowScanResult[SCANRESULT_LINE_WIDTH_MSAA]++;
+			}
+			else if ((result & SCANRESULT_LINE_WIDTH_ERR_BIT) == 0 &&
+					 (result & SCANRESULT_LINE_WIDTH_WARN_BIT) != 0)
+			{
+				rowScanResult[SCANRESULT_LINE_WIDTH_WARN]++;
 			}
 			else
-				anyError = true;
+				rowScanResult[SCANRESULT_LINE_WIDTH_ERR]++;
 		}
 	}
 
@@ -1865,24 +1936,63 @@ void LineRenderCase::verifyRenderResult (const IterationConfig& config)
 										  x,
 										  verificationArea.y(),
 										  verificationArea.w(),
+										  de::min(verificationArea.y(), viewportPatternArea.y()),
+										  de::min(verificationArea.w(), viewportPatternArea.w()),
 										  expectedHorizontalLines,
 										  messageLimitCounter);
 
 		if ((result & SCANRESULT_NUM_LINES_OK_BIT) == 0)
-			anyError = true;
+			columnScanResult[SCANRESULT_NUM_LINES_ERR]++;
+		if ((result & SCANRESULT_LINE_CONT_OK_BIT) == 0)
+		{
+			if ((result & SCANRESULT_LINE_CONT_WARN_BIT) != 0)
+				columnScanResult[SCANRESULT_LINE_CONT_WARN]++;
+			else
+				columnScanResult[SCANRESULT_LINE_CONT_ERR]++;
+		}
 		else if ((result & SCANRESULT_LINE_WIDTH_OK_BIT) == 0)
 		{
 			if (m_isWideLineCase && isMsaa)
 			{
 				// multisampled wide lines might not be supported
-				msaaRelaxationRequired = true;
+				columnScanResult[SCANRESULT_LINE_WIDTH_MSAA]++;
+			}
+			else if ((result & SCANRESULT_LINE_WIDTH_ERR_BIT) == 0 &&
+					 (result & SCANRESULT_LINE_WIDTH_WARN_BIT) != 0)
+			{
+				columnScanResult[SCANRESULT_LINE_WIDTH_WARN]++;
 			}
 			else
-				anyError = true;
+				columnScanResult[SCANRESULT_LINE_WIDTH_ERR]++;
 		}
 	}
 
-	if (anyError || msaaRelaxationRequired)
+	if (columnScanResult[SCANRESULT_LINE_WIDTH_ERR] != 0 || rowScanResult[SCANRESULT_LINE_WIDTH_ERR] != 0)
+		anyError = true;
+	else if(columnScanResult[SCANRESULT_LINE_CONT_ERR] != 0 || rowScanResult[SCANRESULT_LINE_CONT_ERR] != 0)
+		anyError = true;
+	else if (columnScanResult[SCANRESULT_LINE_WIDTH_MSAA] != 0 || rowScanResult[SCANRESULT_LINE_WIDTH_MSAA] != 0)
+		msaaRelaxationRequired = true;
+	else if (columnScanResult[SCANRESULT_LINE_WIDTH_WARN] != 0 || rowScanResult[SCANRESULT_LINE_WIDTH_WARN] != 0)
+		hwIssueRelaxationRequired = true;
+	else if (columnScanResult[SCANRESULT_NUM_LINES_ERR] != 0)
+	{
+		// found missing lines in a columnw and row line continuity check reported a warning (not an error) -> line width precision issue
+		if (rowScanResult[SCANRESULT_LINE_CONT_ERR] == 0 && rowScanResult[SCANRESULT_LINE_CONT_WARN])
+			hwIssueRelaxationRequired = true;
+		else
+			anyError = true;
+	}
+	else if (rowScanResult[SCANRESULT_NUM_LINES_ERR] != 0)
+	{
+		// found missing lines in a row and column line continuity check reported a warning (not an error) -> line width precision issue
+		if (columnScanResult[SCANRESULT_LINE_CONT_ERR] == 0 && columnScanResult[SCANRESULT_LINE_CONT_WARN])
+			hwIssueRelaxationRequired = true;
+		else
+			anyError = true;
+	}
+
+	if (anyError || msaaRelaxationRequired || hwIssueRelaxationRequired)
 	{
 		if (messageLimitCounter < 0)
 			m_testCtx.getLog() << tcu::TestLog::Message << "Omitted " << (-messageLimitCounter) << " row/column error descriptions." << tcu::TestLog::EndMessage;
@@ -1897,6 +2007,11 @@ void LineRenderCase::verifyRenderResult (const IterationConfig& config)
 
 		if (anyError)
 			m_testCtx.setTestResult(QP_TEST_RESULT_FAIL, "Image verification failed");
+		else if (hwIssueRelaxationRequired)
+		{
+			// Line width hw issue
+			m_testCtx.setTestResult(QP_TEST_RESULT_QUALITY_WARNING, "Line width verification failed");
+		}
 		else
 		{
 			// MSAA wide lines are optional
@@ -1947,22 +2062,50 @@ tcu::IVec2 LineRenderCase::getNumberOfLinesRange (int queryAreaBegin, int queryA
 	return tcu::IVec2(numLinesMin, numLinesMax);
 }
 
-deUint8 LineRenderCase::scanRow (const tcu::ConstPixelBufferAccess& access, int row, int rowBegin, int rowEnd, const tcu::IVec2& numLines, int& messageLimitCounter) const
+deUint8 LineRenderCase::scanRow (const tcu::ConstPixelBufferAccess& access, int row, int rowBegin, int rowEnd, int rowViewportBegin, int rowViewportEnd, const tcu::IVec2& numLines, int& messageLimitCounter) const
 {
-	const bool numLinesOk	= checkAreaNumLines(access, tcu::IVec4(rowBegin, row, rowEnd - rowBegin, 1), messageLimitCounter, SCAN_ROW_COMPONENT_NDX, numLines);
-	const bool lineWidthOk	= checkLineWidths(access, tcu::IVec2(rowBegin, row), tcu::IVec2(rowEnd, row), SCAN_ROW_COMPONENT_NDX, messageLimitCounter);
+	const bool		numLinesOk			= checkAreaNumLines(access, tcu::IVec4(rowBegin, row, rowEnd - rowBegin, 1), messageLimitCounter, SCAN_ROW_COMPONENT_NDX, numLines);
+	const deUint8	lineWidthRes		= checkLineWidths(access, tcu::IVec2(rowBegin, row), tcu::IVec2(rowEnd, row), SCAN_ROW_COMPONENT_NDX, messageLimitCounter);
+	const deUint8	lineContinuityRes	= checkLineContinuity(access, tcu::IVec2(rowViewportBegin, row), tcu::IVec2(rowViewportEnd, row), SCAN_COL_COMPONENT_NDX, messageLimitCounter);
+	deUint8			result				= 0;
 
-	return	(deUint8)((numLinesOk	? (deUint8)SCANRESULT_NUM_LINES_OK_BIT	: 0u) |
-					  (lineWidthOk	? (deUint8)SCANRESULT_LINE_WIDTH_OK_BIT	: 0u));
+	if (numLinesOk)
+		result |= (deUint8)SCANRESULT_NUM_LINES_OK_BIT;
+
+	if (lineContinuityRes == 0)
+		result |= (deUint8)SCANRESULT_LINE_CONT_OK_BIT;
+	else
+		result |= lineContinuityRes;
+
+	if (lineWidthRes == 0)
+		result |= (deUint8)SCANRESULT_LINE_WIDTH_OK_BIT;
+	else
+		result |= lineWidthRes;
+
+	return result;
 }
 
-deUint8 LineRenderCase::scanColumn (const tcu::ConstPixelBufferAccess& access, int column, int columnBegin, int columnEnd, const tcu::IVec2& numLines, int& messageLimitCounter) const
+deUint8 LineRenderCase::scanColumn (const tcu::ConstPixelBufferAccess& access, int column, int columnBegin, int columnEnd, int columnViewportBegin, int columnViewportEnd, const tcu::IVec2& numLines, int& messageLimitCounter) const
 {
-	const bool numLinesOk	= checkAreaNumLines(access, tcu::IVec4(column, columnBegin, 1, columnEnd - columnBegin), messageLimitCounter, SCAN_COL_COMPONENT_NDX, numLines);
-	const bool lineWidthOk	= checkLineWidths(access, tcu::IVec2(column, columnBegin), tcu::IVec2(column, columnEnd), SCAN_COL_COMPONENT_NDX, messageLimitCounter);
+	const bool		numLinesOk			= checkAreaNumLines(access, tcu::IVec4(column, columnBegin, 1, columnEnd - columnBegin), messageLimitCounter, SCAN_COL_COMPONENT_NDX, numLines);
+	const deUint8	lineWidthRes		= checkLineWidths(access, tcu::IVec2(column, columnBegin), tcu::IVec2(column, columnEnd), SCAN_COL_COMPONENT_NDX, messageLimitCounter);
+	const deUint8	lineContinuityRes	= checkLineContinuity(access, tcu::IVec2(column, columnViewportBegin), tcu::IVec2(column, columnViewportEnd), SCAN_ROW_COMPONENT_NDX, messageLimitCounter);
+	deUint8			result				= 0;
 
-	return	(deUint8)((numLinesOk	? (deUint8)SCANRESULT_NUM_LINES_OK_BIT	: 0u) |
-					  (lineWidthOk	? (deUint8)SCANRESULT_LINE_WIDTH_OK_BIT	: 0u));
+	if (numLinesOk)
+		result |= (deUint8)SCANRESULT_NUM_LINES_OK_BIT;
+
+	if (lineContinuityRes == 0)
+		result |= (deUint8)SCANRESULT_LINE_CONT_OK_BIT;
+	else
+		result |= lineContinuityRes;
+
+	if (lineWidthRes == 0)
+		result |= (deUint8)SCANRESULT_LINE_WIDTH_OK_BIT;
+	else
+		result |= lineWidthRes;
+
+	return result;
 }
 
 bool LineRenderCase::checkAreaNumLines (const tcu::ConstPixelBufferAccess& access, const tcu::IVec4& area, int& messageLimitCounter, int componentNdx, const tcu::IVec2& numLines) const
@@ -2052,19 +2195,67 @@ tcu::IVec2 LineRenderCase::getNumMinimaMaxima (const tcu::ConstPixelBufferAccess
 	return tcu::IVec2(numMinima, numMaxima);
 }
 
-bool LineRenderCase::checkLineWidths (const tcu::ConstPixelBufferAccess& access, const tcu::IVec2& begin, const tcu::IVec2& end, int componentNdx, int& messageLimitCounter) const
+deUint8 LineRenderCase::checkLineContinuity (const tcu::ConstPixelBufferAccess& access, const tcu::IVec2& begin, const tcu::IVec2& end, int componentNdx, int& messageLimitCounter) const
 {
-	const bool			multisample		= m_context.getRenderTarget().getNumSamples() > 1;
-	const int			lineRenderWidth	= (m_isWideLineCase) ? (m_wideLineLineWidth) : 1;
-	const tcu::IVec2	lineWidthRange	= (multisample)
-											? (tcu::IVec2(lineRenderWidth, lineRenderWidth+1))	// multisampled "smooth" lines may spread to neighboring pixel
-											: (tcu::IVec2(lineRenderWidth, lineRenderWidth));
+	bool				line					= false;
+	const tcu::IVec2	advance					= (begin.x() == end.x()) ? (tcu::IVec2(0, 1)) : (tcu::IVec2(1, 0));
+	int					missedPixels			= 0;
+	int					totalPixels				= 0;
+	deUint8				errorMask				= 0;
 
-	int					lineWidth		= 0;
-	bool				bboxLimitedLine	= false;
-	bool				anyError		= false;
+	for (tcu::IVec2 cursor = begin; cursor != end; cursor += advance)
+	{
+		const bool hit = (access.getPixelInt(cursor.x(), cursor.y())[componentNdx] != 0);
 
-	const tcu::IVec2	advance			= (begin.x() == end.x()) ? (tcu::IVec2(0, 1)) : (tcu::IVec2(1, 0));
+		if (hit)
+			line = true;
+		else if (line && !hit)
+		{
+			// non-continuous line detected
+			const tcu::IVec2 advanceNeighbor	= tcu::IVec2(1, 1) - advance;
+			const tcu::IVec2 cursorNeighborPos	= cursor + advanceNeighbor;
+			const tcu::IVec2 cursorNeighborNeg	= cursor - advanceNeighbor;
+			// hw precision issues may lead to a line being non-straight -> check neighboring pixels
+			if ((access.getPixelInt(cursorNeighborPos.x(), cursorNeighborPos.y())[componentNdx] == 0) && (access.getPixelInt(cursorNeighborNeg.x(), cursorNeighborNeg.y())[componentNdx] == 0))
+				++missedPixels;
+		}
+		++totalPixels;
+	}
+
+	if (missedPixels > 0)
+	{
+		if (--messageLimitCounter >= 0)
+		{
+			m_testCtx.getLog()
+				<< tcu::TestLog::Message
+				<< "Found non-continuous " << ((advance.x() == 1)  ? ("horizontal") : ("vertical")) << " line near " << begin << ". "
+				<< "Missed pixels: " << missedPixels
+				<< tcu::TestLog::EndMessage;
+		}
+		// allow 10% missing pixels for warning
+		if (missedPixels <= deRoundFloatToInt32((float)totalPixels * 0.1f))
+			errorMask = SCANRESULT_LINE_CONT_WARN_BIT;
+		else
+			errorMask =  SCANRESULT_LINE_CONT_ERR_BIT;
+	}
+
+	return errorMask;
+}
+
+deUint8 LineRenderCase::checkLineWidths (const tcu::ConstPixelBufferAccess& access, const tcu::IVec2& begin, const tcu::IVec2& end, int componentNdx, int& messageLimitCounter) const
+{
+	const bool			multisample				= m_context.getRenderTarget().getNumSamples() > 1;
+	const int			lineRenderWidth			= (m_isWideLineCase) ? (m_wideLineLineWidth) : 1;
+	const tcu::IVec2	lineWidthRange			= (multisample)
+													? (tcu::IVec2(lineRenderWidth, lineRenderWidth+1))	// multisampled "smooth" lines may spread to neighboring pixel
+													: (tcu::IVec2(lineRenderWidth, lineRenderWidth));
+	const tcu::IVec2	relaxedLineWidthRange	= (tcu::IVec2(lineRenderWidth-1, lineRenderWidth+1));
+
+	int					lineWidth				= 0;
+	bool				bboxLimitedLine			= false;
+	deUint8				errorMask				= 0;
+
+	const tcu::IVec2	advance					= (begin.x() == end.x()) ? (tcu::IVec2(0, 1)) : (tcu::IVec2(1, 0));
 
 	// fragments before begin?
 	if (access.getPixelInt(begin.x(), begin.y())[componentNdx] != 0)
@@ -2099,7 +2290,13 @@ bool LineRenderCase::checkLineWidths (const tcu::ConstPixelBufferAccess& access,
 
 			if (incorrectLineWidth)
 			{
-				anyError = true;
+				const bool incorrectRelaxedLineWidth = (lineWidth < relaxedLineWidthRange.x() && !bboxLimitedLine) || (lineWidth > relaxedLineWidthRange.y());
+
+				if (incorrectRelaxedLineWidth)
+					errorMask |= SCANRESULT_LINE_WIDTH_ERR_BIT;
+				else
+					errorMask |= SCANRESULT_LINE_WIDTH_WARN_BIT;
+
 				printLineWidthError(cursor, lineWidth, lineWidthRange, advance.x() == 0, messageLimitCounter);
 			}
 
@@ -2117,7 +2314,11 @@ bool LineRenderCase::checkLineWidths (const tcu::ConstPixelBufferAccess& access,
 			{
 				if (lineWidth > lineWidthRange.y())
 				{
-					anyError = true;
+					if (lineWidth > relaxedLineWidthRange.y())
+						errorMask |= SCANRESULT_LINE_WIDTH_ERR_BIT;
+					else
+						errorMask |= SCANRESULT_LINE_WIDTH_WARN_BIT;
+
 					printLineWidthError(cursor, lineWidth, lineWidthRange, advance.x() == 0, messageLimitCounter);
 				}
 
@@ -2135,7 +2336,13 @@ bool LineRenderCase::checkLineWidths (const tcu::ConstPixelBufferAccess& access,
 
 				if (incorrectLineWidth)
 				{
-					anyError = true;
+					const bool incorrectRelaxedLineWidth = (lineWidth > relaxedLineWidthRange.y());
+
+					if (incorrectRelaxedLineWidth)
+						errorMask |= SCANRESULT_LINE_WIDTH_ERR_BIT;
+					else
+						errorMask |= SCANRESULT_LINE_WIDTH_WARN_BIT;
+
 					printLineWidthError(cursor, lineWidth, lineWidthRange, advance.x() == 0, messageLimitCounter);
 				}
 
@@ -2144,7 +2351,7 @@ bool LineRenderCase::checkLineWidths (const tcu::ConstPixelBufferAccess& access,
 		}
 	}
 
-	return !anyError;
+	return errorMask;
 }
 
 void LineRenderCase::printLineWidthError (const tcu::IVec2& pos, int detectedLineWidth, const tcu::IVec2& lineWidthRange, bool isHorizontal, int& messageLimitCounter) const
@@ -2267,7 +2474,7 @@ std::string PointRenderCase::genVertexSource (void) const
 {
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
 			"in highp vec4 a_position;\n"
 			"in highp vec4 a_color;\n"
 			"out highp vec4 vtx_color;\n"
@@ -2318,7 +2525,7 @@ std::string PointRenderCase::genFragmentSource (void) const
 	const char* const	colorInputName = (m_hasGeometryStage) ? ("geo_color") : (m_hasTessellationStage) ? ("tess_color") : ("vtx_color");
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
 			"in mediump vec4 " << colorInputName << ";\n"
 			"layout(location = 0) out mediump vec4 o_color;\n"
 		<<	genShaderFunction(SHADER_FUNC_INSIDE_BBOX)
@@ -2342,10 +2549,10 @@ std::string PointRenderCase::genTessellationControlSource (void) const
 	const bool			tessellationWidePoints = (m_isWidePointCase) && (!m_hasGeometryStage);
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
-			"#extension GL_EXT_tessellation_shader : require\n"
-			"#extension GL_EXT_primitive_bounding_box : require\n"
-		<<	((tessellationWidePoints) ? ("#extension GL_EXT_tessellation_point_size : require\n") : (""))
+	buf <<	"${GLSL_VERSION_DECL}\n"
+			"${TESSELLATION_SHADER_REQUIRE}\n"
+			"${PRIMITIVE_BOUNDING_BOX_REQUIRE}\n"
+		<<	((tessellationWidePoints) ? ("${TESSELLATION_POINT_SIZE_REQUIRE}\n") : (""))
 		<<	"layout(vertices=1) out;"
 			"\n"
 			"in highp vec4 vtx_color[];\n"
@@ -2412,8 +2619,8 @@ std::string PointRenderCase::genTessellationControlSource (void) const
 	}
 	if (!m_useGlobalState)
 		buf <<	"\n"
-				"	gl_BoundingBoxEXT[0] = bboxMin;\n"
-				"	gl_BoundingBoxEXT[1] = bboxMax;\n";
+				"	${PRIM_GL_BOUNDING_BOX}[0] = bboxMin;\n"
+				"	${PRIM_GL_BOUNDING_BOX}[1] = bboxMax;\n";
 
 	buf <<	"	vp_bbox_clipMin = min(vec3(bboxMin.x, bboxMin.y, bboxMin.z) / bboxMin.w,\n"
 			"	                      vec3(bboxMin.x, bboxMin.y, bboxMin.z) / bboxMax.w);\n"
@@ -2429,9 +2636,9 @@ std::string PointRenderCase::genTessellationEvaluationSource (void) const
 	const bool			tessellationWidePoints = (m_isWidePointCase) && (!m_hasGeometryStage);
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
-			"#extension GL_EXT_tessellation_shader : require\n"
-		<<	((tessellationWidePoints) ? ("#extension GL_EXT_tessellation_point_size : require\n") : (""))
+	buf <<	"${GLSL_VERSION_DECL}\n"
+			"${TESSELLATION_SHADER_REQUIRE}\n"
+		<<	((tessellationWidePoints) ? ("${TESSELLATION_POINT_SIZE_REQUIRE}\n") : (""))
 		<<	"layout(quads, point_mode) in;"
 			"\n"
 			"in highp vec4 tess_ctrl_color[];\n"
@@ -2470,9 +2677,9 @@ std::string PointRenderCase::genGeometrySource (void) const
 	const char* const	colorInputName = (m_hasTessellationStage) ? ("tess_color") : ("vtx_color");
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
-			"#extension GL_EXT_geometry_shader : require\n"
-		<<	((m_isWidePointCase) ? ("#extension GL_EXT_geometry_point_size : require\n") : (""))
+	buf <<	"${GLSL_VERSION_DECL}\n"
+			"${GEOMETRY_SHADER_REQUIRE}\n"
+		<<	((m_isWidePointCase) ? ("${GEOMETRY_POINT_SIZE}\n") : (""))
 		<<	"layout(points) in;\n"
 			"layout(max_vertices=3, points) out;\n"
 			"\n"
@@ -3164,7 +3371,9 @@ void BlitFboCase::init (void)
 		<< "Source framebuffer is filled with green-yellow grid.\n"
 		<< tcu::TestLog::EndMessage;
 
-	if (!m_context.getContextInfo().isExtensionSupported("GL_EXT_primitive_bounding_box"))
+	const bool supportsES32 = glu::contextSupports(m_context.getRenderContext().getType(), glu::ApiType::es(3, 2));
+
+	if (!supportsES32 && !m_context.getContextInfo().isExtensionSupported("GL_EXT_primitive_bounding_box"))
 		throw tcu::NotSupportedError("Test requires GL_EXT_primitive_bounding_box extension");
 	if (m_dst == TARGET_DEFAULT && defaultFBMultisampled)
 		throw tcu::NotSupportedError("Test requires non-multisampled default framebuffer");
@@ -3198,7 +3407,7 @@ void BlitFboCase::init (void)
 	}
 
 	{
-		static const char* const s_vertexSource =	"#version 310 es\n"
+		const char* const vertexSource =	"${GLSL_VERSION_DECL}\n"
 													"in highp vec4 a_position;\n"
 													"out highp vec4 v_position;\n"
 													"void main()\n"
@@ -3206,7 +3415,7 @@ void BlitFboCase::init (void)
 													"	gl_Position = a_position;\n"
 													"	v_position = a_position;\n"
 													"}\n";
-		static const char* const s_fragmentSource =	"#version 310 es\n"
+		const char* const fragmentSource =	"${GLSL_VERSION_DECL}\n"
 													"in mediump vec4 v_position;\n"
 													"layout(location=0) out mediump vec4 dEQP_FragColor;\n"
 													"void main()\n"
@@ -3216,7 +3425,7 @@ void BlitFboCase::init (void)
 													"	dEQP_FragColor = (step(0.1, mod(v_position.x, 0.2)) == step(0.1, mod(v_position.y, 0.2))) ? (green) : (yellow);\n"
 													"}\n";
 
-		m_program = de::MovePtr<glu::ShaderProgram>(new glu::ShaderProgram(m_context.getRenderContext(), glu::ProgramSources() << glu::VertexSource(s_vertexSource) << glu::FragmentSource(s_fragmentSource)));
+		m_program = de::MovePtr<glu::ShaderProgram>(new glu::ShaderProgram(m_context.getRenderContext(), glu::ProgramSources() << glu::VertexSource(specializeShader(m_context, vertexSource)) << glu::FragmentSource(specializeShader(m_context, fragmentSource))));
 
 		if (!m_program->isOk())
 		{
@@ -3534,13 +3743,14 @@ DepthDrawCase::~DepthDrawCase (void)
 
 void DepthDrawCase::init (void)
 {
-	const glw::Functions& gl = m_context.getRenderContext().getFunctions();
+	const glw::Functions&	gl				= m_context.getRenderContext().getFunctions();
+	const bool				supportsES32	= glu::contextSupports(m_context.getRenderContext().getType(), glu::ApiType::es(3, 2));
 
 	// requirements
 
-	if (!m_context.getContextInfo().isExtensionSupported("GL_EXT_primitive_bounding_box"))
+	if (!supportsES32 && !m_context.getContextInfo().isExtensionSupported("GL_EXT_primitive_bounding_box"))
 		throw tcu::NotSupportedError("Test requires GL_EXT_primitive_bounding_box extension");
-	if (m_state == STATE_PER_PRIMITIVE && !m_context.getContextInfo().isExtensionSupported("GL_EXT_tessellation_shader"))
+	if (m_state == STATE_PER_PRIMITIVE && !supportsES32 && !m_context.getContextInfo().isExtensionSupported("GL_EXT_tessellation_shader"))
 		throw tcu::NotSupportedError("Test requires GL_EXT_tessellation_shader extension");
 	if (m_context.getRenderTarget().getDepthBits() == 0)
 		throw tcu::NotSupportedError("Test requires depth buffer");
@@ -3568,12 +3778,12 @@ void DepthDrawCase::init (void)
 
 	{
 		glu::ProgramSources sources;
-		sources << glu::VertexSource(genVertexSource());
-		sources << glu::FragmentSource(genFragmentSource());
+		sources << glu::VertexSource(specializeShader(m_context, genVertexSource().c_str()));
+		sources << glu::FragmentSource(specializeShader(m_context, genFragmentSource().c_str()));
 
 		if (m_state == STATE_PER_PRIMITIVE)
-			sources << glu::TessellationControlSource(genTessellationControlSource())
-					<< glu::TessellationEvaluationSource(genTessellationEvaluationSource());
+			sources << glu::TessellationControlSource(specializeShader(m_context, genTessellationControlSource().c_str()))
+					<< glu::TessellationEvaluationSource(specializeShader(m_context, genTessellationEvaluationSource().c_str()));
 
 		m_program = de::MovePtr<glu::ShaderProgram>(new glu::ShaderProgram(m_context.getRenderContext(), sources));
 		GLU_EXPECT_NO_ERROR(gl.getError(), "build program");
@@ -3695,7 +3905,7 @@ std::string DepthDrawCase::genVertexSource (void) const
 	const bool			hasTessellation	= (m_state == STATE_PER_PRIMITIVE);
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
 			"in highp vec4 a_position;\n"
 			"in highp vec4 a_colorMix;\n"
 			"out highp vec4 vtx_colorMix;\n";
@@ -3734,7 +3944,7 @@ std::string DepthDrawCase::genFragmentSource (void) const
 	const char* const	colorMixName	= (hasTessellation) ? ("tess_eval_colorMix") : ("vtx_colorMix");
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
 			"in mediump vec4 " << colorMixName << ";\n";
 
 	if (m_depthType == DEPTH_USER_DEFINED)
@@ -3760,9 +3970,9 @@ std::string DepthDrawCase::genTessellationControlSource (void) const
 {
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
-			"#extension GL_EXT_tessellation_shader : require\n"
-			"#extension GL_EXT_primitive_bounding_box : require\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
+			"${TESSELLATION_SHADER_REQUIRE}\n"
+			"${PRIMITIVE_BOUNDING_BOX_REQUIRE}\n"
 			"layout(vertices=3) out;\n"
 			"\n"
 			"uniform highp float u_depthBias;\n"
@@ -3790,13 +4000,13 @@ std::string DepthDrawCase::genTessellationControlSource (void) const
 			"	                               vec3(gl_in[2].gl_Position.xy, gl_in[2].gl_Position.w * u_depthScale + u_depthBias)), 1.0);\n";
 
 	if (m_bboxSize == BBOX_EQUAL)
-		buf <<	"	gl_BoundingBoxEXT[0] = minBound;\n"
-				"	gl_BoundingBoxEXT[1] = maxBound;\n";
+		buf <<	"	${PRIM_GL_BOUNDING_BOX}[0] = minBound;\n"
+				"	${PRIM_GL_BOUNDING_BOX}[1] = maxBound;\n";
 	else
 		buf <<	"	highp float nedPadding = mod(gl_in[0].gl_Position.z, 0.3);\n"
 				"	highp float posPadding = mod(gl_in[1].gl_Position.z, 0.3);\n"
-				"	gl_BoundingBoxEXT[0] = minBound - vec4(0.0, 0.0, nedPadding, 0.0);\n"
-				"	gl_BoundingBoxEXT[1] = maxBound + vec4(0.0, 0.0, posPadding, 0.0);\n";
+				"	${PRIM_GL_BOUNDING_BOX}[0] = minBound - vec4(0.0, 0.0, nedPadding, 0.0);\n"
+				"	${PRIM_GL_BOUNDING_BOX}[1] = maxBound + vec4(0.0, 0.0, posPadding, 0.0);\n";
 
 	buf <<	"}\n";
 
@@ -3807,9 +4017,9 @@ std::string DepthDrawCase::genTessellationEvaluationSource (void) const
 {
 	std::ostringstream	buf;
 
-	buf <<	"#version 310 es\n"
-			"#extension GL_EXT_tessellation_shader : require\n"
-			"#extension GL_EXT_gpu_shader5 : require\n"
+	buf <<	"${GLSL_VERSION_DECL}\n"
+			"${TESSELLATION_SHADER_REQUIRE}\n"
+			"${GPU_SHADER5_REQUIRE}\n"
 			"layout(triangles) in;\n"
 			"\n"
 			"in highp vec4 tess_ctrl_colorMix[];\n"
@@ -3990,9 +4200,11 @@ ClearCase::~ClearCase (void)
 
 void ClearCase::init (void)
 {
-	if (!m_context.getContextInfo().isExtensionSupported("GL_EXT_primitive_bounding_box"))
+	const bool supportsES32 = glu::contextSupports(m_context.getRenderContext().getType(), glu::ApiType::es(3, 2));
+
+	if (!supportsES32 && !m_context.getContextInfo().isExtensionSupported("GL_EXT_primitive_bounding_box"))
 		throw tcu::NotSupportedError("Test requires GL_EXT_primitive_bounding_box extension");
-	if (m_drawTriangles && !m_context.getContextInfo().isExtensionSupported("GL_EXT_tessellation_shader"))
+	if (m_drawTriangles && !supportsES32 && !m_context.getContextInfo().isExtensionSupported("GL_EXT_tessellation_shader"))
 		throw tcu::NotSupportedError("Test requires GL_EXT_tessellation_shader extension");
 
 	m_testCtx.getLog()
@@ -4114,10 +4326,10 @@ void ClearCase::createProgram (void)
 {
 	m_basicProgram = de::MovePtr<glu::ShaderProgram>(new glu::ShaderProgram(m_context.getRenderContext(),
 																			glu::ProgramSources()
-																				<< glu::VertexSource(genVertexSource())
-																				<< glu::FragmentSource(genFragmentSource())
-																				<< glu::TessellationControlSource(genTessellationControlSource(false))
-																				<< glu::TessellationEvaluationSource(genTessellationEvaluationSource())));
+																				<< glu::VertexSource(specializeShader(m_context, genVertexSource().c_str()))
+																				<< glu::FragmentSource(specializeShader(m_context, genFragmentSource().c_str()))
+																				<< glu::TessellationControlSource(specializeShader(m_context, genTessellationControlSource(false).c_str()))
+																				<< glu::TessellationEvaluationSource(specializeShader(m_context, genTessellationEvaluationSource().c_str()))));
 
 	m_testCtx.getLog()
 		<< tcu::TestLog::Section("Program", "Shader program")
@@ -4131,10 +4343,10 @@ void ClearCase::createProgram (void)
 	{
 		m_perPrimitiveProgram = de::MovePtr<glu::ShaderProgram>(new glu::ShaderProgram(m_context.getRenderContext(),
 																					   glu::ProgramSources()
-																							<< glu::VertexSource(genVertexSource())
-																							<< glu::FragmentSource(genFragmentSource())
-																							<< glu::TessellationControlSource(genTessellationControlSource(true))
-																							<< glu::TessellationEvaluationSource(genTessellationEvaluationSource())));
+																							<< glu::VertexSource(specializeShader(m_context, genVertexSource().c_str()))
+																							<< glu::FragmentSource(specializeShader(m_context, genFragmentSource().c_str()))
+																							<< glu::TessellationControlSource(specializeShader(m_context, genTessellationControlSource(true).c_str()))
+																							<< glu::TessellationEvaluationSource(specializeShader(m_context, genTessellationEvaluationSource().c_str()))));
 
 		m_testCtx.getLog()
 			<< tcu::TestLog::Section("PerPrimitiveProgram", "Shader program that sets the bounding box")
@@ -4319,7 +4531,7 @@ bool ClearCase::verifyImageResultValid (const tcu::PixelBufferAccess& result)
 	return !anyError;
 }
 
-static const char* const s_yellowishPosOnlyVertexSource =	"#version 310 es\n"
+static const char* const s_yellowishPosOnlyVertexSource =	"${GLSL_VERSION_DECL}\n"
 															"in highp vec4 a_position;\n"
 															"out highp vec4 v_vertex_color;\n"
 															"void main()\n"
@@ -4330,7 +4542,7 @@ static const char* const s_yellowishPosOnlyVertexSource =	"#version 310 es\n"
 															"	v_vertex_color = vec4(redComponent, 1.0, 0.0, 1.0);\n"
 															"}\n";
 
-static const char* const s_basicColorFragmentSource =	"#version 310 es\n"
+static const char* const s_basicColorFragmentSource =	"${GLSL_VERSION_DECL}\n"
 														"in mediump vec4 v_color;\n"
 														"layout(location = 0) out mediump vec4 o_color;\n"
 														"void main()\n"
@@ -4339,9 +4551,9 @@ static const char* const s_basicColorFragmentSource =	"#version 310 es\n"
 														"}\n";
 
 
-static const char* const s_basicColorTessEvalSource =	"#version 310 es\n"
-														"#extension GL_EXT_tessellation_shader : require\n"
-														"#extension GL_EXT_gpu_shader5 : require\n"
+static const char* const s_basicColorTessEvalSource =	"${GLSL_VERSION_DECL}\n"
+														"${TESSELLATION_SHADER_REQUIRE}\n"
+														"${GPU_SHADER5_REQUIRE}\n"
 														"layout(triangles) in;\n"
 														"in highp vec4 v_tess_eval_color[];\n"
 														"out highp vec4 v_color;\n"
@@ -4370,11 +4582,11 @@ std::string ClearCase::genTessellationControlSource (bool setBBox) const
 {
 	std::ostringstream buf;
 
-	buf <<	"#version 310 es\n"
-			"#extension GL_EXT_tessellation_shader : require\n";
+	buf <<	"${GLSL_VERSION_DECL}\n"
+			"${TESSELLATION_SHADER_REQUIRE}\n";
 
 	if (setBBox)
-		buf << "#extension GL_EXT_primitive_bounding_box : require\n";
+		buf << "${PRIMITIVE_BOUNDING_BOX_REQUIRE}\n";
 
 	buf <<	"layout(vertices=3) out;\n"
 			"in highp vec4 v_vertex_color[];\n"
@@ -4391,10 +4603,10 @@ std::string ClearCase::genTessellationControlSource (bool setBBox) const
 	if (setBBox)
 	{
 		buf <<	"\n"
-		"	gl_BoundingBoxEXT[0] = min(min(gl_in[0].gl_Position,\n"
+		"	${PRIM_GL_BOUNDING_BOX}[0] = min(min(gl_in[0].gl_Position,\n"
 		"	                               gl_in[1].gl_Position),\n"
 		"	                           gl_in[2].gl_Position);\n"
-		"	gl_BoundingBoxEXT[1] = max(max(gl_in[0].gl_Position,\n"
+		"	${PRIM_GL_BOUNDING_BOX}[1] = max(max(gl_in[0].gl_Position,\n"
 		"	                               gl_in[1].gl_Position),\n"
 		"	                           gl_in[2].gl_Position);\n";
 	}
@@ -4458,10 +4670,12 @@ ViewportCallOrderCase::~ViewportCallOrderCase (void)
 
 void ViewportCallOrderCase::init (void)
 {
-	if (!m_context.getContextInfo().isExtensionSupported("GL_EXT_primitive_bounding_box"))
+	const bool supportsES32 = glu::contextSupports(m_context.getRenderContext().getType(), glu::ApiType::es(3, 2));
+
+	if (!supportsES32 && !m_context.getContextInfo().isExtensionSupported("GL_EXT_primitive_bounding_box"))
 		throw tcu::NotSupportedError("Test requires GL_EXT_primitive_bounding_box extension");
 
-	if (!m_context.getContextInfo().isExtensionSupported("GL_EXT_tessellation_shader"))
+	if (!supportsES32 && !m_context.getContextInfo().isExtensionSupported("GL_EXT_tessellation_shader"))
 		throw tcu::NotSupportedError("Test requires GL_EXT_tessellation_shader extension");
 
 	m_testCtx.getLog()
@@ -4608,10 +4822,10 @@ void ViewportCallOrderCase::genProgram (void)
 {
 	m_program = de::MovePtr<glu::ShaderProgram>(new glu::ShaderProgram(m_context.getRenderContext(),
 																	   glu::ProgramSources()
-																			<< glu::VertexSource(genVertexSource())
-																			<< glu::FragmentSource(genFragmentSource())
-																			<< glu::TessellationControlSource(genTessellationControlSource())
-																			<< glu::TessellationEvaluationSource(genTessellationEvaluationSource())));
+																			<< glu::VertexSource(specializeShader(m_context, genVertexSource().c_str()))
+																			<< glu::FragmentSource(specializeShader(m_context, genFragmentSource().c_str()))
+																			<< glu::TessellationControlSource(specializeShader(m_context, genTessellationControlSource().c_str()))
+																			<< glu::TessellationEvaluationSource(specializeShader(m_context, genTessellationEvaluationSource().c_str()))));
 
 	m_testCtx.getLog()
 		<< tcu::TestLog::Section("Program", "Shader program")
@@ -4676,8 +4890,8 @@ std::string ViewportCallOrderCase::genFragmentSource (void) const
 
 std::string ViewportCallOrderCase::genTessellationControlSource (void) const
 {
-	return	"#version 310 es\n"
-			"#extension GL_EXT_tessellation_shader : require\n"
+	return	"${GLSL_VERSION_DECL}\n"
+			"${TESSELLATION_SHADER_REQUIRE}\n"
 			"layout(vertices=3) out;\n"
 			"in highp vec4 v_vertex_color[];\n"
 			"out highp vec4 v_tess_eval_color[];\n"

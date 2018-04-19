@@ -15,12 +15,16 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "base/metrics/field_trial_param_associator.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/clock.h"
 #include "base/timer/timer.h"
+#include "components/gcm_driver/features.h"
 #include "google_apis/gcm/base/fake_encryptor.h"
 #include "google_apis/gcm/base/mcs_message.h"
 #include "google_apis/gcm/base/mcs_util.h"
@@ -41,7 +45,6 @@
 #include "third_party/leveldatabase/leveldb_chrome.h"
 
 namespace gcm {
-
 namespace {
 
 enum LastEvent {
@@ -63,6 +66,7 @@ const uint64_t kDeviceSecurityToken2 = 2222;
 const int64_t kSettingsCheckinInterval = 16 * 60 * 60;
 const char kProductCategoryForSubtypes[] = "com.chrome.macosx";
 const char kExtensionAppId[] = "abcdefghijklmnopabcdefghijklmnop";
+const char kRegistrationId[] = "reg_id";
 const char kSubtypeAppId[] = "app_id";
 const char kSender[] = "project_id";
 const char kSender2[] = "project_id2";
@@ -73,6 +77,9 @@ const char kRawData[] = "example raw data";
 const char kInstanceID[] = "iid_1";
 const char kScope[] = "GCM";
 const char kDeleteTokenResponse[] = "token=foo";
+const int kTestTokenInvalidationPeriod = 5;
+const char kGroupName[] = "Enabled";
+const char kInvalidateTokenTrialName[] = "InvalidateTokenTrial";
 
 // Helper for building arbitrary data messages.
 MCSMessage BuildDownstreamMessage(
@@ -266,8 +273,13 @@ class GCMClientImplTest : public testing::Test,
   ~GCMClientImplTest() override;
 
   void SetUp() override;
+  void TearDown() override;
+
+  void SetFeatureParams(const base::Feature& feature,
+                        std::map<std::string, std::string> params);
 
   void SetUpUrlFetcherFactory();
+  void InitializeInvalidationFieldTrial();
 
   void BuildGCMClient(base::TimeDelta clock_step);
   void InitializeGCMClient();
@@ -422,6 +434,9 @@ class GCMClientImplTest : public testing::Test,
 
   // Injected to GCM client.
   scoped_refptr<net::TestURLRequestContextGetter> url_request_context_getter_;
+  base::test::ScopedFeatureList scoped_feature_list_;
+  base::FieldTrialList field_trial_list_;
+  std::map<std::string, base::FieldTrial*> trials_;
 };
 
 GCMClientImplTest::GCMClientImplTest()
@@ -430,8 +445,8 @@ GCMClientImplTest::GCMClientImplTest()
       task_runner_(new base::TestMockTimeTaskRunner),
       task_runner_handle_(task_runner_),
       url_request_context_getter_(
-          new net::TestURLRequestContextGetter(task_runner_)) {
-}
+          new net::TestURLRequestContextGetter(task_runner_)),
+      field_trial_list_(nullptr) {}
 
 GCMClientImplTest::~GCMClientImplTest() {}
 
@@ -442,13 +457,54 @@ void GCMClientImplTest::SetUp() {
   InitializeGCMClient();
   StartGCMClient();
   SetUpUrlFetcherFactory();
+  InitializeInvalidationFieldTrial();
   ASSERT_NO_FATAL_FAILURE(
       CompleteCheckin(kDeviceAndroidId, kDeviceSecurityToken, std::string(),
                       std::map<std::string, std::string>()));
 }
 
+void GCMClientImplTest::TearDown() {
+  base::FieldTrialParamAssociator::GetInstance()->ClearAllParamsForTesting();
+}
+
 void GCMClientImplTest::SetUpUrlFetcherFactory() {
   url_fetcher_factory_.set_remove_fetcher_on_delete(true);
+}
+
+void GCMClientImplTest::SetFeatureParams(
+    const base::Feature& feature,
+    std::map<std::string, std::string> params) {
+  ASSERT_TRUE(
+      base::FieldTrialParamAssociator::GetInstance()->AssociateFieldTrialParams(
+          trials_[feature.name]->trial_name(), kGroupName, params));
+  std::map<std::string, std::string> actual_params;
+  EXPECT_TRUE(base::GetFieldTrialParamsByFeature(
+      features::kInvalidateTokenFeature, &actual_params));
+  EXPECT_EQ(params, actual_params);
+}
+
+void GCMClientImplTest::InitializeInvalidationFieldTrial() {
+  // Set up the InvalidateToken field trial.
+  base::FieldTrial* invalidate_token_trial =
+      base::FieldTrialList::CreateFieldTrial(kInvalidateTokenTrialName,
+                                             kGroupName);
+  trials_[features::kInvalidateTokenFeature.name] = invalidate_token_trial;
+
+  std::unique_ptr<base::FeatureList> feature_list =
+      std::make_unique<base::FeatureList>();
+  feature_list->RegisterFieldTrialOverride(
+      features::kInvalidateTokenFeature.name,
+      base::FeatureList::OVERRIDE_ENABLE_FEATURE, invalidate_token_trial);
+  scoped_feature_list_.InitWithFeatureList(std::move(feature_list));
+
+  std::map<std::string, std::string> params;
+  params[features::kParamNameTokenInvalidationPeriodDays] =
+      std::to_string(kTestTokenInvalidationPeriod);
+  ASSERT_NO_FATAL_FAILURE(
+      SetFeatureParams(features::kInvalidateTokenFeature, std::move(params)));
+
+  ASSERT_EQ(invalidate_token_trial, base::FeatureList::GetFieldTrial(
+                                        features::kInvalidateTokenFeature));
 }
 
 void GCMClientImplTest::PumpLoopUntilIdle() {
@@ -770,6 +826,56 @@ TEST_F(GCMClientImplTest, DestroyStoreWhenNotNeeded) {
   EXPECT_FALSE(device_checkin_info().secret);
 }
 
+TEST_F(GCMClientImplTest, SerializeAndDeserialize) {
+  std::vector<std::string> senders{"sender"};
+  auto gcm_info = std::make_unique<GCMRegistrationInfo>();
+  gcm_info->app_id = kExtensionAppId;
+  gcm_info->sender_ids = senders;
+  gcm_info->last_validated = clock()->Now();
+
+  auto gcm_info_deserialized = std::make_unique<GCMRegistrationInfo>();
+  std::string gcm_registration_id_deserialized;
+  {
+    std::string serialized_key = gcm_info->GetSerializedKey();
+    std::string serialized_value =
+        gcm_info->GetSerializedValue(kRegistrationId);
+
+    ASSERT_TRUE(gcm_info_deserialized->Deserialize(
+        serialized_key, serialized_value, &gcm_registration_id_deserialized));
+  }
+
+  EXPECT_EQ(gcm_info->app_id, gcm_info_deserialized->app_id);
+  EXPECT_EQ(gcm_info->sender_ids, gcm_info_deserialized->sender_ids);
+  EXPECT_EQ(gcm_info->last_validated, gcm_info_deserialized->last_validated);
+  EXPECT_EQ(kRegistrationId, gcm_registration_id_deserialized);
+
+  auto instance_id_info = std::make_unique<InstanceIDTokenInfo>();
+  instance_id_info->app_id = kExtensionAppId;
+  instance_id_info->last_validated = clock()->Now();
+  instance_id_info->authorized_entity = "different_sender";
+  instance_id_info->scope = "scope";
+
+  auto instance_id_info_deserialized = std::make_unique<InstanceIDTokenInfo>();
+  std::string instance_id_registration_id_deserialized;
+  {
+    std::string serialized_key = instance_id_info->GetSerializedKey();
+    std::string serialized_value =
+        instance_id_info->GetSerializedValue(kRegistrationId);
+
+    ASSERT_TRUE(instance_id_info_deserialized->Deserialize(
+        serialized_key, serialized_value,
+        &instance_id_registration_id_deserialized));
+  }
+
+  EXPECT_EQ(instance_id_info->app_id, instance_id_info_deserialized->app_id);
+  EXPECT_EQ(instance_id_info->last_validated,
+            instance_id_info_deserialized->last_validated);
+  EXPECT_EQ(instance_id_info->authorized_entity,
+            instance_id_info_deserialized->authorized_entity);
+  EXPECT_EQ(instance_id_info->scope, instance_id_info_deserialized->scope);
+  EXPECT_EQ(kRegistrationId, instance_id_registration_id_deserialized);
+}
+
 TEST_F(GCMClientImplTest, RegisterApp) {
   EXPECT_FALSE(ExistsRegistration(kExtensionAppId));
 
@@ -785,7 +891,7 @@ TEST_F(GCMClientImplTest, RegisterApp) {
   EXPECT_TRUE(ExistsRegistration(kExtensionAppId));
 }
 
-TEST_F(GCMClientImplTest, DISABLED_RegisterAppFromCache) {
+TEST_F(GCMClientImplTest, RegisterAppFromCache) {
   EXPECT_FALSE(ExistsRegistration(kExtensionAppId));
 
   std::vector<std::string> senders;
@@ -849,6 +955,66 @@ TEST_F(GCMClientImplTest, RegisterPreviousSenderAgain) {
   EXPECT_EQ(REGISTRATION_COMPLETED, last_event());
   EXPECT_EQ(kExtensionAppId, last_app_id());
   EXPECT_EQ("reg_id", last_registration_id());
+  EXPECT_EQ(GCMClient::SUCCESS, last_result());
+  EXPECT_TRUE(ExistsRegistration(kExtensionAppId));
+}
+
+TEST_F(GCMClientImplTest, RegisterAgainWhenTokenIsFresh) {
+  // Register a sender.
+  std::vector<std::string> senders;
+  senders.push_back("sender");
+  Register(kExtensionAppId, senders);
+  ASSERT_NO_FATAL_FAILURE(CompleteRegistration("reg_id"));
+  EXPECT_EQ(REGISTRATION_COMPLETED, last_event());
+  EXPECT_EQ(kExtensionAppId, last_app_id());
+  EXPECT_EQ("reg_id", last_registration_id());
+  EXPECT_EQ(GCMClient::SUCCESS, last_result());
+  EXPECT_TRUE(ExistsRegistration(kExtensionAppId));
+
+  reset_last_event();
+
+  // Advance time by (kTestTokenInvalidationPeriod)/2
+  clock()->Advance(base::TimeDelta::FromDays(kTestTokenInvalidationPeriod / 2));
+
+  // Register the same sender again. The same registration ID as the
+  // previous one should be returned, and we should *not* send a
+  // registration request to the GCM server.
+  Register(kExtensionAppId, senders);
+  PumpLoopUntilIdle();
+
+  EXPECT_EQ(REGISTRATION_COMPLETED, last_event());
+  EXPECT_EQ(kExtensionAppId, last_app_id());
+  EXPECT_EQ("reg_id", last_registration_id());
+  EXPECT_EQ(GCMClient::SUCCESS, last_result());
+  EXPECT_TRUE(ExistsRegistration(kExtensionAppId));
+}
+
+TEST_F(GCMClientImplTest, RegisterAgainWhenTokenIsStale) {
+  // Register a sender.
+  std::vector<std::string> senders;
+  senders.push_back("sender");
+  Register(kExtensionAppId, senders);
+  ASSERT_NO_FATAL_FAILURE(CompleteRegistration("reg_id"));
+
+  EXPECT_EQ(REGISTRATION_COMPLETED, last_event());
+  EXPECT_EQ(kExtensionAppId, last_app_id());
+  EXPECT_EQ("reg_id", last_registration_id());
+  EXPECT_EQ(GCMClient::SUCCESS, last_result());
+  EXPECT_TRUE(ExistsRegistration(kExtensionAppId));
+
+  reset_last_event();
+
+  // Advance time by kTestTokenInvalidationPeriod
+  clock()->Advance(base::TimeDelta::FromDays(kTestTokenInvalidationPeriod));
+
+  // Register the same sender again. Different registration ID from the
+  // previous one should be returned.
+  Register(kExtensionAppId, senders);
+  ASSERT_NO_FATAL_FAILURE(CompleteRegistration("reg_id2"));
+
+  EXPECT_EQ(REGISTRATION_COMPLETED, last_event());
+  EXPECT_EQ(kExtensionAppId, last_app_id());
+  EXPECT_EQ("reg_id2", last_registration_id());
   EXPECT_EQ(GCMClient::SUCCESS, last_result());
   EXPECT_TRUE(ExistsRegistration(kExtensionAppId));
 }

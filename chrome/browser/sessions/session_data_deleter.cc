@@ -20,7 +20,7 @@
 #include "content/public/browser/local_storage_usage_info.h"
 #include "content/public/browser/storage_partition.h"
 #include "net/cookies/cookie_util.h"
-#include "services/network/public/interfaces/cookie_manager.mojom.h"
+#include "services/network/public/mojom/cookie_manager.mojom.h"
 #include "storage/browser/quota/special_storage_policy.h"
 
 namespace {
@@ -108,7 +108,7 @@ void SessionDataDeleter::DeleteSessionOnlyOriginCookies(
   for (const auto& cookie : cookies) {
     GURL url =
         net::cookie_util::CookieOriginToURL(cookie.Domain(), cookie.IsSecure());
-    if (!storage_policy_->IsStorageSessionOnlyOrBlocked(url))
+    if (!storage_policy_->ShouldDeleteCookieOnExit(url))
       continue;
 
     // Delete a single cookie by setting its expiration time into the past.
@@ -135,7 +135,8 @@ void SessionDataDeleter::ClearSessionOnlyLocalStorage(
     const content::LocalStorageUsageInfo& usage = usages[i];
     if (!storage_policy_->IsStorageSessionOnly(usage.origin))
       continue;
-    storage_partition->GetDOMStorageContext()->DeleteLocalStorage(usage.origin);
+    storage_partition->GetDOMStorageContext()->DeleteLocalStorage(
+        usage.origin, base::DoNothing());
   }
 }
 

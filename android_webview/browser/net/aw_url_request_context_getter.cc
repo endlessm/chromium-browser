@@ -26,7 +26,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/sys_info.h"
 #include "base/task_scheduler/post_task.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "build/build_config.h"
 #include "components/network_session_configurator/common/network_switches.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -52,7 +51,7 @@
 #include "net/log/net_log_capture_mode.h"
 #include "net/log/net_log_util.h"
 #include "net/net_features.h"
-#include "net/proxy/proxy_service.h"
+#include "net/proxy_resolution/proxy_service.h"
 #include "net/socket/next_proto.h"
 #include "net/ssl/channel_id_service.h"
 #include "net/ssl/ssl_config.h"
@@ -63,6 +62,7 @@
 #include "net/url_request/url_request_context_builder.h"
 #include "net/url_request/url_request_intercepting_job_factory.h"
 #include "net/url_request/url_request_interceptor.h"
+#include "services/network/public/cpp/network_switches.h"
 
 using base::FilePath;
 using content::BrowserThread;
@@ -85,12 +85,12 @@ void ApplyCmdlineOverridesToHostResolver(
     net::MappedHostResolver* host_resolver) {
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
-  if (command_line.HasSwitch(switches::kHostResolverRules)) {
+  if (command_line.HasSwitch(network::switches::kHostResolverRules)) {
     // If hostname remappings were specified on the command-line, layer these
     // rules on top of the real host resolver. This allows forwarding all
     // requests through a designated test server.
-    host_resolver->SetRulesFromString(
-        command_line.GetSwitchValueASCII(switches::kHostResolverRules));
+    host_resolver->SetRulesFromString(command_line.GetSwitchValueASCII(
+        network::switches::kHostResolverRules));
   }
 }
 
@@ -235,10 +235,11 @@ AwURLRequestContextGetter::AwURLRequestContextGetter(
   // always be truncated.
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
-  if (command_line.HasSwitch(switches::kLogNetLog)) {
+  if (command_line.HasSwitch(network::switches::kLogNetLog)) {
     FilePath net_log_path;
     PathService::Get(base::DIR_ANDROID_APP_DATA, &net_log_path);
-    FilePath log_name = command_line.GetSwitchValuePath(switches::kLogNetLog);
+    FilePath log_name =
+        command_line.GetSwitchValuePath(network::switches::kLogNetLog);
     net_log_path = net_log_path.Append(log_name);
 
     std::unique_ptr<base::DictionaryValue> constants_dict =
@@ -303,10 +304,11 @@ void AwURLRequestContextGetter::InitializeURLRequestContext() {
       *base::CommandLine::ForCurrentProcess();
   if (command_line.HasSwitch(kProxyServerSwitch)) {
     std::string proxy = command_line.GetSwitchValueASCII(kProxyServerSwitch);
-    builder.set_proxy_service(net::ProxyService::CreateFixed(proxy));
+    builder.set_proxy_resolution_service(net::ProxyResolutionService::CreateFixed(proxy));
   } else {
-    builder.set_proxy_service(net::ProxyService::CreateWithoutProxyResolver(
-        std::move(proxy_config_service_), net_log_));
+    builder.set_proxy_resolution_service(
+        net::ProxyResolutionService::CreateWithoutProxyResolver(
+            std::move(proxy_config_service_), net_log_));
   }
   builder.set_net_log(net_log_);
   builder.SetCookieAndChannelIdStores(std::make_unique<AwCookieStoreWrapper>(),

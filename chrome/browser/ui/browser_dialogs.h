@@ -14,6 +14,7 @@
 #include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/bookmarks/bookmark_editor.h"
+#include "content/public/browser/resource_request_info.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -28,6 +29,10 @@ class Profile;
 class WebShareTarget;
 struct WebApplicationInfo;
 
+namespace base {
+class FilePath;
+}
+
 namespace content {
 class BrowserContext;
 class ColorChooser;
@@ -40,7 +45,7 @@ class Extension;
 
 namespace net {
 class AuthChallengeInfo;
-class URLRequest;
+class AuthCredentials;
 }
 
 namespace payments {
@@ -61,6 +66,7 @@ class TaskManagerTableModel;
 
 namespace ui {
 class WebDialogDelegate;
+struct SelectedFileInfo;
 }
 
 namespace views {
@@ -135,10 +141,6 @@ void ShowPWAInstallDialog(content::WebContents* web_contents,
 content::ColorChooser* ShowColorChooser(content::WebContents* web_contents,
                                         SkColor initial_color);
 
-// Shows the first-run bubble. This function should only be called when the
-// template URL service is ready.
-void ShowFirstRunBubble(Browser* browser);
-
 #if defined(OS_MACOSX)
 
 // Bridging methods that show/hide the toolkit-views based Task Manager on Mac.
@@ -153,8 +155,11 @@ void ShowUpdateChromeDialogViews(gfx::NativeWindow parent);
 #if defined(TOOLKIT_VIEWS)
 
 // Creates a toolkit-views based LoginHandler (e.g. HTTP-Auth dialog).
-LoginHandler* CreateLoginHandlerViews(net::AuthChallengeInfo* auth_info,
-                                      net::URLRequest* request);
+LoginHandler* CreateLoginHandlerViews(
+    net::AuthChallengeInfo* auth_info,
+    content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
+    const base::Callback<void(const base::Optional<net::AuthCredentials>&)>&
+        auth_required_callback);
 
 // Shows the toolkit-views based BookmarkEditor.
 void ShowBookmarkEditorViews(gfx::NativeWindow parent_window,
@@ -267,6 +272,9 @@ enum class DialogIdentifier {
   ZOOM = 79,
   LOCK_SCREEN_NOTE_APP_TOAST = 80,
   PWA_CONFIRMATION = 81,
+  RELAUNCH_RECOMMENDED = 82,
+  CROSTINI_INSTALLER = 83,
+  RELAUNCH_REQUIRED = 84,
   MAX_VALUE
 };
 
@@ -327,5 +335,11 @@ using BubbleShowPtr =
 BubbleShowPtr ShowIntentPickerBubble();
 
 #endif  // OS_CHROMEOS
+
+void ShowFolderUploadConfirmationDialog(
+    const base::FilePath& path,
+    base::OnceCallback<void(const std::vector<ui::SelectedFileInfo>&)> callback,
+    std::vector<ui::SelectedFileInfo> selected_files,
+    content::WebContents* web_contents);
 
 #endif  // CHROME_BROWSER_UI_BROWSER_DIALOGS_H_

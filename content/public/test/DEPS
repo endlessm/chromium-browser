@@ -1,8 +1,10 @@
 include_rules = [
   "-content",
   "+content/public",
+  "+components/download/public/common",
   "+components/viz/common",
   "+components/viz/service",
+  "+components/viz/test",
   "+device/geolocation/android/geolocation_jni_registrar.h",
   "+mojo/android/system/mojo_jni_registrar.h",
   "+services/network/public/cpp",
@@ -17,6 +19,7 @@ specific_include_rules = {
     # Testing utilities can access anything in content/
     "+content",
     "+gin/v8_initializer.h",
+    "+services/network/network_context.h",
     "+third_party/iaccessible2",
     "+ui/base/resource/resource_bundle.h",
   ],

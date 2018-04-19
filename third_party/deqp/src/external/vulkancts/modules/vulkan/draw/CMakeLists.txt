@@ -9,8 +9,14 @@ set(DEQP_VK_DRAW_SRCS
 	vktDrawIndirectTest.cpp
 	vktDrawInstancedTests.hpp
 	vktDrawInstancedTests.cpp
+	vktDrawInvertedDepthRangesTests.hpp
+	vktDrawInvertedDepthRangesTests.cpp
+	vktDrawShaderDrawParametersTests.hpp
+	vktDrawShaderDrawParametersTests.cpp
 	vktDrawSimpleTest.hpp
 	vktDrawSimpleTest.cpp
+	vktDrawNegativeViewportHeightTests.hpp
+	vktDrawNegativeViewportHeightTests.cpp
 	vktDrawBaseClass.hpp
 	vktDrawBaseClass.cpp
 	vktDrawCreateInfoUtil.hpp
@@ -25,7 +31,6 @@ set(DEQP_VK_DRAW_SRCS
 )
 
 set(DEQP_VK_DRAW_LIBS
-	deqp-vk-common
 	tcutil
 	vkutil
 )

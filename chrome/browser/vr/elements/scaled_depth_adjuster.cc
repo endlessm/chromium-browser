@@ -8,7 +8,6 @@ namespace vr {
 
 ScaledDepthAdjuster::ScaledDepthAdjuster(float delta_z) : delta_z_(delta_z) {
   SetType(kTypeScaledDepthAdjuster);
-  set_hit_testable(false);
 }
 
 ScaledDepthAdjuster::~ScaledDepthAdjuster() = default;
@@ -53,11 +52,13 @@ void ScaledDepthAdjuster::OnSetType() {
   DCHECK_EQ(kTypeScaledDepthAdjuster, type());
 }
 
+#ifndef NDEBUG
 void ScaledDepthAdjuster::DumpGeometry(std::ostringstream* os) const {
   gfx::Transform t = world_space_transform();
   gfx::Point3F o;
   t.TransformPoint(&o);
   *os << "tz(" << delta_z_ << ") ";
 }
+#endif
 
 }  // namespace vr

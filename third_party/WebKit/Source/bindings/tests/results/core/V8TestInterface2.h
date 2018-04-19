@@ -35,12 +35,6 @@ class V8TestInterface2 {
   }
   CORE_EXPORT static TestInterface2* ToImplWithTypeCheck(v8::Isolate*, v8::Local<v8::Value>);
   CORE_EXPORT static WrapperTypeInfo wrapperTypeInfo;
-  static void Trace(Visitor* visitor, ScriptWrappable* scriptWrappable) {
-    visitor->TraceFromGeneratedCode(scriptWrappable->ToImpl<TestInterface2>());
-  }
-  static void TraceWrappers(ScriptWrappableVisitor* visitor, ScriptWrappable* scriptWrappable) {
-    visitor->TraceWrappersFromGeneratedCode(scriptWrappable->ToImpl<TestInterface2>());
-  }
   static const int internalFieldCount = kV8DefaultWrapperInternalFieldCount;
 
   CORE_EXPORT static void InstallConditionalFeatures(
@@ -63,7 +57,6 @@ class V8TestInterface2 {
 
   CORE_EXPORT static void sizeAttributeGetterCallback(const v8::FunctionCallbackInfo<v8::Value>&);
 
-  CORE_EXPORT static void legacyCallerMethodCallback(const v8::FunctionCallbackInfo<v8::Value>&);
   CORE_EXPORT static void itemMethodCallback(const v8::FunctionCallbackInfo<v8::Value>&);
   CORE_EXPORT static void setItemMethodCallback(const v8::FunctionCallbackInfo<v8::Value>&);
   CORE_EXPORT static void deleteItemMethodCallback(const v8::FunctionCallbackInfo<v8::Value>&);

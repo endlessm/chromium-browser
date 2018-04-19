@@ -17,7 +17,6 @@
 #include "chrome/browser/ui/views/bookmarks/bookmark_bubble_view.h"
 #include "chrome/browser/ui/views/content_setting_bubble_contents.h"
 #include "chrome/browser/ui/views/extensions/extension_installed_bubble_view.h"
-#include "chrome/browser/ui/views/first_run_bubble.h"
 #include "chrome/browser/ui/views/importer/import_lock_dialog_view.h"
 #include "chrome/browser/ui/views/location_bar/zoom_bubble_view.h"
 #include "chrome/browser/ui/views/page_info/page_info_bubble_view.h"
@@ -46,11 +45,17 @@ bool ShowAllDialogsWithViewsToolkit() {
              features::kShowAllDialogsWithViewsToolkit);
 }
 
-void ShowPageInfoBubbleViews(
-    Browser* browser,
-    content::WebContents* web_contents,
-    const GURL& virtual_url,
-    const security_state::SecurityInfo& security_info) {
+bool ShowExtensionPopupWithViewsToolkit() {
+  // TODO(robliao): Remove after the views ExtensionPopup is harmonized with
+  // Cocoa's ExtensionPopup.
+  return false;
+}
+
+void ShowPageInfoBubbleViews(Browser* browser,
+                             content::WebContents* web_contents,
+                             const GURL& virtual_url,
+                             const security_state::SecurityInfo& security_info,
+                             bubble_anchor_util::Anchor anchor) {
   // Don't show the bubble again if it's already showing. A second click on the
   // location icon in the omnibox will dismiss an open bubble. This behaviour is
   // consistent with the non-Mac views implementation.
@@ -64,8 +69,8 @@ void ShowPageInfoBubbleViews(
   }
 
   views::BubbleDialogDelegateView* bubble =
-      PageInfoBubbleView::CreatePageInfoBubble(browser, web_contents,
-                                               virtual_url, security_info);
+      PageInfoBubbleView::CreatePageInfoBubble(
+          browser, web_contents, virtual_url, security_info, anchor);
   bubble->GetWidget()->Show();
   KeepBubbleAnchored(
       bubble, GetPageInfoDecoration(browser->window()->GetNativeWindow()));
@@ -145,10 +150,6 @@ void ShowUpdateChromeDialogViews(gfx::NativeWindow parent) {
 void ShowImportLockDialogViews(gfx::NativeWindow parent,
                                const base::Callback<void(bool)>& callback) {
   return ImportLockDialogView::Show(parent, callback);
-}
-
-void ShowFirstRunBubbleViews(Browser* browser) {
-  return FirstRunBubble::Show(browser);
 }
 
 void ShowPasswordReuseWarningDialog(

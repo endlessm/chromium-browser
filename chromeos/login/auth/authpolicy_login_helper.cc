@@ -4,6 +4,7 @@
 
 #include "chromeos/login/auth/authpolicy_login_helper.h"
 
+#include "base/bind_helpers.h"
 #include "base/files/file_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -38,12 +39,6 @@ base::ScopedFD GetDataReadPipe(const std::string& data) {
     return base::ScopedFD();
   }
   return pipe_read_end;
-}
-
-void AuthCallbackDoNothing(
-    authpolicy::ErrorType /* error */,
-    const authpolicy::ActiveDirectoryAccountInfo& /* account_info */) {
-  // Do nothing.
 }
 
 bool ParseDomainAndOU(const std::string& distinguished_name,
@@ -82,8 +77,7 @@ void AuthPolicyLoginHelper::TryAuthenticateUser(const std::string& username,
   request.set_user_principal_name(username);
   request.set_account_id(object_guid);
   chromeos::DBusThreadManager::Get()->GetAuthPolicyClient()->AuthenticateUser(
-      request, GetDataReadPipe(password).get(),
-      base::BindOnce(&AuthCallbackDoNothing));
+      request, GetDataReadPipe(password).get(), base::DoNothing());
 }
 
 // static
@@ -93,6 +87,7 @@ void AuthPolicyLoginHelper::Restart() {
       ->RestartAuthPolicyService();
 }
 
+// static
 bool AuthPolicyLoginHelper::IsAdLocked() {
   std::string mode;
   return chromeos::tpm_util::InstallAttributesGet(kAttrMode, &mode) &&
@@ -110,6 +105,7 @@ bool AuthPolicyLoginHelper::LockDeviceActiveDirectoryForTesting(
 
 void AuthPolicyLoginHelper::JoinAdDomain(const std::string& machine_name,
                                          const std::string& distinguished_name,
+                                         int encryption_types,
                                          const std::string& username,
                                          const std::string& password,
                                          JoinCallback callback) {
@@ -123,8 +119,12 @@ void AuthPolicyLoginHelper::JoinAdDomain(const std::string& machine_name,
   }
   if (!machine_name.empty())
     request.set_machine_name(machine_name);
+  DCHECK(authpolicy::KerberosEncryptionTypes_IsValid(encryption_types));
+  request.set_kerberos_encryption_types(
+      static_cast<authpolicy::KerberosEncryptionTypes>(encryption_types));
   if (!username.empty())
     request.set_user_principal_name(username);
+
   chromeos::DBusThreadManager::Get()->GetAuthPolicyClient()->JoinAdDomain(
       request, GetDataReadPipe(password).get(),
       base::BindOnce(&AuthPolicyLoginHelper::OnJoinCallback,

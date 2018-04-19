@@ -85,8 +85,8 @@ tcu::TestStatus GeometryExpanderRenderTestInstance::iterate (void)
 	const VkImageSubresourceRange	colorSubRange			= makeImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u);
 	const Unique<VkImageView>		colorAttachmentView		(makeImageView(vk, device, *colorAttachmentImage, VK_IMAGE_VIEW_TYPE_2D, colorFormat, colorSubRange));
 	const Unique<VkFramebuffer>		framebuffer				(makeFramebuffer(vk, device, *renderPass, *colorAttachmentView, resolution.x(), resolution.y(), 1u));
-	const Unique<VkCommandPool>		cmdPool					(makeCommandPool(vk, device, queueFamilyIndex));
-	const Unique<VkCommandBuffer>	cmdBuffer				(makeCommandBuffer(vk, device, *cmdPool));
+	const Unique<VkCommandPool>		cmdPool					(createCommandPool(vk, device, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, queueFamilyIndex));
+	const Unique<VkCommandBuffer>	cmdBuffer				(allocateCommandBuffer(vk, device, *cmdPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY));
 
 	const VkDeviceSize				vertexDataSizeBytes		= sizeInBytes(m_vertexPosData) + sizeInBytes(m_vertexAttrData);
 	const deUint32					vertexPositionsOffset	= 0u;
@@ -175,7 +175,7 @@ tcu::TestStatus GeometryExpanderRenderTestInstance::iterate (void)
 				0u, DE_NULL, 0u, DE_NULL, 1u, &colorAttachmentPreCopyBarrier);
 	}
 	{
-		const VkBufferImageCopy copyRegion = makeBufferImageCopy(makeExtent3D(resolution.x(), resolution.y(), 0), makeImageSubresourceLayers(VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u));
+		const VkBufferImageCopy copyRegion = makeBufferImageCopy(makeExtent3D(resolution.x(), resolution.y(), 1), makeImageSubresourceLayers(VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u));
 		vk.cmdCopyImageToBuffer(*cmdBuffer, *colorAttachmentImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, *colorBuffer, 1u, &copyRegion);
 	}
 

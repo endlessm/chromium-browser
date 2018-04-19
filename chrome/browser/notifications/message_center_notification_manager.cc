@@ -19,9 +19,9 @@
 #include "extensions/common/permissions/permissions_data.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/message_center/message_center_types.h"
-#include "ui/message_center/notification.h"
-#include "ui/message_center/notifier_id.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
+#include "ui/message_center/public/cpp/notification.h"
+#include "ui/message_center/public/cpp/notifier_id.h"
 #include "ui/message_center/ui_controller.h"
 
 #if !defined(OS_CHROMEOS)
@@ -33,9 +33,7 @@ using message_center::NotifierId;
 
 MessageCenterNotificationManager::MessageCenterNotificationManager(
     message_center::MessageCenter* message_center)
-    : message_center_(message_center),
-      system_observer_(this),
-      stats_collector_(message_center) {
+    : message_center_(message_center), system_observer_(this) {
   message_center_->AddObserver(this);
 
 #if !defined(OS_CHROMEOS)

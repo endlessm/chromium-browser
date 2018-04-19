@@ -386,6 +386,10 @@ enum class SnapshotViewOption {
   [self selectPanelForTabModel:activeModel];
 }
 
+- (UIViewController*)viewController {
+  return self;
+}
+
 - (void)setOtrTabModel:(TabModel*)otrModel {
   [_cache setMainTabModel:[_cache mainTabModel] otrTabModel:otrModel];
   [_tabSwitcherModel setMainTabModel:[_tabSwitcherModel mainTabModel]
@@ -400,8 +404,6 @@ enum class SnapshotViewOption {
                       withCompletion:^{
                         [self.animationDelegate
                             tabSwitcherPresentationAnimationDidEnd:self];
-                        [self.delegate
-                            tabSwitcherPresentationTransitionDidEnd:self];
                         [_tabSwitcherView wasShown];
                       }];
 }
@@ -864,8 +866,7 @@ enum class SnapshotViewOption {
   DCHECK(model);
   [[self presentedViewController] dismissViewControllerAnimated:NO
                                                      completion:nil];
-  [self.delegate tabSwitcher:self
-      dismissTransitionWillStartWithActiveModel:model];
+  [self.delegate tabSwitcher:self shouldFinishWithActiveModel:model];
   [self performTabSwitcherTransition:TransitionType::TRANSITION_DISMISS
                            withModel:model
                             animated:animated
@@ -1141,8 +1142,8 @@ enum class SnapshotViewOption {
     } else {
       index -= kHeaderDistantSessionIndexOffset;
 
-      sync_sessions::SyncedSession::DeviceType deviceType =
-          sync_sessions::SyncedSession::TYPE_UNSET;
+      sync_pb::SyncEnums::DeviceType deviceType =
+          sync_pb::SyncEnums::TYPE_UNSET;
       NSString* cellTitle = nil;
 
       if (index < _controllersOfDistantSessions.count) {
@@ -1155,10 +1156,10 @@ enum class SnapshotViewOption {
       }
       TabSwitcherSessionCellType cellType;
       switch (deviceType) {
-        case sync_sessions::SyncedSession::TYPE_PHONE:
+        case sync_pb::SyncEnums::TYPE_PHONE:
           cellType = kPhoneRemoteSessionCell;
           break;
-        case sync_sessions::SyncedSession::TYPE_TABLET:
+        case sync_pb::SyncEnums::TYPE_TABLET:
           cellType = kTabletRemoteSessionCell;
           break;
         default:

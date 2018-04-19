@@ -7,6 +7,8 @@ dictionary TestDictionary {
     long longMember = 1;
     DOMString stringMember;
     TestInterface testInterfaceMember;
+    [TreatNullAs=EmptyString] ByteString byteStringMember;
+    USVString? usvStringOrNullMember = null;
     double? doubleOrNullMember = null;
     double restrictedDoubleMember = 3.14;
     unrestricted double unrestrictedDoubleMember = 3.14;
@@ -20,6 +22,7 @@ dictionary TestDictionary {
     sequence<TestObject> testObjectSequenceMember;
     sequence<TestInterfaceGarbageCollected> testInterfaceGarbageCollectedSequenceMember = [];
     TestEnum enumMember = "foo";
+    TestEnum? enumOrNullMember;
     sequence<TestEnum> enumSequenceMember;
     Element? elementOrNullMember;
     object objectMember;
@@ -50,6 +53,8 @@ dictionary TestDictionary {
     [TreatNullAs=EmptyString] DOMString applicableToTypeStringMember;
     (double or sequence<double>) unionMemberWithSequenceDefault = [];
     (TestEnum or sequence<TestEnum>) testEnumOrTestEnumSequenceMember;
+    (TestEnum? or sequence<TestEnum>) testEnumOrNullOrTestEnumSequenceMember;
+    (TestEnum or sequence<TestEnum?>) testEnumOrTestEnumOrNullSequenceMember;
     sequence<double?> doubleOrNullSequenceMember;
     (double? or sequence<double?>) doubleOrNullOrDoubleOrNullSequenceMember;
     sequence<DOMString?> stringOrNullSequenceMember;

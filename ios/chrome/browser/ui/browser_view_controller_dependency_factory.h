@@ -10,18 +10,18 @@
 @class AlertCoordinator;
 @protocol ApplicationCommands;
 @protocol BrowserCommands;
+@class BrowserViewControllerHelper;
 @class KeyCommandsProvider;
 @class MessageBubbleView;
+@protocol OmniboxFocuser;
 @class PKPass;
 @class PKAddPassesViewController;
 @class TabModel;
 @protocol Toolbar;
 @protocol ToolbarCommands;
-class ToolbarModelDelegateIOS;
-class ToolbarModelIOS;
+@protocol ToolbarCoordinatorDelegate;
 class WebStateList;
 @protocol UrlLoader;
-@protocol WebToolbarDelegate;
 
 namespace infobars {
 class InfoBarManager;
@@ -47,14 +47,7 @@ class ChromeBrowserState;
 - (void)showPassKitErrorInfoBarForManager:
     (infobars::InfoBarManager*)infoBarManager;
 
-- (ToolbarModelIOS*)newToolbarModelIOSWithDelegate:
-    (ToolbarModelDelegateIOS*)delegate;
-
-- (id<Toolbar>)newToolbarControllerWithDelegate:(id<WebToolbarDelegate>)delegate
-                                      urlLoader:(id<UrlLoader>)urlLoader
-                                     dispatcher:(id<ApplicationCommands,
-                                                    BrowserCommands,
-                                                    ToolbarCommands>)dispatcher;
+- (BrowserViewControllerHelper*)newBrowserViewControllerHelper;
 
 // Returns a new keyboard commands coordinator to handle keyboard commands.
 - (KeyCommandsProvider*)newKeyCommandsProvider;

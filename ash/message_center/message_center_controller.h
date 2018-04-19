@@ -39,6 +39,7 @@ class ASH_EXPORT MessageCenterController
       mojom::AshMessageCenterClientAssociatedPtrInfo client) override;
   void ShowClientNotification(
       const message_center::Notification& notification) override;
+  void CloseClientNotification(const std::string& id) override;
   void UpdateNotifierIcon(const message_center::NotifierId& notifier_id,
                           const gfx::ImageSkia& icon) override;
   void NotifierEnabledChanged(const message_center::NotifierId& notifier_id,
@@ -74,6 +75,7 @@ class ASH_EXPORT MessageCenterController
   FullscreenNotificationBlocker fullscreen_notification_blocker_;
   InactiveUserNotificationBlocker inactive_user_notification_blocker_;
   SessionStateNotificationBlocker session_state_notification_blocker_;
+  std::unique_ptr<message_center::NotificationBlocker> all_popup_blocker_;
 
   NotifierSettingsListener* notifier_id_ = nullptr;
 

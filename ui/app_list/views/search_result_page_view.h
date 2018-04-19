@@ -40,11 +40,13 @@ class APP_LIST_EXPORT SearchResultPageView
   gfx::Size CalculatePreferredSize() const override;
 
   // AppListPage overrides:
-  gfx::Rect GetPageBoundsForState(AppListModel::State state) const override;
+  gfx::Rect GetPageBoundsForState(ash::AppListState state) const override;
   void OnAnimationUpdated(double progress,
-                          AppListModel::State from_state,
-                          AppListModel::State to_state) override;
+                          ash::AppListState from_state,
+                          ash::AppListState to_state) override;
   gfx::Rect GetSearchBoxBounds() const override;
+  views::View* GetFirstFocusableView() override;
+  views::View* GetLastFocusableView() override;
 
   // Overridden from SearchResultContainerView::Delegate :
   void OnSearchResultContainerResultsChanged() override;

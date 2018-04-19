@@ -92,7 +92,7 @@
     <link rel="stylesheet" href="oobe_dialog_parameters.css">
     <link rel="stylesheet" href="oobe_flex_layout.css">
     <oobe-welcome-dialog id="welcomeScreen" role="dialog"
-        aria-label="[[i18nDynamic(locale, 'networkScreenGreeting')]]"
+        aria-label$="[[i18nDynamic(locale, 'networkScreenGreeting')]]"
         current-language="[[currentLanguage]]"
         on-language-button-clicked="onWelcomeSelectLanguageButtonClicked_"
         on-accessibility-button-clicked="onWelcomeAccessibilityButtonClicked_"
@@ -104,7 +104,7 @@
         debugging-link-visible="[[debuggingLinkVisible]]">
     </oobe-welcome-dialog>
     <oobe-dialog id="languageScreen" role="dialog" hidden has-buttons
-        aria-label="[[i18nDynamic(locale, 'languageSectionTitle')]]">
+        aria-label$="[[i18nDynamic(locale, 'languageSectionTitle')]]">
       <hd-iron-icon class="oobe-icon"
           icon1x="oobe-welcome-32:language" icon2x="oobe-welcome-64:language">
       </hd-iron-icon>
@@ -148,7 +148,7 @@
       </div>
     </oobe-dialog>
     <oobe-dialog id="accessibilityScreen" role="dialog" hidden has-buttons
-        aria-label="[[i18nDynamic(locale, 'accessibilitySectionTitle')]]">
+        aria-label$="[[i18nDynamic(locale, 'accessibilitySectionTitle')]]">
       <hd-iron-icon class="oobe-icon"
           icon1x="oobe-welcome-32:accessibility"
           icon2x="oobe-welcome-64:accessibility">
@@ -239,7 +239,7 @@
       </div>
     </oobe-dialog>
     <oobe-dialog id="timezoneScreen" role="dialog" hidden has-buttons
-        aria-label="[[i18nDynamic(locale, 'timezoneSectionTitle')]]">
+        aria-label$="[[i18nDynamic(locale, 'timezoneSectionTitle')]]">
       <hd-iron-icon class="oobe-icon"
           icon1x="oobe-welcome-32:timezone" icon2x="oobe-welcome-64:timezone">
       </hd-iron-icon>
@@ -267,7 +267,7 @@
       </div>
     </oobe-dialog>
     <oobe-dialog id="oobeAdvancedOptionsScreen" role="dialog" hidden has-buttons
-        aria-label="[[i18nDynamic(locale, 'advancedOptionsSectionTitle')]]">
+        aria-label$="[[i18nDynamic(locale, 'advancedOptionsSectionTitle')]]">
       <hd-iron-icon class="oobe-icon"
           icon1x="oobe-welcome-32:settings" icon2x="oobe-welcome-64:settings">
       </hd-iron-icon>
@@ -278,31 +278,37 @@
       </div>
       <div class="footer layout vertical">
         <div class="flex layout vertical center-justified
-            advanced-options-entry" on-tap="onEEBootstrappingClicked_">
-          <div class="advanced-option-title">
-            [[i18nDynamic(locale, 'advancedOptionsEEBootstrappingTitle')]]
-          </div>
-          <div class="advanced-option-subtitle">
-            [[i18nDynamic(locale, 'advancedOptionsEEBootstrappingSubtitle')]]
-          </div>
+            advanced-options-entry">
+          <button on-tap="onEEBootstrappingClicked_" class="focus-on-show">
+            <div class="advanced-option-title">
+              [[i18nDynamic(locale, 'advancedOptionsEEBootstrappingTitle')]]
+            </div>
+            <div class="advanced-option-subtitle">
+              [[i18nDynamic(locale, 'advancedOptionsEEBootstrappingSubtitle')]]
+            </div>
+          </button>
         </div>
         <div class="flex layout vertical center-justified
-            advanced-options-entry" on-tap="onCFMBootstrappingClicked_">
-          <div class="advanced-option-title">
-            [[i18nDynamic(locale, 'advancedOptionsCFMSetupTitle')]]
-          </div>
-          <div class="advanced-option-subtitle">
-            [[i18nDynamic(locale, 'advancedOptionsCFMSetupSubtitle')]]
-          </div>
+            advanced-options-entry">
+          <button on-tap="onCFMBootstrappingClicked_">
+            <div class="advanced-option-title">
+              [[i18nDynamic(locale, 'advancedOptionsCFMSetupTitle')]]
+            </div>
+            <div class="advanced-option-subtitle">
+              [[i18nDynamic(locale, 'advancedOptionsCFMSetupSubtitle')]]
+            </div>
+          </button>
         </div>
         <div class="flex layout vertical center-justified
-            advanced-options-entry" on-tap="onDeviceRequisitionClicked_">
-          <div class="advanced-option-title">
-            [[i18nDynamic(locale, 'advancedOptionsDeviceRequisitionTitle')]]
-          </div>
-          <div class="advanced-option-subtitle">
-            [[i18nDynamic(locale, 'advancedOptionsDeviceRequisitionSubtitle')]]
-          </div>
+            advanced-options-entry">
+          <button on-tap="onDeviceRequisitionClicked_">
+            <div class="advanced-option-title">
+              [[i18nDynamic(locale, 'advancedOptionsDeviceRequisitionTitle')]]
+            </div>
+            <div class="advanced-option-subtitle">
+              [[i18nDynamic(locale, 'advancedOptionsDeviceRequisitionSubtitle')]]
+            </div>
+          </button>
         </div>
       </div>
       <div class="bottom-buttons layout horizontal end-justified">
@@ -312,7 +318,7 @@
       </div>
     </oobe-dialog>
     <oobe-dialog id="networkSelectionScreen" role="dialog" hidden has-buttons
-        aria-label="[[i18nDynamic(locale, 'networkSectionTitle')]]"
+        aria-label$="[[i18nDynamic(locale, 'networkSectionTitle')]]"
         on-show-dialog="onNetworkSelectionScreenShown_">
       <hd-iron-icon class="oobe-icon"
           icon1x="oobe-welcome-32:wifi" icon2x="oobe-welcome-64:wifi">
@@ -326,6 +332,7 @@
       <div class="footer layout vertical">
         <cr-network-select id="networkSelect"
             on-default-network-changed="onDefaultNetworkChanged_"
+            on-network-connect-changed="onNetworkConnectChanged_"
             on-network-item-selected="onNetworkListNetworkItemSelected_"
             on-custom-item-selected="onNetworkListCustomItemSelected_"
             custom-items="[[getNetworkCustomItems_(isConnected_)]]"

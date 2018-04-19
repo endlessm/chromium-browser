@@ -61,11 +61,11 @@ class StartWithUrlWarmTBM(_StartupPerfBenchmark):
     return 'start_with_url.warm.startup_pages'
 
   @classmethod
-  def ValueCanBeAddedPredicate(cls, value, is_first_result):
-    del value  # unused
+  def ShouldAddValue(cls, name, from_first_story_run):
+    del name  # unused
     # Ignores first results because the first invocation is actualy cold since
     # we are loading the profile for the first time.
-    return not is_first_result
+    return not from_first_story_run
 
 
 @benchmark.Owner(emails=['pasko@chromium.org'])
@@ -91,7 +91,8 @@ class ExperimentalStartWithUrlCold(perf_benchmark.PerfBenchmark):
   def CreateCoreTimelineBasedMeasurementOptions(self):
     startup_category_filter = (
         chrome_trace_category_filter.ChromeTraceCategoryFilter(
-            filter_string='startup,toplevel,Java,EarlyJava'))
+            filter_string=('loading,net,netlog,network,offline_pages,'
+                'startup,toplevel,Java,EarlyJava')))
     options = timeline_based_measurement.Options(
         overhead_level=startup_category_filter)
     options.config.enable_chrome_trace = True

@@ -14,7 +14,7 @@
 #include "base/macros.h"
 #include "cc/animation/animation_target.h"
 #include "cc/animation/transform_operations.h"
-#include "chrome/browser/vr/animation_player.h"
+#include "chrome/browser/vr/animation.h"
 #include "chrome/browser/vr/databinding/binding_base.h"
 #include "chrome/browser/vr/elements/corner_radii.h"
 #include "chrome/browser/vr/elements/draw_phase.h"
@@ -40,11 +40,11 @@ class WebGestureEvent;
 
 namespace vr {
 
-class Animation;
+class KeyframeModel;
 class SkiaSurfaceProvider;
 class UiElementRenderer;
 struct CameraModel;
-struct TextInputInfo;
+struct EditedText;
 
 enum LayoutAlignment {
   NONE = 0,
@@ -62,6 +62,7 @@ struct EventHandlers {
   base::Callback<void(const gfx::PointF&)> hover_move;
   base::Callback<void()> button_down;
   base::Callback<void()> button_up;
+  base::RepeatingCallback<void(bool)> focus_change;
 };
 
 struct HitTestRequest {
@@ -152,8 +153,6 @@ class UiElement : public cc::AnimationTarget {
   virtual void OnMove(const gfx::PointF& position);
   virtual void OnButtonDown(const gfx::PointF& position);
   virtual void OnButtonUp(const gfx::PointF& position);
-  virtual void OnFlingStart(std::unique_ptr<blink::WebGestureEvent> gesture,
-                            const gfx::PointF& position);
   virtual void OnFlingCancel(std::unique_ptr<blink::WebGestureEvent> gesture,
                              const gfx::PointF& position);
   virtual void OnScrollBegin(std::unique_ptr<blink::WebGestureEvent> gesture,
@@ -214,8 +213,11 @@ class UiElement : public cc::AnimationTarget {
 
   // Editable elements should override these functions.
   virtual void OnFocusChanged(bool focused);
-  virtual void OnInputEdited(const TextInputInfo& info);
-  virtual void OnInputCommitted(const TextInputInfo& info);
+  virtual void OnInputEdited(const EditedText& info);
+  virtual void OnInputCommitted(const EditedText& info);
+  virtual void RequestFocus();
+  virtual void RequestUnfocus();
+  virtual void UpdateInput(const EditedText& info);
 
   gfx::SizeF size() const;
   void SetSize(float width, float hight);
@@ -262,21 +264,25 @@ class UiElement : public cc::AnimationTarget {
 
   LayoutAlignment x_anchoring() const { return x_anchoring_; }
   void set_x_anchoring(LayoutAlignment x_anchoring) {
+    DCHECK(x_anchoring == LEFT || x_anchoring == RIGHT || x_anchoring == NONE);
     x_anchoring_ = x_anchoring;
   }
 
   LayoutAlignment y_anchoring() const { return y_anchoring_; }
   void set_y_anchoring(LayoutAlignment y_anchoring) {
+    DCHECK(y_anchoring == TOP || y_anchoring == BOTTOM || y_anchoring == NONE);
     y_anchoring_ = y_anchoring;
   }
 
   LayoutAlignment x_centering() const { return x_centering_; }
   void set_x_centering(LayoutAlignment x_centering) {
+    DCHECK(x_centering == LEFT || x_centering == RIGHT || x_centering == NONE);
     x_centering_ = x_centering;
   }
 
   LayoutAlignment y_centering() const { return y_centering_; }
   void set_y_centering(LayoutAlignment y_centering) {
+    DCHECK(y_centering == TOP || y_centering == BOTTOM || y_centering == NONE);
     y_centering_ = y_centering;
   }
 
@@ -349,20 +355,20 @@ class UiElement : public cc::AnimationTarget {
   // cc::AnimationTarget
   void NotifyClientFloatAnimated(float value,
                                  int target_property_id,
-                                 cc::Animation* animation) override;
+                                 cc::KeyframeModel* keyframe_model) override;
   void NotifyClientTransformOperationsAnimated(
       const cc::TransformOperations& operations,
       int target_property_id,
-      cc::Animation* animation) override;
+      cc::KeyframeModel* keyframe_model) override;
   void NotifyClientSizeAnimated(const gfx::SizeF& size,
                                 int target_property_id,
-                                cc::Animation* animation) override;
+                                cc::KeyframeModel* keyframe_model) override;
 
   void SetTransitionedProperties(const std::set<TargetProperty>& properties);
   void SetTransitionDuration(base::TimeDelta delta);
 
-  void AddAnimation(std::unique_ptr<cc::Animation> animation);
-  void RemoveAnimation(int animation_id);
+  void AddKeyframeModel(std::unique_ptr<cc::KeyframeModel> keyframe_model);
+  void RemoveKeyframeModel(int keyframe_model_id);
   bool IsAnimatingProperty(TargetProperty property) const;
 
   void DoLayOutChildren();
@@ -418,6 +424,8 @@ class UiElement : public cc::AnimationTarget {
 
   std::string DebugName() const;
 
+#ifndef NDEBUG
+
   // Writes a pretty-printed version of the UiElement subtree to |os|. The
   // vector of counts represents where each ancestor on the ancestor chain is
   // situated in its parent's list of children. This is used to determine
@@ -429,15 +437,18 @@ class UiElement : public cc::AnimationTarget {
                      std::ostringstream* os,
                      bool include_bindings) const;
   virtual void DumpGeometry(std::ostringstream* os) const;
+#endif
 
   // This is to be used only during the texture / size updated phase (i.e., to
   // change your size based on your old size).
   gfx::SizeF stale_size() const;
 
  protected:
-  AnimationPlayer& animation_player() { return animation_player_; }
+  Animation& animation() { return animation_; }
 
   base::TimeTicks last_frame_time() const { return last_frame_time_; }
+
+  EventHandlers event_handlers_;
 
  private:
   virtual void OnUpdatedWorldSpaceTransform();
@@ -450,7 +461,7 @@ class UiElement : public cc::AnimationTarget {
   int id_ = -1;
 
   // If false, the reticle will not hit the element, even if visible.
-  bool hit_testable_ = true;
+  bool hit_testable_ = false;
 
   // If false, clicking on the element doesn't give it focus.
   bool focusable_ = true;
@@ -512,7 +523,7 @@ class UiElement : public cc::AnimationTarget {
   float x_padding_ = 0.0f;
   float y_padding_ = 0.0f;
 
-  AnimationPlayer animation_player_;
+  Animation animation_;
 
   DrawPhase draw_phase_ = kPhaseNone;
 
@@ -556,8 +567,6 @@ class UiElement : public cc::AnimationTarget {
   std::vector<std::unique_ptr<BindingBase>> bindings_;
 
   UpdatePhase phase_ = kClean;
-
-  EventHandlers event_handlers_;
 
   DISALLOW_COPY_AND_ASSIGN(UiElement);
 };

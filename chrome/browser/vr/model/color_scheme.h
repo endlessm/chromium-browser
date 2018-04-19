@@ -35,6 +35,14 @@ struct UrlBarColors {
   SkColor separator = SK_ColorBLACK;
 };
 
+struct TextSelectionColors {
+  bool operator==(const TextSelectionColors& other) const;
+  bool operator!=(const TextSelectionColors& other) const;
+  SkColor cursor;
+  SkColor background;
+  SkColor foreground;
+};
+
 struct ColorScheme {
   enum Mode : int {
     kModeNormal = 0,
@@ -52,7 +60,6 @@ struct ColorScheme {
   // These colors should be named generically, if possible, so that they can be
   // meaningfully reused by multiple elements.
   SkColor world_background;
-  SkColor world_background_text;
   SkColor floor;
   SkColor ceiling;
   SkColor floor_grid;
@@ -78,10 +85,11 @@ struct ColorScheme {
   SkColor exclusive_screen_toast_background;
   SkColor system_indicator_foreground;
   SkColor system_indicator_background;
-  SkColor audio_permission_prompt_icon_foreground;
-  SkColor audio_permission_prompt_background;
-  ButtonColors audio_permission_prompt_secondary_button_colors;
-  ButtonColors audio_permission_prompt_primary_button_colors;
+  SkColor modal_prompt_icon_foreground;
+  SkColor modal_prompt_background;
+  SkColor modal_prompt_foreground;
+  ButtonColors modal_prompt_secondary_button_colors;
+  ButtonColors modal_prompt_primary_button_colors;
 
   // The colors used for text and buttons on prompts.
   SkColor prompt_foreground;
@@ -90,6 +98,7 @@ struct ColorScheme {
 
   ButtonColors back_button;
   SkColor url_bar_separator;
+  SkColor url_bar_hint;
 
   // These colors feed the URL origin texture.
   UrlBarColors url_bar;
@@ -110,6 +119,7 @@ struct ColorScheme {
   SkColor omnibox_icon;
   SkColor omnibox_text;
   SkColor omnibox_hint;
+  TextSelectionColors omnibox_text_selection;
   SkColor suggestion_text;
   SkColor suggestion_dim_text;
   SkColor suggestion_url_text;
@@ -120,14 +130,19 @@ struct ColorScheme {
   SkColor snackbar_foreground;
   ButtonColors snackbar_button_colors;
 
+  SkColor controller_label_callout;
+  SkColor controller_button;
+  SkColor controller_button_down;
+
+  SkColor reposition_label;
+  SkColor reposition_label_background;
+
   // These are used for blending between colors that are available only in
   // shaders. They are, as you might expect, one for a given mode, but zero
   // otherwise.
   float normal_factor = 0.0f;
   float incognito_factor = 0.0f;
   float fullscreen_factor = 0.0f;
-
-  SkColor cursor;
 };
 
 }  // namespace vr

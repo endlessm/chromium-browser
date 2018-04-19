@@ -150,6 +150,32 @@ static TestState *GetTestState(const SSL *ssl) {
   return (TestState *)SSL_get_ex_data(ssl, g_state_index);
 }
 
+static bool MoveExData(SSL *dest, SSL *src) {
+  TestState *state = GetTestState(src);
+  const TestConfig *config = GetTestConfig(src);
+  if (!SSL_set_ex_data(src, g_state_index, nullptr) ||
+      !SSL_set_ex_data(dest, g_state_index, state) ||
+      !SSL_set_ex_data(src, g_config_index, nullptr) ||
+      !SSL_set_ex_data(dest, g_config_index, (void *) config)) {
+    return false;
+  }
+
+  return true;
+}
+
+static void MoveBIOs(SSL *dest, SSL *src) {
+  BIO *rbio = SSL_get_rbio(src);
+  BIO_up_ref(rbio);
+  SSL_set0_rbio(dest, rbio);
+
+  BIO *wbio = SSL_get_wbio(src);
+  BIO_up_ref(wbio);
+  SSL_set0_wbio(dest, wbio);
+
+  SSL_set0_rbio(src, nullptr);
+  SSL_set0_wbio(src, nullptr);
+}
+
 static bool LoadCertificate(bssl::UniquePtr<X509> *out_x509,
                             bssl::UniquePtr<STACK_OF(X509)> *out_chain,
                             const std::string &file) {
@@ -1711,6 +1737,19 @@ static bool CheckHandshakeProperties(SSL *ssl, bool is_resume,
     }
   }
 
+  if (!config->expected_quic_transport_params.empty()) {
+    const uint8_t *peer_params;
+    size_t peer_params_len;
+    SSL_get_peer_quic_transport_params(ssl, &peer_params, &peer_params_len);
+    if (peer_params_len != config->expected_quic_transport_params.size() ||
+        OPENSSL_memcmp(peer_params,
+                       config->expected_quic_transport_params.data(),
+                       peer_params_len) != 0) {
+      fprintf(stderr, "QUIC transport params mismatch\n");
+      return false;
+    }
+  }
+
   if (!config->expected_channel_id.empty()) {
     uint8_t channel_id[64];
     if (!SSL_get_tls_channel_id(ssl, channel_id, sizeof(channel_id))) {
@@ -1721,6 +1760,18 @@ static bool CheckHandshakeProperties(SSL *ssl, bool is_resume,
         OPENSSL_memcmp(config->expected_channel_id.data(), channel_id, 64) !=
             0) {
       fprintf(stderr, "channel id mismatch\n");
+      return false;
+    }
+  }
+
+  if (config->expected_token_binding_param != -1) {
+    if (!SSL_is_token_binding_negotiated(ssl)) {
+      fprintf(stderr, "no Token Binding negotiated\n");
+      return false;
+    }
+    if (SSL_get_negotiated_token_binding_param(ssl) !=
+        static_cast<uint8_t>(config->expected_token_binding_param)) {
+      fprintf(stderr, "Token Binding param mismatch\n");
       return false;
     }
   }
@@ -1811,6 +1862,15 @@ static bool CheckHandshakeProperties(SSL *ssl, bool is_resume,
   if (config->expect_draft_downgrade != !!SSL_is_draft_downgrade(ssl)) {
     fprintf(stderr, "Got %sdraft downgrade signal, but wanted the opposite.\n",
             SSL_is_draft_downgrade(ssl) ? "" : "no ");
+    return false;
+  }
+
+  const bool did_dummy_pq_padding = !!SSL_dummy_pq_padding_used(ssl);
+  if (config->expect_dummy_pq_padding != did_dummy_pq_padding) {
+    fprintf(stderr,
+            "Dummy PQ padding %s observed, but expected the opposite.\n",
+            did_dummy_pq_padding ? "was" : "was not");
+    return false;
   }
 
   return true;
@@ -1877,7 +1937,8 @@ static bool WriteSettings(int i, const TestConfig *config,
   return fwrite(settings, settings_len, 1, file.get()) == 1;
 }
 
-static bool DoExchange(bssl::UniquePtr<SSL_SESSION> *out_session, SSL *ssl,
+static bool DoExchange(bssl::UniquePtr<SSL_SESSION> *out_session,
+                       bssl::UniquePtr<SSL> *ssl_uniqueptr,
                        const TestConfig *config, bool is_resume, bool is_retry);
 
 // DoConnection tests an SSL connection against the peer. On success, it returns
@@ -1970,6 +2031,12 @@ static bool DoConnection(bssl::UniquePtr<SSL_SESSION> *out_session,
       }
     }
   }
+  if (!config->send_token_binding_params.empty()) {
+    SSL_set_token_binding_params(ssl.get(),
+                                 reinterpret_cast<const uint8_t *>(
+                                     config->send_token_binding_params.data()),
+                                 config->send_token_binding_params.length());
+  }
   if (!config->host_name.empty() &&
       !SSL_set_tlsext_host_name(ssl.get(), config->host_name.c_str())) {
     return false;
@@ -2058,6 +2125,15 @@ static bool DoConnection(bssl::UniquePtr<SSL_SESSION> *out_session,
       !SSL_set_dummy_pq_padding_size(ssl.get(), config->dummy_pq_padding_len)) {
     return false;
   }
+  if (!config->quic_transport_params.empty()) {
+    if (!SSL_set_quic_transport_params(
+            ssl.get(),
+            reinterpret_cast<const uint8_t *>(
+                config->quic_transport_params.data()),
+            config->quic_transport_params.size())) {
+      return false;
+    }
+  }
 
   int sock = Connect(config->port);
   if (sock == -1) {
@@ -2115,7 +2191,7 @@ static bool DoConnection(bssl::UniquePtr<SSL_SESSION> *out_session,
     SSL_set_connect_state(ssl.get());
   }
 
-  bool ret = DoExchange(out_session, ssl.get(), config, is_resume, false);
+  bool ret = DoExchange(out_session, &ssl, config, is_resume, false);
   if (!config->is_server && is_resume && config->expect_reject_early_data) {
     // We must have failed due to an early data rejection.
     if (ret) {
@@ -2149,7 +2225,8 @@ static bool DoConnection(bssl::UniquePtr<SSL_SESSION> *out_session,
       return false;
     }
 
-    ret = DoExchange(out_session, ssl.get(), retry_config, is_resume, true);
+    assert(!config->handoff);
+    ret = DoExchange(out_session, &ssl, retry_config, is_resume, true);
   }
 
   if (!ret) {
@@ -2172,19 +2249,108 @@ static bool DoConnection(bssl::UniquePtr<SSL_SESSION> *out_session,
   return true;
 }
 
-static bool DoExchange(bssl::UniquePtr<SSL_SESSION> *out_session, SSL *ssl,
+static bool HandoffReady(SSL *ssl, int ret) {
+  return ret < 0 && SSL_get_error(ssl, ret) == SSL_ERROR_HANDOFF;
+}
+
+static bool DoExchange(bssl::UniquePtr<SSL_SESSION> *out_session,
+                       bssl::UniquePtr<SSL> *ssl_uniqueptr,
                        const TestConfig *config, bool is_resume,
                        bool is_retry) {
   int ret;
+  SSL *ssl = ssl_uniqueptr->get();
+
   if (!config->implicit_handshake) {
+    if (config->handoff) {
+      bssl::UniquePtr<SSL_CTX> ctx_handoff(SSL_CTX_new(TLSv1_method()));
+      if (!ctx_handoff) {
+        return false;
+      }
+      SSL_CTX_set_handoff_mode(ctx_handoff.get(), 1);
+
+      bssl::UniquePtr<SSL> ssl_handoff(SSL_new(ctx_handoff.get()));
+      if (!ssl_handoff) {
+        return false;
+      }
+      SSL_set_accept_state(ssl_handoff.get());
+      if (!MoveExData(ssl_handoff.get(), ssl)) {
+        return false;
+      }
+      MoveBIOs(ssl_handoff.get(), ssl);
+
+      do {
+        ret = CheckIdempotentError("SSL_do_handshake", ssl_handoff.get(),
+                                   [&]() -> int {
+          return SSL_do_handshake(ssl_handoff.get());
+        });
+      } while (!HandoffReady(ssl_handoff.get(), ret) &&
+               config->async &&
+               RetryAsync(ssl_handoff.get(), ret));
+
+      if (!HandoffReady(ssl_handoff.get(), ret)) {
+        fprintf(stderr, "Handshake failed while waiting for handoff.\n");
+        return false;
+      }
+
+      bssl::ScopedCBB cbb;
+      bssl::Array<uint8_t> handoff;
+      if (!CBB_init(cbb.get(), 512) ||
+          !SSL_serialize_handoff(ssl_handoff.get(), cbb.get()) ||
+          !CBBFinishArray(cbb.get(), &handoff)) {
+        fprintf(stderr, "Handoff serialisation failed.\n");
+        return false;
+      }
+
+      MoveBIOs(ssl, ssl_handoff.get());
+      if (!MoveExData(ssl, ssl_handoff.get())) {
+        return false;
+      }
+
+      if (!SSL_apply_handoff(ssl, handoff)) {
+        fprintf(stderr, "Handoff application failed.\n");
+        return false;
+      }
+    }
+
     do {
       ret = CheckIdempotentError("SSL_do_handshake", ssl, [&]() -> int {
         return SSL_do_handshake(ssl);
       });
     } while (config->async && RetryAsync(ssl, ret));
+
     if (ret != 1 ||
         !CheckHandshakeProperties(ssl, is_resume, config)) {
       return false;
+    }
+
+    if (config->handoff) {
+      bssl::ScopedCBB cbb;
+      bssl::Array<uint8_t> handback;
+      if (!CBB_init(cbb.get(), 512) ||
+          !SSL_serialize_handback(ssl, cbb.get()) ||
+          !CBBFinishArray(cbb.get(), &handback)) {
+        fprintf(stderr, "Handback serialisation failed.\n");
+        return false;
+      }
+
+      bssl::UniquePtr<SSL_CTX> ctx_handback(SSL_CTX_new(TLSv1_method()));
+      SSL_CTX_set_msg_callback(ctx_handback.get(), MessageCallback);
+      bssl::UniquePtr<SSL> ssl_handback(SSL_new(ctx_handback.get()));
+      if (!ssl_handback) {
+        return false;
+      }
+      if (!SSL_apply_handback(ssl_handback.get(), handback)) {
+        fprintf(stderr, "Applying handback failed.\n");
+        return false;
+      }
+
+      MoveBIOs(ssl_handback.get(), ssl);
+      if (!MoveExData(ssl_handback.get(), ssl)) {
+        return false;
+      }
+
+      *ssl_uniqueptr = std::move(ssl_handback);
+      ssl = ssl_uniqueptr->get();
     }
 
     if (is_resume && !is_retry && !config->is_server &&

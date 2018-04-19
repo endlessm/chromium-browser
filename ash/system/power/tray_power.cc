@@ -27,8 +27,8 @@
 #include "ui/gfx/image/image_skia_source.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/message_center/message_center.h"
-#include "ui/message_center/notification.h"
-#include "ui/message_center/notification_delegate.h"
+#include "ui/message_center/public/cpp/notification.h"
+#include "ui/message_center/public/cpp/notification_delegate.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/view.h"
 
@@ -106,7 +106,7 @@ class PowerTrayView : public TrayItemView {
   // Overridden from views::View.
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
     node_data->SetName(accessible_name_);
-    node_data->role = ui::AX_ROLE_BUTTON;
+    node_data->role = ax::mojom::Role::kButton;
   }
 
   void UpdateStatus(bool battery_alert) {
@@ -115,7 +115,7 @@ class PowerTrayView : public TrayItemView {
 
     if (battery_alert) {
       accessible_name_ = PowerStatus::Get()->GetAccessibleNameString(true);
-      NotifyAccessibilityEvent(ui::AX_EVENT_ALERT, true);
+      NotifyAccessibilityEvent(ax::mojom::Event::kAlert, true);
     }
   }
 
@@ -233,11 +233,8 @@ bool TrayPower::MaybeShowUsbChargerNotification() {
             message_center::NotifierId(
                 message_center::NotifierId::SYSTEM_COMPONENT, kNotifierPower),
             message_center::RichNotificationData(),
-            new UsbNotificationDelegate(this), kNotificationLowPowerBatteryIcon,
+            new UsbNotificationDelegate(this), kNotificationLowPowerChargerIcon,
             message_center::SystemNotificationWarningLevel::WARNING);
-    // TODO(tetsui): Workaround of https://crbug.com/757724. Remove after the
-    // bug is fixed.
-    notification->set_vector_small_image(gfx::kNoneIcon);
     notification->set_priority(message_center::SYSTEM_PRIORITY);
     message_center_->AddNotification(std::move(notification));
     return true;

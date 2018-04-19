@@ -6,8 +6,10 @@
 
 #include "base/macros.h"
 #include "base/run_loop.h"
+#include "build/build_config.h"
 #include "chrome/browser/sync/test/integration/printers_helper.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
+#include "content/public/test/test_utils.h"
 
 namespace {
 
@@ -122,8 +124,11 @@ IN_PROC_BROWSER_TEST_F(TwoClientPrintersSyncTest, ConflictResolution) {
   std::string valid_message = "YAY!  More recent changes win!";
   ASSERT_TRUE(EditPrinterDescription(GetPrinterStore(0), 0, valid_message));
 
-  // Conflict resolution shoud run here.
+  // Run all pending tasks and wait until all clients have the same
+  // configuration.
+  content::RunAllTasksUntilIdle();
   ASSERT_TRUE(PrintersMatchChecker().Wait());
+
   // The more recent update should win.
   EXPECT_EQ(valid_message,
             GetPrinterStore(1)->GetConfiguredPrinters()[0].description());

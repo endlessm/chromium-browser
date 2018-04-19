@@ -35,9 +35,9 @@
 #include "base/auto_reset.h"
 #include "base/metrics/histogram_macros.h"
 #include "ui/accessibility/ax_node_data.h"
-#include "ui/app_list/app_list_features.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/simple_menu_model.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animator.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
@@ -204,7 +204,7 @@ void ReflectItemStatus(const ShelfItem& item, ShelfButton* button) {
       break;
   }
 
-  if (app_list::features::IsTouchableAppContextMenuEnabled()) {
+  if (features::IsTouchableAppContextMenuEnabled()) {
     if (item.has_notification)
       button->AddState(ShelfButton::STATE_NOTIFICATION);
     else
@@ -326,11 +326,7 @@ void ShelfView::Init() {
   overflow_button_->set_context_menu_controller(this);
   ConfigureChildView(overflow_button_);
   AddChildView(overflow_button_);
-
-  GetBackButton()->layer()->SetOpacity(IsTabletModeEnabled() ? 1.f : 0.f);
-  GetBackButton()->SetFocusBehavior(
-      IsTabletModeEnabled() ? FocusBehavior::ALWAYS : FocusBehavior::NEVER);
-
+  UpdateBackButton();
   // We'll layout when our bounds change.
 }
 
@@ -816,6 +812,7 @@ void ShelfView::LayoutToIdealBounds() {
   CalculateIdealBounds(&overflow_bounds);
   views::ViewModelUtils::SetViewBoundsToIdealBounds(*view_model_);
   overflow_button_->SetBoundsRect(overflow_bounds);
+  UpdateBackButton();
 }
 
 void ShelfView::UpdateShelfItemBackground(SkColor color) {
@@ -1620,7 +1617,7 @@ views::FocusTraversable* ShelfView::GetPaneFocusTraversable() {
 }
 
 void ShelfView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  node_data->role = ui::AX_ROLE_TOOLBAR;
+  node_data->role = ax::mojom::Role::kToolbar;
   node_data->SetName(l10n_util::GetStringUTF8(IDS_ASH_SHELF_ACCESSIBLE_NAME));
 }
 
@@ -2023,9 +2020,7 @@ void ShelfView::OnBoundsAnimatorDone(views::BoundsAnimator* animator) {
     }
   }
 
-  GetBackButton()->layer()->SetOpacity(IsTabletModeEnabled() ? 1.f : 0.f);
-  GetBackButton()->SetFocusBehavior(
-      IsTabletModeEnabled() ? FocusBehavior::ALWAYS : FocusBehavior::NEVER);
+  UpdateBackButton();
 }
 
 bool ShelfView::IsRepostEvent(const ui::Event& event) {
@@ -2063,6 +2058,12 @@ bool ShelfView::CanPrepareForDrag(Pointer pointer,
   }
 
   return true;
+}
+
+void ShelfView::UpdateBackButton() {
+  GetBackButton()->layer()->SetOpacity(IsTabletModeEnabled() ? 1.f : 0.f);
+  GetBackButton()->SetFocusBehavior(
+      IsTabletModeEnabled() ? FocusBehavior::ALWAYS : FocusBehavior::NEVER);
 }
 
 }  // namespace ash

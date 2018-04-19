@@ -8,6 +8,7 @@
 from __future__ import print_function
 
 import argparse
+import base64
 import collections
 import contextlib
 import glob
@@ -18,6 +19,7 @@ from chromite.cli import command
 from chromite.lib import cache
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
+from chromite.lib import gob_util
 from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib import path_util
@@ -82,6 +84,9 @@ class SDKFetcher(object):
   MISC_CACHE = 'misc'
 
   TARGET_TOOLCHAIN_KEY = 'target_toolchain'
+  QEMU_BIN_KEY = 'app-emulation/qemu-2.6.0-r2.tbz2'
+  PREBUILT_CONF_PATH = ('chromiumos/overlays/board-overlays.git/+/'
+                        'master/overlay-amd64-host/prebuilt.conf')
 
   CANARIES_PER_DAY = 3
   DAYS_TO_CONSIDER = 14
@@ -190,6 +195,17 @@ class SDKFetcher(object):
     logging.debug('Read LKGM version from %s: %s', lkgm_file, version)
     return version
 
+  @staticmethod
+  def _GetQemuBinPath():
+    """Get prebuilt QEMU binary path from google storage."""
+    contents_b64 = gob_util.FetchUrl(
+        constants.EXTERNAL_GOB_HOST,
+        '%s?format=TEXT' % SDKFetcher.PREBUILT_CONF_PATH)
+    binhost, path = base64.b64decode(contents_b64.read()).strip().split('=')
+    if binhost != 'FULL_BINHOST' or not path:
+      return None
+    return path.strip('"')
+
   def _GetFullVersionFromRecentLatest(self, version):
     """Gets the full version number from a recent LATEST- file.
 
@@ -220,7 +236,7 @@ class SDKFetcher(object):
             'Using cros version from most recent LATEST file: %s -> %s',
             version_file, full_version)
         return full_version
-      except gs.GSNoSuchKey:
+      except (gs.GSNoSuchKey, gs.GSCommandError):
         pass
     logging.warning('No recent LATEST file found from %d.0.0 to %d.0.0: ',
                     version_base_min, version_base)
@@ -240,7 +256,7 @@ class SDKFetcher(object):
       full_version = self.gs_ctx.Cat(version_file)
       assert full_version.startswith('R')
       return full_version
-    except gs.GSNoSuchKey:
+    except (gs.GSNoSuchKey, gs.GSCommandError):
       logging.warning('No LATEST file matching SDK version %s', version)
       return self._GetFullVersionFromRecentLatest(version)
 
@@ -386,6 +402,15 @@ class SDKFetcher(object):
       fetch_urls[self.TARGET_TOOLCHAIN_KEY] = os.path.join(
           self.toolchain_path, toolchain_url % {'target': target_tc})
       components.remove(self.TARGET_TOOLCHAIN_KEY)
+
+    # Also fetch QEMU binary if VM_IMAGE_TAR is specified.
+    if constants.VM_IMAGE_TAR in components:
+      qemu_bin_path = self._GetQemuBinPath()
+      if qemu_bin_path:
+        fetch_urls[self.QEMU_BIN_KEY] = os.path.join(
+            qemu_bin_path, self.QEMU_BIN_KEY)
+      else:
+        logging.warning('Failed to find a QEMU binary to download.')
 
     version_base = self._GetVersionGSBase(version)
     fetch_urls.update((t, os.path.join(version_base, t)) for t in components)
@@ -591,6 +616,12 @@ class ChromeSDKCommand(command.CliCommand):
     self.silent = True
 
   @staticmethod
+  def _PS1Prefix(board, version, chroot=None):
+    """Returns a string describing the sdk environment for use in PS1."""
+    chroot_star = '*' if chroot else ''
+    return '(sdk %s %s%s)' % (board, chroot_star, version)
+
+  @staticmethod
   def _CreatePS1(board, version, chroot=None):
     """Returns PS1 string that sets commandline and xterm window caption.
 
@@ -602,7 +633,6 @@ class ChromeSDKCommand(command.CliCommand):
       version: The SDK version.
       chroot: The path to the chroot, if set.
     """
-    custom = '*' if chroot else ''
     current_ps1 = cros_build_lib.RunCommand(
         ['bash', '-l', '-c', 'echo "$PS1"'], print_cmd=False,
         capture_output=True).output.splitlines()
@@ -611,7 +641,8 @@ class ChromeSDKCommand(command.CliCommand):
     if not current_ps1:
       # Something went wrong, so use a fallback value.
       current_ps1 = r'\u@\h \w $ '
-    return '(sdk %s %s%s) %s' % (board, custom, version, current_ps1)
+    ps1_prefix = ChromeSDKCommand._PS1Prefix(board, version, chroot)
+    return '%s %s' % (ps1_prefix, current_ps1)
 
   def _FixGoldPath(self, var_contents, toolchain_path):
     """Point to the gold linker in the toolchain tarball.
@@ -884,7 +915,10 @@ class ChromeSDKCommand(command.CliCommand):
     # We removed webcore debug symbols on release builds on arm.
     # See crbug.com/792999. However, we want to keep the symbols
     # for simplechrome builds.
+    # TODO: remove the 'remove_webcore_debug_symbols' once we
+    # change the ebuild file.
     gn_args['remove_webcore_debug_symbols'] = False
+    gn_args['blink_symbol_level'] = -1
 
     if options.gn_extra_args:
       gn_args.update(gn_helpers.FromGNArgs(options.gn_extra_args))
@@ -898,6 +932,10 @@ class ChromeSDKCommand(command.CliCommand):
       full_version = self.sdk.GetFullVersion(sdk_ctx.version)
     env['PS1'] = self._CreatePS1(self.board, full_version,
                                  chroot=options.chroot)
+
+    # Set the useful part of PS1 for users with a custom PROMPT_COMMAND.
+    env['CROS_PS1_PREFIX'] = self._PS1Prefix(self.board, full_version,
+                                             chroot=options.chroot)
 
     out_dir = 'out_%s' % self.board
     env['builddir_name'] = out_dir

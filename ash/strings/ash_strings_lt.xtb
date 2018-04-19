@@ -23,8 +23,10 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" /> (HDMI / DP)</translation>
 <translation id="1510238584712386396">Paleidimo priemonė</translation>
 <translation id="1525508553941733066">ATSISAKYTI</translation>
+<translation id="1537254971476575106">Viso ekrano didintuvas</translation>
 <translation id="15373452373711364">Didelis pelės žymeklis</translation>
 <translation id="1550523713251050646">Spustelėkite, jei reikia daugiau parinkčių</translation>
+<translation id="1608626060424371292">Pašalinti šį naudotoją</translation>
 <translation id="1621499497873603021">Laikas, likęs iki akumuliatoriaus išsikrovimo: <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">Deja, jūsų slaptažodžio patvirtinti vis tiek nepavyko. Pastaba: jei neseniai pakeitėte slaptažodį, naujas slaptažodis bus taikomas, kai atsijungsite. Čia naudokite senąjį slaptažodį.</translation>
 <translation id="1677472565718498478">Liko <ph name="TIME" /></translation>
@@ -43,12 +45,15 @@
 <translation id="1951012854035635156">Padėjėjas</translation>
 <translation id="1957803754585243749">0°</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
+<translation id="1995660704900986789">Išjungti maitinimą</translation>
 <translation id="2012624427112548395">„Ctrl“ + paieškos klavišas + H</translation>
 <translation id="2049639323467105390">Įrenginys valdomas „<ph name="DOMAIN" />“.</translation>
 <translation id="2050339315714019657">Stačias</translation>
 <translation id="2067602449040652523">Klaviatūros šviesumas</translation>
+<translation id="2081529251031312395">$1 vis tiek galės vėliau prisijungti.</translation>
 <translation id="2122028596993374965">Sustabdyti „<ph name="TAB_NAME" />“ perdavimą į: <ph name="RECEIVER_NAME" /></translation>
 <translation id="2127372758936585790">Mažos galios įkroviklis</translation>
+<translation id="2135456203358955318">Prie doko prijungtas didintuvas</translation>
 <translation id="2144487987174258011">Paleiskite iš naujo, kad atnaujintumėte „Adobe Flash Player“</translation>
 <translation id="2208323208084708176">Vieno darbalaukio režimas</translation>
 <translation id="2220572644011485463">PIN kodas arba slaptažodis</translation>
@@ -73,7 +78,6 @@
 <translation id="2653659639078652383">Pateikti</translation>
 <translation id="2675319268637823299">Administratorius neleido <ph name="USER_EMAIL" /> prisijungti prie kelių paskyrų.
     Kad būtų galima tęsti, visi naudotojai turi atsijungti.</translation>
-<translation id="2700058918926273959">Sesija baigsis po <ph name="SESSION_TIME_REMAINING" />. Būsite atjungti.</translation>
 <translation id="2727977024730340865">Prijungtas mažos galios įkroviklis. Akumuliatoriaus įkrovimas gali būti nepatikimas.</translation>
 <translation id="2761704814324807722">Būsenos dėklas, laikas <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581">Iš naujo prisijungiama prie „<ph name="NAME" />“</translation>
@@ -83,6 +87,7 @@
 <translation id="2844169650293029770">USB-C įrenginys (prievadas kairėje, priekinėje dalyje)</translation>
 <translation id="2865888419503095837">Tinklo informacija</translation>
 <translation id="2872961005593481000">Stabdyti</translation>
+<translation id="2878884018241093801">Nėra jokių naujausių elementų</translation>
 <translation id="2903844815300039659">Prisijungėte prie „<ph name="NAME" />“, <ph name="STRENGTH" /></translation>
 <translation id="2911940648265863620">Bendrinate savo ekraną</translation>
 <translation id="2942516765047364088">Lentynos pozicija</translation>
@@ -109,7 +114,6 @@
 <translation id="3413817803639110246">Dar nėra nieko, ką būtų galima peržiūrėti</translation>
 <translation id="3445925074670675829">USB-C įrenginys</translation>
 <translation id="3465566417615315331">Spustelėkite savo nuotrauką</translation>
-<translation id="3473479545200714844">Ekrano didintuvas</translation>
 <translation id="3477079411857374384">„Control“ + „Shift“ + „Space“</translation>
 <translation id="3510164367642747937">Paryškinti pelės žymeklį</translation>
 <translation id="3513798432020909783">Paskyrą tvarko: <ph name="MANAGER_EMAIL" /></translation>
@@ -131,6 +135,7 @@
 <translation id="3891340733213178823">Jei norite atsijungti, du kartus paspauskite „Ctrl“ + „Shift“ + Q.</translation>
 <translation id="3893630138897523026">„ChromeVox“ (ekrano skaitymas balsu)</translation>
 <translation id="3899995891769452915">Įvestis balsu</translation>
+<translation id="3900355044994618856">Sesija baigsis po <ph name="SESSION_TIME_REMAINING" /></translation>
 <translation id="3901991538546252627">Jungiamasi prie „<ph name="NAME" />“</translation>
 <translation id="394485226368336402">Garso nustatymai</translation>
 <translation id="397105322502079400">Skaičiuojama...</translation>
@@ -139,6 +144,8 @@
 <translation id="4072264167173457037">Vidutinio stiprumo signalas</translation>
 <translation id="4279490309300973883">Dubliuojama</translation>
 <translation id="4321179778687042513">ctrl</translation>
+<translation id="4331809312908958774">Chrome OS
+</translation>
 <translation id="4338109981321384717">Didinamasis stiklas</translation>
 <translation id="4351433414020964307">Padėjėjas įkeliamas...</translation>
 <translation id="4378551569595875038">Jungiamasi...</translation>
@@ -183,6 +190,7 @@
 <translation id="5744083938413354016">Vilkimas palietus</translation>
 <translation id="5777841717266010279">Nutraukti ekrano bendrinimą?</translation>
 <translation id="57838592816432529">Nutildyti</translation>
+<translation id="5820394555380036790">„Chromium“ OS</translation>
 <translation id="5832805196449965646">Pridėti asmenį</translation>
 <translation id="5860033963881614850">Išjungta</translation>
 <translation id="5895138241574237353">Paleisti iš naujo</translation>
@@ -206,6 +214,7 @@
 <translation id="607652042414456612">Jūsų kompiuterį galima aptikti netoliese esančiais „Bluetooth“ įrenginiais ir jis rodomas kaip „<ph name="NAME" />“ su adresu <ph name="ADDRESS" /></translation>
 <translation id="6106745654298855237">Įkraunama naudojant <ph name="POWER_SOURCE" /></translation>
 <translation id="615957422585914272">Rodyti ekrano klaviatūrą</translation>
+<translation id="6164005077879661055">Visi failai ir su prižiūrimu naudotoju susiję duomenys bus ištrinti visam laikui, kai bus pašalintas šis prižiūrimas naudotojas. Valdytojas vis tiek gali peržiūrėti šio prižiūrimo naudotojo aplankytas svetaines ir nustatymus adresu <ph name="MANAGEMENT_URL" />.</translation>
 <translation id="6165508094623778733">Sužinokite daugiau</translation>
 <translation id="6267036997247669271">„<ph name="NAME" />“: aktyvinama...</translation>
 <translation id="6284232397434400372">Skyra pakeista</translation>
@@ -240,6 +249,7 @@
 <translation id="6857811139397017780">Suaktyvinti „<ph name="NETWORKSERVICE" />“</translation>
 <translation id="6911468394164995108">Prisijungti prie kito...</translation>
 <translation id="6981982820502123353">Pritaikymas neįgaliesiems</translation>
+<translation id="698231206551913481">Visi failai ir su šiuo naudotoju susiję duomenys bus ištrinti visam laikui, kai šis naudotojas bus pašalintas.</translation>
 <translation id="7029814467594812963">Išeiti iš sesijos</translation>
 <translation id="7034339000180558234">Perduodama „<ph name="TAB_NAME" />“ į „<ph name="RECEIVER_NAME" />“</translation>
 <translation id="7052914147756339792">Nustatyti darbalaukio foną...</translation>
@@ -247,6 +257,7 @@
 <translation id="7066646422045619941">Šį tinklą išjungė jūsų administratorius.</translation>
 <translation id="7067196344162293536">Automatinis kaitaliojimas</translation>
 <translation id="7098389117866926363">USB-C įrenginys (prievadas kairėje, užpakalinėje dalyje)</translation>
+<translation id="7131634465328662194">Būsite automatiškai atjungti.</translation>
 <translation id="7165278925115064263">„Alt“ + „Shift“ + K</translation>
 <translation id="7168224885072002358">Po <ph name="TIMEOUT_SECONDS" /> bus grąžinta sena skyra</translation>
 <translation id="7256634071279256947">Užpakalinis mikrofonas</translation>
@@ -303,6 +314,7 @@
 <translation id="8484916590211895857">„<ph name="NAME" />“: prisijungiama iš naujo...</translation>
 <translation id="8517041960877371778">„<ph name="DEVICE_TYPE" />“ gali nebūti kraunamas, kai yra įjungtas.</translation>
 <translation id="8639760480004882931">Liko <ph name="PERCENTAGE" /></translation>
+<translation id="8649101189709089199">Teksto ištarimas</translation>
 <translation id="8652175077544655965">Uždaryti nustatymus</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">Prijungtas mažos galios įkroviklis</translation>
@@ -312,6 +324,7 @@
 Vėlesni pranešimai, langai ir dialogų langai gali būti padalyti keliuose darbalaukiuose.</translation>
 <translation id="8825534185036233643">Negalima bendrinti daugiau nei dviejų ekranų vaizdų.</translation>
 <translation id="8828714802988429505">90°</translation>
+<translation id="8841375032071747811">Mygtukas „Atgal“</translation>
 <translation id="8850991929411075241">Paieškos klavišas + „Esc“</translation>
 <translation id="8870509716567206129">Programoje nepalaikomas skaidytas ekranas.</translation>
 <translation id="8878886163241303700">Išplečiamas ekranas</translation>

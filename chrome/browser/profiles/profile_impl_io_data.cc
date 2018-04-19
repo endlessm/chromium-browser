@@ -46,7 +46,7 @@
 #include "components/domain_reliability/monitor.h"
 #include "components/net_log/chrome_net_log.h"
 #include "components/network_session_configurator/browser/network_session_configurator.h"
-#include "components/offline_pages/features/features.h"
+#include "components/offline_pages/buildflags/buildflags.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_filter.h"
 #include "components/prefs/pref_member.h"
@@ -68,19 +68,24 @@
 #include "net/http/http_network_session.h"
 #include "net/http/http_server_properties.h"
 #include "net/http/http_server_properties_manager.h"
-#include "net/reporting/reporting_feature.h"
-#include "net/reporting/reporting_policy.h"
-#include "net/reporting/reporting_service.h"
+#include "net/net_features.h"
 #include "net/ssl/channel_id_service.h"
 #include "net/url_request/url_request_context_builder.h"
 #include "net/url_request/url_request_intercepting_job_factory.h"
 #include "net/url_request/url_request_job_factory_impl.h"
-#include "services/network/public/interfaces/network_service.mojom.h"
+#include "services/network/public/mojom/network_service.mojom.h"
 #include "storage/browser/quota/special_storage_policy.h"
 
 #if BUILDFLAG(ENABLE_OFFLINE_PAGES)
 #include "chrome/browser/offline_pages/offline_page_request_interceptor.h"
 #endif
+
+#if BUILDFLAG(ENABLE_REPORTING)
+#include "net/network_error_logging/network_error_logging_delegate.h"
+#include "net/network_error_logging/network_error_logging_service.h"
+#include "net/reporting/reporting_policy.h"
+#include "net/reporting/reporting_service.h"
+#endif  // BUILDFLAG(ENABLE_REPORTING)
 
 namespace {
 
@@ -156,6 +161,8 @@ void ProfileImplIOData::Handle::Init(
   lazy_params->special_storage_policy = special_storage_policy;
   lazy_params->domain_reliability_monitor =
       std::move(domain_reliability_monitor);
+  lazy_params->reporting_permissions_checker =
+      std::make_unique<ReportingPermissionsChecker>(profile_);
 
   io_data_->lazy_params_.reset(lazy_params);
 
@@ -173,7 +180,7 @@ void ProfileImplIOData::Handle::Init(
   if (io_data_->lazy_params_->domain_reliability_monitor)
     io_data_->lazy_params_->domain_reliability_monitor->MoveToNetworkThread();
 
-  io_data_->set_previews_io_data(base::MakeUnique<previews::PreviewsIOData>(
+  io_data_->set_previews_io_data(std::make_unique<previews::PreviewsIOData>(
       BrowserThread::GetTaskRunnerForThread(BrowserThread::UI),
       BrowserThread::GetTaskRunnerForThread(BrowserThread::IO)));
   PreviewsServiceFactory::GetForProfile(profile_)->Initialize(
@@ -340,6 +347,16 @@ void ProfileImplIOData::Handle::LazyInitialize() const {
       pref_service);
   io_data_->safe_browsing_enabled()->MoveToThread(
       BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
+  io_data_->safe_browsing_whitelist_domains()->Init(
+      prefs::kSafeBrowsingWhitelistDomains, pref_service);
+  io_data_->safe_browsing_whitelist_domains()->MoveToThread(
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
+#if BUILDFLAG(ENABLE_PLUGINS)
+  io_data_->always_open_pdf_externally()->Init(
+      prefs::kPluginsAlwaysOpenPdfExternally, pref_service);
+  io_data_->always_open_pdf_externally()->MoveToThread(
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
+#endif
   io_data_->InitializeOnUIThread(profile_);
 }
 
@@ -398,6 +415,11 @@ ProfileImplIOData::ConfigureNetworkDelegate(
         std::move(lazy_params_->domain_reliability_monitor));
   }
 
+  if (lazy_params_->reporting_permissions_checker) {
+    chrome_network_delegate->set_reporting_permissions_checker(
+        std::move(lazy_params_->reporting_permissions_checker));
+  }
+
   return data_reduction_proxy_io_data()->CreateNetworkDelegate(
       io_thread->globals()->data_use_ascriber->CreateNetworkDelegate(
           std::move(chrome_network_delegate),
@@ -437,7 +459,7 @@ void ProfileImplIOData::InitializeInternal(
             cookie_background_task_runner,
             lazy_params_->special_storage_policy.get());
     std::unique_ptr<net::ChannelIDService> channel_id_service(
-        base::MakeUnique<net::ChannelIDService>(
+        std::make_unique<net::ChannelIDService>(
             new net::DefaultChannelIDStore(channel_id_db.get())));
 
     // Set up cookie store.
@@ -464,7 +486,7 @@ void ProfileImplIOData::InitializeInternal(
   // Install the Offline Page Interceptor.
 #if BUILDFLAG(ENABLE_OFFLINE_PAGES)
   request_interceptors.push_back(
-      base::MakeUnique<offline_pages::OfflinePageRequestInterceptor>(
+      std::make_unique<offline_pages::OfflinePageRequestInterceptor>(
           previews_io_data()));
 #endif
 
@@ -479,8 +501,6 @@ void ProfileImplIOData::InitializeInternal(
   SetUpJobFactoryDefaultsForBuilder(
       builder, std::move(request_interceptors),
       std::move(profile_params->protocol_handler_interceptor));
-
-  builder->set_reporting_policy(MaybeCreateReportingPolicy());
 }
 
 void ProfileImplIOData::OnMainRequestContextCreated(
@@ -578,7 +598,7 @@ net::URLRequestContext* ProfileImplIOData::InitializeAppRequestContext(
 
   // Build a new HttpNetworkSession that uses the new ChannelIDService.
   // TODO(mmenke):  It's weird to combine state from
-  // main_request_context_storage() objects and the argumet to this method,
+  // main_request_context_storage() objects and the argument to this method,
   // |main_context|.  Remove |main_context| as an argument, and just use
   // main_context() instead.
   net::HttpNetworkSession* network_session =
@@ -615,7 +635,20 @@ net::URLRequestContext* ProfileImplIOData::InitializeAppRequestContext(
           context->host_resolver()));
   context->SetJobFactory(std::move(top_job_factory));
 
-  context->SetReportingService(MaybeCreateReportingService(context));
+#if BUILDFLAG(ENABLE_REPORTING)
+  if (context->reporting_service()) {
+    context->SetReportingService(net::ReportingService::Create(
+        context->reporting_service()->GetPolicy(), context));
+  }
+
+  if (context->network_error_logging_service()) {
+    context->SetNetworkErrorLoggingService(
+        net::NetworkErrorLoggingService::Create(
+            net::NetworkErrorLoggingDelegate::Create()));
+    context->network_error_logging_service()->SetReportingService(
+        context->reporting_service());
+  }
+#endif  // BUILDFLAG(ENABLE_REPORTING)
 
   return context;
 }
@@ -703,23 +736,4 @@ ProfileImplIOData::AcquireIsolatedMediaRequestContext(
 
 chrome_browser_net::Predictor* ProfileImplIOData::GetPredictor() {
   return predictor_.get();
-}
-
-std::unique_ptr<net::ReportingService>
-ProfileImplIOData::MaybeCreateReportingService(
-    net::URLRequestContext* url_request_context) const {
-  std::unique_ptr<net::ReportingPolicy> reporting_policy(
-      MaybeCreateReportingPolicy());
-  if (!reporting_policy)
-    return std::unique_ptr<net::ReportingService>();
-
-  return net::ReportingService::Create(*reporting_policy, url_request_context);
-}
-
-std::unique_ptr<net::ReportingPolicy>
-ProfileImplIOData::MaybeCreateReportingPolicy() {
-  if (!base::FeatureList::IsEnabled(features::kReporting))
-    return std::unique_ptr<net::ReportingPolicy>();
-
-  return base::MakeUnique<net::ReportingPolicy>();
 }

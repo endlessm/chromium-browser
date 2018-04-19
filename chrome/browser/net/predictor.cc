@@ -48,8 +48,8 @@
 #include "net/base/net_errors.h"
 #include "net/http/transport_security_state.h"
 #include "net/log/net_log_with_source.h"
-#include "net/proxy/proxy_info.h"
-#include "net/proxy/proxy_service.h"
+#include "net/proxy_resolution/proxy_info.h"
+#include "net/proxy_resolution/proxy_service.h"
 #include "net/ssl/ssl_config_service.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
@@ -153,7 +153,7 @@ Predictor::Predictor(bool predictor_enabled)
           TimeDelta::FromMilliseconds(g_max_queueing_delay_ms)),
       transport_security_state_(nullptr),
       ssl_config_service_(nullptr),
-      proxy_service_(nullptr),
+      proxy_resolution_service_(nullptr),
       consecutive_omnibox_preconnect_count_(0),
       referrers_(kMaxReferrers),
       observer_(nullptr),
@@ -206,9 +206,8 @@ void Predictor::InitNetworkPredictor(PrefService* user_prefs,
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       base::BindOnce(&Predictor::FinalizeInitializationOnIOThread,
-                     base::Unretained(this), urls,
-                     base::Passed(std::move(referral_list)), io_thread,
-                     profile_io_data));
+                     base::Unretained(this), urls, std::move(referral_list),
+                     io_thread, profile_io_data));
 }
 
 void Predictor::AnticipateOmniboxUrl(const GURL& url, bool preconnectable) {
@@ -645,13 +644,13 @@ void Predictor::FinalizeInitializationOnIOThread(
 
   profile_io_data_ = profile_io_data;
   if (kInitialDnsPrefetchListEnabled)
-    initial_observer_ = base::MakeUnique<InitialObserver>();
+    initial_observer_ = std::make_unique<InitialObserver>();
 
   net::URLRequestContext* context =
       url_request_context_getter_->GetURLRequestContext();
   transport_security_state_ = context->transport_security_state();
   ssl_config_service_ = context->ssl_config_service();
-  proxy_service_ = context->proxy_service();
+  proxy_resolution_service_ = context->proxy_resolution_service();
 
   // base::WeakPtrFactory instances need to be created and destroyed
   // on the same thread. Initialize the IO thread weak factory now.
@@ -730,8 +729,8 @@ void Predictor::SaveStateForNextStartup() {
   if (!CanPreresolveAndPreconnect())
     return;
 
-  auto startup_list = base::MakeUnique<base::ListValue>();
-  auto referral_list = base::MakeUnique<base::ListValue>();
+  auto startup_list = std::make_unique<base::ListValue>();
+  auto referral_list = std::make_unique<base::ListValue>();
 
   // Get raw pointers to pass to the first task. Ownership of the unique_ptrs
   // will be passed to the reply task.
@@ -745,9 +744,8 @@ void Predictor::SaveStateForNextStartup() {
       base::BindOnce(&Predictor::WriteDnsPrefetchState, base::Unretained(this),
                      startup_list_raw, referral_list_raw),
       base::BindOnce(&Predictor::UpdatePrefsOnUIThread,
-                     ui_weak_factory_->GetWeakPtr(),
-                     base::Passed(std::move(startup_list)),
-                     base::Passed(std::move(referral_list))));
+                     ui_weak_factory_->GetWeakPtr(), std::move(startup_list),
+                     std::move(referral_list)));
 }
 
 void Predictor::UpdatePrefsOnUIThread(
@@ -978,11 +976,11 @@ void Predictor::LookupFinished(const GURL& url, bool found) {
 }
 
 bool Predictor::WouldLikelyProxyURL(const GURL& url) {
-  if (!proxy_service_)
+  if (!proxy_resolution_service_)
     return false;
 
   net::ProxyInfo info;
-  bool synchronous_success = proxy_service_->TryResolveProxySynchronously(
+  bool synchronous_success = proxy_resolution_service_->TryResolveProxySynchronously(
       url, std::string(), &info, nullptr, net::NetLogWithSource());
 
   return synchronous_success && !info.is_direct();

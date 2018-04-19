@@ -9,11 +9,12 @@
 
 #include <string>
 
+#include "base/callback_forward.h"
+#include "base/memory/weak_ptr.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "extensions/common/constants.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
-#include "ui/gfx/native_widget_types.h"
 
 class Profile;
 
@@ -47,24 +48,24 @@ class AppListControllerDelegate {
     PIN_FIXED
   };
 
+  AppListControllerDelegate();
   virtual ~AppListControllerDelegate();
 
   // Dismisses the view.
   virtual void DismissView() = 0;
 
-  // Handles the view being closed.
-  virtual void ViewClosing();
-
-  // Gets app list window.
-  virtual gfx::NativeWindow GetAppListWindow() = 0;
-
   // Gets display ID of app list window.
-  int64_t GetAppListDisplayId();
+  virtual int64_t GetAppListDisplayId() = 0;
+
+  // Sets display ID of app list window whenever it changes.
+  virtual void SetAppListDisplayId(int64_t display_id) = 0;
 
   // Gets the content bounds of the app info dialog of the app list in the
   // screen coordinates. On platforms that do not use views, this returns a 0x0
   // rectangle.
-  virtual gfx::Rect GetAppInfoDialogBounds();
+  using GetAppInfoDialogBoundsCallback =
+      base::OnceCallback<void(const gfx::Rect&)>;
+  virtual void GetAppInfoDialogBounds(GetAppInfoDialogBoundsCallback callback);
 
   // Control of pinning apps.
   virtual bool IsAppPinned(const std::string& app_id) = 0;
@@ -155,6 +156,9 @@ class AppListControllerDelegate {
 
   // Called when a search is started using the app list search box.
   void OnSearchStarted();
+
+ private:
+  base::WeakPtrFactory<AppListControllerDelegate> weak_ptr_factory_;
 };
 
 #endif  // CHROME_BROWSER_UI_APP_LIST_APP_LIST_CONTROLLER_DELEGATE_H_

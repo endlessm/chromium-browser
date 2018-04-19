@@ -12,6 +12,7 @@ goog.provide('Background');
 goog.require('AutomationPredicate');
 goog.require('AutomationUtil');
 goog.require('BackgroundKeyboardHandler');
+goog.require('BrailleCommandData');
 goog.require('BrailleCommandHandler');
 goog.require('ChromeVoxState');
 goog.require('CommandHandler');
@@ -151,7 +152,7 @@ Background = function() {
 };
 
 /**
- * Map from gesture names (AXGesture defined in ui/accessibility/ax_enums.idl)
+ * Map from gesture names (ax::mojom::Gesture defined in ui/accessibility/ax_enums.idl)
  *     to commands.
  * @type {Object<string, string>}
  * @const
@@ -222,11 +223,7 @@ Background.prototype = {
   },
 
   /**
-   * Navigate to the given range - it both sets the range and outputs it.
-   * @param {!cursors.Range} range The new range.
-   * @param {boolean=} opt_focus Focus the range; defaults to true.
-   * @param {Object=} opt_speechProps Speech properties.
-   * @private
+   * @override
    */
   navigateToRange: function(range, opt_focus, opt_speechProps) {
     opt_focus = opt_focus === undefined ? true : opt_focus;
@@ -312,12 +309,11 @@ Background.prototype = {
   },
 
   /**
-   * Handles a braille command.
-   * @param {!cvox.BrailleKeyEvent} evt
-   * @param {!cvox.NavBraille} content
-   * @return {boolean} True if evt was processed.
+   * @override
    */
   onBrailleKeyEvent: function(evt, content) {
+    // Note: panning within content occurs earlier in event dispatch.
+    Output.forceModeForNextSpeechUtterance(cvox.QueueMode.FLUSH);
     switch (evt.command) {
       case cvox.BrailleKeyCommand.PAN_LEFT:
         CommandHandler.onCommand('previousObject');
@@ -347,7 +343,7 @@ Background.prototype = {
         if (!evt.brailleDots)
           return false;
 
-        var command = BrailleCommandHandler.getCommand(evt.brailleDots);
+        var command = BrailleCommandData.getCommand(evt.brailleDots);
         if (command) {
           if (BrailleCommandHandler.onEditCommand(command))
             CommandHandler.onCommand(command);
@@ -449,7 +445,7 @@ Background.prototype = {
   },
 
   /**
-   * Save the current ChromeVox range.
+   * @override
    */
   markCurrentRange: function() {
     if (!this.currentRange)
@@ -462,11 +458,12 @@ Background.prototype = {
 
   /**
    * Handles accessibility gestures from the touch screen.
-   * @param {string} gesture The gesture to handle, based on the AXGesture enum
+   * @param {string} gesture The gesture to handle, based on the ax::mojom::Gesture enum
    *     defined in ui/accessibility/ax_enums.idl
    * @private
    */
   onAccessibilityGesture_: function(gesture) {
+    Output.forceModeForNextSpeechUtterance(cvox.QueueMode.FLUSH);
     var command = Background.GESTURE_COMMAND_MAP[gesture];
     if (command)
       CommandHandler.onCommand(command);

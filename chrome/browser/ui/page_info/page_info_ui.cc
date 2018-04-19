@@ -128,6 +128,7 @@ const PermissionsUIInfo kPermissionsUIInfo[] = {
     {CONTENT_SETTINGS_TYPE_ADS, IDS_PAGE_INFO_TYPE_ADS},
     {CONTENT_SETTINGS_TYPE_SOUND, IDS_PAGE_INFO_TYPE_SOUND},
     {CONTENT_SETTINGS_TYPE_CLIPBOARD_READ, IDS_PAGE_INFO_TYPE_CLIPBOARD},
+    {CONTENT_SETTINGS_TYPE_SENSORS, IDS_PAGE_INFO_TYPE_SENSORS},
 };
 
 std::unique_ptr<PageInfoUI::SecurityDescription> CreateSecurityDescription(
@@ -208,10 +209,12 @@ PageInfoUI::IdentityInfo::GetSecurityDescription() const {
       return CreateSecurityDescription(SecuritySummaryColor::GREEN,
                                        IDS_PAGE_INFO_INTERNAL_PAGE,
                                        IDS_PAGE_INFO_INTERNAL_PAGE);
-#endif
+#else
       // Internal pages on desktop have their own UI implementations which
       // should never call this function.
       NOTREACHED();
+      FALLTHROUGH;
+#endif
     case PageInfo::SITE_IDENTITY_STATUS_CERT:
     case PageInfo::SITE_IDENTITY_STATUS_EV_CERT:
     case PageInfo::SITE_IDENTITY_STATUS_CERT_REVOCATION_UNKNOWN:
@@ -296,7 +299,7 @@ base::string16 PageInfoUI::PermissionActionToUIString(
         button_text_ids = kPermissionButtonTextIDDefaultSetting;
         break;
       }
-    // Fallthrough.
+      FALLTHROUGH;
     case content_settings::SETTING_SOURCE_POLICY:
     case content_settings::SETTING_SOURCE_EXTENSION:
       button_text_ids = kPermissionButtonTextIDUserManaged;
@@ -355,7 +358,7 @@ base::string16 PageInfoUI::PermissionDecisionReasonToUIString(
 }
 
 // static
-SkColor PageInfoUI::GetPermissionDecisionTextColor() {
+SkColor PageInfoUI::GetSecondaryTextColor() {
   return SK_ColorGRAY;
 }
 
@@ -477,6 +480,9 @@ const gfx::ImageSkia PageInfoUI::GetPermissionIcon(const PermissionInfo& info,
       break;
     case CONTENT_SETTINGS_TYPE_CLIPBOARD_READ:
       icon = &kPageInfoContentPasteIcon;
+      break;
+    case CONTENT_SETTINGS_TYPE_SENSORS:
+      icon = &kSensorsIcon;
       break;
     default:
       // All other |ContentSettingsType|s do not have icons on desktop or are

@@ -2440,6 +2440,7 @@ class CannedChecksUnittest(PresubmitTestsBase):
     input_api.owners_db = fake_db
 
     fake_finder = self.mox.CreateMock(owners_finder.OwnersFinder)
+    fake_finder.unreviewed_files = uncovered_files
     fake_finder.print_indent = lambda: ''
     # pylint: disable=unnecessary-lambda
     fake_finder.print_comments = lambda owner: fake_finder.writeln(owner)
@@ -2476,12 +2477,10 @@ class CannedChecksUnittest(PresubmitTestsBase):
           input_api.gerrit._FetchChangeDetail = lambda _: gerrit_response
 
       people.add(change.author_email)
-      fake_db.files_not_covered_by(set(['foo/xyz.cc']),
-          people).AndReturn(uncovered_files)
+      change.OriginalOwnersFiles().AndReturn({})
       if not is_committing and uncovered_files:
         fake_db.reviewers_for(set(['foo']),
             change.author_email).AndReturn(change.author_email)
-        change.OriginalOwnersFiles().AndReturn({})
 
     self.mox.ReplayAll()
     output = presubmit.PresubmitOutput()
@@ -2701,16 +2700,16 @@ class CannedChecksUnittest(PresubmitTestsBase):
 
   def testCannedCheckOwners_NoIssueNoFiles(self):
     self.AssertOwnersWorks(issue=None,
-        expected_output="OWNERS check failed: this change has no Rietveld "
-                        "issue number, so we can't check it for approvals.\n")
+        expected_output="OWNERS check failed: this CL has no Gerrit "
+                        "change number, so we can't check it for approvals.\n")
     self.AssertOwnersWorks(issue=None, is_committing=False,
         expected_output="")
 
   def testCannedCheckOwners_NoIssue(self):
     self.AssertOwnersWorks(issue=None,
         uncovered_files=set(['foo']),
-        expected_output="OWNERS check failed: this change has no Rietveld "
-                        "issue number, so we can't check it for approvals.\n")
+        expected_output="OWNERS check failed: this CL has no Gerrit "
+                        "change number, so we can't check it for approvals.\n")
     self.AssertOwnersWorks(issue=None,
         is_committing=False,
         uncovered_files=set(['foo']),
@@ -2721,8 +2720,8 @@ class CannedChecksUnittest(PresubmitTestsBase):
     self.AssertOwnersWorks(issue=None,
         reviewers=set(['jane@example.com']),
         manually_specified_reviewers=['jane@example.com'],
-        expected_output="OWNERS check failed: this change has no Rietveld "
-                        "issue number, so we can't check it for approvals.\n")
+        expected_output="OWNERS check failed: this CL has no Gerrit "
+                        "change number, so we can't check it for approvals.\n")
     self.AssertOwnersWorks(issue=None,
         reviewers=set(['jane@example.com']),
         manually_specified_reviewers=['jane@example.com'],
@@ -2733,8 +2732,8 @@ class CannedChecksUnittest(PresubmitTestsBase):
     self.AssertOwnersWorks(issue=None,
         reviewers=set(['jane']),
         manually_specified_reviewers=['jane@example.com'],
-        expected_output="OWNERS check failed: this change has no Rietveld "
-                        "issue number, so we can't check it for approvals.\n")
+        expected_output="OWNERS check failed: this CL has no Gerrit "
+                        "change number, so we can't check it for approvals.\n")
     self.AssertOwnersWorks(issue=None,
         uncovered_files=set(['foo']),
         manually_specified_reviewers=['jane'],

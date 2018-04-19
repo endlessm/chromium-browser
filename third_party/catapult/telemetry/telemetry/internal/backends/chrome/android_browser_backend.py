@@ -2,16 +2,16 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import logging
+
 from telemetry.core import exceptions
 from telemetry.internal.platform import android_platform_backend as \
   android_platform_backend_module
-from telemetry.internal.backends import browser_backend
 from telemetry.internal.backends.chrome import chrome_browser_backend
 from telemetry.internal.browser import user_agent
 
 from devil.android import app_ui
 from devil.android import device_signal
-from devil.android import flag_changer
 from devil.android.sdk import intent
 
 
@@ -24,19 +24,15 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     super(AndroidBrowserBackend, self).__init__(
         android_platform_backend,
         browser_options=browser_options,
+        browser_directory=browser_directory,
+        profile_directory=profile_directory,
         supports_extensions=False,
         supports_tab_control=backend_settings.supports_tab_control)
-    self._browser_directory = browser_directory
-    self._profile_directory = profile_directory
     self._backend_settings = backend_settings
 
     # Initialize fields so that an explosion during init doesn't break in Close.
     self._saved_sslflag = ''
     self._app_ui = None
-
-    if len(self._extensions_to_load) > 0:
-      raise browser_backend.ExtensionsNotSupportedException(
-          'Android browser does not support extensions.')
 
     # Set the debug app if needed.
     self.platform_backend.SetDebugApp(self._backend_settings.package)
@@ -63,43 +59,35 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     # stopping also clears the app state in Android's activity manager.
     self.platform_backend.StopApplication(self._backend_settings.package)
 
-  def _SetupProfile(self):
-    if self.browser_options.dont_override_profile:
-      return
-    if self.browser_options.profile_dir:
-      self.platform_backend.PushProfile(
-          self._backend_settings.package,
-          self.browser_options.profile_dir)
-    else:
-      self.platform_backend.RemoveProfile(
-          self._backend_settings.package,
-          self._backend_settings.profile_ignore_list)
-
   def Start(self, startup_args, startup_url=None):
-    self.device.adb.Logcat(clear=True)
-    self.platform_backend.DismissCrashDialogIfNeeded()
+    assert not startup_args, (
+        'Startup arguments for Android should be set during '
+        'possible_browser.SetUpEnvironment')
     user_agent_dict = user_agent.GetChromeUserAgentDictFromType(
         self.browser_options.browser_user_agent_type)
-    command_line_name = self._backend_settings.command_line_name
-    with flag_changer.CustomCommandLineFlags(
-        self.device, command_line_name, startup_args):
-      # Stop existing browser, if any. This is done *after* setting the
-      # command line flags, in case some other Android process manages to
-      # trigger Chrome's startup before we do.
-      self._StopBrowser()
-      self._SetupProfile()
-      self.device.StartActivity(
-          intent.Intent(package=self._backend_settings.package,
-                        activity=self._backend_settings.activity,
-                        action=None, data=startup_url, category=None,
-                        extras=user_agent_dict),
-          blocking=True)
+    self.device.StartActivity(
+        intent.Intent(package=self._backend_settings.package,
+                      activity=self._backend_settings.activity,
+                      action=None, data=startup_url, category=None,
+                      extras=user_agent_dict),
+        blocking=True)
+    try:
+      self.BindDevToolsClient()
+    except:
+      self.Close()
+      raise
 
-      try:
-        self.BindDevToolsClient()
-      except:
-        self.Close()
-        raise
+  def BindDevToolsClient(self):
+    super(AndroidBrowserBackend, self).BindDevToolsClient()
+    package = self.devtools_client.GetVersion().get('Android-Package')
+    if package is None:
+      logging.warning('Could not determine package name from DevTools client.')
+    elif package == self._backend_settings.package:
+      logging.info('Successfully connected to %s DevTools client', package)
+    else:
+      raise exceptions.BrowserGoneException(
+          self.browser, 'Expected connection to %s but got %s.' % (
+              self._backend_settings.package, package))
 
   def _FindDevToolsPortAndTarget(self):
     devtools_port = self._backend_settings.GetDevtoolsRemotePort(self.device)
@@ -180,27 +168,6 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     if not pids:
       raise exceptions.BrowserGoneException(self.browser)
     return pids[0]
-
-  @property
-  def browser_directory(self):
-    return self._browser_directory
-
-  @property
-  def profile_directory(self):
-    return self._profile_directory
-
-  def GetDirectoryPathsToFlushOsPageCacheFor(self):
-    paths_to_flush = []
-    if self.profile_directory:
-      paths_to_flush.append(self.profile_directory)
-    # On N+ the Monochrome is the most widely used configuration. Since Webview
-    # is used often, the typical usage is closer to have the DEX and the native
-    # library be resident in memory. Skip the pagecache flushing for browser
-    # directory on N+.
-    if self.device.build_version_sdk < 24:
-      if self.browser_directory:
-        paths_to_flush.append(self.browser_directory)
-    return paths_to_flush
 
   @property
   def package(self):

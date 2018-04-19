@@ -250,12 +250,16 @@ void SkiaTextRenderer::DrawPosText(const SkPoint* pos,
       0, 0, flags_);
 }
 
-void SkiaTextRenderer::DrawUnderline(int x, int y, int width) {
+void SkiaTextRenderer::DrawUnderline(int x,
+                                     int y,
+                                     int width,
+                                     SkScalar thickness_factor) {
   SkScalar x_scalar = SkIntToScalar(x);
   const SkScalar text_size = flags_.getTextSize();
   SkRect r = SkRect::MakeLTRB(
       x_scalar, y + text_size * kUnderlineOffset, x_scalar + width,
-      y + (text_size * (kUnderlineOffset + kLineThicknessFactor)));
+      y + (text_size *
+           (kUnderlineOffset + (thickness_factor * kLineThicknessFactor))));
   canvas_skia_->drawRect(r, flags_);
 }
 
@@ -431,6 +435,7 @@ void RenderText::SetFontList(const FontList& font_list) {
   weights_.SetValue(font_list.GetFontWeight());
   styles_[ITALIC].SetValue((font_style & Font::ITALIC) != 0);
   styles_[UNDERLINE].SetValue((font_style & Font::UNDERLINE) != 0);
+  styles_[HEAVY_UNDERLINE].SetValue(false);
   baseline_ = kInvalidBaseline;
   cached_bounds_and_offset_valid_ = false;
   OnLayoutTextAttributeChanged(false);
@@ -913,11 +918,6 @@ SelectionModel RenderText::GetSelectionModelForSelectionStart() const {
                         sel.is_reversed() ? CURSOR_BACKWARD : CURSOR_FORWARD);
 }
 
-std::vector<Rect> RenderText::GetSubstringBoundsForTesting(
-    const gfx::Range& range) {
-  return GetSubstringBounds(range);
-}
-
 const Vector2d& RenderText::GetUpdatedDisplayOffset() {
   UpdateCachedBoundsAndOffset();
   return display_offset_;
@@ -973,9 +973,9 @@ Vector2d RenderText::GetLineOffset(size_t line_number) {
   return offset;
 }
 
-bool RenderText::GetDecoratedWordAtPoint(const Point& point,
-                                         DecoratedText* decorated_word,
-                                         Point* baseline_point) {
+bool RenderText::GetWordLookupDataAtPoint(const Point& point,
+                                          DecoratedText* decorated_word,
+                                          Point* baseline_point) {
   if (obscured())
     return false;
 
@@ -990,9 +990,16 @@ bool RenderText::GetDecoratedWordAtPoint(const Point& point,
   DCHECK(!word_range.is_reversed());
   DCHECK(!word_range.is_empty());
 
-  const std::vector<Rect> word_bounds = GetSubstringBounds(word_range);
-  if (word_bounds.empty() ||
-      !GetDecoratedTextForRange(word_range, decorated_word)) {
+  return GetLookupDataForRange(word_range, decorated_word, baseline_point);
+}
+
+bool RenderText::GetLookupDataForRange(const Range& range,
+                                       DecoratedText* decorated_text,
+                                       Point* baseline_point) {
+  EnsureLayout();
+
+  const std::vector<Rect> word_bounds = GetSubstringBounds(range);
+  if (word_bounds.empty() || !GetDecoratedTextForRange(range, decorated_text)) {
     return false;
   }
 
@@ -1177,11 +1184,11 @@ void RenderText::ApplyCompositionAndSelectionStyles() {
   // Save the underline and color breaks to undo the temporary styles later.
   DCHECK(!composition_and_selection_styles_applied_);
   saved_colors_ = colors_;
-  saved_underlines_ = styles_[UNDERLINE];
+  saved_underlines_ = styles_[HEAVY_UNDERLINE];
 
   // Apply an underline to the composition range in |underlines|.
   if (composition_range_.IsValid() && !composition_range_.is_empty())
-    styles_[UNDERLINE].ApplyValue(true, composition_range_);
+    styles_[HEAVY_UNDERLINE].ApplyValue(true, composition_range_);
 
   // Apply the selected text color to the [un-reversed] selection range.
   if (!selection().is_empty() && focused()) {
@@ -1195,7 +1202,7 @@ void RenderText::UndoCompositionAndSelectionStyles() {
   // Restore the underline and color breaks to undo the temporary styles.
   DCHECK(composition_and_selection_styles_applied_);
   colors_ = saved_colors_;
-  styles_[UNDERLINE] = saved_underlines_;
+  styles_[HEAVY_UNDERLINE] = saved_underlines_;
   composition_and_selection_styles_applied_ = false;
 }
 
@@ -1726,6 +1733,20 @@ Range RenderText::ExpandRangeToWordBoundary(const Range& range) const {
 
   return range.is_reversed() ? Range(range_max, range_min)
                              : Range(range_min, range_max);
+}
+
+internal::TextRunList* RenderText::GetRunList() {
+  NOTREACHED();
+  return nullptr;
+}
+
+const internal::TextRunList* RenderText::GetRunList() const {
+  NOTREACHED();
+  return nullptr;
+}
+
+void RenderText::SetGlyphWidthForTest(float test_width) {
+  NOTREACHED();
 }
 
 }  // namespace gfx

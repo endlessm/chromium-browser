@@ -23,8 +23,10 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" /> (HDMI/DP)</translation>
 <translation id="1510238584712386396">啟動器</translation>
 <translation id="1525508553941733066">關閉</translation>
+<translation id="1537254971476575106">全螢幕放大鏡</translation>
 <translation id="15373452373711364">大型滑鼠游標</translation>
 <translation id="1550523713251050646">按一下即可查看更多選項</translation>
+<translation id="1608626060424371292">移除這位使用者</translation>
 <translation id="1621499497873603021">電池剩餘使用時間：<ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">很抱歉，系統仍然無法驗證你的密碼。注意：如果你的密碼最近有所異動，新密碼會在你登出後立即生效，目前請在這裡使用舊密碼。</translation>
 <translation id="1677472565718498478"><ph name="TIME" /> 後用盡</translation>
@@ -43,12 +45,15 @@
 <translation id="1951012854035635156">小幫手</translation>
 <translation id="1957803754585243749">0°</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
+<translation id="1995660704900986789">關閉</translation>
 <translation id="2012624427112548395">Ctrl 鍵 + 搜尋鍵 + H 鍵</translation>
 <translation id="2049639323467105390">這個裝置由 <ph name="DOMAIN" /> 管理。</translation>
 <translation id="2050339315714019657">縱向</translation>
 <translation id="2067602449040652523">鍵盤亮度</translation>
+<translation id="2081529251031312395">「$1」日後仍可登入。</translation>
 <translation id="2122028596993374965">停止將 <ph name="TAB_NAME" /> 投放到「<ph name="RECEIVER_NAME" />」</translation>
 <translation id="2127372758936585790">低功率充電器</translation>
+<translation id="2135456203358955318">停駐放大鏡</translation>
 <translation id="2144487987174258011">重新啟動以便更新 Adobe Flash Player</translation>
 <translation id="2208323208084708176">整合桌面模式</translation>
 <translation id="2220572644011485463">PIN 或密碼</translation>
@@ -73,7 +78,6 @@
 <translation id="2653659639078652383">提交</translation>
 <translation id="2675319268637823299">管理員已禁止 <ph name="USER_EMAIL" /> 的多重登入功能。
     所有使用者都必須登出，才能繼續操作。</translation>
-<translation id="2700058918926273959">這個工作階段將在 <ph name="SESSION_TIME_REMAINING" />後結束，屆時系統會將你登出。</translation>
 <translation id="2727977024730340865">使用低功率充電器，可能導致充電狀態不穩定。</translation>
 <translation id="2761704814324807722">狀態匣：時間 <ph name="TIME" />，<ph name="BATTERY" /></translation>
 <translation id="277257480934873581">正在重新連線至 <ph name="NAME" /></translation>
@@ -83,6 +87,7 @@
 <translation id="2844169650293029770">USB-C 裝置 (左前方連接埠)</translation>
 <translation id="2865888419503095837">網路資訊</translation>
 <translation id="2872961005593481000">關閉</translation>
+<translation id="2878884018241093801">最近沒有任何項目</translation>
 <translation id="2903844815300039659">已連上 <ph name="NAME" />，<ph name="STRENGTH" /></translation>
 <translation id="2911940648265863620">你正在分享螢幕畫面</translation>
 <translation id="2942516765047364088">檔案櫃位置</translation>
@@ -109,7 +114,6 @@
 <translation id="3413817803639110246">目前還沒有任何通知</translation>
 <translation id="3445925074670675829">USB-C 裝置</translation>
 <translation id="3465566417615315331">點選您的相片</translation>
-<translation id="3473479545200714844">畫面放大鏡</translation>
 <translation id="3477079411857374384">Ctrl + Shift + 空格鍵</translation>
 <translation id="3510164367642747937">醒目顯示滑鼠游標</translation>
 <translation id="3513798432020909783">這個帳戶是由 <ph name="MANAGER_EMAIL" /> 管理</translation>
@@ -131,6 +135,7 @@
 <translation id="3891340733213178823">按兩下 Ctrl+Shift+Q 鍵即可登出。</translation>
 <translation id="3893630138897523026">ChromeVox (互動朗讀)</translation>
 <translation id="3899995891769452915">語音輸入</translation>
+<translation id="3900355044994618856">你的工作階段將於 <ph name="SESSION_TIME_REMAINING" />後結束</translation>
 <translation id="3901991538546252627">正在連線至：<ph name="NAME" /></translation>
 <translation id="394485226368336402">音訊設定</translation>
 <translation id="397105322502079400">計算中…</translation>
@@ -139,6 +144,7 @@
 <translation id="4072264167173457037">訊號中等</translation>
 <translation id="4279490309300973883">鏡像</translation>
 <translation id="4321179778687042513">Ctrl</translation>
+<translation id="4331809312908958774">Chrome OS</translation>
 <translation id="4338109981321384717">放大鏡</translation>
 <translation id="4351433414020964307">正在載入小幫手…</translation>
 <translation id="4378551569595875038">連線中…</translation>
@@ -183,6 +189,7 @@
 <translation id="5744083938413354016">輕觸拖曳</translation>
 <translation id="5777841717266010279">停止共用螢幕？</translation>
 <translation id="57838592816432529">靜音</translation>
+<translation id="5820394555380036790">Chromium 作業系統</translation>
 <translation id="5832805196449965646">新增使用者</translation>
 <translation id="5860033963881614850">關閉</translation>
 <translation id="5895138241574237353">重新啟動</translation>
@@ -206,6 +213,7 @@
 <translation id="607652042414456612">你的電腦已開放附近的藍牙裝置搜尋，顯示名稱為「<ph name="NAME" />」，位址則是 <ph name="ADDRESS" /></translation>
 <translation id="6106745654298855237">正在為「<ph name="POWER_SOURCE" />」充電</translation>
 <translation id="615957422585914272">顯示螢幕小鍵盤</translation>
+<translation id="6164005077879661055">將這位受監管的使用者移除後，系統即會永久刪除所有與該使用者相關的檔案和本機資料。管理員仍可前往 <ph name="MANAGEMENT_URL" /> 查看這位受監管使用者的網頁瀏覽紀錄和設定。</translation>
 <translation id="6165508094623778733">瞭解詳情</translation>
 <translation id="6267036997247669271"><ph name="NAME" />：正在啟用...</translation>
 <translation id="6284232397434400372">解析度已變更</translation>
@@ -240,6 +248,7 @@
 <translation id="6857811139397017780">啟用 <ph name="NETWORKSERVICE" /></translation>
 <translation id="6911468394164995108">加入其他網路...</translation>
 <translation id="6981982820502123353">協助工具</translation>
+<translation id="698231206551913481">將這位使用者移除後，與這位使用者相關聯的所有檔案和本機資料都會遭到永久刪除。</translation>
 <translation id="7029814467594812963">結束工作階段</translation>
 <translation id="7034339000180558234">正在將「<ph name="TAB_NAME" />」畫面投放到「<ph name="RECEIVER_NAME" />」</translation>
 <translation id="7052914147756339792">設定桌布...</translation>
@@ -247,6 +256,7 @@
 <translation id="7066646422045619941">您的管理員已停用這個網路。</translation>
 <translation id="7067196344162293536">自動旋轉</translation>
 <translation id="7098389117866926363">USB-C 裝置 (背面左側連接埠)</translation>
+<translation id="7131634465328662194">系統會自動將你登出。</translation>
 <translation id="7165278925115064263">Alt + Shift + K 鍵</translation>
 <translation id="7168224885072002358">系統將在 <ph name="TIMEOUT_SECONDS" /> 秒後還原成原來的解析度</translation>
 <translation id="7256634071279256947">後置麥克風</translation>
@@ -303,6 +313,7 @@
 <translation id="8484916590211895857"><ph name="NAME" />：正在重新連線...</translation>
 <translation id="8517041960877371778"><ph name="DEVICE_TYPE" /> 在開啟時可能無法充電。</translation>
 <translation id="8639760480004882931">剩餘電量：<ph name="PERCENTAGE" /></translation>
+<translation id="8649101189709089199">隨選朗讀</translation>
 <translation id="8652175077544655965">關閉設定</translation>
 <translation id="8673028979667498656">270 度</translation>
 <translation id="8676770494376880701">已連接低功率充電器</translation>
@@ -312,6 +323,7 @@
 後續的通知、視窗和對話方塊可能會分開顯示在不同桌面上。</translation>
 <translation id="8825534185036233643">鏡像處理作業最多支援兩部顯示器。</translation>
 <translation id="8828714802988429505">90 度</translation>
+<translation id="8841375032071747811">返回按鈕</translation>
 <translation id="8850991929411075241">搜尋鍵 + Esc 鍵</translation>
 <translation id="8870509716567206129">這個應用程式不支援分割畫面。</translation>
 <translation id="8878886163241303700">延伸螢幕</translation>

@@ -94,13 +94,8 @@ MixerOutputStreamFuchsia::GetRenderingDelay() {
       /*timestamp_microseconds=*/(now - base::TimeTicks()).InMicroseconds());
 }
 
-bool MixerOutputStreamFuchsia::GetTimeUntilUnderrun(base::TimeDelta* result) {
-  if (!started_time_.is_null()) {
-    *result = GetCurrentStreamTime() - base::TimeTicks::Now();
-  } else {
-    *result = base::TimeDelta();
-  }
-  return true;
+int MixerOutputStreamFuchsia::OptimalWriteFramesCount() {
+  return kDefaultPeriodSize;
 }
 
 bool MixerOutputStreamFuchsia::Write(const float* data,
@@ -117,8 +112,8 @@ bool MixerOutputStreamFuchsia::Write(const float* data,
       // Presentation time (PTS) needs to be specified only for the first frame
       // after stream is started or restarted. Mixer will calculate PTS for all
       // following frames. 1us is added to account for the time passed between
-      // zx_time_get() and fuchsia_audio_output_stream_write().
-      zx_time_t zx_now = zx_time_get(ZX_CLOCK_MONOTONIC);
+      // zx_clock_get() and fuchsia_audio_output_stream_write().
+      zx_time_t zx_now = zx_clock_get(ZX_CLOCK_MONOTONIC);
       presentation_time = zx_now + presentation_delay_ns_ + ZX_USEC(1);
       started_time_ = base::TimeTicks::FromZxTime(zx_now);
       stream_position_samples_ = 0;

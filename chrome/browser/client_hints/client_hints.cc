@@ -18,8 +18,8 @@
 #include "net/base/url_util.h"
 #include "net/http/http_request_headers.h"
 #include "net/url_request/url_request.h"
-#include "third_party/WebKit/common/client_hints/client_hints.h"
-#include "third_party/WebKit/common/device_memory/approximated_device_memory.h"
+#include "third_party/WebKit/public/common/client_hints/client_hints.h"
+#include "third_party/WebKit/public/common/device_memory/approximated_device_memory.h"
 #include "third_party/WebKit/public/platform/WebClientHintsType.h"
 #include "url/gurl.h"
 
@@ -71,21 +71,27 @@ GetAdditionalNavigationRequestClientHintsHeaders(
 
   blink::WebEnabledClientHints web_client_hints;
 
-  GetAllowedClientHintsFromSource(url, client_hints_host_settings,
-                                  &web_client_hints);
+  // Since this is a navigation request, |url| is also the URL of the document.
+  GetAllowedClientHintsFromSource(
+      url /* resource url */, url.GetOrigin() /* document origin */,
+      client_hints_host_settings, &web_client_hints);
 
   std::unique_ptr<net::HttpRequestHeaders> additional_headers(
-      base::MakeUnique<net::HttpRequestHeaders>());
+      std::make_unique<net::HttpRequestHeaders>());
 
   // Currently, only "device-memory" client hint request header is added from
   // the browser process.
   if (web_client_hints.IsEnabled(
           blink::mojom::WebClientHintsType::kDeviceMemory)) {
+    // Initialize device memory if it's not already.
+    blink::ApproximatedDeviceMemory::Initialize();
+    const float device_memory =
+        blink::ApproximatedDeviceMemory::GetApproximatedDeviceMemory();
+    DCHECK_LT(0.0, device_memory);
     additional_headers->SetHeader(
         blink::kClientHintsHeaderMapping[static_cast<int>(
             blink::mojom::WebClientHintsType::kDeviceMemory)],
-        base::NumberToString(
-            blink::ApproximatedDeviceMemory::GetApproximatedDeviceMemory()));
+        base::NumberToString(device_memory));
   }
 
   // Static assert that triggers if a new client hint header is added. If a new

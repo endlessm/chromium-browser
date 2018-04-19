@@ -76,8 +76,11 @@
 #include "google_apis/gaia/gaia_switches.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "media/audio/mock_audio_manager.h"
+#include "media/audio/sounds/audio_stream_handler.h"
+#include "media/audio/sounds/sounds_manager.h"
 #include "media/audio/test_audio_thread.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "services/audio/public/cpp/fake_system_info.h"
 #include "ui/aura/window.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/keyboard/keyboard_switches.h"
@@ -258,6 +261,25 @@ void SetPlatformVersion(const std::string& platform_version) {
       "CHROMEOS_RELEASE_VERSION=%s", platform_version.c_str());
   base::SysInfo::SetChromeOSVersionInfoForTest(lsb_release, base::Time::Now());
 }
+
+class KioskSessionInitializedWaiter : public KioskAppManagerObserver {
+ public:
+  KioskSessionInitializedWaiter() : scoped_observer_(this) {
+    scoped_observer_.Add(KioskAppManager::Get());
+  }
+  ~KioskSessionInitializedWaiter() override = default;
+
+  void Wait() { run_loop_.Run(); }
+
+  // KioskAppManagerObserver:
+  void OnKioskSessionInitialized() override { run_loop_.Quit(); }
+
+ private:
+  ScopedObserver<KioskAppManager, KioskAppManagerObserver> scoped_observer_;
+  base::RunLoop run_loop_;
+
+  DISALLOW_COPY_AND_ASSIGN(KioskSessionInitializedWaiter);
+};
 
 // Helper functions for CanConfigureNetwork mock.
 class ScopedCanConfigureNetwork {
@@ -629,10 +651,7 @@ class KioskTest : public OobeBaseTest {
         "launchData.isKioskSession = true", false);
 
     // Wait for the Kiosk App to launch.
-    content::WindowedNotificationObserver(
-        chrome::NOTIFICATION_KIOSK_APP_LAUNCHED,
-        content::NotificationService::AllSources())
-        .Wait();
+    KioskSessionInitializedWaiter().Wait();
 
     // Default profile switches to app profile after app is launched.
     Profile* app_profile = ProfileManager::GetPrimaryUserProfile();
@@ -900,7 +919,16 @@ IN_PROC_BROWSER_TEST_F(KioskTest, LaunchAppNetworkDown) {
   RunAppLaunchNetworkDownTest();
 }
 
-IN_PROC_BROWSER_TEST_F(KioskTest, LaunchAppWithNetworkConfigAccelerator) {
+// Times out in MSAN: https://crbug.com/811379
+#if defined(MEMORY_SANITIZER)
+#define MAYBE_LaunchAppWithNetworkConfigAccelerator \
+  DISABLED_LaunchAppWithNetworkConfigAccelerator
+#else
+#define MAYBE_LaunchAppWithNetworkConfigAccelerator \
+  LaunchAppWithNetworkConfigAccelerator
+#endif
+
+IN_PROC_BROWSER_TEST_F(KioskTest, MAYBE_LaunchAppWithNetworkConfigAccelerator) {
   ScopedCanConfigureNetwork can_configure_network(true, false);
 
   // Block app loading until the network screen is shown.
@@ -2202,11 +2230,7 @@ IN_PROC_BROWSER_TEST_F(KioskEnterpriseTest, EnterpriseKioskApp) {
   PrepareAppLaunch();
   LaunchApp(kTestEnterpriseKioskApp, false);
 
-  // Wait for the Kiosk App to launch.
-  content::WindowedNotificationObserver(
-      chrome::NOTIFICATION_KIOSK_APP_LAUNCHED,
-      content::NotificationService::AllSources())
-      .Wait();
+  KioskSessionInitializedWaiter().Wait();
 
   // Check installer status.
   EXPECT_EQ(chromeos::KioskAppLaunchError::NONE,
@@ -2284,15 +2308,70 @@ IN_PROC_BROWSER_TEST_F(KioskEnterpriseTest, PrivateStore) {
   EXPECT_EQ(extensions::Manifest::EXTERNAL_POLICY, GetInstalledAppLocation());
 }
 
+// A custom SoundsManagerTestImpl implements Initialize and Play only.
+// The difference with media::SoundsManagerImpl is AudioStreamHandler is
+// only initialized upon Play is called, so the most recent AudioManager
+// instance could be used, to make sure of using MockAudioManager to play
+// bundled sounds.
+// It's not a nested class under KioskVirtualKeyboardTest because forward
+// declaration of a nested class is not possible.
+// TODO(crbug.com/805319): remove this fake impl for test.
+class KioskVirtualKeyboardTestSoundsManagerTestImpl
+    : public media::SoundsManager {
+ public:
+  KioskVirtualKeyboardTestSoundsManagerTestImpl() {}
+
+  bool Initialize(SoundKey key, const base::StringPiece& data) override {
+    sound_data_[key] = data.as_string();
+    return true;
+  }
+
+  bool Play(SoundKey key) override {
+    auto iter = sound_data_.find(key);
+    if (iter == sound_data_.end()) {
+      LOG(WARNING) << "Playing non-existent key = " << key;
+      return false;
+    }
+    auto handler = std::make_unique<media::AudioStreamHandler>(iter->second);
+    if (!handler->IsInitialized()) {
+      LOG(WARNING) << "Can't initialize AudioStreamHandler for key = " << key;
+      return false;
+    }
+    return handler->Play();
+  }
+
+  bool Stop(SoundKey key) override {
+    NOTIMPLEMENTED();
+    return false;
+  }
+
+  base::TimeDelta GetDuration(SoundKey key) override {
+    NOTIMPLEMENTED();
+    return base::TimeDelta();
+  }
+
+ private:
+  std::map<SoundKey, std::string> sound_data_;
+
+  DISALLOW_COPY_AND_ASSIGN(KioskVirtualKeyboardTestSoundsManagerTestImpl);
+};
+
 // Specialized test fixture for testing kiosk mode where virtual keyboard is
 // enabled.
-class KioskVirtualKeyboardTest : public KioskTest {
+class KioskVirtualKeyboardTest : public KioskTest,
+                                 public audio::FakeSystemInfo {
  public:
   KioskVirtualKeyboardTest() {}
   ~KioskVirtualKeyboardTest() override = default;
 
  protected:
-  // KioskTest overrides:
+  // KioskVirtualKeyboardTest overrides:
+  void SetUp() override {
+    media::SoundsManager::InitializeForTesting(
+        new KioskVirtualKeyboardTestSoundsManagerTestImpl());
+    KioskTest::SetUp();
+  }
+
   void SetUpCommandLine(base::CommandLine* command_line) override {
     KioskTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(
@@ -2301,7 +2380,14 @@ class KioskVirtualKeyboardTest : public KioskTest {
     command_line->AppendSwitch(keyboard::switches::kEnableVirtualKeyboard);
   }
 
+  // audio::FakeSystemInfo override.
+  void HasInputDevices(HasInputDevicesCallback callback) override {
+    std::move(callback).Run(true);
+  }
+
   // Use class variable for sane lifetime.
+  // TODO(https://crbug.com/812170): Remove it when media::AudioSystem becomes
+  // service-based.
   std::unique_ptr<media::MockAudioManager> mock_audio_manager_;
 
  private:
@@ -2316,6 +2402,7 @@ IN_PROC_BROWSER_TEST_F(KioskVirtualKeyboardTest, RestrictFeatures) {
   mock_audio_manager_ = std::make_unique<media::MockAudioManager>(
       std::make_unique<media::TestAudioThread>());
   mock_audio_manager_->SetHasInputDevices(true);
+  audio::FakeSystemInfo::OverrideGlobalBinderForAudioService(this);
 
   set_test_app_id(kTestVirtualKeyboardKioskApp);
   set_test_app_version("0.1");
@@ -2323,7 +2410,7 @@ IN_PROC_BROWSER_TEST_F(KioskVirtualKeyboardTest, RestrictFeatures) {
 
   extensions::ResultCatcher catcher;
   StartAppLaunchFromLoginScreen(SimulateNetworkOnlineClosure());
-  ASSERT_TRUE(catcher.GetNextResult()) << catcher.message();
+  EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
 
   // Shutdown should be done in the same thread, thus not in the destructor.
   mock_audio_manager_->Shutdown();

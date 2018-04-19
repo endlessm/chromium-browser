@@ -125,6 +125,10 @@ CHROMEOS_EXPORT bool ParseAndValidateOncForImport(
     base::DictionaryValue* global_network_config,
     base::ListValue* certificates);
 
+// Parse the given PEM encoded certificate |pem_encoded| and return the
+// contained DER encoding. Returns an empty string on failure.
+std::string DecodePEM(const std::string& pem_encoded);
+
 // Parse the given PEM encoded certificate |pem_encoded| and create a
 // CERTCertificate from it.
 CHROMEOS_EXPORT net::ScopedCERTCertificate DecodePEMCertificate(
@@ -205,6 +209,17 @@ CHROMEOS_EXPORT const base::DictionaryValue* GetPolicyForNetwork(
 CHROMEOS_EXPORT bool HasPolicyForNetwork(const PrefService* profile_prefs,
                                          const PrefService* local_state_prefs,
                                          const NetworkState& network);
+
+// Checks whether a WiFi dictionary object has the ${PASSWORD} substitution
+// variable set as the password.
+CHROMEOS_EXPORT bool HasUserPasswordSubsitutionVariable(
+    const OncValueSignature& signature,
+    base::DictionaryValue* onc_object);
+
+// Checks whether a list of network objects has at least one network with the
+// ${PASSWORD} substitution variable set as the password.
+CHROMEOS_EXPORT bool HasUserPasswordSubsitutionVariable(
+    base::ListValue* network_configs);
 
 }  // namespace onc
 }  // namespace chromeos

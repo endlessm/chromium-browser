@@ -102,8 +102,7 @@ void FakeEmptyTopSites::GetMostVisitedURLs(
   mv_callback = callback;
 }
 
-class FakeAutocompleteProviderClient
-    : public testing::NiceMock<MockAutocompleteProviderClient> {
+class FakeAutocompleteProviderClient : public MockAutocompleteProviderClient {
  public:
   FakeAutocompleteProviderClient()
       : template_url_service_(new TemplateURLService(nullptr, 0)),
@@ -213,7 +212,7 @@ void ZeroSuggestProviderTest::ResetFieldTrialList() {
   // a DCHECK.
   field_trial_list_.reset();
   field_trial_list_.reset(new base::FieldTrialList(
-      std::make_unique<metrics::SHA1EntropyProvider>("foo")));
+      std::make_unique<variations::SHA1EntropyProvider>("foo")));
   variations::testing::ClearAllVariationParams();
 }
 

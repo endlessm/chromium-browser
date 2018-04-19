@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
@@ -45,6 +46,7 @@ const char kOAuthToken[] = "oauth-token";
 const char kDMToken[] = "device-management-token";
 const char kClientID[] = "device-id";
 const char kRobotAuthCode[] = "robot-oauth-auth-code";
+const char kEnrollmentToken[] = "enrollment_token";
 
 // Unit tests for the device management policy service. The tests are run
 // against a TestURLFetcherFactory that is used to short-circuit the request
@@ -106,6 +108,20 @@ class DeviceManagementServiceTestBase : public testing::Test {
         &DeviceManagementServiceTestBase::OnJobRetry, base::Unretained(this)));
     job->Start(base::Bind(&DeviceManagementServiceTestBase::OnJobDone,
                           base::Unretained(this)));
+    return job;
+  }
+
+  DeviceManagementRequestJob* StartTokenEnrollmentJob() {
+    DeviceManagementRequestJob* job =
+        service_->CreateJob(DeviceManagementRequestJob::TYPE_TOKEN_ENROLLMENT,
+                            request_context_.get());
+    job->SetEnrollmentToken(kEnrollmentToken);
+    job->SetClientID(kClientID);
+    job->GetRequest()->mutable_register_request();
+    job->SetRetryCallback(base::BindRepeating(
+        &DeviceManagementServiceTestBase::OnJobRetry, base::Unretained(this)));
+    job->Start(base::BindRepeating(&DeviceManagementServiceTestBase::OnJobDone,
+                                   base::Unretained(this)));
     return job;
   }
 
@@ -187,6 +203,20 @@ class DeviceManagementServiceTestBase : public testing::Test {
     return job;
   }
 
+  DeviceManagementRequestJob* StartAppInstallReportJob() {
+    DeviceManagementRequestJob* job = service_->CreateJob(
+        DeviceManagementRequestJob::TYPE_UPLOAD_APP_INSTALL_REPORT,
+        request_context_.get());
+    job->SetDMToken(kDMToken);
+    job->SetClientID(kClientID);
+    job->GetRequest()->mutable_app_install_report_request();
+    job->SetRetryCallback(base::BindRepeating(
+        &DeviceManagementServiceTestBase::OnJobRetry, base::Unretained(this)));
+    job->Start(base::AdaptCallbackForRepeating(base::BindOnce(
+        &DeviceManagementServiceTestBase::OnJobDone, base::Unretained(this))));
+    return job;
+  }
+
   void SendResponse(net::TestURLFetcher* fetcher,
                     net::Error error,
                     int http_status,
@@ -262,6 +292,18 @@ TEST_P(DeviceManagementServiceFailedRequestTest, CertBasedRegisterRequest) {
                GetParam().response_);
 }
 
+TEST_P(DeviceManagementServiceFailedRequestTest, TokenEnrollmentRequest) {
+  EXPECT_CALL(*this, OnJobDone(GetParam().expected_status_, _, _));
+  EXPECT_CALL(*this, OnJobRetry(_)).Times(0);
+  std::unique_ptr<DeviceManagementRequestJob> request_job(
+      StartTokenEnrollmentJob());
+  net::TestURLFetcher* fetcher = GetFetcher();
+  ASSERT_TRUE(fetcher);
+
+  SendResponse(fetcher, GetParam().error_, GetParam().http_status_,
+               GetParam().response_);
+}
+
 TEST_P(DeviceManagementServiceFailedRequestTest, ApiAuthCodeFetchRequest) {
   EXPECT_CALL(*this, OnJobDone(GetParam().expected_status_, _, _));
   EXPECT_CALL(*this, OnJobRetry(_)).Times(0);
@@ -303,6 +345,18 @@ TEST_P(DeviceManagementServiceFailedRequestTest, AutoEnrollmentRequest) {
   EXPECT_CALL(*this, OnJobRetry(_)).Times(0);
   std::unique_ptr<DeviceManagementRequestJob> request_job(
       StartAutoEnrollmentJob());
+  net::TestURLFetcher* fetcher = GetFetcher();
+  ASSERT_TRUE(fetcher);
+
+  SendResponse(fetcher, GetParam().error_, GetParam().http_status_,
+               GetParam().response_);
+}
+
+TEST_P(DeviceManagementServiceFailedRequestTest, AppInstallReportRequest) {
+  EXPECT_CALL(*this, OnJobDone(GetParam().expected_status_, _, _));
+  EXPECT_CALL(*this, OnJobRetry(_)).Times(0);
+  std::unique_ptr<DeviceManagementRequestJob> request_job(
+      StartAppInstallReportJob());
   net::TestURLFetcher* fetcher = GetFetcher();
   ASSERT_TRUE(fetcher);
 
@@ -516,6 +570,39 @@ TEST_F(DeviceManagementServiceTest, CertBasedRegisterRequest) {
   SendResponse(fetcher, net::OK, 200, response_data);
 }
 
+TEST_F(DeviceManagementServiceTest, TokenEnrollmentRequest) {
+  em::DeviceManagementResponse expected_response;
+  expected_response.mutable_register_response()->set_device_management_token(
+      kDMToken);
+  EXPECT_CALL(
+      *this, OnJobDone(DM_STATUS_SUCCESS, _, MessageEquals(expected_response)));
+  EXPECT_CALL(*this, OnJobRetry(_)).Times(0);
+  std::unique_ptr<DeviceManagementRequestJob> request_job(
+      StartTokenEnrollmentJob());
+  net::TestURLFetcher* fetcher = GetFetcher();
+  ASSERT_TRUE(fetcher);
+
+  CheckURLAndQueryParams(fetcher->GetOriginalURL(),
+                         dm_protocol::kValueRequestTokenEnrollment, kClientID,
+                         "");
+
+  // Make sure request is properly authorized.
+  net::HttpRequestHeaders headers;
+  fetcher->GetExtraRequestHeaders(&headers);
+  std::string header;
+  ASSERT_TRUE(headers.GetHeader("Authorization", &header));
+  EXPECT_EQ("GoogleEnrollmentToken token=enrollment_token", header);
+
+  std::string expected_data;
+  ASSERT_TRUE(request_job->GetRequest()->SerializeToString(&expected_data));
+  EXPECT_EQ(expected_data, fetcher->upload_data());
+
+  // Generate the response.
+  std::string response_data;
+  ASSERT_TRUE(expected_response.SerializeToString(&response_data));
+  SendResponse(fetcher, net::OK, 200, response_data);
+}
+
 TEST_F(DeviceManagementServiceTest, ApiAuthCodeFetchRequest) {
   em::DeviceManagementResponse expected_response;
   expected_response.mutable_service_api_access_response()->set_auth_code(
@@ -574,6 +661,31 @@ TEST_F(DeviceManagementServiceTest, UnregisterRequest) {
   SendResponse(fetcher, net::OK, 200, response_data);
 }
 
+TEST_F(DeviceManagementServiceTest, AppInstallReportRequest) {
+  em::DeviceManagementResponse expected_response;
+  expected_response.mutable_app_install_report_response();
+  EXPECT_CALL(
+      *this, OnJobDone(DM_STATUS_SUCCESS, _, MessageEquals(expected_response)));
+  EXPECT_CALL(*this, OnJobRetry(_)).Times(0);
+  std::unique_ptr<DeviceManagementRequestJob> request_job(
+      StartAppInstallReportJob());
+  net::TestURLFetcher* fetcher = GetFetcher();
+  ASSERT_TRUE(fetcher);
+
+  CheckURLAndQueryParams(fetcher->GetOriginalURL(),
+                         dm_protocol::kValueRequestAppInstallReport, kClientID,
+                         "");
+
+  std::string expected_data;
+  ASSERT_TRUE(request_job->GetRequest()->SerializeToString(&expected_data));
+  EXPECT_EQ(expected_data, fetcher->upload_data());
+
+  // Generate the response.
+  std::string response_data;
+  ASSERT_TRUE(expected_response.SerializeToString(&response_data));
+  SendResponse(fetcher, net::OK, 200, response_data);
+}
+
 TEST_F(DeviceManagementServiceTest, CancelRegisterRequest) {
   EXPECT_CALL(*this, OnJobDone(_, _, _)).Times(0);
   EXPECT_CALL(*this, OnJobRetry(_)).Times(0);
@@ -591,6 +703,18 @@ TEST_F(DeviceManagementServiceTest, CancelCertBasedRegisterRequest) {
   EXPECT_CALL(*this, OnJobRetry(_)).Times(0);
   std::unique_ptr<DeviceManagementRequestJob> request_job(
       StartCertBasedRegistrationJob());
+  net::TestURLFetcher* fetcher = GetFetcher();
+  ASSERT_TRUE(fetcher);
+
+  // There shouldn't be any callbacks.
+  request_job.reset();
+}
+
+TEST_F(DeviceManagementServiceTest, CancelTokenEnrollmentRequest) {
+  EXPECT_CALL(*this, OnJobDone(_, _, _)).Times(0);
+  EXPECT_CALL(*this, OnJobRetry(_)).Times(0);
+  std::unique_ptr<DeviceManagementRequestJob> request_job(
+      StartTokenEnrollmentJob());
   net::TestURLFetcher* fetcher = GetFetcher();
   ASSERT_TRUE(fetcher);
 
@@ -627,6 +751,18 @@ TEST_F(DeviceManagementServiceTest, CancelPolicyRequest) {
   EXPECT_CALL(*this, OnJobRetry(_)).Times(0);
   std::unique_ptr<DeviceManagementRequestJob> request_job(
       StartPolicyFetchJob());
+  net::TestURLFetcher* fetcher = GetFetcher();
+  ASSERT_TRUE(fetcher);
+
+  // There shouldn't be any callbacks.
+  request_job.reset();
+}
+
+TEST_F(DeviceManagementServiceTest, CancelAppInstallReportRequest) {
+  EXPECT_CALL(*this, OnJobDone(_, _, _)).Times(0);
+  EXPECT_CALL(*this, OnJobRetry(_)).Times(0);
+  std::unique_ptr<DeviceManagementRequestJob> request_job(
+      StartAppInstallReportJob());
   net::TestURLFetcher* fetcher = GetFetcher();
   ASSERT_TRUE(fetcher);
 

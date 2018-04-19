@@ -69,7 +69,8 @@ BuildInfo::BuildInfo(const std::vector<std::string>& params)
       gms_version_code_(StrDupParam(params, 12)),
       installer_package_name_(StrDupParam(params, 13)),
       abi_name_(StrDupParam(params, 14)),
-      extracted_file_suffix_(params[15]),
+      firebase_app_id_(StrDupParam(params, 15)),
+      extracted_file_suffix_(params[16]),
       java_exception_info_(NULL) {}
 
 // static
@@ -79,7 +80,8 @@ BuildInfo* BuildInfo::GetInstance() {
 
 void BuildInfo::SetJavaExceptionInfo(const std::string& info) {
   DCHECK(!java_exception_info_) << "info should be set only once.";
-  java_exception_info_ = strndup(info.c_str(), 4096);
+  // Java stacks can be really long!
+  java_exception_info_ = strndup(info.c_str(), 5 * 4096);
 }
 
 void BuildInfo::ClearJavaExceptionInfo() {

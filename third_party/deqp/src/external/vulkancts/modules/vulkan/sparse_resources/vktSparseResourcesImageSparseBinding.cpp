@@ -113,7 +113,6 @@ ImageSparseBindingInstance::ImageSparseBindingInstance (Context&					context,
 tcu::TestStatus ImageSparseBindingInstance::iterate (void)
 {
 	const InstanceInterface&	instance		= m_context.getInstanceInterface();
-	const DeviceInterface&		deviceInterface = m_context.getDeviceInterface();
 	const VkPhysicalDevice		physicalDevice	= m_context.getPhysicalDevice();
 	VkImageCreateInfo			imageSparseInfo;
 	std::vector<DeviceMemorySp>	deviceMemUniquePtrVec;
@@ -135,8 +134,9 @@ tcu::TestStatus ImageSparseBindingInstance::iterate (void)
 		createDeviceSupportingQueues(queueRequirements);
 	}
 
-	const Queue& sparseQueue	= getQueue(VK_QUEUE_SPARSE_BINDING_BIT, 0);
-	const Queue& computeQueue	= getQueue(VK_QUEUE_COMPUTE_BIT, 0);
+	const DeviceInterface&	deviceInterface	= getDeviceInterface();
+	const Queue&			sparseQueue		= getQueue(VK_QUEUE_SPARSE_BINDING_BIT, 0);
+	const Queue&			computeQueue	= getQueue(VK_QUEUE_COMPUTE_BIT, 0);
 
 	imageSparseInfo.sType					= VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;					//VkStructureType		sType;
 	imageSparseInfo.pNext					= DE_NULL;												//const void*			pNext;
@@ -176,7 +176,7 @@ tcu::TestStatus ImageSparseBindingInstance::iterate (void)
 	const Unique<VkImage> imageSparse(createImage(deviceInterface, getDevice(), &imageSparseInfo));
 
 	// Create sparse image memory bind semaphore
-	const Unique<VkSemaphore> imageMemoryBindSemaphore(makeSemaphore(deviceInterface, getDevice()));
+	const Unique<VkSemaphore> imageMemoryBindSemaphore(createSemaphore(deviceInterface, getDevice()));
 
 	// Get sparse image general memory requirements
 	const VkMemoryRequirements imageSparseMemRequirements = getImageMemoryRequirements(deviceInterface, getDevice(), *imageSparse);
@@ -229,7 +229,7 @@ tcu::TestStatus ImageSparseBindingInstance::iterate (void)
 
 	// Create command buffer for compute and transfer oparations
 	const Unique<VkCommandPool>	  commandPool(makeCommandPool(deviceInterface, getDevice(), computeQueue.queueFamilyIndex));
-	const Unique<VkCommandBuffer> commandBuffer(makeCommandBuffer(deviceInterface, getDevice(), *commandPool));
+	const Unique<VkCommandBuffer> commandBuffer(allocateCommandBuffer(deviceInterface, getDevice(), *commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY));
 
 	std::vector<VkBufferImageCopy> bufferImageCopy(imageSparseInfo.mipLevels);
 

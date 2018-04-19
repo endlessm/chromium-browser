@@ -29,7 +29,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/gtest_xml_util.h"
 #include "base/test/launcher/test_launcher.h"
-#include "base/test/scoped_task_environment.h"
 #include "base/test/test_suite.h"
 #include "base/test/test_switches.h"
 #include "base/test/test_timeouts.h"
@@ -42,7 +41,7 @@
 #include "content/public/test/browser_test.h"
 #include "net/base/escape.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/base/ui_base_switches.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/base/ui_features.h"
 
 #if defined(OS_POSIX)
@@ -558,13 +557,6 @@ void WrapperTestLauncherDelegate::GTestCallback(
   DoRunTests(test_launcher, test_names);
 }
 
-void PrepareToRunTestSuite(const base::CommandLine& command_line) {
-#if BUILDFLAG(ENABLE_MUS)
-  if (command_line.HasSwitch(switches::kMus))
-    g_params->env_mode = aura::Env::Mode::MUS;
-#endif
-}
-
 }  // namespace
 
 const char kHelpFlag[]   = "help";
@@ -628,7 +620,6 @@ int LaunchTests(TestLauncherDelegate* launcher_delegate,
       command_line->HasSwitch(base::kGTestListTestsFlag) ||
       command_line->HasSwitch(base::kGTestHelpFlag)) {
     g_params = &params;
-    PrepareToRunTestSuite(*command_line);
     return launcher_delegate->RunTestSuite(argc, argv);
   }
 
@@ -644,12 +635,9 @@ int LaunchTests(TestLauncherDelegate* launcher_delegate,
       "--single-process (to do the above, and also run Chrome in single-"
           "process mode).\n");
 
-  base::test::ScopedTaskEnvironment task_environment(
-      base::test::ScopedTaskEnvironment::MainThreadType::IO);
-
+  base::MessageLoopForIO message_loop;
 #if defined(OS_POSIX)
-  base::FileDescriptorWatcher file_descriptor_watcher(
-      base::MessageLoopForIO::current());
+  base::FileDescriptorWatcher file_descriptor_watcher(&message_loop);
 #endif
 
   launcher_delegate->PreSharding();

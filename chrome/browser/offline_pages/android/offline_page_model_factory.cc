@@ -14,6 +14,7 @@
 #include "base/time/default_clock.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/offline_pages/android/cct_origin_observer.h"
+#include "chrome/browser/offline_pages/android/offline_pages_download_manager_bridge.h"
 #include "chrome/browser/offline_pages/fresh_offline_content_observer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_constants.h"
@@ -64,11 +65,14 @@ KeyedService* OfflinePageModelFactory::BuildServiceInstanceFor(
   std::unique_ptr<ArchiveManager> archive_manager(new ArchiveManager(
       temporary_archives_dir, persistent_archives_dir,
       DownloadPrefs::GetDefaultDownloadDirectory(), background_task_runner));
-  auto clock = base::MakeUnique<base::DefaultClock>();
+  auto clock = std::make_unique<base::DefaultClock>();
+
+  std::unique_ptr<SystemDownloadManager> download_manager(
+      new android::OfflinePagesDownloadManagerBridge());
 
   OfflinePageModelTaskified* model = new OfflinePageModelTaskified(
       std::move(metadata_store), std::move(archive_manager),
-      background_task_runner, std::move(clock));
+      std::move(download_manager), background_task_runner, std::move(clock));
 
   CctOriginObserver::AttachToOfflinePageModel(model);
 

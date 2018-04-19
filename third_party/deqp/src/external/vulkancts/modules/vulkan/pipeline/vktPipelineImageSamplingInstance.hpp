@@ -39,6 +39,12 @@ namespace vkt
 namespace pipeline
 {
 
+enum AllocationKind
+{
+	ALLOCATION_KIND_SUBALLOCATED,
+	ALLOCATION_KIND_DEDICATED,
+};
+
 class ImageSamplingInstance : public vkt::TestInstance
 {
 public:
@@ -54,7 +60,8 @@ public:
 																		 float								samplerLod,
 																		 const std::vector<Vertex4Tex4>&	vertices,
 																		 vk::VkDescriptorType				samplingType = vk::VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-																		 int								imageCount = 1);
+																		 int								imageCount = 1,
+																		 AllocationKind						allocationKind = ALLOCATION_KIND_SUBALLOCATED);
 
 	virtual										~ImageSamplingInstance	(void);
 
@@ -71,6 +78,7 @@ private:
 	typedef	de::SharedPtr<UniqueImageView>		SharedImageViewPtr;
 	typedef	de::SharedPtr<UniqueAlloc>			SharedAllocPtr;
 
+	const AllocationKind						m_allocationKind;
 	const vk::VkDescriptorType					m_samplingType;
 	const vk::VkImageViewType					m_imageViewType;
 	const vk::VkFormat							m_imageFormat;
@@ -79,6 +87,7 @@ private:
 	const int									m_imageCount;
 
 	const vk::VkComponentMapping				m_componentMapping;
+	tcu::BVec4									m_componentMask;
 	const vk::VkImageSubresourceRange			m_subresourceRange;
 	const vk::VkSamplerCreateInfo				m_samplerParams;
 	const float									m_samplerLod;

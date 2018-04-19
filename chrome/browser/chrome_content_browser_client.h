@@ -24,7 +24,7 @@
 #include "extensions/features/features.h"
 #include "media/media_features.h"
 #include "ppapi/features/features.h"
-#include "services/network/public/interfaces/network_service.mojom.h"
+#include "services/network/public/mojom/network_service.mojom.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 
 class ChromeContentBrowserClientParts;
@@ -99,8 +99,10 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
       bool* in_memory) override;
   content::WebContentsViewDelegate* GetWebContentsViewDelegate(
       content::WebContents* web_contents) override;
+  void RenderProcessWillLaunch(
+      content::RenderProcessHost* host,
+      service_manager::mojom::ServiceRequest* service_request) override;
   bool AllowGpuLaunchRetryOnIOThread() override;
-  void RenderProcessWillLaunch(content::RenderProcessHost* host) override;
   GURL GetEffectiveURL(content::BrowserContext* browser_context,
                        const GURL& url) override;
   bool ShouldUseProcessPerSite(content::BrowserContext* browser_context,
@@ -358,10 +360,6 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
   std::unique_ptr<content::MemoryCoordinatorDelegate>
   GetMemoryCoordinatorDelegate() override;
   ::rappor::RapporService* GetRapporService() override;
-  network::mojom::NetworkContextPtr CreateNetworkContext(
-      content::BrowserContext* context,
-      bool in_memory,
-      const base::FilePath& relative_partition_path) override;
 
 #if BUILDFLAG(ENABLE_MEDIA_REMOTING)
   void CreateMediaRemoter(content::RenderFrameHost* render_frame_host,
@@ -375,8 +373,11 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
       const base::CommandLine& command_line) override;
   std::vector<std::unique_ptr<content::URLLoaderThrottle>>
   CreateURLLoaderThrottles(
-      const base::Callback<content::WebContents*()>& wc_getter,
-      content::NavigationUIData* navigation_ui_data) override;
+      const network::ResourceRequest& request,
+      content::ResourceContext* resource_context,
+      const base::RepeatingCallback<content::WebContents*()>& wc_getter,
+      content::NavigationUIData* navigation_ui_data,
+      int frame_tree_node_id) override;
   void RegisterNonNetworkNavigationURLLoaderFactories(
       content::RenderFrameHost* frame_host,
       NonNetworkURLLoaderFactoryMap* factories) override;
@@ -384,6 +385,15 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
       content::RenderFrameHost* frame_host,
       const GURL& frame_url,
       NonNetworkURLLoaderFactoryMap* factories) override;
+  bool WillCreateURLLoaderFactory(
+      content::RenderFrameHost* frame,
+      bool is_navigation,
+      network::mojom::URLLoaderFactoryRequest* factory_request) override;
+  network::mojom::NetworkContextPtr CreateNetworkContext(
+      content::BrowserContext* context,
+      bool in_memory,
+      const base::FilePath& relative_partition_path) override;
+
   bool AllowRenderingMhtmlOverHttp(
       content::NavigationUIData* navigation_ui_data) override;
   bool ShouldForceDownloadResource(const GURL& url,
@@ -398,6 +408,24 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
       content::BrowserContext* browser_context,
       const GURL& url,
       base::OnceCallback<void(bool, int, int)> callback) override;
+  bool ShouldPermitIndividualAttestationForWebauthnRPID(
+      content::BrowserContext* browser_context,
+      const std::string& rp_id) override;
+  void ShouldReturnAttestationForWebauthnRPID(
+      content::RenderFrameHost* rfh,
+      const std::string& rp_id,
+      const url::Origin& origin,
+      base::OnceCallback<void(bool)> callback) override;
+  std::unique_ptr<net::ClientCertStore> CreateClientCertStore(
+      content::ResourceContext* resource_context) override;
+  content::ResourceDispatcherHostLoginDelegate* CreateLoginDelegate(
+      net::AuthChallengeInfo* auth_info,
+      content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
+      bool is_main_frame,
+      const GURL& url,
+      bool first_auth_attempt,
+      const base::Callback<void(const base::Optional<net::AuthCredentials>&)>&
+          auth_required_callback) override;
 
  protected:
   static bool HandleWebUI(GURL* url, content::BrowserContext* browser_context);
@@ -446,7 +474,8 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
   static void SetDefaultQuotaSettingsForTesting(
       const storage::QuotaSettings *settings);
 
-  safe_browsing::UrlCheckerDelegate* GetSafeBrowsingUrlCheckerDelegate();
+  safe_browsing::UrlCheckerDelegate* GetSafeBrowsingUrlCheckerDelegate(
+      content::ResourceContext* resource_context);
 
 #if BUILDFLAG(ENABLE_PLUGINS)
   // Set of origins that can use TCP/UDP private APIs from NaCl.

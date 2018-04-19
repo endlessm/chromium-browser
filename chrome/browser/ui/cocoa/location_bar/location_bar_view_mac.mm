@@ -266,6 +266,11 @@ bool LocationBarViewMac::TestContentSettingImagePressed(size_t index) {
   return true;
 }
 
+bool LocationBarViewMac::IsContentSettingBubbleShowing(size_t index) {
+  return index < content_setting_decorations_.size() &&
+         content_setting_decorations_[index]->IsShowingBubble();
+}
+
 void LocationBarViewMac::SetEditable(bool editable) {
   [field_ setEditable:editable ? YES : NO];
   UpdateBookmarkStarVisibility();
@@ -527,12 +532,7 @@ bool LocationBarViewMac::HasSecurityVerboseText() const {
   if (GetPageInfoVerboseType() != PageInfoVerboseType::kSecurity)
     return false;
 
-  security_state::SecurityLevel security =
-      GetToolbarModel()->GetSecurityLevel(false);
-  return security == security_state::EV_SECURE ||
-         security == security_state::SECURE ||
-         security == security_state::DANGEROUS ||
-         security == security_state::HTTP_SHOW_WARNING;
+  return !GetToolbarModel()->GetSecureVerboseText().empty();
 }
 
 bool LocationBarViewMac::IsLocationBarDark() const {
@@ -598,7 +598,7 @@ void LocationBarViewMac::UpdatePageInfoText() {
   base::string16 label;
   PageInfoVerboseType type = GetPageInfoVerboseType();
   if (type == PageInfoVerboseType::kEVCert) {
-    label = GetToolbarModel()->GetEVCertName();
+    label = GetToolbarModel()->GetSecureVerboseText();
   } else if (type == PageInfoVerboseType::kExtension && GetWebContents()) {
     label = extensions::ui_util::GetEnabledExtensionNameForUrl(
         GetToolbarModel()->GetURL(), GetWebContents()->GetBrowserContext());

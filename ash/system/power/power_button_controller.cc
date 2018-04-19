@@ -12,11 +12,12 @@
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
 #include "ash/shutdown_reason.h"
-#include "ash/system/power/convertible_power_button_controller.h"
 #include "ash/system/power/power_button_display_controller.h"
 #include "ash/system/power/power_button_screenshot_controller.h"
+#include "ash/system/power/tablet_power_button_controller.h"
 #include "ash/wm/lock_state_controller.h"
 #include "ash/wm/session_state_animator.h"
+#include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/command_line.h"
 #include "base/time/default_tick_clock.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
@@ -37,12 +38,16 @@ PowerButtonController::PowerButtonController(
     BacklightsForcedOffSetter* backlights_forced_off_setter)
     : backlights_forced_off_setter_(backlights_forced_off_setter),
       lock_state_controller_(Shell::Get()->lock_state_controller()),
-      tick_clock_(new base::DefaultTickClock) {
+      tick_clock_(base::DefaultTickClock::GetInstance()),
+      weak_factory_(this) {
   ProcessCommandLine();
   display_controller_ = std::make_unique<PowerButtonDisplayController>(
-      backlights_forced_off_setter_, tick_clock_.get());
-  chromeos::DBusThreadManager::Get()->GetPowerManagerClient()->AddObserver(
-      this);
+      backlights_forced_off_setter_, tick_clock_);
+  chromeos::PowerManagerClient* power_manager_client =
+      chromeos::DBusThreadManager::Get()->GetPowerManagerClient();
+  power_manager_client->AddObserver(this);
+  power_manager_client->GetSwitchStates(base::BindOnce(
+      &PowerButtonController::OnGetSwitchStates, weak_factory_.GetWeakPtr()));
   chromeos::AccelerometerReader::GetInstance()->AddObserver(this);
   Shell::Get()->display_configurator()->AddObserver(this);
   Shell::Get()->PrependPreTargetHandler(this);
@@ -187,7 +192,7 @@ void PowerButtonController::PowerButtonEventReceived(
     return;
 
   // PowerButtonDisplayController ignores power button events, so tell it to
-  // stop forcing the display off if ConvertiblePowerButtonController isn't
+  // stop forcing the display off if TabletPowerButtonController isn't
   // being used.
   if (down && force_clamshell_power_button_)
     display_controller_->SetBacklightsForcedOff(false);
@@ -198,9 +203,13 @@ void PowerButtonController::PowerButtonEventReceived(
     return;
   }
 
-  // Handle tablet power button behavior.
-  if (button_type_ == ButtonType::NORMAL && convertible_controller_) {
-    convertible_controller_->OnPowerButtonEvent(down, timestamp);
+  // Handle tablet power button behavior. Should show power button menu only if
+  // |show_power_button_menu_| is true and the device is in tablet mode.
+  if (button_type_ == ButtonType::NORMAL && tablet_controller_ &&
+      (!show_power_button_menu_ || Shell::Get()
+                                       ->tablet_mode_controller()
+                                       ->IsTabletModeWindowManagerEnabled())) {
+    tablet_controller_->OnPowerButtonEvent(down, timestamp);
     return;
   }
 
@@ -208,34 +217,41 @@ void PowerButtonController::PowerButtonEventReceived(
   OnPowerButtonEvent(down, timestamp);
 }
 
-void PowerButtonController::OnAccelerometerUpdated(
-    scoped_refptr<const chromeos::AccelerometerUpdate> update) {
-  // Tablet power button behavior (excepts |force_clamshell_power_button_|) and
-  // power button screenshot accelerator are enabled on devices that can enter
-  // tablet mode, which must have seen accelerometer data before user actions.
-  if (!enable_tablet_mode_)
+void PowerButtonController::OnGetSwitchStates(
+    base::Optional<chromeos::PowerManagerClient::SwitchStates> result) {
+  if (!result.has_value())
     return;
-  if (!force_clamshell_power_button_ && !convertible_controller_) {
-    convertible_controller_ =
-        std::make_unique<ConvertiblePowerButtonController>(
-            display_controller_.get(), show_power_button_menu_,
-            tick_clock_.get());
+
+  // Tablet power button behavior (except |force_clamshell_power_button_|) and
+  // power button screenshot accelerator are enabled on devices that have a
+  // tablet mode switch.
+  if (result->tablet_mode ==
+      chromeos::PowerManagerClient::TabletMode::UNSUPPORTED) {
+    return;
   }
 
-  if (!screenshot_controller_) {
-    screenshot_controller_ = std::make_unique<PowerButtonScreenshotController>(
-        convertible_controller_.get(), tick_clock_.get(),
-        force_clamshell_power_button_);
-  }
+  has_tablet_mode_switch_ = true;
+  InitControllerMembers();
+}
+
+void PowerButtonController::OnAccelerometerUpdated(
+    scoped_refptr<const chromeos::AccelerometerUpdate> update) {
+  // Tablet power button behavior (except |force_clamshell_power_button_|) and
+  // power button screenshot accelerator are enabled on devices that can enter
+  // tablet mode, which must have a tablet mode switch or report accelerometer
+  // data before user actions.
+  if (has_tablet_mode_switch_ || !observe_accelerometer_events_)
+    return;
+  InitControllerMembers();
 }
 
 void PowerButtonController::SetTickClockForTesting(
-    std::unique_ptr<base::TickClock> tick_clock) {
+    base::TickClock* tick_clock) {
   DCHECK(tick_clock);
-  tick_clock_ = std::move(tick_clock);
+  tick_clock_ = tick_clock;
 
   display_controller_ = std::make_unique<PowerButtonDisplayController>(
-      backlights_forced_off_setter_, tick_clock_.get());
+      backlights_forced_off_setter_, tick_clock_);
 }
 
 bool PowerButtonController::TriggerDisplayOffTimerForTesting() {
@@ -253,7 +269,7 @@ void PowerButtonController::ProcessCommandLine() {
   button_type_ = cl->HasSwitch(switches::kAuraLegacyPowerButton)
                      ? ButtonType::LEGACY
                      : ButtonType::NORMAL;
-  enable_tablet_mode_ = cl->HasSwitch(switches::kAshEnableTabletMode);
+  observe_accelerometer_events_ = cl->HasSwitch(switches::kAshEnableTabletMode);
   force_clamshell_power_button_ =
       cl->HasSwitch(switches::kForceClamshellPowerButton);
   show_power_button_menu_ = cl->HasSwitch(switches::kShowPowerButtonMenu);
@@ -261,6 +277,19 @@ void PowerButtonController::ProcessCommandLine() {
 
 void PowerButtonController::ForceDisplayOffAfterLock() {
   display_controller_->SetBacklightsForcedOff(true);
+}
+
+void PowerButtonController::InitControllerMembers() {
+  if (!force_clamshell_power_button_ && !tablet_controller_) {
+    tablet_controller_ = std::make_unique<TabletPowerButtonController>(
+        display_controller_.get(), backlights_forced_off_setter_,
+        show_power_button_menu_, tick_clock_);
+  }
+
+  if (!screenshot_controller_) {
+    screenshot_controller_ = std::make_unique<PowerButtonScreenshotController>(
+        tablet_controller_.get(), tick_clock_, force_clamshell_power_button_);
+  }
 }
 
 }  // namespace ash

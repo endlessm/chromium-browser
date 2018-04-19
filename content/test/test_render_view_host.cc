@@ -55,7 +55,6 @@ void InitNavigateParams(FrameHostMsg_DidCommitProvisionalLoad_Params* params,
   params->searchable_form_encoding = std::string();
   params->did_create_new_entry = did_create_new_entry;
   params->gesture = NavigationGestureUser;
-  params->was_within_same_document = false;
   params->method = "GET";
   params->page_state = PageState::CreateFromURL(url);
 }
@@ -161,11 +160,6 @@ SkColor TestRenderWidgetHostView::background_color() const {
   return background_color_;
 }
 
-bool TestRenderWidgetHostView::HasAcceleratedSurface(
-      const gfx::Size& desired_size) {
-  return false;
-}
-
 #if defined(OS_MACOSX)
 
 void TestRenderWidgetHostView::SetActive(bool active) {
@@ -186,6 +180,10 @@ bool TestRenderWidgetHostView::IsSpeaking() const {
 void TestRenderWidgetHostView::StopSpeaking() {}
 
 #endif
+
+gfx::Vector2d TestRenderWidgetHostView::GetOffsetFromRootSurface() {
+  return gfx::Vector2d();
+}
 
 gfx::Rect TestRenderWidgetHostView::GetBoundsInRootWindow() {
   return gfx::Rect();

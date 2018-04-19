@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/allocator/features.h"
+#include "base/allocator/buildflags.h"
 #include "base/json/json_reader.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_restrictions.h"
@@ -24,9 +24,8 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/zlib/zlib.h"
 
-// Some builds don't support the allocator shim in which case the memory long
-// won't function.
-#if BUILDFLAG(USE_ALLOCATOR_SHIM)
+// Some builds don't support memlog in which case the tests won't function.
+#if BUILDFLAG(USE_ALLOCATOR_SHIM) && !defined(SYZYASAN)
 
 namespace profiling {
 
@@ -34,6 +33,8 @@ struct TestParam {
   ProfilingProcessHost::Mode mode;
   mojom::StackMode stack_mode;
   bool start_profiling_with_command_line_flag;
+  bool should_sample;
+  bool sample_everything;
 };
 
 class MemlogBrowserTest : public InProcessBrowserTest,
@@ -54,7 +55,13 @@ class MemlogBrowserTest : public InProcessBrowserTest,
       if (GetParam().stack_mode == mojom::StackMode::PSEUDO) {
         command_line->AppendSwitchASCII(switches::kMemlogStackMode,
                                         switches::kMemlogStackModePseudo);
-      } else if (GetParam().stack_mode == mojom::StackMode::NATIVE) {
+      } else if (GetParam().stack_mode ==
+                 mojom::StackMode::NATIVE_WITH_THREAD_NAMES) {
+        command_line->AppendSwitchASCII(
+            switches::kMemlogStackMode,
+            switches::kMemlogStackModeNativeWithThreadNames);
+      } else if (GetParam().stack_mode ==
+                 mojom::StackMode::NATIVE_WITHOUT_THREAD_NAMES) {
         command_line->AppendSwitchASCII(switches::kMemlogStackMode,
                                         switches::kMemlogStackModeNative);
       } else if (GetParam().stack_mode == mojom::StackMode::MIXED) {
@@ -81,6 +88,8 @@ IN_PROC_BROWSER_TEST_P(MemlogBrowserTest, EndToEnd) {
   options.stack_mode = GetParam().stack_mode;
   options.profiling_already_started =
       GetParam().start_profiling_with_command_line_flag;
+  options.should_sample = GetParam().should_sample;
+  options.sample_everything = GetParam().sample_everything;
 
   EXPECT_TRUE(driver.RunTest(options));
 }
@@ -97,25 +106,46 @@ std::vector<TestParam> GetParams() {
 
   std::vector<mojom::StackMode> stack_modes;
   stack_modes.push_back(mojom::StackMode::MIXED);
-  stack_modes.push_back(mojom::StackMode::NATIVE);
+  stack_modes.push_back(mojom::StackMode::NATIVE_WITHOUT_THREAD_NAMES);
   stack_modes.push_back(mojom::StackMode::PSEUDO);
 
   for (const auto& mode : dynamic_start_modes) {
     for (const auto& stack_mode : stack_modes) {
-      params.push_back({mode, stack_mode, false});
+      params.push_back(
+          {mode, stack_mode, false /* start_profiling_with_command_line_flag */,
+           false /* should_sample */, false /* sample_everything*/});
     }
   }
 
-  // There's no way to tell when profiling has started for a renderer, so it
-  // must be started as soon as chrome has started.
+  // Non-browser processes must be profiled with a command line flag, since
+  // otherwise, profiling will start after the relevant processes have been
+  // created, thus that process will be not be profiled.
   std::vector<ProfilingProcessHost::Mode> command_line_start_modes;
   command_line_start_modes.push_back(ProfilingProcessHost::Mode::kAll);
   command_line_start_modes.push_back(ProfilingProcessHost::Mode::kAllRenderers);
   for (const auto& mode : command_line_start_modes) {
     for (const auto& stack_mode : stack_modes) {
-      params.push_back({mode, stack_mode, true});
+      params.push_back(
+          {mode, stack_mode, true /* start_profiling_with_command_line_flag */,
+           false /* should_sample */, false /* sample_everything*/});
     }
   }
+
+  // Test sampling all allocations.
+  params.push_back({ProfilingProcessHost::Mode::kBrowser,
+                    mojom::StackMode::NATIVE_WITH_THREAD_NAMES,
+                    false /* start_profiling_with_command_line_flag */,
+                    true /* should_sample */, true /* sample_everything*/});
+
+  // Test sampling some allocations.
+  params.push_back({ProfilingProcessHost::Mode::kBrowser,
+                    mojom::StackMode::PSEUDO,
+                    false /* start_profiling_with_command_line_flag */,
+                    true /* should_sample */, false /* sample_everything*/});
+
+  // Test thread names for native profiling.
+  params.push_back({ProfilingProcessHost::Mode::kBrowser,
+                    mojom::StackMode::NATIVE_WITH_THREAD_NAMES, false});
   return params;
 }
 
@@ -125,4 +155,4 @@ INSTANTIATE_TEST_CASE_P(Memlog,
 
 }  // namespace profiling
 
-#endif  // BUILDFLAG(USE_ALLOCATOR_SHIM)
+#endif  // BUILDFLAG(USE_ALLOCATOR_SHIM) && !defined(SYZYASAN)

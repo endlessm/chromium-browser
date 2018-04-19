@@ -34,8 +34,9 @@ class ResourceCoordinatorWebContentsObserver
   }
 
   // WebContentsObserver implementation.
-  void WasShown() override;
-  void WasHidden() override;
+  void DidStartLoading() override;
+  void DidStopLoading() override;
+  void OnVisibilityChanged(content::Visibility visibility) override;
   void WebContentsDestroyed() override;
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override;

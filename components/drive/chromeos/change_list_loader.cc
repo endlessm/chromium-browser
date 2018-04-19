@@ -268,10 +268,10 @@ void AboutResourceLoader::GetAboutResource(
   if (cached_about_resource_) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
-        base::Bind(
+        base::BindOnce(
             callback, google_apis::HTTP_NO_CONTENT,
-            base::Passed(std::unique_ptr<google_apis::AboutResource>(
-                new google_apis::AboutResource(*cached_about_resource_)))));
+            std::unique_ptr<google_apis::AboutResource>(
+                new google_apis::AboutResource(*cached_about_resource_))));
   } else {
     UpdateAboutResource(callback);
   }
@@ -447,8 +447,7 @@ void ChangeListLoader::LoadAfterGetLargestChangestamp(
 
     // Continues to load from server in background.
     // Put dummy callbacks to indicate that fetching is still continuing.
-    pending_load_callback_.push_back(
-        base::Bind(&util::EmptyFileOperationCallback));
+    pending_load_callback_.push_back(base::DoNothing());
   }
 
   about_resource_loader_->GetAboutResource(

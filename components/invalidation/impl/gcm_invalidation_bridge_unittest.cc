@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
@@ -67,7 +68,7 @@ class GCMInvalidationBridgeTest : public ::testing::Test {
     delegate_->Initialize(
         base::Bind(&GCMInvalidationBridgeTest::ConnectionStateChanged,
                    base::Unretained(this)),
-        base::Bind(&base::DoNothing) /* store_reset_callback */);
+        base::DoNothing() /* store_reset_callback */);
     RunLoop();
   }
 

@@ -27,6 +27,7 @@ class MockRendererScheduler : public RendererScheduler {
                scoped_refptr<base::SingleThreadTaskRunner>());
   MOCK_METHOD0(CompositorTaskRunner,
                scoped_refptr<base::SingleThreadTaskRunner>());
+  MOCK_METHOD0(InputTaskRunner, scoped_refptr<base::SingleThreadTaskRunner>());
   MOCK_METHOD0(LoadingTaskRunner,
                scoped_refptr<base::SingleThreadTaskRunner>());
   MOCK_METHOD0(IdleTaskRunner,
@@ -68,7 +69,9 @@ class MockRendererScheduler : public RendererScheduler {
   MOCK_METHOD1(SetRAILModeObserver, void(RAILModeObserver*));
   MOCK_METHOD1(MainThreadSeemsUnresponsive, bool(base::TimeDelta));
   MOCK_METHOD1(SetRendererProcessType, void(RendererProcessType));
-  MOCK_METHOD0(CreateWebScopedVirtualTimePauser, WebScopedVirtualTimePauser());
+  MOCK_METHOD1(CreateWebScopedVirtualTimePauser,
+               WebScopedVirtualTimePauser(
+                   WebScopedVirtualTimePauser::VirtualTaskDuration));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockRendererScheduler);

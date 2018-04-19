@@ -21,6 +21,7 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -42,20 +43,6 @@ public class FileVideoCapturerTest {
     @Override
     // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
     @SuppressWarnings("NoSynchronizedMethodCheck")
-    public synchronized void onByteBufferFrameCaptured(
-        byte[] data, int width, int height, int rotation, long timeStamp) {
-      // Empty on purpose.
-    }
-
-    @Override
-    public void onTextureFrameCaptured(int width, int height, int oesTextureId,
-        float[] transformMatrix, int rotation, long timestamp) {
-      // Empty on purpose.
-    }
-
-    @Override
-    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
-    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onFrameCaptured(VideoFrame frame) {
       frames.add(frame);
       notify();
@@ -70,6 +57,11 @@ public class FileVideoCapturerTest {
       }
       return new ArrayList<VideoFrame>(frames);
     }
+  }
+
+  @Before
+  public void setUp() {
+    NativeLibrary.initialize(new NativeLibrary.DefaultLoader());
   }
 
   @Test

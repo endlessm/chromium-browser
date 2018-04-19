@@ -157,7 +157,8 @@ static cl::opt<std::string>
     ThinLTOCacheDir("thinlto-cache-dir", cl::desc("Enable ThinLTO caching."));
 
 static cl::opt<int>
-    ThinLTOCachePruningInterval("thinlto-cache-pruning-interval", cl::desc("Set ThinLTO cache pruning interval."));
+    ThinLTOCachePruningInterval("thinlto-cache-pruning-interval",
+    cl::init(1200), cl::desc("Set ThinLTO cache pruning interval."));
 
 static cl::opt<std::string> ThinLTOSaveTempsPrefix(
     "thinlto-save-temps",
@@ -367,7 +368,7 @@ static void listSymbols(const TargetOptions &Options) {
 /// This is meant to enable testing of ThinLTO combined index generation,
 /// currently available via the gold plugin via -thinlto.
 static void createCombinedModuleSummaryIndex() {
-  ModuleSummaryIndex CombinedIndex;
+  ModuleSummaryIndex CombinedIndex(/*IsPerformingAnalysis=*/false);
   uint64_t NextModuleId = 0;
   for (auto &Filename : InputFilenames) {
     ExitOnError ExitOnErr("llvm-lto: error loading file '" + Filename + "': ");
@@ -462,7 +463,7 @@ static void writeModuleToFile(Module &TheModule, StringRef Filename) {
   raw_fd_ostream OS(Filename, EC, sys::fs::OpenFlags::F_None);
   error(EC, "error opening the file '" + Filename + "'");
   maybeVerifyModule(TheModule);
-  WriteBitcodeToFile(&TheModule, OS, /* ShouldPreserveUseListOrder */ true);
+  WriteBitcodeToFile(TheModule, OS, /* ShouldPreserveUseListOrder */ true);
 }
 
 class ThinLTOProcessing {

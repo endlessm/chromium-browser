@@ -19,7 +19,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/storage_partition.h"
-#include "services/network/public/interfaces/url_loader_factory.mojom.h"
+#include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "skia/ext/skia_utils_mac.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -43,9 +43,9 @@ initWithAvatarManager:(AccountAvatarFetcherManager*)avatarManager
 
 - (instancetype)initWithDelegate:
     (id<BasePasswordsContentViewDelegate>)delegate {
-  auto* loader_factory = content::BrowserContext::GetDefaultStoragePartition(
-                             delegate.model->GetProfile())
-                             ->GetURLLoaderFactoryForBrowserProcess();
+  auto loader_factory = content::BrowserContext::GetDefaultStoragePartition(
+                            delegate.model->GetProfile())
+                            ->GetURLLoaderFactoryForBrowserProcess();
   base::scoped_nsobject<AccountAvatarFetcherManager> avatarManager(
       [[AccountAvatarFetcherManager alloc]
           initWithLoaderFactory:loader_factory]);

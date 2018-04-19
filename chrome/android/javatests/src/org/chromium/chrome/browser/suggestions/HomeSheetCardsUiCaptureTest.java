@@ -18,6 +18,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.R;
@@ -39,6 +40,7 @@ import java.util.Collections;
 /**
  * Tests for the appearance of the card suggestions in the home sheet.
  */
+@DisabledTest(message = "https://crbug.com/805160")
 @RunWith(ChromeJUnit4ClassRunner.class)
 @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE) // ChromeHome is only enabled on phones
 public class HomeSheetCardsUiCaptureTest {
@@ -64,7 +66,6 @@ public class HomeSheetCardsUiCaptureTest {
     @Test
     @MediumTest
     @Feature({"UiCatalogue"})
-    @ScreenShooter.Directory("HomeSheetCards")
     public void testContextMenu() throws Exception {
         mActivityRule.setSheetState(BottomSheet.SHEET_STATE_FULL, false);
         waitForWindowUpdates();
@@ -77,7 +78,6 @@ public class HomeSheetCardsUiCaptureTest {
     @Test
     @MediumTest
     @Feature({"UiCatalogue"})
-    @ScreenShooter.Directory("HomeSheetCards")
     public void testScrolling() throws Exception {
         mActivityRule.setSheetState(BottomSheet.SHEET_STATE_FULL, false);
         waitForWindowUpdates();
@@ -105,7 +105,6 @@ public class HomeSheetCardsUiCaptureTest {
     @Test
     @MediumTest
     @Feature({"UiCatalogue"})
-    @ScreenShooter.Directory("HomeSheetCards")
     public void testContentSuggestionPlaceholder() throws Exception {
         FakeSuggestionsSource source = (FakeSuggestionsSource) mDepsFactory.suggestionsSource;
         source.setSuggestionsForCategory(KnownCategories.ARTICLES, Collections.emptyList());

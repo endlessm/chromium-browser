@@ -209,11 +209,11 @@ TEST_F(DownloadFeedbackServiceTest, SingleFeedbackCompleteAndDiscardDownload) {
   const std::string ping_request = "ping";
   const std::string ping_response = "resp";
 
-  content::DownloadItem::AcquireFileCallback download_discarded_callback;
+  download::DownloadItem::AcquireFileCallback download_discarded_callback;
 
   content::MockDownloadItem item;
   EXPECT_CALL(item, GetDangerType())
-      .WillRepeatedly(Return(content::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT));
+      .WillRepeatedly(Return(download::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT));
   EXPECT_CALL(item, GetReceivedBytes()).WillRepeatedly(Return(1000));
   EXPECT_CALL(item,
               StealDangerousDownload(true /*delete_file_after_feedback*/, _))
@@ -248,11 +248,11 @@ TEST_F(DownloadFeedbackServiceTest, SingleFeedbackCompleteAndKeepDownload) {
   const std::string ping_request = "ping";
   const std::string ping_response = "resp";
 
-  content::DownloadItem::AcquireFileCallback download_discarded_callback;
+  download::DownloadItem::AcquireFileCallback download_discarded_callback;
 
   content::MockDownloadItem item;
   EXPECT_CALL(item, GetDangerType())
-      .WillRepeatedly(Return(content::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT));
+      .WillRepeatedly(Return(download::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT));
   EXPECT_CALL(item, GetReceivedBytes()).WillRepeatedly(Return(1000));
   EXPECT_CALL(item,
               StealDangerousDownload(false /*delete_file_after_feedback*/, _))
@@ -290,7 +290,7 @@ TEST_F(DownloadFeedbackServiceTest, MultiplePendingFeedbackComplete) {
   const std::string ping_response = "resp";
   const size_t kNumDownloads = 3;
 
-  content::DownloadItem::AcquireFileCallback
+  download::DownloadItem::AcquireFileCallback
       download_discarded_callback[kNumDownloads];
 
   base::FilePath file_path[kNumDownloads];
@@ -298,7 +298,8 @@ TEST_F(DownloadFeedbackServiceTest, MultiplePendingFeedbackComplete) {
   for (size_t i = 0; i < kNumDownloads; ++i) {
     file_path[i] = CreateTestFile(i);
     EXPECT_CALL(item[i], GetDangerType())
-        .WillRepeatedly(Return(content::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT));
+        .WillRepeatedly(
+            Return(download::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT));
     EXPECT_CALL(item[i], GetReceivedBytes()).WillRepeatedly(Return(1000));
     EXPECT_CALL(item[i], StealDangerousDownload(true, _))
         .WillOnce(SaveArg<1>(&download_discarded_callback[i]));
@@ -359,7 +360,7 @@ TEST_F(DownloadFeedbackServiceTest, MultiFeedbackWithIncomplete) {
   const std::string ping_response = "resp";
   const size_t kNumDownloads = 3;
 
-  content::DownloadItem::AcquireFileCallback
+  download::DownloadItem::AcquireFileCallback
       download_discarded_callback[kNumDownloads];
 
   base::FilePath file_path[kNumDownloads];
@@ -367,7 +368,8 @@ TEST_F(DownloadFeedbackServiceTest, MultiFeedbackWithIncomplete) {
   for (size_t i = 0; i < kNumDownloads; ++i) {
     file_path[i] = CreateTestFile(i);
     EXPECT_CALL(item[i], GetDangerType())
-        .WillRepeatedly(Return(content::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT));
+        .WillRepeatedly(
+            Return(download::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT));
     EXPECT_CALL(item[i], GetReceivedBytes()).WillRepeatedly(Return(1000));
     EXPECT_CALL(item[i], StealDangerousDownload(true, _))
         .WillOnce(SaveArg<1>(&download_discarded_callback[i]));

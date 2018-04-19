@@ -30,7 +30,7 @@
 
 namespace {
 
-const char kApiPath[] = "/async/newtab_ogb";
+const char kNewTabOgbApiPath[] = "/async/newtab_ogb";
 
 const char kResponsePreamble[] = ")]}'";
 
@@ -181,7 +181,8 @@ OneGoogleBarFetcherImpl::AuthenticatedURLFetcher::AuthenticatedURLFetcher(
       callback_(std::move(callback)) {}
 
 GURL OneGoogleBarFetcherImpl::AuthenticatedURLFetcher::GetApiUrl() const {
-  GURL api_url = google_base_url_.Resolve(api_url_override_.value_or(kApiPath));
+  GURL api_url =
+      google_base_url_.Resolve(api_url_override_.value_or(kNewTabOgbApiPath));
 
   // Add the "hl=" parameter.
   api_url = net::AppendQueryParameter(api_url, "hl", application_locale_);
@@ -205,7 +206,9 @@ OneGoogleBarFetcherImpl::AuthenticatedURLFetcher::GetExtraRequestHeaders(
                                      variations::SignedIn::kNo, &headers);
 #if defined(OS_CHROMEOS)
   signin::ChromeConnectedHeaderHelper chrome_connected_header_helper(
-      account_consistency_mirror_required_);
+      account_consistency_mirror_required_
+          ? signin::AccountConsistencyMethod::kMirror
+          : signin::AccountConsistencyMethod::kDisabled);
   int profile_mode = signin::PROFILE_MODE_DEFAULT;
   if (account_consistency_mirror_required_) {
     // For the child account case (where currently
@@ -294,7 +297,7 @@ void OneGoogleBarFetcherImpl::Fetch(OneGoogleCallback callback) {
   // Note: If there is an ongoing request, abandon it. It's possible that
   // something has changed in the meantime (e.g. signin state) that would make
   // the result obsolete.
-  pending_request_ = base::MakeUnique<AuthenticatedURLFetcher>(
+  pending_request_ = std::make_unique<AuthenticatedURLFetcher>(
       request_context_, google_base_url, application_locale_, api_url_override_,
       account_consistency_mirror_required_,
       base::BindOnce(&OneGoogleBarFetcherImpl::FetchDone,

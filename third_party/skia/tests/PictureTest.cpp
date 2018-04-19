@@ -834,3 +834,36 @@ DEF_TEST(Picture_RecordsFlush, r) {
     auto back = SkPicture::MakeFromData(skp->data(), skp->size());
     REPORTER_ASSERT(r, back->approximateOpCount() == pic->approximateOpCount());
 }
+
+DEF_TEST(Placeholder, r) {
+    SkRect cull = { 0,0, 10,20 };
+
+    // Each placeholder is unique.
+    sk_sp<SkPicture> p1 = SkPicture::MakePlaceholder(cull),
+                     p2 = SkPicture::MakePlaceholder(cull);
+    REPORTER_ASSERT(r, p1->cullRect() == p2->cullRect());
+    REPORTER_ASSERT(r, p1->cullRect() == cull);
+    REPORTER_ASSERT(r, p1->uniqueID() != p2->uniqueID());
+
+    // Placeholders are never unrolled by SkCanvas (while other small pictures may be).
+    SkPictureRecorder recorder;
+    SkCanvas* canvas = recorder.beginRecording(cull);
+        canvas->drawPicture(p1);
+        canvas->drawPicture(p2);
+    sk_sp<SkPicture> pic = recorder.finishRecordingAsPicture();
+    REPORTER_ASSERT(r, pic->approximateOpCount() == 2);
+}
+
+DEF_TEST(Picture_empty_serial, reporter) {
+    SkPictureRecorder rec;
+    (void)rec.beginRecording(10, 10);
+    auto pic = rec.finishRecordingAsPicture();
+    REPORTER_ASSERT(reporter, pic);
+
+    auto data = pic->serialize();
+    REPORTER_ASSERT(reporter, data);
+
+    auto pic2 = SkPicture::MakeFromData(data->data(), data->size());
+    REPORTER_ASSERT(reporter, pic2);
+}
+

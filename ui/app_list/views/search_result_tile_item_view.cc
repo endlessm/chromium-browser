@@ -13,6 +13,7 @@
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/app_list_features.h"
+#include "ui/app_list/app_list_metrics.h"
 #include "ui/app_list/app_list_view_delegate.h"
 #include "ui/app_list/pagination_model.h"
 #include "ui/app_list/vector_icons/vector_icons.h"
@@ -257,25 +258,27 @@ void SearchResultTileItemView::ButtonPressed(views::Button* sender,
   if (IsSuggestedAppTile())
     LogAppLaunch();
 
-  view_delegate_->OpenSearchResult(item_, event.flags());
+  RecordSearchResultOpenSource(item_, view_delegate_->GetModel(),
+                               view_delegate_->GetSearchModel());
+  view_delegate_->OpenSearchResult(item_->id(), event.flags());
 }
 
 void SearchResultTileItemView::GetAccessibleNodeData(
     ui::AXNodeData* node_data) {
   views::Button::GetAccessibleNodeData(node_data);
-  // Specify |ui::AX_ATTR_DESCRIPTION| with an empty string, so that long
-  // truncated names are not read twice.
-  // Details of this issue:
-  // - The Play Store app's name is shown in a label |title_|.
-  // - If the name is too long, it'll get truncated and the full name will
+  // Specify |ax::mojom::StringAttribute::kDescription| with an empty string, so
+  // that long truncated names are not read twice. Details of this issue: - The
+  // Play Store app's name is shown in a label |title_|. - If the name is too
+  // long, it'll get truncated and the full name will
   //   go to the label's tooltip.
   // - SearchResultTileItemView uses that label's tooltip as its tooltip.
-  // - If a view doesn't have |ui::AX_ATTR_DESCRIPTION| defined in the
+  // - If a view doesn't have |ax::mojom::StringAttribute::kDescription| defined
+  // in the
   //   |AXNodeData|, |AXViewObjWrapper::Serialize| will use the tooltip text
   //   as its description.
   // - We're customizing this view's accessible name, so it get focused
   //   ChromeVox will read its accessible name and then its description.
-  node_data->AddStringAttribute(ui::AX_ATTR_DESCRIPTION, "");
+  node_data->AddStringAttribute(ax::mojom::StringAttribute::kDescription, "");
 }
 
 bool SearchResultTileItemView::OnKeyPressed(const ui::KeyEvent& event) {
@@ -288,7 +291,9 @@ bool SearchResultTileItemView::OnKeyPressed(const ui::KeyEvent& event) {
     if (IsSuggestedAppTile())
       LogAppLaunch();
 
-    view_delegate_->OpenSearchResult(item_, event.flags());
+    RecordSearchResultOpenSource(item_, view_delegate_->GetModel(),
+                                 view_delegate_->GetSearchModel());
+    view_delegate_->OpenSearchResult(item_->id(), event.flags());
     return true;
   }
 
@@ -297,7 +302,7 @@ bool SearchResultTileItemView::OnKeyPressed(const ui::KeyEvent& event) {
 
 void SearchResultTileItemView::OnFocus() {
   if (pagination_model_ && IsSuggestedAppTile() &&
-      view_delegate_->GetModel()->state() == AppListModel::STATE_APPS) {
+      view_delegate_->GetModel()->state() == ash::AppListState::kStateApps) {
     // Go back to first page when app in suggestions container is focused.
     pagination_model_->SelectPage(0, false);
   } else if (!IsSuggestedAppTile()) {
@@ -407,6 +412,8 @@ void SearchResultTileItemView::ShowContextMenuForView(
   context_menu_runner_->RunMenuAt(GetWidget(), nullptr,
                                   gfx::Rect(point, gfx::Size()),
                                   views::MENU_ANCHOR_TOPLEFT, source_type);
+
+  source->RequestFocus();
 }
 
 void SearchResultTileItemView::SetIcon(const gfx::ImageSkia& icon) {

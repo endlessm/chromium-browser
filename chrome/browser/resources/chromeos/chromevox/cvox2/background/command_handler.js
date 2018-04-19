@@ -241,7 +241,7 @@ CommandHandler.onCommand = function(command) {
   if (!ChromeVoxState.instance.currentRange_)
     return true;
 
-  var current = ChromeVoxState.instance.currentRange_;
+  var current = ChromeVoxState.instance.currentRange;
 
   // Allow edit commands first.
   if (!CommandHandler.onEditCommand_(command))
@@ -250,10 +250,12 @@ CommandHandler.onCommand = function(command) {
   var dir = Dir.FORWARD;
   var pred = null;
   var predErrorMsg = undefined;
-  var rootPred = AutomationPredicate.root;
+  var rootPred = AutomationPredicate.editableRoot;
+  var shouldWrap = true;
   var speechProps = {};
   var skipSync = false;
   var didNavigate = false;
+  var tryScrolling = true;
   switch (command) {
     case 'nextCharacter':
       didNavigate = true;
@@ -465,16 +467,27 @@ CommandHandler.onCommand = function(command) {
           current.start.node.root, Dir.FORWARD, AutomationPredicate.object);
       if (node)
         current = cursors.Range.fromNode(node);
+      tryScrolling = false;
       break;
     case 'jumpToBottom':
       var node = AutomationUtil.findLastNode(
           current.start.node.root, AutomationPredicate.object);
       if (node)
         current = cursors.Range.fromNode(node);
+      tryScrolling = false;
       break;
     case 'forceClickOnCurrentItem':
       if (ChromeVoxState.instance.currentRange) {
         var actionNode = ChromeVoxState.instance.currentRange.start.node;
+        // Scan for a clickable, which overrides the |actionNode|.
+        var clickable = actionNode;
+        while (clickable && !clickable.clickable)
+          clickable = clickable.parent;
+        if (clickable) {
+          clickable.doDefault();
+          return false;
+        }
+
         while (actionNode.role == RoleType.INLINE_TEXT_BOX ||
                actionNode.role == RoleType.STATIC_TEXT)
           actionNode = actionNode.parent;
@@ -482,11 +495,7 @@ CommandHandler.onCommand = function(command) {
           ChromeVoxState.instance.navigateToRange(
               cursors.Range.fromNode(actionNode.inPageLinkTarget));
         } else {
-          // Scan for a clickable, which overrides the |actionNode|.
-          var clickable = actionNode;
-          while (clickable && !clickable.clickable)
-            clickable = clickable.parent;
-          clickable ? clickable.doDefault() : actionNode.doDefault();
+          actionNode.doDefault();
         }
       }
       // Skip all other processing; if focus changes, we should get an event
@@ -496,11 +505,11 @@ CommandHandler.onCommand = function(command) {
       ChromeVoxState.isReadingContinuously = true;
       var continueReading = function() {
         if (!ChromeVoxState.isReadingContinuously ||
-            !ChromeVoxState.instance.currentRange_)
+            !ChromeVoxState.instance.currentRange)
           return;
 
-        var prevRange = ChromeVoxState.instance.currentRange_;
-        var newRange = ChromeVoxState.instance.currentRange_.move(
+        var prevRange = ChromeVoxState.instance.currentRange;
+        var newRange = ChromeVoxState.instance.currentRange.move(
             cursors.Unit.NODE, Dir.FORWARD);
 
         // Stop if we've wrapped back to the document.
@@ -514,8 +523,9 @@ CommandHandler.onCommand = function(command) {
         newRange.select();
 
         new Output()
+            .withoutHints()
             .withRichSpeechAndBraille(
-                ChromeVoxState.instance.currentRange_, prevRange,
+                ChromeVoxState.instance.currentRange, prevRange,
                 Output.EventType.NAVIGATE)
             .onSpeechEnd(continueReading)
             .go();
@@ -523,6 +533,7 @@ CommandHandler.onCommand = function(command) {
       var startNode = ChromeVoxState.instance.currentRange.start.node;
       var collapsedRange = cursors.Range.fromNode(startNode);
       new Output()
+          .withoutHints()
           .withRichSpeechAndBraille(
               collapsedRange, collapsedRange, Output.EventType.NAVIGATE)
           .onSpeechEnd(continueReading)
@@ -530,8 +541,8 @@ CommandHandler.onCommand = function(command) {
 
       return false;
     case 'contextMenu':
-      if (ChromeVoxState.instance.currentRange_) {
-        var actionNode = ChromeVoxState.instance.currentRange_.start.node;
+      if (ChromeVoxState.instance.currentRange) {
+        var actionNode = ChromeVoxState.instance.currentRange.start.node;
         if (actionNode.role == RoleType.INLINE_TEXT_BOX)
           actionNode = actionNode.parent;
         actionNode.showContextMenu();
@@ -560,7 +571,7 @@ CommandHandler.onCommand = function(command) {
       (new PanelCommand(PanelCommandType.SEARCH)).send();
       return false;
     case 'readCurrentTitle':
-      var target = ChromeVoxState.instance.currentRange_.start.node;
+      var target = ChromeVoxState.instance.currentRange.start.node;
       var output = new Output();
       target = AutomationUtil.getTopLevelRoot(target) || target.parent;
 
@@ -578,14 +589,14 @@ CommandHandler.onCommand = function(command) {
       return false;
     case 'readCurrentURL':
       var output = new Output();
-      var target = ChromeVoxState.instance.currentRange_.start.node.root;
+      var target = ChromeVoxState.instance.currentRange.start.node.root;
       output.withString(target.docUrl || '').go();
       return false;
     case 'toggleSelection':
       if (!ChromeVoxState.instance.pageSel_) {
         ChromeVoxState.instance.pageSel_ = ChromeVoxState.instance.currentRange;
       } else {
-        var root = ChromeVoxState.instance.currentRange_.start.node.root;
+        var root = ChromeVoxState.instance.currentRange.start.node.root;
         if (root && root.anchorObject && root.focusObject) {
           var sel = new cursors.Range(
               new cursors.Cursor(root.anchorObject, root.anchorOffset),
@@ -616,6 +627,7 @@ CommandHandler.onCommand = function(command) {
           current.start.node, tableOpts);
       predErrorMsg = 'no_cell_above';
       rootPred = AutomationPredicate.table;
+      shouldWrap = false;
       break;
     case 'previousCol':
       dir = Dir.BACKWARD;
@@ -624,6 +636,7 @@ CommandHandler.onCommand = function(command) {
           current.start.node, tableOpts);
       predErrorMsg = 'no_cell_left';
       rootPred = AutomationPredicate.row;
+      shouldWrap = false;
       break;
     case 'nextRow':
       var tableOpts = {row: true, dir: dir};
@@ -631,6 +644,7 @@ CommandHandler.onCommand = function(command) {
           current.start.node, tableOpts);
       predErrorMsg = 'no_cell_below';
       rootPred = AutomationPredicate.table;
+      shouldWrap = false;
       break;
     case 'nextCol':
       var tableOpts = {col: true, dir: dir};
@@ -638,6 +652,7 @@ CommandHandler.onCommand = function(command) {
           current.start.node, tableOpts);
       predErrorMsg = 'no_cell_right';
       rootPred = AutomationPredicate.row;
+      shouldWrap = false;
       break;
     case 'goToRowFirstCell':
     case 'goToRowLastCell':
@@ -665,6 +680,7 @@ CommandHandler.onCommand = function(command) {
       // Should not be outputted.
       predErrorMsg = 'no_cell_above';
       rootPred = AutomationPredicate.table;
+      shouldWrap = false;
       break;
     case 'goToColLastCell':
       dir = Dir.BACKWARD;
@@ -680,6 +696,7 @@ CommandHandler.onCommand = function(command) {
       // Should not be outputted.
       predErrorMsg = 'no_cell_below';
       rootPred = AutomationPredicate.table;
+      shouldWrap = false;
       break;
     case 'goToFirstCell':
     case 'goToLastCell':
@@ -707,8 +724,7 @@ CommandHandler.onCommand = function(command) {
     var bound = current.getBound(dir).node;
     if (bound) {
       var node = AutomationUtil.findNextNode(
-          bound, dir, pred,
-          {skipInitialAncestry: true, root: AutomationPredicate.editableRoot});
+          bound, dir, pred, {skipInitialAncestry: true, root: rootPred});
 
       if (node && !skipSync) {
         node = AutomationUtil.findNodePre(
@@ -720,6 +736,16 @@ CommandHandler.onCommand = function(command) {
         current = cursors.Range.fromNode(node);
       } else {
         cvox.ChromeVox.earcons.playEarcon(cvox.Earcon.WRAP);
+        if (!shouldWrap) {
+          if (predErrorMsg) {
+            new Output()
+                .withString(Msgs.getMsg(predErrorMsg))
+                .withQueueMode(cvox.QueueMode.FLUSH)
+                .go();
+          }
+          return false;
+        }
+
         var root = bound;
         while (root && !AutomationPredicate.editableRoot(root))
           root = root.parent;
@@ -734,10 +760,8 @@ CommandHandler.onCommand = function(command) {
                       root, dir, AutomationPredicate.leaf) ||
               bound;
         }
-        node = AutomationUtil.findNextNode(bound, dir, pred, {
-          skipInitialAncestry: true,
-          root: AutomationPredicate.editableRoot
-        });
+        node = AutomationUtil.findNextNode(
+            bound, dir, pred, {skipInitialAncestry: true, root: rootPred});
 
         if (node && !skipSync) {
           node = AutomationUtil.findNodePre(
@@ -748,15 +772,17 @@ CommandHandler.onCommand = function(command) {
         if (node) {
           current = cursors.Range.fromNode(node);
         } else if (predErrorMsg) {
-          cvox.ChromeVox.tts.speak(
-              Msgs.getMsg(predErrorMsg), cvox.QueueMode.FLUSH);
+          new Output()
+              .withString(Msgs.getMsg(predErrorMsg))
+              .withQueueMode(cvox.QueueMode.FLUSH)
+              .go();
           return false;
         }
       }
     }
   }
 
-  if (current && current.start && current.start.node &&
+  if (tryScrolling && current && current.start && current.start.node &&
       ChromeVoxState.instance.currentRange.start.node) {
     var exited = AutomationUtil.getUniqueAncestors(
         current.start.node, ChromeVoxState.instance.currentRange.start.node);
@@ -883,7 +909,7 @@ CommandHandler.onImageFrameUpdated_ = function(event) {
 /**
  * Handle the command to view the first graphic within the current range
  * as braille.
- * @param {!AutomationNode} current The current range.
+ * @param {!cursors.Range} current The current range.
  * @private
  */
 CommandHandler.viewGraphicAsBraille_ = function(current) {
@@ -925,6 +951,10 @@ CommandHandler.onEditCommand_ = function(command) {
       !current.start.node || !current.start.node.state[StateType.EDITABLE])
     return true;
 
+  var textEditHandler = DesktopAutomationHandler.instance.textEditHandler;
+  if (!textEditHandler)
+    return true;
+
   var isMultiline = AutomationPredicate.multiline(current.start.node);
   switch (command) {
     case 'previousCharacter':
@@ -940,23 +970,35 @@ CommandHandler.onEditCommand_ = function(command) {
       BackgroundKeyboardHandler.sendKeyPress(35, {shift: true, ctrl: true});
       break;
     case 'previousObject':
-      if (!isMultiline)
+      if (!isMultiline || textEditHandler.isSelectionOnFirstLine())
         return true;
       BackgroundKeyboardHandler.sendKeyPress(36);
       break;
     case 'nextObject':
       if (!isMultiline)
         return true;
+
+      if (textEditHandler.isSelectionOnLastLine()) {
+        textEditHandler.moveToAfterEditText();
+        return false;
+      }
+
       BackgroundKeyboardHandler.sendKeyPress(35);
       break;
     case 'previousLine':
-      if (!isMultiline)
+      if (!isMultiline || textEditHandler.isSelectionOnFirstLine())
         return true;
       BackgroundKeyboardHandler.sendKeyPress(33);
       break;
     case 'nextLine':
       if (!isMultiline)
         return true;
+
+      if (textEditHandler.isSelectionOnLastLine()) {
+        textEditHandler.moveToAfterEditText();
+        return false;
+      }
+
       BackgroundKeyboardHandler.sendKeyPress(34);
       break;
     case 'jumpToTop':

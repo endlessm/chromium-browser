@@ -131,6 +131,8 @@ const Flag<bool> kBoolFlags[] = {
   { "-allow-false-start-without-alpn",
     &TestConfig::allow_false_start_without_alpn },
   { "-expect-draft-downgrade", &TestConfig::expect_draft_downgrade },
+  { "-handoff", &TestConfig::handoff },
+  { "-expect-dummy-pq-padding", &TestConfig::expect_dummy_pq_padding },
 };
 
 const Flag<std::string> kStringFlags[] = {
@@ -163,17 +165,23 @@ const Flag<std::string> kStringFlags[] = {
 const Flag<std::string> kBase64Flags[] = {
   { "-expect-certificate-types", &TestConfig::expected_certificate_types },
   { "-expect-channel-id", &TestConfig::expected_channel_id },
+  { "-token-binding-params", &TestConfig::send_token_binding_params },
   { "-expect-ocsp-response", &TestConfig::expected_ocsp_response },
   { "-expect-signed-cert-timestamps",
     &TestConfig::expected_signed_cert_timestamps },
   { "-ocsp-response", &TestConfig::ocsp_response },
   { "-signed-cert-timestamps", &TestConfig::signed_cert_timestamps },
   { "-ticket-key", &TestConfig::ticket_key },
+  { "-quic-transport-params", &TestConfig::quic_transport_params },
+  { "-expected-quic-transport-params",
+    &TestConfig::expected_quic_transport_params },
 };
 
 const Flag<int> kIntFlags[] = {
   { "-port", &TestConfig::port },
   { "-resume-count", &TestConfig::resume_count },
+  { "-expected-token-binding-param",
+    &TestConfig::expected_token_binding_param },
   { "-min-version", &TestConfig::min_version },
   { "-max-version", &TestConfig::max_version },
   { "-expect-version", &TestConfig::expect_version },

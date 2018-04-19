@@ -176,11 +176,10 @@ message AutoUpdateSettingsProto {
   optional bool update_disabled = 1;
 
   // Specifies the prefix of the target version we want the device to
-  // update to, if it's on a older version. If the device is already on
+  // update to, if it's on an older version. If the device is already on
   // a version with the given prefix, then there's no effect. If the device is
-  // on a higher version, it will remain on the higher version as we
-  // don't support rollback yet. The format of this version can be one
-  // of the following:
+  // on a higher version, the behavior depends on |rollback_to_target_version|.
+  // The format of this version can be one of the following:
   // ---------------------------------------------------------------------
   // "" (or not set at all): update to latest version available.
   // 1412.: update to any minor version of 1412 (e.g. 1412.24.34 or 1412.60.2)
@@ -239,6 +238,30 @@ message AutoUpdateSettingsProto {
   // True if AU payloads may be shared with and consumed from other devices
   // on the LAN, using p2p. False otherwise.
   optional bool p2p_enabled = 9 [default = false];
+
+  // The possible types of rollback.
+  enum RollbackToTargetVersion {
+    // No value set. Default is ROLLBACK_DISABLED.
+    ROLLBACK_UNSPECIFIED = 0;
+    // No rollback should happen if |target_version_prefix| specifies an older
+    // version than the currently installed Chrome OS version.
+    ROLLBACK_DISABLED = 1;
+    // If |target_version_prefix| specifies an older version than the currently
+    // installed Chrome OS version, the device should roll back to a Chrome OS
+    // version starting with |target_version_prefix|.
+    ROLLBACK_WITH_FULL_POWERWASH = 2;
+  }
+
+  // Specifies what should happen if |target_version_prefix| specifies an older
+  // version than the currently installed Chrome OS version.
+  optional RollbackToTargetVersion rollback_to_target_version = 10
+      [default = ROLLBACK_DISABLED];
+
+  // Specifies the number of Chrome milestones rollback should be allowed,
+  // starting from the stable version at any time. Setting this policy prevents
+  // firmware and kernel rollback protection to apply for at least this number
+  // of milestones.
+  optional int32 rollback_allowed_milestones = 11 [default = 0];
 }
 
 message OBSOLETE_StartUpUrlsProto {
@@ -938,6 +961,65 @@ message UnaffiliatedArcAllowedProto {
   optional bool unaffiliated_arc_allowed = 1;
 }
 
+// Allowed encryption types for requesting Kerberos tickets from Active
+// Directory servers. Applies to Active Directory management mode only.
+message DeviceKerberosEncryptionTypesProto {
+  enum Types {
+    ENC_TYPES_ALL = 0;     // AES + RC4_HMAC.
+    ENC_TYPES_STRONG = 1;  // AES only.
+    ENC_TYPES_LEGACY = 2;  // RC4_HMAC only.
+    // Next ID to use: 3
+  }
+
+  optional Types types = 1 [default = ENC_TYPES_STRONG];
+}
+
+// Specifies how user policy from device GPOs interacts with user policy from
+// user GPOs. In 'MERGE' mode, device GPOs take preference in case of conflicts.
+// Applies to Active Directory management mode only.
+message DeviceUserPolicyLoopbackProcessingModeProto {
+  enum Mode {
+    USER_POLICY_MODE_DEFAULT = 0;  // Only take user policy from user GPOs.
+    USER_POLICY_MODE_MERGE = 1;    // Merge device GPOs on top of user GPOs.
+    USER_POLICY_MODE_REPLACE = 2;  // Only take user policy from device GPOs.
+    // Next ID to use: 3
+  }
+
+  optional Mode mode = 1 [default = USER_POLICY_MODE_DEFAULT];
+}
+
+// Specifies a list of origins. Each of the specified origins will run in its
+// own process on the sign-in screen.
+message DeviceLoginScreenIsolateOriginsProto {
+  // A comma-separated list of the origins to be run in a separate process on
+  // the sign-in screen.
+  // If the value of this policy does not match the value of the user policy
+  // IsolateOrigins, the chrome process will be restarted on user sign-in to
+  // apply the value specified by the user policy.
+  optional string isolate_origins = 1;
+}
+
+// Specifies if each site should run in its own process on the sign-in screen.
+message DeviceLoginScreenSitePerProcessProto {
+  // If true, each site will run in its own process on the sign-in screen.
+  // If the value of this policy does not match the value of the user policy
+  // SitePerProcess, the chrome process will be restarted on user sign-in to
+  // apply the value specified by the user policy.
+  optional bool site_per_process = 1;
+}
+
+// Setting to control if running virtual machines on Chrome OS is allowed.
+message VirtualMachinesAllowedProto {
+  optional bool virtual_machines_allowed = 1 [default = true];
+}
+
+// Specifies if and how often Active Directory machine (computer) account
+// passwords are changed in the AuthPolicy daemon in Chrome OS.
+// Applies to Active Directory management mode only.
+message DeviceMachinePasswordChangeRateProto {
+  optional int32 rate_days = 1;
+}
+
 message ChromeDeviceSettingsProto {
   reserved 61;
   optional DevicePolicyRefreshRateProto device_policy_refresh_rate = 1;
@@ -1016,4 +1098,15 @@ message ChromeDeviceSettingsProto {
       device_login_screen_auto_select_certificate_for_urls = 62;
   optional UnaffiliatedArcAllowedProto unaffiliated_arc_allowed = 63;
   optional NetworkHostnameProto network_hostname = 64;
+  optional DeviceKerberosEncryptionTypesProto device_kerberos_encryption_types =
+      65;
+  optional DeviceUserPolicyLoopbackProcessingModeProto
+      device_user_policy_loopback_processing_mode = 66;
+  optional DeviceLoginScreenIsolateOriginsProto
+      device_login_screen_isolate_origins = 67;
+  optional DeviceLoginScreenSitePerProcessProto
+      device_login_screen_site_per_process = 68;
+  optional VirtualMachinesAllowedProto virtual_machines_allowed = 69;
+  optional DeviceMachinePasswordChangeRateProto
+      device_machine_password_change_rate = 70;
 }

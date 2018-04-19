@@ -36,9 +36,6 @@
 -DataUrlNavigationBrowserTest.PDF_NavigationFromFrame_TopFrameIsDataURL_Block
 
 -AsyncResourceHandlerBrowserTest/AsyncResourceHandlerBrowserTest.UploadProgress*
--CrossSiteResourceHandlerTest.NoDeliveryToDetachedFrame
--CrossSiteTransferTest.NoLeakOnCrossSiteCancel
--CrossSiteTransferTest.ReplaceEntryCrossProcessThenTransfer
 -DevToolsDownloadContentTest.MultiDownload
 -DevToolsDownloadContentTest.DefaultDownload
 -DevToolsDownloadContentTest.ResetDownloadState
@@ -62,8 +59,6 @@
 -PreviewsStateResourceDispatcherHostBrowserTest.ShouldEnableLoFiModeOn
 -PreviewsStateResourceDispatcherHostBrowserTest.ShouldEnableLoFiModeReload
 -PreviewsStateResourceDispatcherHostBrowserTest.ShouldEnableLoFiModeReloadDisableLoFi
--RenderFrameHostImplBrowserTest.AbortedRendererInitiatedNavigationDoNotCancelPendingXHR
--RenderFrameHostImplBrowserTest.StreamHandleReleasedOnRendererCrash
 -RenderThreadImplBrowserTest.NonResourceDispatchIPCTasksDontGoThroughScheduler
 -RenderThreadImplBrowserTest.ResourceDispatchIPCTasksGoThroughScheduler
 -RenderViewBrowserTest.ConfirmCacheInformationPlumbed
@@ -77,14 +72,11 @@
 -RequestDataResourceDispatcherHostBrowserTest.SameOriginAuxiliary
 -RequestDataResourceDispatcherHostBrowserTest.SameOriginNested
 -SitePerProcessIgnoreCertErrorsBrowserTest.SubresourceWithCertificateErrors
--WebContentsImplBrowserTest.ClearNonVisiblePendingOnFail
 -WebContentsImplBrowserTest.DownloadImage_Deny_FileImage
--WebContentsImplBrowserTest.LoadingStateChangedForSameDocumentNavigation
--WebContentsImplBrowserTest.UserAgentOverride
 -WorkerTest.WorkerTlsClientAuthFetch
 -WorkerTest.WorkerTlsClientAuthImportScripts
 
-# content/network/url_loader_impl.cc should handle failure in
+# services/network/url_loader.cc should handle failure in
 # URLLoaderImpl::OnResponseBodyStreamRead(). Note this is flaky, so it will pass
 # sometimes.
 -SRC_ClearKey/EncryptedMediaTest.FrameSizeChangeVideo/0
@@ -102,7 +94,6 @@
 # http://crbug.com/783990
 # Add support for http auth.
 -WorkerTest.SharedWorkerHttpAuth
--WorkerTest.WorkerHttpAuth
 
 # http://crbug.com/787614
 -ResourceDispatcherHostBrowserTest.ContentDispositionEmpty
@@ -117,15 +108,18 @@
 -ResourceDispatcherHostBrowserTest.SniffHTMLWithNoContentType
 -ResourceDispatcherHostBrowserTest.SniffNoContentTypeNoData
 
-# Cross-site document blocking needs to be implemented in the network service.
+# Cross-origin read blocking (CORB) needs to be implemented in the network
+# service.
 # https://crbug.com/786505 (cross site document blocking)
 # https://crbug.com/792546 (cross site document blocking in network service)
 -SiteIsolationStatsGathererBrowserTest.CrossSiteDocumentBlockingForMimeType
 -CrossSiteDocumentBlockingTest.BlockDocuments
+-CrossSiteDocumentBlockingTest.BlockHeaders
+-CrossSiteDocumentBlockingTest.BlockRequestFromErrorPage
 -CrossSiteDocumentBlockingIsolatedOriginTest.BlockDocumentsFromIsolatedOrigin
 -CrossSiteDocumentBlockingTest.RangeRequest
 -CrossSiteDocumentBlockingServiceWorkerTest.NoNetwork
--CrossSiteDocumentBlockingServiceWorkerTest.NetworkAndOpaqueResponse
+-CrossSiteDocumentBlockingServiceWorkerTest.NetworkToServiceWorkerResponse
 
 # Flakes https://logs.chromium.org/v/?s=chromium%2Fbb%2Fchromium.linux%2FLinux_Tests__dbg__1_%2F69105%2F%2B%2Frecipes%2Fsteps%2Fnetwork_service_content_browsertests%2F0%2Flogs%2FWebContentsImplBrowserTest.DownloadImage_Allow_FileImage%2F0
 -WebContentsImplBrowserTest.DownloadImage_Allow_FileImage

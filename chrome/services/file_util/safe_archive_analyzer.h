@@ -5,11 +5,12 @@
 #ifndef CHROME_SERVICES_FILE_UTIL_SAFE_ARCHIVE_ANALYZER_H_
 #define CHROME_SERVICES_FILE_UTIL_SAFE_ARCHIVE_ANALYZER_H_
 
-#include "chrome/services/file_util/public/interfaces/safe_archive_analyzer.mojom.h"
+#include "chrome/services/file_util/public/mojom/safe_archive_analyzer.mojom.h"
 #include "services/service_manager/public/cpp/service_context_ref.h"
 
 namespace base {
 class File;
+class FilePath;
 }
 
 class SafeArchiveAnalyzer : public chrome::mojom::SafeArchiveAnalyzer {
@@ -25,6 +26,8 @@ class SafeArchiveAnalyzer : public chrome::mojom::SafeArchiveAnalyzer {
                       AnalyzeZipFileCallback callback) override;
   void AnalyzeDmgFile(base::File dmg_file,
                       AnalyzeDmgFileCallback callback) override;
+  void AnalyzeRarFile(const base::FilePath& rar_file_path,
+                      AnalyzeRarFileCallback callback) override;
 
   const std::unique_ptr<service_manager::ServiceContextRef> service_ref_;
 

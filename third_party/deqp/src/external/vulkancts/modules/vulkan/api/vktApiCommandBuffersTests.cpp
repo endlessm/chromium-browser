@@ -88,15 +88,7 @@ CommandBufferBareTestEnvironment<NumBuffers>::CommandBufferBareTestEnvironment(C
 	, m_queueFamilyIndex					(context.getUniversalQueueFamilyIndex())
 	, m_allocator							(context.getDefaultAllocator())
 {
-	const VkCommandPoolCreateInfo			cmdPoolCreateInfo		=
-	{
-		VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,					// VkStructureType             sType;
-		DE_NULL,													// const void*                 pNext;
-		commandPoolCreateFlags,										// VkCommandPoolCreateFlags    flags;
-		m_queueFamilyIndex											// deUint32                    queueFamilyIndex;
-	};
-
-	m_commandPool = createCommandPool(m_vkd, m_device, &cmdPoolCreateInfo, DE_NULL);
+	m_commandPool = createCommandPool(m_vkd, m_device, commandPoolCreateFlags, m_queueFamilyIndex);
 
 	const VkCommandBufferAllocateInfo		cmdBufferAllocateInfo	=
 	{
@@ -375,17 +367,7 @@ void CommandBufferRenderPassTestEnvironment::beginSecondaryCommandBuffer(VkComma
 
 void CommandBufferRenderPassTestEnvironment::submitPrimaryCommandBuffer(void)
 {
-
-	const VkFenceCreateInfo fenceCreateInfo							=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,					// VkStructureType       sType;
-		DE_NULL,												// const void*           pNext;
-		0u														// VkFenceCreateFlags    flags;
-	};
-
-	const Unique<VkFence>					fence					(createFence(m_vkd, m_device, &fenceCreateInfo));
-
-
+	const Unique<VkFence>					fence					(createFence(m_vkd, m_device));
 	const VkSubmitInfo						submitInfo				=
 	{
 		VK_STRUCTURE_TYPE_SUBMIT_INFO,							// VkStructureType                sType;
@@ -482,7 +464,7 @@ de::MovePtr<tcu::TextureLevel> CommandBufferRenderPassTestEnvironment::readColor
 	beginPrimaryCommandBuffer(0);
 	m_vkd.cmdPipelineBarrier(m_primaryCommandBuffers[0], VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, (VkDependencyFlags)0, 0, (const VkMemoryBarrier*)DE_NULL, 0, (const VkBufferMemoryBarrier*)DE_NULL, 1, &imageBarrier);
 	m_vkd.cmdCopyImageToBuffer(m_primaryCommandBuffers[0], *m_colorImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, *buffer, 1, &copyRegion);
-	m_vkd.cmdPipelineBarrier(m_primaryCommandBuffers[0], VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, (VkDependencyFlags)0, 0, (const VkMemoryBarrier*)DE_NULL, 1, &bufferBarrier, 0, (const VkImageMemoryBarrier*)DE_NULL);
+	m_vkd.cmdPipelineBarrier(m_primaryCommandBuffers[0], VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, (VkDependencyFlags)0, 0, (const VkMemoryBarrier*)DE_NULL, 1, &bufferBarrier, 0, (const VkImageMemoryBarrier*)DE_NULL);
 	VK_CHECK(m_vkd.endCommandBuffer(m_primaryCommandBuffers[0]));
 
 	submitPrimaryCommandBuffer();
@@ -503,15 +485,7 @@ tcu::TestStatus createPoolNullParamsTest(Context& context)
 	const DeviceInterface&					vk						= context.getDeviceInterface();
 	const deUint32							queueFamilyIndex		= context.getUniversalQueueFamilyIndex();
 
-	const VkCommandPoolCreateInfo			cmdPoolParams			=
-	{
-		VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,					// sType;
-		DE_NULL,													// pNext;
-		0u,															// flags;
-		queueFamilyIndex,											// queueFamilyIndex;
-	};
-
-	createCommandPool(vk, vkDevice, &cmdPoolParams, DE_NULL);
+	createCommandPool(vk, vkDevice, 0u, queueFamilyIndex);
 
 	return tcu::TestStatus::pass("Command Pool allocated correctly.");
 }
@@ -622,13 +596,7 @@ bool executeCommandBuffer (const VkDevice			device,
 						   const VkCommandBuffer	commandBuffer,
 						   const bool				exitBeforeEndCommandBuffer = false)
 {
-	const VkEventCreateInfo			eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,			//VkStructureType		sType;
-		DE_NULL,										//const void*			pNext;
-		0u												//VkEventCreateFlags	flags;
-	};
-	const Unique<VkEvent>			event					(createEvent(vk, device, &eventCreateInfo));
+	const Unique<VkEvent>			event					(createEvent(vk, device));
 	const VkCommandBufferBeginInfo	commandBufferBeginInfo	=
 	{
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,	//VkStructureType						sType;
@@ -647,13 +615,7 @@ bool executeCommandBuffer (const VkDevice			device,
 	VK_CHECK(vk.endCommandBuffer(commandBuffer));
 
 	{
-		const VkFenceCreateInfo					fenceCreateInfo	=
-		{
-			VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,	//VkStructureType		sType;
-			DE_NULL,								//const void*			pNext;
-			0u										//VkFenceCreateFlags	flags;
-		};
-		const Unique<VkFence>					fence			(createFence(vk, device, &fenceCreateInfo));
+		const Unique<VkFence>					fence			(createFence(vk, device));
 		const VkSubmitInfo						submitInfo		=
 		{
 			VK_STRUCTURE_TYPE_SUBMIT_INFO,			// sType
@@ -910,16 +872,8 @@ tcu::TestStatus executePrimaryBufferTest(Context& context)
 		(const VkCommandBufferInheritanceInfo*)DE_NULL,
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	// create event that will be used to check if secondary command buffer has been executed
-	const Unique<VkEvent>					event					(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					event					(createEvent(vk, vkDevice));
 
 	// reset event
 	VK_CHECK(vk.resetEvent(vkDevice, *event));
@@ -935,15 +889,8 @@ tcu::TestStatus executePrimaryBufferTest(Context& context)
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBuf));
 
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fence					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence					(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfo				=
 	{
@@ -1007,17 +954,9 @@ tcu::TestStatus executeLargePrimaryBufferTest(Context& context)
 		(const VkCommandBufferInheritanceInfo*)DE_NULL,
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	std::vector<VkEventSp>					events;
 	for (deUint32 ndx = 0; ndx < LARGE_BUFFER_SIZE; ++ndx)
-		events.push_back(VkEventSp(new vk::Unique<VkEvent>(createEvent(vk, vkDevice, &eventCreateInfo, DE_NULL))));
+		events.push_back(VkEventSp(new vk::Unique<VkEvent>(createEvent(vk, vkDevice))));
 
 	// record primary command buffer
 	VK_CHECK(vk.beginCommandBuffer(*primCmdBuf, &primCmdBufBeginInfo));
@@ -1030,15 +969,8 @@ tcu::TestStatus executeLargePrimaryBufferTest(Context& context)
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBuf));
 
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fence					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence					(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfo				=
 	{
@@ -1113,13 +1045,7 @@ tcu::TestStatus resetBufferImplicitlyTest(Context& context)
 		(const VkCommandBufferInheritanceInfo*)DE_NULL,
 	};
 
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,						// sType;
-		DE_NULL,													// pNext;
-		0u,															// flags;
-	};
-	const Unique<VkEvent>					event					(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					event					(createEvent(vk, vkDevice));
 
 	// Put the command buffer in recording state.
 	VK_CHECK(vk.beginCommandBuffer(*cmdBuf, &cmdBufBeginInfo));
@@ -1130,13 +1056,7 @@ tcu::TestStatus resetBufferImplicitlyTest(Context& context)
 	VK_CHECK(vk.endCommandBuffer(*cmdBuf));
 
 	// We'll use a fence to wait for the execution of the queue
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,						// sType;
-		DE_NULL,													// pNext;
-		0u,															// flags
-	};
-	const Unique<VkFence>					fence					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence					(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfo				=
 	{
@@ -1186,6 +1106,206 @@ tcu::TestStatus resetBufferImplicitlyTest(Context& context)
 		return tcu::TestStatus::fail("Buffer was not reset correctly.");
 }
 
+using  de::SharedPtr;
+typedef SharedPtr<Unique<VkEvent> >			VkEventShared;
+
+template<typename T>
+inline SharedPtr<Unique<T> > makeSharedPtr (Move<T> move)
+{
+	return SharedPtr<Unique<T> >(new Unique<T>(move));
+}
+
+bool submitAndCheck (Context& context, std::vector<VkCommandBuffer>& cmdBuffers, std::vector <VkEventShared>& events)
+{
+	const VkDevice						vkDevice	= context.getDevice();
+	const DeviceInterface&				vk			= context.getDeviceInterface();
+	const VkQueue						queue		= context.getUniversalQueue();
+	const Unique<VkFence>				fence		(createFence(vk, vkDevice));
+
+	const VkSubmitInfo					submitInfo	=
+	{
+		VK_STRUCTURE_TYPE_SUBMIT_INFO,				// sType
+		DE_NULL,									// pNext
+		0u,											// waitSemaphoreCount
+		DE_NULL,									// pWaitSemaphores
+		(const VkPipelineStageFlags*)DE_NULL,		// pWaitDstStageMask
+		static_cast<deUint32>(cmdBuffers.size()),	// commandBufferCount
+		&cmdBuffers[0],								// pCommandBuffers
+		0u,											// signalSemaphoreCount
+		DE_NULL,									// pSignalSemaphores
+	};
+
+	VK_CHECK(vk.queueSubmit(queue, 1u, &submitInfo, fence.get()));
+	VK_CHECK(vk.waitForFences(vkDevice, 1u, &fence.get(), 0u, INFINITE_TIMEOUT));
+
+	for(int eventNdx = 0; eventNdx < static_cast<int>(events.size()); ++eventNdx)
+	{
+		if (vk.getEventStatus(vkDevice, **events[eventNdx]) != VK_EVENT_SET)
+			return false;
+		vk.resetEvent(vkDevice, **events[eventNdx]);
+	}
+
+	return true;
+}
+
+void createCommadBuffers (const DeviceInterface&		vk,
+						  const VkDevice				vkDevice,
+						  deUint32						bufferCount,
+						  VkCommandPool					pool,
+						  const VkCommandBufferLevel	cmdBufferLevel,
+						  VkCommandBuffer*				pCommandBuffers)
+{
+	const VkCommandBufferAllocateInfo		cmdBufParams	=
+	{
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,	//	VkStructureType				sType;
+		DE_NULL,										//	const void*					pNext;
+		pool,											//	VkCommandPool				pool;
+		cmdBufferLevel,									//	VkCommandBufferLevel		level;
+		bufferCount,									//	uint32_t					bufferCount;
+	};
+	VK_CHECK(vk.allocateCommandBuffers(vkDevice, &cmdBufParams, pCommandBuffers));
+}
+
+void addCommandsToBuffer (const DeviceInterface& vk, std::vector<VkCommandBuffer>& cmdBuffers, std::vector <VkEventShared>& events)
+{
+	const VkCommandBufferInheritanceInfo	secCmdBufInheritInfo	=
+	{
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
+		DE_NULL,
+		(VkRenderPass)0u,								// renderPass
+		0u,												// subpass
+		(VkFramebuffer)0u,								// framebuffer
+		VK_FALSE,										// occlusionQueryEnable
+		(VkQueryControlFlags)0u,						// queryFlags
+		(VkQueryPipelineStatisticFlags)0u,				// pipelineStatistics
+	};
+
+	const VkCommandBufferBeginInfo		cmdBufBeginInfo	=
+	{
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,	// sType
+		DE_NULL,										// pNext
+		0u,												// flags
+		&secCmdBufInheritInfo,							// pInheritanceInfo;
+	};
+
+	for(int bufferNdx = 0; bufferNdx < static_cast<int>(cmdBuffers.size()); ++bufferNdx)
+	{
+		VK_CHECK(vk.beginCommandBuffer(cmdBuffers[bufferNdx], &cmdBufBeginInfo));
+		vk.cmdSetEvent(cmdBuffers[bufferNdx], **events[bufferNdx % events.size()], VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+		VK_CHECK(vk.endCommandBuffer(cmdBuffers[bufferNdx]));
+	}
+}
+
+bool executeSecondaryCmdBuffer (Context&						context,
+								VkCommandPool					pool,
+								std::vector<VkCommandBuffer>&	cmdBuffersSecondary,
+								std::vector <VkEventShared>&	events)
+{
+	const VkDevice					vkDevice		= context.getDevice();
+	const DeviceInterface&			vk				= context.getDeviceInterface();
+	std::vector<VkCommandBuffer>	cmdBuffer		(1);
+	const VkCommandBufferBeginInfo	cmdBufBeginInfo	=
+	{
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,	// sType
+		DE_NULL,										// pNext
+		0u,												// flags
+		(const VkCommandBufferInheritanceInfo*)DE_NULL,	// pInheritanceInfo;
+	};
+
+	createCommadBuffers(vk, vkDevice, 1u, pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, &cmdBuffer[0]);
+	VK_CHECK(vk.beginCommandBuffer(cmdBuffer[0], &cmdBufBeginInfo));
+	vk.cmdExecuteCommands(cmdBuffer[0], static_cast<deUint32>(cmdBuffersSecondary.size()), &cmdBuffersSecondary[0]);
+	VK_CHECK(vk.endCommandBuffer(cmdBuffer[0]));
+
+	bool returnValue = submitAndCheck(context, cmdBuffer, events);
+	vk.freeCommandBuffers(vkDevice, pool, 1u, &cmdBuffer[0]);
+	return returnValue;
+}
+
+tcu::TestStatus trimCommandPoolTest (Context& context, const VkCommandBufferLevel cmdBufferLevel)
+{
+	if (!de::contains(context.getDeviceExtensions().begin(), context.getDeviceExtensions().end(), "VK_KHR_maintenance1"))
+		TCU_THROW(NotSupportedError, "Extension VK_KHR_maintenance1 not supported");
+
+	const VkDevice							vkDevice				= context.getDevice();
+	const DeviceInterface&					vk						= context.getDeviceInterface();
+	const deUint32							queueFamilyIndex		= context.getUniversalQueueFamilyIndex();
+
+	//test parameters
+	const deUint32							cmdBufferIterationCount	= 300u;
+	const deUint32							cmdBufferCount			= 10u;
+
+	const VkCommandPoolCreateInfo			cmdPoolParams			=
+	{
+		VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,					// sType;
+		DE_NULL,													// pNext;
+		VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,			// flags;
+		queueFamilyIndex,											// queueFamilyIndex;
+	};
+	const Unique<VkCommandPool>				cmdPool					(createCommandPool(vk, vkDevice, &cmdPoolParams));
+
+	std::vector <VkEventShared>				events;
+	for (deUint32 ndx = 0u; ndx < cmdBufferCount; ++ndx)
+		events.push_back(makeSharedPtr(createEvent(vk, vkDevice)));
+
+	{
+		std::vector<VkCommandBuffer> cmdBuffers(cmdBufferCount);
+		createCommadBuffers(vk, vkDevice, cmdBufferCount, *cmdPool, cmdBufferLevel, &cmdBuffers[0]);
+
+		for (deUint32 cmdBufferIterationrNdx = 0; cmdBufferIterationrNdx < cmdBufferIterationCount; ++cmdBufferIterationrNdx)
+		{
+			addCommandsToBuffer(vk, cmdBuffers, events);
+
+			//Peak, situation when we use a lot more command buffers
+			if (cmdBufferIterationrNdx % 10u == 0)
+			{
+				std::vector<VkCommandBuffer> cmdBuffersPeak(cmdBufferCount * 10u);
+				createCommadBuffers(vk, vkDevice, static_cast<deUint32>(cmdBuffersPeak.size()), *cmdPool, cmdBufferLevel, &cmdBuffersPeak[0]);
+				addCommandsToBuffer(vk, cmdBuffersPeak, events);
+
+				switch(cmdBufferLevel)
+				{
+					case VK_COMMAND_BUFFER_LEVEL_PRIMARY:
+						if (!submitAndCheck(context, cmdBuffersPeak, events))
+							return tcu::TestStatus::fail("Fail");
+						break;
+					case VK_COMMAND_BUFFER_LEVEL_SECONDARY:
+						if (!executeSecondaryCmdBuffer(context, *cmdPool, cmdBuffersPeak, events))
+							return tcu::TestStatus::fail("Fail");
+						break;
+					default:
+						DE_ASSERT(0);
+				}
+				vk.freeCommandBuffers(vkDevice, *cmdPool, static_cast<deUint32>(cmdBuffersPeak.size()), &cmdBuffersPeak[0]);
+			}
+
+			vk.trimCommandPoolKHR(vkDevice, *cmdPool, (VkCommandPoolTrimFlagsKHR)0);
+
+			switch(cmdBufferLevel)
+			{
+				case VK_COMMAND_BUFFER_LEVEL_PRIMARY:
+					if (!submitAndCheck(context, cmdBuffers, events))
+						return tcu::TestStatus::fail("Fail");
+					break;
+				case VK_COMMAND_BUFFER_LEVEL_SECONDARY:
+					if (!executeSecondaryCmdBuffer(context, *cmdPool, cmdBuffers, events))
+						return tcu::TestStatus::fail("Fail");
+					break;
+				default:
+					DE_ASSERT(0);
+			}
+
+			for (deUint32 bufferNdx = cmdBufferIterationrNdx % 3u; bufferNdx < cmdBufferCount; bufferNdx+=2u)
+			{
+				vk.freeCommandBuffers(vkDevice, *cmdPool, 1u, &cmdBuffers[bufferNdx]);
+				createCommadBuffers(vk, vkDevice, 1u, *cmdPool, cmdBufferLevel, &cmdBuffers[bufferNdx]);
+			}
+		}
+	}
+
+	return tcu::TestStatus::pass("Pass");
+}
+
 /******** 19.3. Command Buffer Recording (5.3 in VK 1.0 Spec) *****************/
 tcu::TestStatus recordSinglePrimaryBufferTest(Context& context)
 {
@@ -1221,16 +1341,8 @@ tcu::TestStatus recordSinglePrimaryBufferTest(Context& context)
 		(const VkCommandBufferInheritanceInfo*)DE_NULL,
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	// create event that will be used to check if secondary command buffer has been executed
-	const Unique<VkEvent>					event					(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					event					(createEvent(vk, vkDevice));
 
 	// record primary command buffer
 	VK_CHECK(vk.beginCommandBuffer(*primCmdBuf, &primCmdBufBeginInfo));
@@ -1278,16 +1390,8 @@ tcu::TestStatus recordLargePrimaryBufferTest(Context &context)
 		(const VkCommandBufferInheritanceInfo*)DE_NULL,
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	// create event that will be used to check if secondary command buffer has been executed
-	const Unique<VkEvent>					event					(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					event					(createEvent(vk, vkDevice));
 
 	// reset event
 	VK_CHECK(vk.resetEvent(vkDevice, *event));
@@ -1313,15 +1417,8 @@ tcu::TestStatus recordLargePrimaryBufferTest(Context &context)
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBuf));
 
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fence					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence					(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfo				=
 	{
@@ -1390,16 +1487,8 @@ tcu::TestStatus recordSingleSecondaryBufferTest(Context& context)
 		&secCmdBufInheritInfo,
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	// create event that will be used to check if secondary command buffer has been executed
-	const Unique<VkEvent>					event					(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					event					(createEvent(vk, vkDevice));
 
 	// record primary command buffer
 	VK_CHECK(vk.beginCommandBuffer(*secCmdBuf, &secCmdBufBeginInfo));
@@ -1447,16 +1536,8 @@ tcu::TestStatus recordLargeSecondaryBufferTest(Context &context)
 		(const VkCommandBufferInheritanceInfo*)DE_NULL,
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	// create event that will be used to check if secondary command buffer has been executed
-	const Unique<VkEvent>					event					(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					event					(createEvent(vk, vkDevice));
 
 	// reset event
 	VK_CHECK(vk.resetEvent(vkDevice, *event));
@@ -1483,15 +1564,8 @@ tcu::TestStatus recordLargeSecondaryBufferTest(Context &context)
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBuf));
 
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fence					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence					(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfo				=
 	{
@@ -1550,16 +1624,8 @@ tcu::TestStatus submitPrimaryBufferTwiceTest(Context& context)
 		(const VkCommandBufferInheritanceInfo*)DE_NULL,
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	// create event that will be used to check if secondary command buffer has been executed
-	const Unique<VkEvent>					event					(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					event					(createEvent(vk, vkDevice));
 
 	// reset event
 	VK_CHECK(vk.resetEvent(vkDevice, *event));
@@ -1575,15 +1641,8 @@ tcu::TestStatus submitPrimaryBufferTwiceTest(Context& context)
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBuf));
 
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fence					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence					(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfo				=
 	{
@@ -1694,16 +1753,8 @@ tcu::TestStatus submitSecondaryBufferTwiceTest(Context& context)
 		&secCmdBufInheritInfo,
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	// create event that will be used to check if secondary command buffer has been executed
-	const Unique<VkEvent>					event					(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					event					(createEvent(vk, vkDevice));
 
 	// reset event
 	VK_CHECK(vk.resetEvent(vkDevice, *event));
@@ -1729,15 +1780,8 @@ tcu::TestStatus submitSecondaryBufferTwiceTest(Context& context)
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBuf1));
 
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fence					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence					(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfo1				=
 	{
@@ -1839,16 +1883,8 @@ tcu::TestStatus oneTimeSubmitFlagPrimaryBufferTest(Context& context)
 		(const VkCommandBufferInheritanceInfo*)DE_NULL,
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	// create event that will be used to check if secondary command buffer has been executed
-	const Unique<VkEvent>					event					(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					event					(createEvent(vk, vkDevice));
 
 	// reset event
 	VK_CHECK(vk.resetEvent(vkDevice, *event));
@@ -1864,15 +1900,8 @@ tcu::TestStatus oneTimeSubmitFlagPrimaryBufferTest(Context& context)
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBuf));
 
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fence					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence					(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfo				=
 	{
@@ -1995,16 +2024,8 @@ tcu::TestStatus oneTimeSubmitFlagSecondaryBufferTest(Context& context)
 		&secCmdBufInheritInfo,
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	// create event that will be used to check if secondary command buffer has been executed
-	const Unique<VkEvent>					event					(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					event					(createEvent(vk, vkDevice));
 
 	// reset event
 	VK_CHECK(vk.resetEvent(vkDevice, *event));
@@ -2030,15 +2051,8 @@ tcu::TestStatus oneTimeSubmitFlagSecondaryBufferTest(Context& context)
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBuf1));
 
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fence					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence					(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfo1				=
 	{
@@ -2206,17 +2220,9 @@ tcu::TestStatus simultaneousUsePrimaryBufferTest(Context& context)
 		(const VkCommandBufferInheritanceInfo*)DE_NULL,
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	// create event that will be used to check if secondary command buffer has been executed
-	const Unique<VkEvent>					eventOne				(createEvent(vk, vkDevice, &eventCreateInfo));
-	const Unique<VkEvent>					eventTwo				(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					eventOne				(createEvent(vk, vkDevice));
+	const Unique<VkEvent>					eventTwo				(createEvent(vk, vkDevice));
 
 	// reset event
 	VK_CHECK(vk.resetEvent(vkDevice, *eventOne));
@@ -2232,16 +2238,9 @@ tcu::TestStatus simultaneousUsePrimaryBufferTest(Context& context)
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBuf));
 
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fence1					(createFence(vk, vkDevice, &fenceCreateInfo));
-	const Unique<VkFence>					fence2					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence1					(createFence(vk, vkDevice));
+	const Unique<VkFence>					fence2					(createFence(vk, vkDevice));
 
 
 	const VkSubmitInfo						submitInfo				=
@@ -2351,17 +2350,9 @@ tcu::TestStatus simultaneousUseSecondaryBufferTest(Context& context)
 		&secCmdBufInheritInfo,
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	// create event that will be used to check if secondary command buffer has been executed
-	const Unique<VkEvent>					eventOne				(createEvent(vk, vkDevice, &eventCreateInfo));
-	const Unique<VkEvent>					eventTwo				(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					eventOne				(createEvent(vk, vkDevice));
+	const Unique<VkEvent>					eventTwo				(createEvent(vk, vkDevice));
 
 	// reset event
 	VK_CHECK(vk.resetEvent(vkDevice, *eventOne));
@@ -2390,15 +2381,8 @@ tcu::TestStatus simultaneousUseSecondaryBufferTest(Context& context)
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBuf));
 
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fence					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence					(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfo				=
 	{
@@ -2572,15 +2556,8 @@ tcu::TestStatus simultaneousUseSecondaryBufferOnePrimaryBufferTest(Context& cont
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBuf));
 
-	const VkFenceCreateInfo					fenceCreateInfo =
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fence(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfo =
 	{
@@ -2757,15 +2734,8 @@ tcu::TestStatus simultaneousUseSecondaryBufferTwoPrimaryBuffersTest(Context& con
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBufTwo));
 
-	const VkFenceCreateInfo					fenceCreateInfo =
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fence(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfo =
 	{
@@ -3121,17 +3091,10 @@ tcu::TestStatus submitBufferCountNonZero(Context& context)
 		(const VkCommandBufferInheritanceInfo*)DE_NULL,
 	};
 
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,						// sType;
-		DE_NULL,													// pNext;
-		0u,															// flags;
-	};
-
 	std::vector<VkEventSp>					events;
 	for (deUint32 ndx = 0; ndx < BUFFER_COUNT; ++ndx)
 	{
-		events.push_back(VkEventSp(new vk::Unique<VkEvent>(createEvent(vk, vkDevice, &eventCreateInfo, DE_NULL))));
+		events.push_back(VkEventSp(new vk::Unique<VkEvent>(createEvent(vk, vkDevice))));
 	}
 
 	// Record the command buffers
@@ -3145,13 +3108,7 @@ tcu::TestStatus submitBufferCountNonZero(Context& context)
 	}
 
 	// We'll use a fence to wait for the execution of the queue
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,						// sType;
-		DE_NULL,													// pNext;
-		0u,															// flags
-	};
-	const Unique<VkFence>					fence					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence					(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfo				=
 	{
@@ -3227,16 +3184,9 @@ tcu::TestStatus submitBufferCountEqualZero(Context& context)
 		(const VkCommandBufferInheritanceInfo*)DE_NULL,
 	};
 
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,						// sType;
-		DE_NULL,													// pNext;
-		0u,															// flags;
-	};
-
 	std::vector<VkEventSp>					events;
 	for (deUint32 ndx = 0; ndx < BUFFER_COUNT; ++ndx)
-		events.push_back(VkEventSp(new vk::Unique<VkEvent>(createEvent(vk, vkDevice, &eventCreateInfo, DE_NULL))));
+		events.push_back(VkEventSp(new vk::Unique<VkEvent>(createEvent(vk, vkDevice))));
 
 	// Record the command buffers
 	for (deUint32 ndx = 0; ndx < BUFFER_COUNT; ++ndx)
@@ -3249,14 +3199,8 @@ tcu::TestStatus submitBufferCountEqualZero(Context& context)
 	}
 
 	// We'll use a fence to wait for the execution of the queue
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,						// sType;
-		DE_NULL,													// pNext;
-		0u,															// flags
-	};
-	const Unique<VkFence>					fenceZero				(createFence(vk, vkDevice, &fenceCreateInfo));
-	const Unique<VkFence>					fenceOne				(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fenceZero				(createFence(vk, vkDevice));
+	const Unique<VkFence>					fenceOne				(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfoCountZero		=
 	{
@@ -3348,17 +3292,9 @@ tcu::TestStatus submitBufferWaitSingleSemaphore(Context& context)
 		DE_NULL														// const VkCommandBufferInheritanceInfo*	pInheritanceInfo;
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	// create two events that will be used to check if command buffers has been executed
-	const Unique<VkEvent>					event1					(createEvent(vk, vkDevice, &eventCreateInfo));
-	const Unique<VkEvent>					event2					(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					event1					(createEvent(vk, vkDevice));
+	const Unique<VkEvent>					event2					(createEvent(vk, vkDevice));
 
 	// reset events
 	VK_CHECK(vk.resetEvent(vkDevice, *event1));
@@ -3386,25 +3322,11 @@ tcu::TestStatus submitBufferWaitSingleSemaphore(Context& context)
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBuf2));
 
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fence					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence					(createFence(vk, vkDevice));
 
 	// create semaphore for use in this test
-	const VkSemaphoreCreateInfo				semaphoreCreateInfo		=
-	{
-		VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,					// sType;
-		DE_NULL,													// pNext;
-		0,															// flags;
-	};
-
-	const Unique <VkSemaphore>				semaphore				(createSemaphore(vk, vkDevice, &semaphoreCreateInfo));
+	const Unique <VkSemaphore>				semaphore				(createSemaphore(vk, vkDevice));
 
 	// create submit info for first buffer - signalling semaphore
 	const VkSubmitInfo						submitInfo1				=
@@ -3507,16 +3429,8 @@ tcu::TestStatus submitBufferWaitManySemaphores(Context& context)
 		DE_NULL														// const VkCommandBufferInheritanceInfo*	pInheritanceInfo;
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	// create event that will be used to check if command buffers has been executed
-	const Unique<VkEvent>					event					(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					event					(createEvent(vk, vkDevice));
 
 	// reset event - at creation state is undefined
 	VK_CHECK(vk.resetEvent(vkDevice, *event));
@@ -3532,32 +3446,17 @@ tcu::TestStatus submitBufferWaitManySemaphores(Context& context)
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBuf));
 
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fence					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence					(createFence(vk, vkDevice));
 
 	// numSemaphores is declared const, so this array can be static
 	// the semaphores will be destroyed automatically at end of scope
 	Move <VkSemaphore>						semaphoreArray[numSemaphores];
 	VkSemaphore								semaphores[numSemaphores];
 
-	// prepare create info for semaphores - same for all
-	const VkSemaphoreCreateInfo				semaphoreCreateInfo		=
-	{
-		VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,					// sType;
-		DE_NULL,													// pNext;
-		0,															// flags;
-	};
-
 	for (deUint32 idx = 0; idx < numSemaphores; ++idx) {
 		// create semaphores for use in this test
-		semaphoreArray[idx] = createSemaphore(vk, vkDevice, &semaphoreCreateInfo);
+		semaphoreArray[idx] = createSemaphore(vk, vkDevice);
 		semaphores[idx] = semaphoreArray[idx].get();
 	};
 
@@ -3674,16 +3573,9 @@ tcu::TestStatus submitBufferNullFence(Context& context)
 		(const VkCommandBufferInheritanceInfo*)DE_NULL,
 	};
 
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,						// sType;
-		DE_NULL,													// pNext;
-		0u,															// flags;
-	};
-
 	std::vector<VkEventSp>					events;
 	for (deUint32 ndx = 0; ndx < BUFFER_COUNT; ++ndx)
-		events.push_back(VkEventSp(new vk::Unique<VkEvent>(createEvent(vk, vkDevice, &eventCreateInfo, DE_NULL))));
+		events.push_back(VkEventSp(new vk::Unique<VkEvent>(createEvent(vk, vkDevice))));
 
 	// Record the command buffers
 	for (deUint32 ndx = 0; ndx < BUFFER_COUNT; ++ndx)
@@ -3696,13 +3588,7 @@ tcu::TestStatus submitBufferNullFence(Context& context)
 	}
 
 	// We'll use a fence to wait for the execution of the queue
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,						// sType;
-		DE_NULL,													// pNext;
-		0u,															// flags
-	};
-	const Unique<VkFence>					fence					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence					(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfoNullFence		=
 	{
@@ -3822,16 +3708,8 @@ tcu::TestStatus executeSecondaryBufferTest(Context& context)
 		&secCmdBufInheritInfo,
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	// create event that will be used to check if secondary command buffer has been executed
-	const Unique<VkEvent>					event					(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					event					(createEvent(vk, vkDevice));
 
 	// reset event
 	VK_CHECK(vk.resetEvent(vkDevice, *event));
@@ -3855,15 +3733,8 @@ tcu::TestStatus executeSecondaryBufferTest(Context& context)
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBuf));
 
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fence					(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fence					(createFence(vk, vkDevice));
 	const VkSubmitInfo						submitInfo				=
 	{
 		VK_STRUCTURE_TYPE_SUBMIT_INFO,								// sType
@@ -3959,16 +3830,8 @@ tcu::TestStatus executeSecondaryBufferTwiceTest(Context& context)
 		&secCmdBufInheritInfo,
 	};
 
-	// Fill create info struct for event
-	const VkEventCreateInfo					eventCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-		DE_NULL,
-		0u,
-	};
-
 	// create event that will be used to check if secondary command buffer has been executed
-	const Unique<VkEvent>					eventOne				(createEvent(vk, vkDevice, &eventCreateInfo));
+	const Unique<VkEvent>					eventOne				(createEvent(vk, vkDevice));
 
 	// reset event
 	VK_CHECK(vk.resetEvent(vkDevice, *eventOne));
@@ -4004,16 +3867,9 @@ tcu::TestStatus executeSecondaryBufferTwiceTest(Context& context)
 	}
 	VK_CHECK(vk.endCommandBuffer(*primCmdBufTwo));
 
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,															// flags
-	};
-
 	// create fence to wait for execution of queue
-	const Unique<VkFence>					fenceOne				(createFence(vk, vkDevice, &fenceCreateInfo));
-	const Unique<VkFence>					fenceTwo				(createFence(vk, vkDevice, &fenceCreateInfo));
+	const Unique<VkFence>					fenceOne				(createFence(vk, vkDevice));
+	const Unique<VkFence>					fenceTwo				(createFence(vk, vkDevice));
 
 	const VkSubmitInfo						submitInfoOne			=
 	{
@@ -4173,8 +4029,8 @@ tcu::TestStatus orderBindPipelineTest(Context& context)
 		{
 			VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
 			DE_NULL,
-			VK_ACCESS_HOST_WRITE_BIT,									// outputMask
-			inputBit,													// inputMask
+			VK_ACCESS_HOST_WRITE_BIT,									// srcAccessMask
+			inputBit,													// dstAccessMask
 			VK_QUEUE_FAMILY_IGNORED,									// srcQueueFamilyIndex
 			VK_QUEUE_FAMILY_IGNORED,									// destQueueFamilyIndex
 			*bufferA,													// buffer
@@ -4184,8 +4040,8 @@ tcu::TestStatus orderBindPipelineTest(Context& context)
 		{
 			VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
 			DE_NULL,
-			VK_ACCESS_HOST_WRITE_BIT,									// outputMask
-			inputBit,													// inputMask
+			VK_ACCESS_HOST_WRITE_BIT,									// srcAccessMask
+			inputBit,													// dstAccessMask
 			VK_QUEUE_FAMILY_IGNORED,									// srcQueueFamilyIndex
 			VK_QUEUE_FAMILY_IGNORED,									// destQueueFamilyIndex
 			*bufferB,													// buffer
@@ -4224,14 +4080,6 @@ tcu::TestStatus orderBindPipelineTest(Context& context)
 		queueFamilyIndex,											// queueFamilyIndex
 	};
 	const Unique<VkCommandPool>				cmdPool					(createCommandPool(vk, device, &cmdPoolCreateInfo));
-
-	const VkFenceCreateInfo					fenceCreateInfo			=
-	{
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		DE_NULL,
-		0u,			// flags
-	};
-
 	const VkCommandBufferAllocateInfo		cmdBufCreateInfo		=
 	{
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,				// sType
@@ -4249,7 +4097,7 @@ tcu::TestStatus orderBindPipelineTest(Context& context)
 		(const VkCommandBufferInheritanceInfo*)DE_NULL,
 	};
 
-	const Unique<VkFence>					cmdCompleteFence		(createFence(vk, device, &fenceCreateInfo));
+	const Unique<VkFence>					cmdCompleteFence		(createFence(vk, device));
 	const Unique<VkCommandBuffer>			cmd						(allocateCommandBuffer(vk, device, &cmdBufCreateInfo));
 
 	VK_CHECK(vk.beginCommandBuffer(*cmd, &cmdBufBeginInfo));
@@ -4259,13 +4107,13 @@ tcu::TestStatus orderBindPipelineTest(Context& context)
 	vk.cmdBindDescriptorSets(*cmd, VK_PIPELINE_BIND_POINT_COMPUTE, *pipelineLayout, 0, numDescriptorSets, descriptorSets, numDynamicOffsets, dynamicOffsets);
 
 	if (numPreBarriers)
-		vk.cmdPipelineBarrier(*cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, (VkDependencyFlags)0,
+		vk.cmdPipelineBarrier(*cmd, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, (VkDependencyFlags)0,
 							  0, (const VkMemoryBarrier*)DE_NULL,
 							  numPreBarriers, bufferBarriers,
 							  0, (const VkImageMemoryBarrier*)DE_NULL);
 
 	vk.cmdDispatch(*cmd, numWorkGroups.x(), numWorkGroups.y(), numWorkGroups.z());
-	vk.cmdPipelineBarrier(*cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, (VkDependencyFlags)0,
+	vk.cmdPipelineBarrier(*cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT, (VkDependencyFlags)0,
 						  0, (const VkMemoryBarrier*)DE_NULL,
 						  numPostBarriers, postBarriers,
 						  0, (const VkImageMemoryBarrier*)DE_NULL);
@@ -4431,6 +4279,8 @@ tcu::TestCaseGroup* createCommandBuffersTests (tcu::TestContext& testCtx)
 	addFunctionCase				(commandBuffersTests.get(), "execute_small_primary",			"",	executePrimaryBufferTest);
 	addFunctionCase				(commandBuffersTests.get(), "execute_large_primary",			"",	executeLargePrimaryBufferTest);
 	addFunctionCase				(commandBuffersTests.get(), "reset_implicit",					"", resetBufferImplicitlyTest);
+	addFunctionCase				(commandBuffersTests.get(), "trim_command_pool",				"", trimCommandPoolTest, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+	addFunctionCase				(commandBuffersTests.get(), "trim_command_pool_secondary",		"", trimCommandPoolTest, VK_COMMAND_BUFFER_LEVEL_SECONDARY);
 	/* 19.3. Command Buffer Recording (5.3 in VK 1.0 Spec) */
 	addFunctionCase				(commandBuffersTests.get(), "record_single_primary",			"",	recordSinglePrimaryBufferTest);
 	addFunctionCase				(commandBuffersTests.get(), "record_many_primary",				"", recordLargePrimaryBufferTest);

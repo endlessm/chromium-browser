@@ -42,7 +42,6 @@ class AppListViewDelegate;
 // for laying out the app list UI to ash::AppListLayoutDelegate.
 class APP_LIST_PRESENTER_EXPORT AppListPresenterImpl
     : public aura::client::FocusChangeObserver,
-      public aura::WindowObserver,
       public ui::ImplicitAnimationObserver,
       public views::WidgetObserver,
       public PaginationModelObserver {
@@ -62,6 +61,10 @@ class APP_LIST_PRESENTER_EXPORT AppListPresenterImpl
 
   // Hide the open app list window. This may leave the view open but hidden.
   void Dismiss();
+
+  // Performs the 'back' action for the active page. Returns whether the action
+  // was handled.
+  bool Back();
 
   // Show the app list if it is visible, hide it if it is hidden.
   void ToggleAppList(int64_t display_id);
@@ -106,12 +109,6 @@ class APP_LIST_PRESENTER_EXPORT AppListPresenterImpl
   void OnWindowFocused(aura::Window* gained_focus,
                        aura::Window* lost_focus) override;
 
-  // aura::WindowObserver overrides:
-  void OnWindowBoundsChanged(aura::Window* root,
-                             const gfx::Rect& old_bounds,
-                             const gfx::Rect& new_bounds,
-                             ui::PropertyChangeReason reason) override;
-
   // ui::ImplicitAnimationObserver overrides:
   void OnImplicitAnimationsCompleted() override;
 
@@ -131,6 +128,9 @@ class APP_LIST_PRESENTER_EXPORT AppListPresenterImpl
 
   // Responsible for laying out the app list UI.
   std::unique_ptr<AppListPresenterDelegate> presenter_delegate_;
+
+  // The view delegate owned by AppListService.
+  AppListViewDelegate* view_delegate_ = nullptr;
 
   // Whether we should show or hide app list widget.
   bool is_visible_ = false;

@@ -64,10 +64,9 @@ import org.chromium.components.autofill.AutofillProvider;
 import org.chromium.components.navigation_interception.InterceptNavigationDelegate;
 import org.chromium.components.navigation_interception.NavigationParams;
 import org.chromium.content.browser.AppWebMessagePort;
-import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content.browser.ContentViewStatics;
-import org.chromium.content.browser.SmartClipProvider;
 import org.chromium.content_public.browser.ChildProcessImportance;
+import org.chromium.content_public.browser.ContentViewCore;
 import org.chromium.content_public.browser.GestureListenerManager;
 import org.chromium.content_public.browser.GestureStateListener;
 import org.chromium.content_public.browser.ImeAdapter;
@@ -80,13 +79,16 @@ import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.NavigationHistory;
 import org.chromium.content_public.browser.SelectionClient;
 import org.chromium.content_public.browser.SelectionPopupController;
+import org.chromium.content_public.browser.SmartClipProvider;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.content_public.browser.WebContentsAccessibility;
 import org.chromium.content_public.browser.WebContentsInternals;
 import org.chromium.content_public.browser.navigation_controller.LoadURLType;
 import org.chromium.content_public.browser.navigation_controller.UserAgentOverrideOption;
 import org.chromium.content_public.common.BrowserSideNavigationPolicy;
 import org.chromium.content_public.common.ContentUrlConstants;
 import org.chromium.content_public.common.Referrer;
+import org.chromium.content_public.common.UseZoomForDSFPolicy;
 import org.chromium.device.gamepad.GamepadList;
 import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.ui.base.ActivityWindowAndroid;
@@ -132,7 +134,6 @@ public class AwContents implements SmartClipProvider {
 
     private static final double MIN_SCREEN_HEIGHT_PERCENTAGE_FOR_INTERSTITIAL = 0.7;
 
-    private static final String SAMSUNG_WORKAROUND_PACKAGE_NAME = "com.android.email";
     private static final String SAMSUNG_WORKAROUND_BASE_URL = "email://";
     private static final int SAMSUNG_WORKAROUND_DELAY = 200;
 
@@ -312,6 +313,7 @@ public class AwContents implements SmartClipProvider {
     private AwViewAndroidDelegate mViewAndroidDelegate;
     private WindowAndroidWrapper mWindowAndroid;
     private WebContents mWebContents;
+    private WebContentsInternalsHolder mWebContentsInternalsHolder;
     private NavigationController mNavigationController;
     private final AwContentsClient mContentsClient;
     private AwWebContentsObserver mWebContentsObserver;
@@ -441,6 +443,10 @@ public class AwContents implements SmartClipProvider {
         public WebContentsInternals get() {
             AwContents awContents = mAwContentsRef.get();
             return awContents == null ? null : awContents.mWebContentsInternals;
+        }
+
+        public boolean weakRefCleared() {
+            return mAwContentsRef.get() == null;
         }
     }
 
@@ -698,7 +704,7 @@ public class AwContents implements SmartClipProvider {
 
         @Override
         public void cancelFling() {
-            mContentViewCore.cancelFling(SystemClock.uptimeMillis());
+            mWebContents.getEventForwarder().onCancelFling(SystemClock.uptimeMillis());
         }
     }
 
@@ -901,6 +907,14 @@ public class AwContents implements SmartClipProvider {
                 }
             }
         });
+    }
+
+    private boolean isSamsungMailApp() {
+        // There are 2 different Samsung mail apps exhibiting bugs related to
+        // http://crbug.com/781535.
+        String currentPackageName = mContext.getPackageName();
+        return "com.android.email".equals(currentPackageName)
+                || "com.samsung.android.email.composer".equals(currentPackageName);
     }
 
     boolean isFullScreen() {
@@ -1132,6 +1146,7 @@ public class AwContents implements SmartClipProvider {
             destroyNatives();
             mContentViewCore = null;
             mWebContents = null;
+            mWebContentsInternalsHolder = null;
             mWebContentsInternals = null;
             mNavigationController = null;
             mJavascriptInjector = null;
@@ -1157,7 +1172,8 @@ public class AwContents implements SmartClipProvider {
         nativeSetJavaPeers(mNativeAwContents, this, mWebContentsDelegate, mContentsClientBridge,
                 mIoThreadClient, mInterceptNavigationDelegate, mAutofillProvider);
         mWebContents = mContentViewCore.getWebContents();
-        mWebContents.setInternalsHolder(new WebContentsInternalsHolder(this));
+        mWebContentsInternalsHolder = new WebContentsInternalsHolder(this);
+        mWebContents.setInternalsHolder(mWebContentsInternalsHolder);
         GestureListenerManager.fromWebContents(mWebContents)
                 .addListener(new AwGestureStateListener());
 
@@ -1366,11 +1382,13 @@ public class AwContents implements SmartClipProvider {
         }
         boolean destroyRunnableHasRun =
                 mCleanupReference != null && mCleanupReference.hasCleanedUp();
+        boolean weakRefsCleared =
+                mWebContentsInternalsHolder != null && mWebContentsInternalsHolder.weakRefCleared();
         if (TRACE && destroyRunnableHasRun && !mIsDestroyed) {
             // Swallow the error. App developers are not going to do anything with an error msg.
             Log.d(TAG, "AwContents is kept alive past CleanupReference by finalizer");
         }
-        return mIsDestroyed || destroyRunnableHasRun;
+        return mIsDestroyed || destroyRunnableHasRun || weakRefsCleared;
     }
 
     @VisibleForTesting
@@ -1693,8 +1711,7 @@ public class AwContents implements SmartClipProvider {
 
         // This is a workaround for an issue with PlzNavigate and one of Samsung's OEM mail apps.
         // See http://crbug.com/781535.
-        if (SAMSUNG_WORKAROUND_PACKAGE_NAME.equals(mContext.getPackageName())
-                && SAMSUNG_WORKAROUND_BASE_URL.equals(loadUrlParams.getBaseUrl())) {
+        if (isSamsungMailApp() && SAMSUNG_WORKAROUND_BASE_URL.equals(loadUrlParams.getBaseUrl())) {
             ThreadUtils.postOnUiThreadDelayed(
                     () -> loadUrl(loadUrlParams), SAMSUNG_WORKAROUND_DELAY);
             return;
@@ -1961,6 +1978,13 @@ public class AwContents implements SmartClipProvider {
      */
     public void computeScroll() {
         mAwViewMethods.computeScroll();
+    }
+
+    /**
+     * @see View#onCheckIsTextEditor()
+     */
+    public boolean onCheckIsTextEditor() {
+        return mAwViewMethods.onCheckIsTextEditor();
     }
 
     /**
@@ -2271,7 +2295,8 @@ public class AwContents implements SmartClipProvider {
     public void flingScroll(int velocityX, int velocityY) {
         if (TRACE) Log.i(TAG, "%s flingScroll", this);
         if (isDestroyedOrNoOperation(WARN)) return;
-        mContentViewCore.flingViewport(SystemClock.uptimeMillis(), -velocityX, -velocityY, false);
+        mWebContents.getEventForwarder().onStartFling(
+                SystemClock.uptimeMillis(), -velocityX, -velocityY, false);
     }
 
     /**
@@ -2420,6 +2445,10 @@ public class AwContents implements SmartClipProvider {
         return mWebContents.hasAccessedInitialDocument();
     }
 
+    private WebContentsAccessibility getWebContentsAccessibility() {
+        return WebContentsAccessibility.fromWebContents(mWebContents);
+    }
+
     @TargetApi(Build.VERSION_CODES.M)
     public void onProvideVirtualStructure(ViewStructure structure) {
         if (isDestroyedOrNoOperation(WARN)) return;
@@ -2430,7 +2459,7 @@ public class AwContents implements SmartClipProvider {
         }
         // for webview, the platform already calculates the scroll (as it is a view) in
         // ViewStructure tree. Do not offset for it in the snapshop x,y position calculations.
-        mContentViewCore.onProvideVirtualStructure(structure, true);
+        getWebContentsAccessibility().onProvideVirtualStructure(structure, true);
     }
 
     public void onProvideAutoFillVirtualStructure(ViewStructure structure, int flags) {
@@ -2729,8 +2758,9 @@ public class AwContents implements SmartClipProvider {
     }
 
     public boolean supportsAccessibilityAction(int action) {
-        return isDestroyedOrNoOperation(WARN) ? false
-                : mContentViewCore.supportsAccessibilityAction(action);
+        return isDestroyedOrNoOperation(WARN)
+                ? false
+                : getWebContentsAccessibility().supportsAction(action);
     }
 
     /**
@@ -3373,10 +3403,16 @@ public class AwContents implements SmartClipProvider {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                 // Note this will trigger IPC back to browser even if nothing is
                 // hit.
-                float dipScale = getDeviceScaleFactor();
-                nativeRequestNewHitTestDataAt(mNativeAwContents,
-                        event.getX() / dipScale, event.getY() / dipScale,
-                        Math.max(event.getTouchMajor(), event.getTouchMinor()) / dipScale);
+                float eventX = event.getX();
+                float eventY = event.getY();
+                float touchMajor = Math.max(event.getTouchMajor(), event.getTouchMinor());
+                if (!UseZoomForDSFPolicy.isUseZoomForDSFEnabled()) {
+                    float dipScale = getDeviceScaleFactor();
+                    eventX /= dipScale;
+                    eventY /= dipScale;
+                    touchMajor /= dipScale;
+                }
+                nativeRequestNewHitTestDataAt(mNativeAwContents, eventX, eventY, touchMajor);
             }
 
             if (mOverScrollGlow != null) {
@@ -3558,16 +3594,24 @@ public class AwContents implements SmartClipProvider {
         }
 
         @Override
+        public boolean onCheckIsTextEditor() {
+            if (isDestroyedOrNoOperation(NO_WARN)) return false;
+            ImeAdapter imeAdapter = ImeAdapter.fromWebContents(mWebContents);
+            return imeAdapter != null ? imeAdapter.onCheckIsTextEditor() : false;
+        }
+
+        @Override
         public AccessibilityNodeProvider getAccessibilityNodeProvider() {
-            return isDestroyedOrNoOperation(WARN) ? null
-                                                  : mContentViewCore.getAccessibilityNodeProvider();
+            if (isDestroyedOrNoOperation(NO_WARN)) return null;
+            WebContentsAccessibility wcax = getWebContentsAccessibility();
+            return wcax != null ? wcax.getAccessibilityNodeProvider() : null;
         }
 
         @Override
         public boolean performAccessibilityAction(final int action, final Bundle arguments) {
-            return isDestroyedOrNoOperation(WARN)
-                    ? false
-                    : mContentViewCore.performAccessibilityAction(action, arguments);
+            if (isDestroyedOrNoOperation(NO_WARN)) return false;
+            WebContentsAccessibility wcax = getWebContentsAccessibility();
+            return wcax != null ? wcax.performAction(action, arguments) : false;
         }
     }
 
@@ -3622,7 +3666,8 @@ public class AwContents implements SmartClipProvider {
     private native void nativeKillRenderProcess(long nativeAwContents);
     private native byte[] nativeGetCertificate(long nativeAwContents);
 
-    // Coordinates in desity independent pixels.
+    // Coordinates are in physical pixels when --use-zoom-for-dsf is enabled.
+    // Otherwise, coordinates are in desity independent pixels.
     private native void nativeRequestNewHitTestDataAt(long nativeAwContents, float x, float y,
             float touchMajor);
     private native void nativeUpdateLastHitTestData(long nativeAwContents);

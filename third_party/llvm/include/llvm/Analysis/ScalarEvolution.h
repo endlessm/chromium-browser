@@ -678,7 +678,7 @@ public:
                                 const SCEV *LHS, const SCEV *RHS);
 
   /// Test whether the backedge of the loop is protected by a conditional
-  /// between LHS and RHS.  This is used to to eliminate casts.
+  /// between LHS and RHS.  This is used to eliminate casts.
   bool isLoopBackedgeGuardedByCond(const Loop *L, ICmpInst::Predicate Pred,
                                    const SCEV *LHS, const SCEV *RHS);
 
@@ -1591,8 +1591,8 @@ private:
 
   /// Test whether the condition described by Pred, LHS, and RHS is true.
   /// Use only simple non-recursive types of checks, such as range analysis etc.
-  bool isKnownViaSimpleReasoning(ICmpInst::Predicate Pred,
-                                 const SCEV *LHS, const SCEV *RHS);
+  bool isKnownViaNonRecursiveReasoning(ICmpInst::Predicate Pred,
+                                       const SCEV *LHS, const SCEV *RHS);
 
   /// Test whether the condition described by Pred, LHS, and RHS is true
   /// whenever the condition described by Pred, FoundLHS, and FoundRHS is

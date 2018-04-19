@@ -47,6 +47,8 @@ class CredentialManagerBrowserTest : public PasswordManagerBrowserTestBase {
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
+    PasswordManagerBrowserTestBase::SetUpCommandLine(command_line);
+
     // To permit using webauthentication features.
     command_line->AppendSwitch(
         switches::kEnableExperimentalWebPlatformFeatures);
@@ -95,7 +97,7 @@ class CredentialManagerBrowserTest : public PasswordManagerBrowserTestBase {
         "    icon: 'https://pics.acme.com/00/p/aBjjjpqPb.png'},"
         "  pubKeyCredParams: [{ type: 'public-key', alg: '123'}],"
         "  timeout: 60000,"
-        "  excludeList: [] }"
+        "  excludeCredentials: [] }"
         "}).catch(c => window.domAutomationController.send(c.toString()));";
     ASSERT_TRUE(
         content::ExecuteScriptAndExtractString(web_contents, script, &result));
@@ -119,7 +121,7 @@ class CredentialManagerBrowserTest : public PasswordManagerBrowserTestBase {
         "    icon: 'https://pics.acme.com/00/p/aBjjjpqPb.png'},"
         "  pubKeyCredParams: [{ type: 'public-key', alg: '-7'}],"
         "  timeout: 60000,"
-        "  excludeList: [] }"
+        "  excludeCredentials: [] }"
         "}).catch(c => window.domAutomationController.send(c.toString()));";
     ASSERT_TRUE(
         content::ExecuteScriptAndExtractString(web_contents, script, &result));
@@ -141,7 +143,7 @@ class CredentialManagerBrowserTest : public PasswordManagerBrowserTestBase {
         "    icon: 'https://pics.acme.com/00/p/aBjjjpqPb.png'},"
         "  pubKeyCredParams: [{ type: 'public-key', alg: '-7'}],"
         "  timeout: 60000,"
-        "  excludeList: [] }"
+        "  excludeCredentials: [] }"
         "}).catch(c => window.domAutomationController.send(c.toString()));";
     ASSERT_TRUE(
         content::ExecuteScriptAndExtractString(web_contents, script, &result));

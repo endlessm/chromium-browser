@@ -15,8 +15,7 @@
 #include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/browser_state/browser_state_otr_helper.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/signin/account_tracker_service_factory.h"
-#include "ios/chrome/browser/signin/signin_manager_factory.h"
+#include "ios/chrome/browser/signin/identity_manager_factory.h"
 #include "ios/chrome/browser/web_data_service_factory.h"
 
 namespace autofill {
@@ -37,8 +36,7 @@ PersonalDataManagerFactory::PersonalDataManagerFactory()
     : BrowserStateKeyedServiceFactory(
           "PersonalDataManager",
           BrowserStateDependencyManager::GetInstance()) {
-  DependsOn(ios::AccountTrackerServiceFactory::GetInstance());
-  DependsOn(ios::SigninManagerFactory::GetInstance());
+  DependsOn(IdentityManagerFactory::GetInstance());
   DependsOn(ios::WebDataServiceFactory::GetInstance());
 }
 
@@ -55,9 +53,7 @@ PersonalDataManagerFactory::BuildServiceInstanceFor(
       ios::WebDataServiceFactory::GetAutofillWebDataForBrowserState(
           chrome_browser_state, ServiceAccessType::EXPLICIT_ACCESS),
       chrome_browser_state->GetPrefs(),
-      ios::AccountTrackerServiceFactory::GetForBrowserState(
-          chrome_browser_state),
-      ios::SigninManagerFactory::GetForBrowserState(chrome_browser_state),
+      IdentityManagerFactory::GetForBrowserState(chrome_browser_state),
       chrome_browser_state->IsOffTheRecord());
   return service;
 }

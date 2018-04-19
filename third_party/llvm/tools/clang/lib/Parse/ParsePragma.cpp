@@ -95,6 +95,44 @@ struct PragmaFPContractHandler : public PragmaHandler {
                     Token &FirstToken) override;
 };
 
+// Pragma STDC implementations.
+
+/// PragmaSTDC_FENV_ACCESSHandler - "\#pragma STDC FENV_ACCESS ...".
+struct PragmaSTDC_FENV_ACCESSHandler : public PragmaHandler {
+  PragmaSTDC_FENV_ACCESSHandler() : PragmaHandler("FENV_ACCESS") {}
+
+  void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer,
+                    Token &Tok) override {
+    tok::OnOffSwitch OOS;
+    if (PP.LexOnOffSwitch(OOS))
+     return;
+    if (OOS == tok::OOS_ON)
+      PP.Diag(Tok, diag::warn_stdc_fenv_access_not_supported);
+  }
+};
+
+/// PragmaSTDC_CX_LIMITED_RANGEHandler - "\#pragma STDC CX_LIMITED_RANGE ...".
+struct PragmaSTDC_CX_LIMITED_RANGEHandler : public PragmaHandler {
+  PragmaSTDC_CX_LIMITED_RANGEHandler() : PragmaHandler("CX_LIMITED_RANGE") {}
+
+  void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer,
+                    Token &Tok) override {
+    tok::OnOffSwitch OOS;
+    PP.LexOnOffSwitch(OOS);
+  }
+};
+
+/// PragmaSTDC_UnknownHandler - "\#pragma STDC ...".
+struct PragmaSTDC_UnknownHandler : public PragmaHandler {
+  PragmaSTDC_UnknownHandler() = default;
+
+  void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer,
+                    Token &UnknownTok) override {
+    // C99 6.10.6p2, unknown forms are not allowed.
+    PP.Diag(UnknownTok, diag::ext_stdc_pragma_ignored);
+  }
+};
+
 struct PragmaFPHandler : public PragmaHandler {
   PragmaFPHandler() : PragmaHandler("fp") {}
   void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer,
@@ -233,6 +271,15 @@ void Parser::initializePragmaHandlers() {
   FPContractHandler.reset(new PragmaFPContractHandler());
   PP.AddPragmaHandler("STDC", FPContractHandler.get());
 
+  STDCFENVHandler.reset(new PragmaSTDC_FENV_ACCESSHandler());
+  PP.AddPragmaHandler("STDC", STDCFENVHandler.get());
+
+  STDCCXLIMITHandler.reset(new PragmaSTDC_CX_LIMITED_RANGEHandler());
+  PP.AddPragmaHandler("STDC", STDCCXLIMITHandler.get());
+
+  STDCUnknownHandler.reset(new PragmaSTDC_UnknownHandler());
+  PP.AddPragmaHandler("STDC", STDCUnknownHandler.get());
+
   PCSectionHandler.reset(new PragmaClangSectionHandler(Actions));
   PP.AddPragmaHandler("clang", PCSectionHandler.get());
 
@@ -248,7 +295,8 @@ void Parser::initializePragmaHandlers() {
     OpenMPHandler.reset(new PragmaNoOpenMPHandler());
   PP.AddPragmaHandler(OpenMPHandler.get());
 
-  if (getLangOpts().MicrosoftExt || getTargetInfo().getTriple().isPS4()) {
+  if (getLangOpts().MicrosoftExt ||
+      getTargetInfo().getTriple().isOSBinFormatELF()) {
     MSCommentHandler.reset(new PragmaCommentHandler(Actions));
     PP.AddPragmaHandler(MSCommentHandler.get());
   }
@@ -330,7 +378,8 @@ void Parser::resetPragmaHandlers() {
   PP.RemovePragmaHandler(OpenMPHandler.get());
   OpenMPHandler.reset();
 
-  if (getLangOpts().MicrosoftExt || getTargetInfo().getTriple().isPS4()) {
+  if (getLangOpts().MicrosoftExt ||
+      getTargetInfo().getTriple().isOSBinFormatELF()) {
     PP.RemovePragmaHandler(MSCommentHandler.get());
     MSCommentHandler.reset();
   }
@@ -370,6 +419,15 @@ void Parser::resetPragmaHandlers() {
 
   PP.RemovePragmaHandler("STDC", FPContractHandler.get());
   FPContractHandler.reset();
+
+  PP.RemovePragmaHandler("STDC", STDCFENVHandler.get());
+  STDCFENVHandler.reset();
+
+  PP.RemovePragmaHandler("STDC", STDCCXLIMITHandler.get());
+  STDCCXLIMITHandler.reset();
+
+  PP.RemovePragmaHandler("STDC", STDCUnknownHandler.get());
+  STDCUnknownHandler.reset();
 
   PP.RemovePragmaHandler("clang", OptimizeHandler.get());
   OptimizeHandler.reset();
@@ -451,8 +509,10 @@ void Parser::HandlePragmaAlign() {
   Sema::PragmaOptionsAlignKind Kind =
     static_cast<Sema::PragmaOptionsAlignKind>(
     reinterpret_cast<uintptr_t>(Tok.getAnnotationValue()));
-  SourceLocation PragmaLoc = ConsumeAnnotationToken();
-  Actions.ActOnPragmaOptionsAlign(Kind, PragmaLoc);
+  Actions.ActOnPragmaOptionsAlign(Kind, Tok.getLocation());
+  // Consume the token after processing the pragma to enable pragma-specific
+  // #include warnings.
+  ConsumeAnnotationToken();
 }
 
 void Parser::HandlePragmaDump() {
@@ -2057,9 +2117,21 @@ PragmaOpenMPHandler::HandlePragma(Preprocessor &PP,
   Tok.setKind(tok::annot_pragma_openmp);
   Tok.setLocation(FirstTok.getLocation());
 
-  while (Tok.isNot(tok::eod)) {
+  while (Tok.isNot(tok::eod) && Tok.isNot(tok::eof)) {
     Pragma.push_back(Tok);
     PP.Lex(Tok);
+    if (Tok.is(tok::annot_pragma_openmp)) {
+      PP.Diag(Tok, diag::err_omp_unexpected_directive) << 0;
+      unsigned InnerPragmaCnt = 1;
+      while (InnerPragmaCnt != 0) {
+        PP.Lex(Tok);
+        if (Tok.is(tok::annot_pragma_openmp))
+          ++InnerPragmaCnt;
+        else if (Tok.is(tok::annot_pragma_openmp_end))
+          --InnerPragmaCnt;
+      }
+      PP.Lex(Tok);
+    }
   }
   SourceLocation EodLoc = Tok.getLocation();
   Tok.startToken();
@@ -2390,6 +2462,12 @@ void PragmaCommentHandler::HandlePragma(Preprocessor &PP,
     .Default(PCK_Unknown);
   if (Kind == PCK_Unknown) {
     PP.Diag(Tok.getLocation(), diag::err_pragma_comment_unknown_kind);
+    return;
+  }
+
+  if (PP.getTargetInfo().getTriple().isOSBinFormatELF() && Kind != PCK_Lib) {
+    PP.Diag(Tok.getLocation(), diag::warn_pragma_comment_ignored)
+        << II->getName();
     return;
   }
 

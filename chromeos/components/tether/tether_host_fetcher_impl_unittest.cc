@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "components/cryptauth/fake_remote_device_provider.h"
 #include "components/cryptauth/remote_device_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -56,7 +57,7 @@ class TetherHostFetcherImplTest : public testing::Test {
         std::make_unique<cryptauth::FakeRemoteDeviceProvider>();
     fake_remote_device_provider_->set_synced_remote_devices(test_devices_);
 
-    tether_host_fetcher_ = std::make_unique<TetherHostFetcherImpl>(
+    tether_host_fetcher_ = TetherHostFetcherImpl::Factory::NewInstance(
         fake_remote_device_provider_.get());
 
     test_observer_ = std::make_unique<TestObserver>();
@@ -100,7 +101,7 @@ class TetherHostFetcherImplTest : public testing::Test {
   std::unique_ptr<cryptauth::FakeRemoteDeviceProvider>
       fake_remote_device_provider_;
 
-  std::unique_ptr<TetherHostFetcherImpl> tether_host_fetcher_;
+  std::unique_ptr<TetherHostFetcher> tether_host_fetcher_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TetherHostFetcherImplTest);

@@ -9,6 +9,7 @@
 
 #include "ash/ash_export.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "base/timer/timer.h"
 #include "chromeos/accelerometer/accelerometer_reader.h"
 #include "chromeos/dbus/power_manager_client.h"
@@ -23,14 +24,14 @@ class TimeTicks;
 namespace ash {
 
 class BacklightsForcedOffSetter;
-class ConvertiblePowerButtonController;
 class LockStateController;
 class PowerButtonDisplayController;
 class PowerButtonScreenshotController;
+class TabletPowerButtonController;
 
-// Handles power button and lock button events. For convertible devices,
-// power button events are handled by ConvertiblePowerButtonController to
-// perform corresponding power button behavior, except forced clamshell set by
+// Handles power button and lock button events. For convertible/tablet devices,
+// power button events are handled by TabletPowerButtonController to
+// perform tablet power button behavior, except forced clamshell set by
 // command line. For clamshell devices, power button acts locking or shutdown.
 // On tablet mode, power button may also be consumed to take a screenshot.
 class ASH_EXPORT PowerButtonController
@@ -59,26 +60,33 @@ class ASH_EXPORT PowerButtonController
   // Handles lock button behavior.
   void OnLockButtonEvent(bool down, const base::TimeTicks& timestamp);
 
-  // Overridden from ui::EventHandler:
+  // ui::EventHandler:
   void OnKeyEvent(ui::KeyEvent* event) override;
   void OnMouseEvent(ui::MouseEvent* event) override;
   void OnTouchEvent(ui::TouchEvent* event) override;
 
-  // Overridden from display::DisplayConfigurator::Observer:
+  // display::DisplayConfigurator::Observer:
   void OnDisplayModeChanged(
       const display::DisplayConfigurator::DisplayStateList& outputs) override;
 
-  // Overridden from chromeos::PowerManagerClient::Observer:
+  // chromeos::PowerManagerClient::Observer:
   void BrightnessChanged(int level, bool user_initiated) override;
   void PowerButtonEventReceived(bool down,
                                 const base::TimeTicks& timestamp) override;
 
-  // Overridden from chromeos::AccelerometerReader::Observer:
+  // Initializes the |tablet_controller_| and |screenshot_controller_| according
+  // to the tablet mode switch in |result|.
+  void OnGetSwitchStates(
+      base::Optional<chromeos::PowerManagerClient::SwitchStates> result);
+
+  // TODO(minch): Remove this if/when all applicable devices expose a tablet
+  // mode switch: https://crbug.com/798646.
+  // chromeos::AccelerometerReader::Observer:
   void OnAccelerometerUpdated(
       scoped_refptr<const chromeos::AccelerometerUpdate> update) override;
 
   // Overrides the tick clock used by |this| for testing.
-  void SetTickClockForTesting(std::unique_ptr<base::TickClock> tick_clock);
+  void SetTickClockForTesting(base::TickClock* tick_clock);
 
   // If |display_off_timer_| is running, stops it, runs its task, and returns
   // true. Otherwise, returns false.
@@ -88,9 +96,8 @@ class ASH_EXPORT PowerButtonController
     return screenshot_controller_.get();
   }
 
-  ConvertiblePowerButtonController*
-  convertible_power_button_controller_for_test() {
-    return convertible_controller_.get();
+  TabletPowerButtonController* tablet_power_button_controller_for_test() {
+    return tablet_controller_.get();
   }
 
   void set_power_button_type_for_test(ButtonType button_type) {
@@ -105,6 +112,9 @@ class ASH_EXPORT PowerButtonController
   // Called by |display_off_timer_| to force backlights off shortly after the
   // screen is locked. Only used when |force_clamshell_power_button_| is true.
   void ForceDisplayOffAfterLock();
+
+  // Initializes |tablet_controller_| and |screenshot_controller_|.
+  void InitControllerMembers();
 
   // Used to force backlights off, when needed.
   BacklightsForcedOffSetter* backlights_forced_off_setter_;  // Not owned.
@@ -126,7 +136,7 @@ class ASH_EXPORT PowerButtonController
 
   // True if the device should observe accelerometer events to enter tablet
   // mode.
-  bool enable_tablet_mode_ = false;
+  bool observe_accelerometer_events_ = false;
 
   // True if the device should show power button menu when the power button is
   // long-pressed.
@@ -140,10 +150,13 @@ class ASH_EXPORT PowerButtonController
   // event.
   bool started_lock_animation_for_power_button_down_ = false;
 
+  // True if the device has tablet mode switch.
+  bool has_tablet_mode_switch_ = false;
+
   LockStateController* lock_state_controller_;  // Not owned.
 
   // Time source for performed action times.
-  std::unique_ptr<base::TickClock> tick_clock_;
+  base::TickClock* tick_clock_;
 
   // Used to interact with the display.
   std::unique_ptr<PowerButtonDisplayController> display_controller_;
@@ -151,12 +164,14 @@ class ASH_EXPORT PowerButtonController
   // Handles events for power button screenshot.
   std::unique_ptr<PowerButtonScreenshotController> screenshot_controller_;
 
-  // Handles events for convertible devices.
-  std::unique_ptr<ConvertiblePowerButtonController> convertible_controller_;
+  // Handles events for convertible/tablet devices.
+  std::unique_ptr<TabletPowerButtonController> tablet_controller_;
 
   // Used to run ForceDisplayOffAfterLock() shortly after the screen is locked.
   // Only started when |force_clamshell_power_button_| is true.
   base::OneShotTimer display_off_timer_;
+
+  base::WeakPtrFactory<PowerButtonController> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(PowerButtonController);
 };

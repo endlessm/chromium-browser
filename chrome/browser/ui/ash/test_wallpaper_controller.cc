@@ -33,7 +33,6 @@ void TestWallpaperController::SetCustomWallpaper(
     const std::string& wallpaper_files_id,
     const std::string& file_name,
     wallpaper::WallpaperLayout layout,
-    wallpaper::WallpaperType type,
     const SkBitmap& image,
     bool show_wallpaper) {
   set_custom_wallpaper_count_++;
@@ -55,10 +54,16 @@ void TestWallpaperController::SetDefaultWallpaper(
   set_default_wallpaper_count_++;
 }
 
-void TestWallpaperController::SetCustomizedDefaultWallpaper(
-    const GURL& wallpaper_url,
-    const base::FilePath& file_path,
-    const base::FilePath& resized_directory) {
+void TestWallpaperController::SetCustomizedDefaultWallpaperPaths(
+    const base::FilePath& customized_default_small_path,
+    const base::FilePath& customized_default_large_path) {
+  NOTIMPLEMENTED();
+}
+
+void TestWallpaperController::SetPolicyWallpaper(
+    ash::mojom::WallpaperUserInfoPtr user_info,
+    const std::string& wallpaper_files_id,
+    const std::string& data) {
   NOTIMPLEMENTED();
 }
 
@@ -87,9 +92,18 @@ void TestWallpaperController::RemoveUserWallpaper(
   remove_user_wallpaper_count_++;
 }
 
-void TestWallpaperController::SetWallpaper(
-    const SkBitmap& wallpaper,
-    const wallpaper::WallpaperInfo& wallpaper_info) {
+void TestWallpaperController::RemovePolicyWallpaper(
+    ash::mojom::WallpaperUserInfoPtr user_info,
+    const std::string& wallpaper_files_id) {
+  NOTIMPLEMENTED();
+}
+
+void TestWallpaperController::SetAnimationDuration(
+    base::TimeDelta animation_duration) {
+  NOTIMPLEMENTED();
+}
+
+void TestWallpaperController::OpenWallpaperPickerIfAllowed() {
   NOTIMPLEMENTED();
 }
 
@@ -100,5 +114,17 @@ void TestWallpaperController::AddObserver(
 
 void TestWallpaperController::GetWallpaperColors(
     GetWallpaperColorsCallback callback) {
+  NOTIMPLEMENTED();
+}
+
+void TestWallpaperController::IsActiveUserWallpaperControlledByPolicy(
+    ash::mojom::WallpaperController::
+        IsActiveUserWallpaperControlledByPolicyCallback callback) {
+  NOTIMPLEMENTED();
+}
+
+void TestWallpaperController::ShouldShowWallpaperSetting(
+    ash::mojom::WallpaperController::ShouldShowWallpaperSettingCallback
+        callback) {
   NOTIMPLEMENTED();
 }

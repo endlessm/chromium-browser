@@ -131,8 +131,7 @@ class TelemetryQuestTest(_QuestTest):
     }
 
     expected = run_test.RunTest({'key': 'value'}, _MIN_TELEMETRY_ARGUMENTS)
-    self.assertEqual(run_test.RunTest.FromDict(arguments),
-                     (arguments, expected))
+    self.assertEqual(run_test.RunTest.FromDict(arguments), expected)
 
   def testAllArguments(self):
     arguments = {
@@ -146,8 +145,21 @@ class TelemetryQuestTest(_QuestTest):
 
     expected = run_test.RunTest(
         {'key': 'value'}, _ALL_TELEMETRY_ARGUMENTS)
-    self.assertEqual(run_test.RunTest.FromDict(arguments),
-                     (arguments, expected))
+    self.assertEqual(run_test.RunTest.FromDict(arguments), expected)
+
+  def testStringExtraTestArgs(self):
+    arguments = {
+        'target': 'telemetry_perf_tests',
+        'dimensions': '{"key": "value"}',
+        'benchmark': 'speedometer',
+        'browser': 'release',
+        'story': 'http://www.fifa.com/',
+        'extra_test_args': '--custom-arg "custom value"',
+    }
+
+    expected = run_test.RunTest(
+        {'key': 'value'}, _ALL_TELEMETRY_ARGUMENTS)
+    self.assertEqual(run_test.RunTest.FromDict(arguments), expected)
 
   def testInvalidExtraTestArgs(self):
     arguments = {
@@ -169,8 +181,7 @@ class TelemetryQuestTest(_QuestTest):
     }
 
     expected = run_test.RunTest({'key': 'value'}, _MIN_TELEMETRY_ARGUMENTS)
-    self.assertEqual(run_test.RunTest.FromDict(arguments),
-                     (arguments, expected))
+    self.assertEqual(run_test.RunTest.FromDict(arguments), expected)
 
   def testStartupBenchmarkRepeatCount(self):
     arguments = {
@@ -180,8 +191,7 @@ class TelemetryQuestTest(_QuestTest):
     }
 
     expected = run_test.RunTest({'key': 'value'}, _STARTUP_BENCHMARK_ARGUMENTS)
-    self.assertEqual(run_test.RunTest.FromDict(arguments),
-                     (arguments, expected))
+    self.assertEqual(run_test.RunTest.FromDict(arguments), expected)
 
   def testWebviewFlag(self):
     arguments = {
@@ -192,8 +202,7 @@ class TelemetryQuestTest(_QuestTest):
     }
 
     expected = run_test.RunTest({'key': 'value'}, _WEBVIEW_ARGUMENTS)
-    self.assertEqual(run_test.RunTest.FromDict(arguments),
-                     (arguments, expected))
+    self.assertEqual(run_test.RunTest.FromDict(arguments), expected)
 
 
 class GTestQuestTest(_QuestTest):
@@ -205,8 +214,7 @@ class GTestQuestTest(_QuestTest):
     }
 
     expected = run_test.RunTest({'key': 'value'}, _MIN_GTEST_ARGUMENTS)
-    self.assertEqual(run_test.RunTest.FromDict(arguments),
-                     (arguments, expected))
+    self.assertEqual(run_test.RunTest.FromDict(arguments), expected)
 
   def testAllArguments(self):
     arguments = {
@@ -218,8 +226,7 @@ class GTestQuestTest(_QuestTest):
 
     expected = run_test.RunTest(
         {'key': 'value'}, _ALL_GTEST_ARGUMENTS)
-    self.assertEqual(run_test.RunTest.FromDict(arguments),
-                     (arguments, expected))
+    self.assertEqual(run_test.RunTest.FromDict(arguments), expected)
 
 
 class _RunTestExecutionTest(unittest.TestCase):
@@ -229,14 +236,14 @@ class _RunTestExecutionTest(unittest.TestCase):
         'name': 'Pinpoint job',
         'user': 'Pinpoint',
         'priority': '100',
-        'expiration_secs': '36000',
+        'expiration_secs': '86400',
         'properties': {
             'inputs_ref': {'isolated': 'input isolate hash'},
             'extra_args': _CreateSwarmingArgs(label),
             'dimensions': [{'key': 'pool', 'value': 'Chrome-perf-pinpoint'}] +
                           _SWARMING_DIMENSIONS,
             'execution_timeout_secs': '7200',
-            'io_timeout_secs': '3600',
+            'io_timeout_secs': '1200',
         },
     }
     swarming_tasks_new.assert_called_with(body)
@@ -246,7 +253,7 @@ class _RunTestExecutionTest(unittest.TestCase):
         'name': 'Pinpoint job',
         'user': 'Pinpoint',
         'priority': '100',
-        'expiration_secs': '36000',
+        'expiration_secs': '86400',
         'properties': {
             'inputs_ref': {'isolated': 'input isolate hash'},
             'extra_args': _CreateSwarmingArgs(label),
@@ -255,7 +262,7 @@ class _RunTestExecutionTest(unittest.TestCase):
                 {'key': 'id', 'value': 'bot id'},
             ],
             'execution_timeout_secs': '7200',
-            'io_timeout_secs': '3600',
+            'io_timeout_secs': '1200',
         },
     }
     swarming_tasks_new.assert_called_with(body)

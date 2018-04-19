@@ -35,11 +35,12 @@
 #include "content/public/common/context_menu_params.h"
 #include "net/base/load_states.h"
 #include "net/http/http_request_headers.h"
-#include "third_party/WebKit/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if !defined(OS_ANDROID)
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
 #endif
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -239,9 +240,12 @@ void CoreTabHelper::DidStartLoading() {
   UpdateContentRestrictions(0);
 }
 
-void CoreTabHelper::WasShown() {
-  web_cache::WebCacheManager::GetInstance()->ObserveActivity(
-      web_contents()->GetMainFrame()->GetProcess()->GetID());
+void CoreTabHelper::OnVisibilityChanged(content::Visibility visibility) {
+  // TODO(jochen): Consider handling OCCLUDED tabs the same way as HIDDEN tabs.
+  if (visibility != content::Visibility::HIDDEN) {
+    web_cache::WebCacheManager::GetInstance()->ObserveActivity(
+        web_contents()->GetMainFrame()->GetProcess()->GetID());
+  }
 }
 
 void CoreTabHelper::WebContentsDestroyed() {
@@ -281,6 +285,16 @@ void CoreTabHelper::BeforeUnloadFired(const base::TimeTicks& proceed_time) {
 
 void CoreTabHelper::BeforeUnloadDialogCancelled() {
   OnCloseCanceled();
+}
+
+// Update back/forward buttons for web_contents that are active.
+void CoreTabHelper::NavigationEntriesDeleted() {
+#if !defined(OS_ANDROID)
+  for (Browser* browser : *BrowserList::GetInstance()) {
+    if (web_contents() == browser->tab_strip_model()->GetActiveWebContents())
+      browser->command_controller()->TabStateChanged();
+  }
+#endif
 }
 
 // Handles the image thumbnail for the context node, composes a image search

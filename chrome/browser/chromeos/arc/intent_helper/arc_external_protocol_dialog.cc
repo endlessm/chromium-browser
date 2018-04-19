@@ -275,9 +275,13 @@ void OnIntentPickerClosed(int render_process_host_id,
   if (!instance) {
     close_reason = ArcNavigationThrottle::CloseReason::ERROR;
   } else if (close_reason == ArcNavigationThrottle::CloseReason::
-                                 OBSOLETE_JUST_ONCE_PRESSED ||
+                                 ARC_APP_PREFERRED_PRESSED ||
              close_reason ==
-                 ArcNavigationThrottle::CloseReason::OBSOLETE_ALWAYS_PRESSED) {
+                 ArcNavigationThrottle::CloseReason::ARC_APP_PRESSED ||
+             close_reason ==
+                 ArcNavigationThrottle::CloseReason::CHROME_PREFERRED_PRESSED ||
+             close_reason ==
+                 ArcNavigationThrottle::CloseReason::CHROME_PRESSED) {
     if (selected_app_index == handlers.size()) {
       close_reason = ArcNavigationThrottle::CloseReason::ERROR;
     } else {
@@ -296,7 +300,7 @@ void OnIntentPickerClosed(int render_process_host_id,
         instance->AddPreferredPackage(
             handlers[selected_app_index]->package_name);
       }
-      // fall through.
+      FALLTHROUGH;
     }
     case ArcNavigationThrottle::CloseReason::ARC_APP_PRESSED: {
       // Launch the selected app.
@@ -307,7 +311,7 @@ void OnIntentPickerClosed(int render_process_host_id,
     case ArcNavigationThrottle::CloseReason::CHROME_PREFERRED_PRESSED:
     case ArcNavigationThrottle::CloseReason::CHROME_PRESSED: {
       LOG(ERROR) << "Chrome is not a valid option for external protocol URLs";
-      // fall through.
+      FALLTHROUGH;
     }
     case ArcNavigationThrottle::CloseReason::OBSOLETE_ALWAYS_PRESSED:
     case ArcNavigationThrottle::CloseReason::OBSOLETE_JUST_ONCE_PRESSED:
@@ -321,7 +325,7 @@ void OnIntentPickerClosed(int render_process_host_id,
                  << "instance=" << instance
                  << ", selected_app_index=" << selected_app_index
                  << ", handlers.size=" << handlers.size();
-      // fall through.
+      FALLTHROUGH;
     }
     case ArcNavigationThrottle::CloseReason::DIALOG_DEACTIVATED: {
       // The user didn't select any ARC activity.

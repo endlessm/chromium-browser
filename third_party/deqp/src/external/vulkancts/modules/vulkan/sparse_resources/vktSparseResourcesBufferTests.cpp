@@ -39,6 +39,8 @@
 #include "vkQueryUtil.hpp"
 #include "vkTypeUtil.hpp"
 
+#include "tcuTestLog.hpp"
+
 #include "deUniquePtr.hpp"
 #include "deSharedPtr.hpp"
 #include "deMath.h"
@@ -202,12 +204,6 @@ inline VkMemoryRequirements requirementsWithSize (VkMemoryRequirements requireme
 	return requirements;
 }
 
-inline VkDeviceSize alignSize (const VkDeviceSize val, const VkDeviceSize align)
-{
-	DE_ASSERT(deIsPowerOfTwo64(align));
-	return (val + align - 1) & ~(align - 1);
-}
-
 MovePtr<SparseAllocation> SparseAllocationBuilder::build (const DeviceInterface&	vk,
 														  const VkDevice			device,
 														  Allocator&				allocator,
@@ -220,7 +216,7 @@ MovePtr<SparseAllocation> SparseAllocationBuilder::build (const DeviceInterface&
 								referenceCreateInfo.size	= sizeof(deUint32);
 	const Unique<VkBuffer>		refBuffer					(createBuffer(vk, device, &referenceCreateInfo));
 	const VkMemoryRequirements	memoryRequirements			= getBufferMemoryRequirements(vk, device, *refBuffer);
-	const VkDeviceSize			chunkSize					= std::max(memoryRequirements.alignment, alignSize(minChunkSize, memoryRequirements.alignment));
+	const VkDeviceSize			chunkSize					= std::max(memoryRequirements.alignment, static_cast<VkDeviceSize>(deAlign64(minChunkSize, memoryRequirements.alignment)));
 
 	for (std::vector<deUint32>::const_iterator numChunksIter = m_chunksPerAllocation.begin(); numChunksIter != m_chunksPerAllocation.end(); ++numChunksIter)
 	{
@@ -582,7 +578,7 @@ public:
 		m_pipelineLayout	= makePipelineLayout	(vk, device, m_descriptorSetLayout);
 		m_pipeline			= makeGraphicsPipeline	(vk, device, *m_pipelineLayout, *m_renderPass, m_renderSize, m_topology, DE_LENGTH_OF_ARRAY(pShaderStages), pShaderStages);
 		m_cmdPool			= makeCommandPool		(vk, device, queueFamilyIndex);
-		m_cmdBuffer			= makeCommandBuffer		(vk, device, *m_cmdPool);
+		m_cmdBuffer			= allocateCommandBuffer	(vk, device, *m_cmdPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 	}
 
 	void draw (const DeviceInterface&	vk,
@@ -726,7 +722,7 @@ void bindSparseBuffer (const DeviceInterface& vk, const VkDevice device, const V
 		DE_NULL,											// const VkSemaphore*                          pSignalSemaphores;
 	};
 
-	const Unique<VkFence> fence(makeFence(vk, device));
+	const Unique<VkFence> fence(createFence(vk, device));
 
 	VK_CHECK(vk.queueBindSparse(sparseQueue, 1u, &bindInfo, *fence));
 	VK_CHECK(vk.waitForFences(device, 1u, &fence.get(), VK_TRUE, ~0ull));
@@ -740,12 +736,10 @@ public:
 		, m_aliased						((flags & TEST_FLAG_ALIASED)   != 0)
 		, m_residency					((flags & TEST_FLAG_RESIDENCY) != 0)
 		, m_nonResidentStrict			((flags & TEST_FLAG_NON_RESIDENT_STRICT) != 0)
-		, m_deviceProperties			(getPhysicalDeviceProperties(m_context.getInstanceInterface(), m_context.getPhysicalDevice()))
 		, m_renderSize					(RENDER_SIZE, RENDER_SIZE)
 		, m_colorFormat					(VK_FORMAT_R8G8B8A8_UNORM)
 		, m_colorBufferSize				(m_renderSize.x() * m_renderSize.y() * tcu::getPixelSize(mapVkFormat(m_colorFormat)))
 	{
-		const DeviceInterface&			vk			= m_context.getDeviceInterface();
 		const VkPhysicalDeviceFeatures	features	= getPhysicalDeviceFeatures(m_context.getInstanceInterface(), m_context.getPhysicalDevice());
 
 		if (!features.sparseBinding)
@@ -757,7 +751,7 @@ public:
 		if (m_aliased && !features.sparseResidencyAliased)
 			TCU_THROW(NotSupportedError, "Missing feature: sparseResidencyAliased");
 
-		if (m_nonResidentStrict && !m_deviceProperties.sparseProperties.residencyNonResidentStrict)
+		if (m_nonResidentStrict && !m_context.getDeviceProperties().sparseProperties.residencyNonResidentStrict)
 			TCU_THROW(NotSupportedError, "Missing sparse property: residencyNonResidentStrict");
 
 		{
@@ -768,6 +762,7 @@ public:
 			createDeviceSupportingQueues(requirements);
 		}
 
+		const DeviceInterface& vk		= getDeviceInterface();
 		m_sparseQueue					= getQueue(VK_QUEUE_SPARSE_BINDING_BIT, 0u);
 		m_universalQueue				= getQueue(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT, 0u);
 
@@ -817,15 +812,15 @@ protected:
 			   Renderer::SpecializationMap	specMap				= Renderer::SpecializationMap())
 	{
 		const UniquePtr<Renderer> renderer(new Renderer(
-			m_context.getDeviceInterface(), getDevice(), getAllocator(), m_universalQueue.queueFamilyIndex, descriptorSetLayout,
+			getDeviceInterface(), getDevice(), getAllocator(), m_universalQueue.queueFamilyIndex, descriptorSetLayout,
 			m_context.getBinaryCollection(), "vert", "frag", *m_colorBuffer, m_renderSize, m_colorFormat, Vec4(1.0f, 0.0f, 0.0f, 1.0f), topology, specMap));
 
-		renderer->draw(m_context.getDeviceInterface(), getDevice(), m_universalQueue.queueHandle, *this);
+		renderer->draw(getDeviceInterface(), getDevice(), m_universalQueue.queueHandle, *this);
 	}
 
 	tcu::TestStatus verifyDrawResult (void) const
 	{
-		invalidateMappedMemoryRange(m_context.getDeviceInterface(), getDevice(), m_colorBufferAlloc->getMemory(), 0ull, m_colorBufferSize);
+		invalidateMappedMemoryRange(getDeviceInterface(), getDevice(), m_colorBufferAlloc->getMemory(), 0ull, m_colorBufferSize);
 
 		const tcu::ConstPixelBufferAccess resultImage (mapVkFormat(m_colorFormat), m_renderSize.x(), m_renderSize.y(), 1u, m_colorBufferAlloc->getHostPtr());
 
@@ -841,7 +836,6 @@ protected:
 	const bool							m_aliased;
 	const bool							m_residency;
 	const bool							m_nonResidentStrict;
-	const VkPhysicalDeviceProperties	m_deviceProperties;
 
 	Queue								m_sparseQueue;
 	Queue								m_universalQueue;
@@ -950,7 +944,7 @@ public:
 
 	void rendererDraw (const VkPipelineLayout pipelineLayout, const VkCommandBuffer cmdBuffer) const
 	{
-		const DeviceInterface&	vk				= m_context.getDeviceInterface();
+		const DeviceInterface&	vk				= getDeviceInterface();
 		const VkDeviceSize		vertexOffset	= 0ull;
 
 		vk.cmdBindVertexBuffers	(cmdBuffer, 0u, 1u, &m_vertexBuffer.get(), &vertexOffset);
@@ -960,7 +954,7 @@ public:
 
 	tcu::TestStatus iterate (void)
 	{
-		const DeviceInterface&		vk					= m_context.getDeviceInterface();
+		const DeviceInterface&		vk					= getDeviceInterface();
 		MovePtr<SparseAllocation>	sparseAllocation;
 		Move<VkBuffer>				sparseBuffer;
 		Move<VkBuffer>				sparseBufferAliased;
@@ -977,10 +971,7 @@ public:
 					.addMemoryBind()
 					.build(vk, getDevice(), getAllocator(), referenceBufferCreateInfo, minChunkSize));
 
-				if (minAllocation->resourceSize > m_deviceProperties.limits.maxUniformBufferRange)
-					return tcu::TestStatus::fail("The smallest sparse UBO size exceeds maxUniformBufferRange limit");
-
-				numMaxChunks = static_cast<deUint32>(m_deviceProperties.limits.maxUniformBufferRange / minAllocation->resourceSize);
+				numMaxChunks = deMaxu32(static_cast<deUint32>(m_context.getDeviceProperties().limits.maxUniformBufferRange / minAllocation->resourceSize), 1u);
 			}
 
 			if (numMaxChunks < 4)
@@ -1007,7 +998,7 @@ public:
 					builder.addAliasedMemoryBind(0u, 0u);
 
 				sparseAllocation = builder.build(vk, getDevice(), getAllocator(), referenceBufferCreateInfo, minChunkSize);
-				DE_ASSERT(sparseAllocation->resourceSize <= m_deviceProperties.limits.maxUniformBufferRange);
+				DE_ASSERT(sparseAllocation->resourceSize <= m_context.getDeviceProperties().limits.maxUniformBufferRange);
 			}
 
 			// Create the buffer
@@ -1047,8 +1038,8 @@ public:
 					stagingBufferSize,			// VkDeviceSize    size;
 				};
 
-				const Unique<VkCommandPool>		cmdPool		(makeCommandPool	(vk, getDevice(), m_universalQueue.queueFamilyIndex));
-				const Unique<VkCommandBuffer>	cmdBuffer	(makeCommandBuffer	(vk, getDevice(), *cmdPool));
+				const Unique<VkCommandPool>		cmdPool		(makeCommandPool(vk, getDevice(), m_universalQueue.queueFamilyIndex));
+				const Unique<VkCommandBuffer>	cmdBuffer	(allocateCommandBuffer(vk, getDevice(), *cmdPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY));
 
 				beginCommandBuffer	(vk, *cmdBuffer);
 				vk.cmdCopyBuffer	(*cmdBuffer, *stagingBuffer, *sparseBuffer, 1u, &copyRegion);
@@ -1058,6 +1049,9 @@ public:
 				// Once the fence is signaled, the write is also available to the aliasing buffer.
 			}
 		}
+
+		// Make sure that we don't try to access a larger range than is allowed. This only applies to a single chunk case.
+		const deUint32 maxBufferRange = deMinu32(static_cast<deUint32>(sparseAllocation->resourceSize), m_context.getDeviceProperties().limits.maxUniformBufferRange);
 
 		// Descriptor sets
 		{
@@ -1072,7 +1066,7 @@ public:
 			m_descriptorSet = makeDescriptorSet(vk, getDevice(), *m_descriptorPool, *m_descriptorSetLayout);
 
 			const VkBuffer					buffer				= (m_aliased ? *sparseBufferAliased : *sparseBuffer);
-			const VkDescriptorBufferInfo	sparseBufferInfo	= makeDescriptorBufferInfo(buffer, 0ull, sparseAllocation->resourceSize);
+			const VkDescriptorBufferInfo	sparseBufferInfo	= makeDescriptorBufferInfo(buffer, 0ull, maxBufferRange);
 
 			DescriptorSetUpdateBuilder()
 				.writeSingle(*m_descriptorSet, DescriptorSetUpdateBuilder::Location::binding(0u), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &sparseBufferInfo)
@@ -1102,7 +1096,7 @@ public:
 		{
 			std::vector<deInt32> specializationData;
 			{
-				const deUint32	numBufferEntries	= static_cast<deUint32>(sparseAllocation->resourceSize / sizeof(IVec4));
+				const deUint32	numBufferEntries	= maxBufferRange / static_cast<deUint32>(sizeof(IVec4));
 				const deUint32	numEntriesPerChunk	= numBufferEntries / sparseAllocation->numResourceChunks;
 
 				specializationData.push_back(numBufferEntries);
@@ -1226,7 +1220,7 @@ public:
 	DrawGridTestInstance (Context& context, const TestFlags flags, const VkBufferUsageFlags usage, const VkDeviceSize minChunkSize)
 		: SparseBufferTestInstance	(context, flags)
 	{
-		const DeviceInterface&	vk							= m_context.getDeviceInterface();
+		const DeviceInterface&	vk							= getDeviceInterface();
 		VkBufferCreateInfo		referenceBufferCreateInfo	= getSparseBufferCreateInfo(usage);
 
 		{
@@ -1265,7 +1259,7 @@ public:
 	{
 		initializeBuffers();
 
-		const DeviceInterface&	vk	= m_context.getDeviceInterface();
+		const DeviceInterface&	vk	= getDeviceInterface();
 
 		// Upload to the sparse buffer
 		{
@@ -1294,8 +1288,8 @@ public:
 				},
 			};
 
-			const Unique<VkCommandPool>		cmdPool		(makeCommandPool	(vk, getDevice(), m_universalQueue.queueFamilyIndex));
-			const Unique<VkCommandBuffer>	cmdBuffer	(makeCommandBuffer	(vk, getDevice(), *cmdPool));
+			const Unique<VkCommandPool>		cmdPool		(makeCommandPool(vk, getDevice(), m_universalQueue.queueFamilyIndex));
+			const Unique<VkCommandBuffer>	cmdBuffer	(allocateCommandBuffer(vk, getDevice(), *cmdPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY));
 
 			beginCommandBuffer	(vk, *cmdBuffer);
 			vk.cmdCopyBuffer	(*cmdBuffer, *m_stagingBuffer, *m_sparseBuffer, DE_LENGTH_OF_ARRAY(copyRegions), copyRegions);
@@ -1341,7 +1335,7 @@ public:
 		m_context.getTestContext().getLog()
 			<< tcu::TestLog::Message << "Drawing a grid of triangles backed by a sparse vertex buffer. There should be no red pixels visible." << tcu::TestLog::EndMessage;
 
-		const DeviceInterface&	vk				= m_context.getDeviceInterface();
+		const DeviceInterface&	vk				= getDeviceInterface();
 		const deUint32			vertexCount		= 6 * (GRID_SIZE * GRID_SIZE) / 2;
 		VkDeviceSize			vertexOffset	= 0ull;
 
@@ -1385,7 +1379,7 @@ public:
 		m_context.getTestContext().getLog()
 			<< tcu::TestLog::Message << "Drawing a grid of triangles from a sparse index buffer. There should be no red pixels visible." << tcu::TestLog::EndMessage;
 
-		const DeviceInterface&	vk				= m_context.getDeviceInterface();
+		const DeviceInterface&	vk				= getDeviceInterface();
 		const VkDeviceSize		vertexOffset	= 0ull;
 		VkDeviceSize			indexOffset		= 0ull;
 
@@ -1403,7 +1397,7 @@ public:
 	void initializeBuffers (void)
 	{
 		// Vertex buffer
-		const DeviceInterface&	vk					= m_context.getDeviceInterface();
+		const DeviceInterface&	vk					= getDeviceInterface();
 		const VkDeviceSize		vertexBufferSize	= 2 * m_halfVertexCount * sizeof(Vec4);
 								m_vertexBuffer		= makeBuffer(vk, getDevice(), makeBufferCreateInfo(vertexBufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT));
 								m_vertexBufferAlloc	= bindBuffer(vk, getDevice(), getAllocator(), *m_vertexBuffer, MemoryRequirement::HostVisible);
@@ -1453,7 +1447,7 @@ public:
 		m_context.getTestContext().getLog()
 			<< tcu::TestLog::Message << "Drawing two triangles covering the whole viewport. There should be no red pixels visible." << tcu::TestLog::EndMessage;
 
-		const DeviceInterface&	vk				= m_context.getDeviceInterface();
+		const DeviceInterface&	vk				= getDeviceInterface();
 		const VkDeviceSize		vertexOffset	= 0ull;
 		VkDeviceSize			indirectOffset	= 0ull;
 
@@ -1468,7 +1462,7 @@ public:
 	void initializeBuffers (void)
 	{
 		// Vertex buffer
-		const DeviceInterface&	vk					= m_context.getDeviceInterface();
+		const DeviceInterface&	vk					= getDeviceInterface();
 		const VkDeviceSize		vertexBufferSize	= 2 * 3 * sizeof(Vec4);
 								m_vertexBuffer		= makeBuffer(vk, getDevice(), makeBufferCreateInfo(vertexBufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT));
 								m_vertexBufferAlloc	= bindBuffer(vk, getDevice(), getAllocator(), *m_vertexBuffer, MemoryRequirement::HostVisible);

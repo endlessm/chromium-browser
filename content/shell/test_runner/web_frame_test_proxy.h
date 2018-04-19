@@ -67,10 +67,6 @@ class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
     return Base::CreatePlugin(params);
   }
 
-  blink::WebScreenOrientationClient* GetWebScreenOrientationClient() override {
-    return test_client()->GetWebScreenOrientationClient();
-  }
-
   void DidAddMessageToConsole(const blink::WebConsoleMessage& message,
                               const blink::WebString& source_name,
                               unsigned source_line,
@@ -124,6 +120,13 @@ class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
                                             global_object_reuse_policy);
     Base::DidCommitProvisionalLoad(item, commit_type,
                                    global_object_reuse_policy);
+  }
+
+  void DidNavigateWithinPage(const blink::WebHistoryItem& item,
+                             blink::WebHistoryCommitType commit_type,
+                             bool content_initiated) {
+    test_client()->DidNavigateWithinPage(item, commit_type, content_initiated);
+    Base::DidNavigateWithinPage(item, commit_type, content_initiated);
   }
 
   void DidReceiveTitle(const blink::WebString& title,

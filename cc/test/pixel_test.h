@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef CC_TEST_PIXEL_TEST_H_
+#define CC_TEST_PIXEL_TEST_H_
+
 #include "base/files/file_util.h"
 #include "cc/test/pixel_comparator.h"
 #include "cc/trees/layer_tree_settings.h"
@@ -13,13 +16,11 @@
 #include "ui/gfx/geometry/size.h"
 #include "ui/gl/gl_implementation.h"
 
-#ifndef CC_TEST_PIXEL_TEST_H_
-#define CC_TEST_PIXEL_TEST_H_
-
 namespace viz {
 class CopyOutputResult;
 class DirectRenderer;
 class TestGpuMemoryBufferManager;
+class TestSharedBitmapManager;
 }
 
 namespace cc {
@@ -28,7 +29,6 @@ class FakeOutputSurfaceClient;
 class LayerTreeResourceProvider;
 class OutputSurface;
 class TestInProcessContextProvider;
-class TestSharedBitmapManager;
 
 class PixelTest : public testing::Test {
  protected:
@@ -64,7 +64,7 @@ class PixelTest : public testing::Test {
   bool disable_picture_quad_image_filtering_;
   std::unique_ptr<FakeOutputSurfaceClient> output_surface_client_;
   std::unique_ptr<viz::OutputSurface> output_surface_;
-  std::unique_ptr<TestSharedBitmapManager> shared_bitmap_manager_;
+  std::unique_ptr<viz::TestSharedBitmapManager> shared_bitmap_manager_;
   std::unique_ptr<viz::TestGpuMemoryBufferManager> gpu_memory_buffer_manager_;
   std::unique_ptr<DisplayResourceProvider> resource_provider_;
   scoped_refptr<TestInProcessContextProvider> child_context_provider_;

@@ -213,11 +213,6 @@ bool WebFrameTestClient::RunModalBeforeUnloadDialog(bool is_reload) {
   return !test_runner()->shouldStayOnPageAfterHandlingBeforeUnload();
 }
 
-blink::WebScreenOrientationClient*
-WebFrameTestClient::GetWebScreenOrientationClient() {
-  return test_runner()->getMockScreenOrientationClient();
-}
-
 void WebFrameTestClient::PostAccessibilityEvent(const blink::WebAXObject& obj,
                                                 blink::WebAXEvent event) {
   // Only hook the accessibility events occured during the test run.
@@ -442,6 +437,16 @@ void WebFrameTestClient::DidCommitProvisionalLoad(
     const blink::WebHistoryItem& history_item,
     blink::WebHistoryCommitType history_type,
     blink::WebGlobalObjectReusePolicy) {
+  if (test_runner()->shouldDumpFrameLoadCallbacks()) {
+    PrintFrameDescription(delegate_, web_frame_test_proxy_base_->web_frame());
+    delegate_->PrintMessage(" - didCommitLoadForFrame\n");
+  }
+}
+
+void WebFrameTestClient::DidNavigateWithinPage(
+    const blink::WebHistoryItem& history_item,
+    blink::WebHistoryCommitType history_type,
+    bool content_initiated) {
   if (test_runner()->shouldDumpFrameLoadCallbacks()) {
     PrintFrameDescription(delegate_, web_frame_test_proxy_base_->web_frame());
     delegate_->PrintMessage(" - didCommitLoadForFrame\n");

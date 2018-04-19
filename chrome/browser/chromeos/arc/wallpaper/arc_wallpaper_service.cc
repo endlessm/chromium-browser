@@ -13,7 +13,6 @@
 #include "base/logging.h"
 #include "base/memory/singleton.h"
 #include "base/task_scheduler/post_task.h"
-#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_browser_context_keyed_service_factory_base.h"
@@ -143,7 +142,7 @@ class ArcWallpaperService::DecodeRequest : public ImageDecoder::ImageRequest {
 
     // TODO(crbug.com/776464): Replace |CanSetUserWallpaper| with mojo callback.
     if (!wallpaper_controller->CanSetUserWallpaper(account.id,
-                                                   !account.is_ephemeral)) {
+                                                   account.is_ephemeral)) {
       // When kiosk app is running or policy is enforced, WallpaperController
       // doesn't process custom wallpaper requests.
       service_->NotifyWallpaperChangedAndReset(android_id_);

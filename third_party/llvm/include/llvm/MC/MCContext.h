@@ -18,11 +18,13 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/BinaryFormat/Dwarf.h"
+#include "llvm/MC/MCAsmMacro.h"
 #include "llvm/MC/MCDwarf.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/SectionKind.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Compiler.h"
+#include "llvm/Support/MD5.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <cassert>
@@ -268,6 +270,9 @@ namespace llvm {
                                        unsigned UniqueID,
                                        const MCSymbolELF *Associated);
 
+    /// \brief Map of currently defined macros.
+    StringMap<MCAsmMacro> MacroMap;
+
   public:
     explicit MCContext(const MCAsmInfo *MAI, const MCRegisterInfo *MRI,
                        const MCObjectFileInfo *MOFI,
@@ -489,7 +494,8 @@ namespace llvm {
 
     /// Creates an entry in the dwarf file and directory tables.
     unsigned getDwarfFile(StringRef Directory, StringRef FileName,
-                          unsigned FileNumber, unsigned CUID);
+                          unsigned FileNumber, MD5::MD5Result *Checksum,
+                          unsigned CUID);
 
     bool isValidDwarfFileNumber(unsigned FileNumber, unsigned CUID = 0);
 
@@ -618,6 +624,17 @@ namespace llvm {
     // FIXME: We should really do something about that.
     LLVM_ATTRIBUTE_NORETURN void reportFatalError(SMLoc L,
                                                   const Twine &Msg);
+
+    const MCAsmMacro *lookupMacro(StringRef Name) {
+      StringMap<MCAsmMacro>::iterator I = MacroMap.find(Name);
+      return (I == MacroMap.end()) ? nullptr : &I->getValue();
+    }
+
+    void defineMacro(StringRef Name, MCAsmMacro Macro) {
+      MacroMap.insert(std::make_pair(Name, std::move(Macro)));
+    }
+
+    void undefineMacro(StringRef Name) { MacroMap.erase(Name); }
   };
 
 } // end namespace llvm

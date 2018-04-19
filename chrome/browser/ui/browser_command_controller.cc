@@ -9,7 +9,7 @@
 #include <string>
 
 #include "base/command_line.h"
-#include "base/debug/debugging_flags.h"
+#include "base/debug/debugging_buildflags.h"
 #include "base/debug/profiler.h"
 #include "base/macros.h"
 #include "base/metrics/user_metrics.h"
@@ -35,6 +35,7 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/extensions/hosted_app_browser_controller.h"
+#include "chrome/browser/ui/page_info/page_info_dialog.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/inspect_ui.h"
 #include "chrome/common/content_restriction.h"
@@ -43,7 +44,7 @@
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/browser_sync/profile_sync_service.h"
 #include "components/dom_distiller/core/dom_distiller_switches.h"
-#include "components/feature_engagement/features.h"
+#include "components/feature_engagement/buildflags.h"
 #include "components/prefs/pref_service.h"
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/signin/core/browser/signin_pref_names.h"
@@ -72,8 +73,6 @@
 #include "ash/public/cpp/window_pin_type.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_context_menu.h"
 #include "chrome/browser/ui/browser_commands_chromeos.h"
-#include "ui/base/clipboard/clipboard.h"
-#include "ui/base/clipboard/clipboard_types.h"
 #endif
 
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
@@ -318,7 +317,7 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
       break;
     case IDC_RELOAD_CLEARING_CACHE:
       ClearCache(browser_);
-      // FALL THROUGH
+      FALLTHROUGH;
     case IDC_RELOAD_BYPASSING_CACHE:
       ReloadBypassingCache(browser_, disposition);
       break;
@@ -542,8 +541,8 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
       base::RecordAction(base::UserMetricsAction("Accel_Focus_Bookmarks"));
       FocusBookmarksToolbar(browser_);
       break;
-    case IDC_FOCUS_INFOBARS:
-      FocusInfobars(browser_);
+    case IDC_FOCUS_INACTIVE_POPUP_FOR_ACCESSIBILITY:
+      FocusInactivePopupForAccessibility(browser_);
       break;
     case IDC_FOCUS_NEXT_PANE:
       FocusNextPane(browser_);
@@ -678,10 +677,9 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
           browser_,
           browser_->tab_strip_model()->GetActiveWebContents()->GetVisibleURL());
       break;
-    case IDC_APP_INFO:
-      ShowAppInfoInNativeDialog(
-          browser_->tab_strip_model()->GetActiveWebContents(), profile(),
-          browser_->hosted_app_controller()->GetExtension(), base::Closure());
+    case IDC_HOSTED_APP_MENU_APP_INFO:
+      ShowPageInfoDialog(browser_->tab_strip_model()->GetActiveWebContents(),
+                         bubble_anchor_util::kHostedAppMenu);
       break;
 
     default:
@@ -894,7 +892,7 @@ void BrowserCommandController::InitCommandState() {
                                         is_experimental_hosted_app);
   command_updater_.UpdateCommandEnabled(IDC_SITE_SETTINGS,
                                         is_experimental_hosted_app);
-  command_updater_.UpdateCommandEnabled(IDC_APP_INFO,
+  command_updater_.UpdateCommandEnabled(IDC_HOSTED_APP_MENU_APP_INFO,
                                         is_experimental_hosted_app);
 
   // Window management commands
@@ -1144,7 +1142,7 @@ void BrowserCommandController::UpdateCommandsForFullscreenMode() {
   command_updater_.UpdateCommandEnabled(
       IDC_FOCUS_BOOKMARKS, main_not_fullscreen);
   command_updater_.UpdateCommandEnabled(
-      IDC_FOCUS_INFOBARS, main_not_fullscreen);
+      IDC_FOCUS_INACTIVE_POPUP_FOR_ACCESSIBILITY, main_not_fullscreen);
 
   // Show various bits of UI
   command_updater_.UpdateCommandEnabled(IDC_DEVELOPER_MENU, show_main_ui);
@@ -1204,10 +1202,6 @@ void NonWhitelistedCommandsAreDisabled(CommandUpdaterImpl* command_updater) {
 }  // namespace
 
 void BrowserCommandController::UpdateCommandsForLockedFullscreenMode() {
-  // Reset the clipboard when entering or exiting locked fullscreen (security
-  // concerns).
-  ui::Clipboard::GetForCurrentThread()->Clear(ui::CLIPBOARD_TYPE_COPY_PASTE);
-
   bool is_locked_fullscreen = ash::IsWindowTrustedPinned(browser_->window());
   // Sanity check to make sure this function is called only on state change.
   DCHECK_NE(is_locked_fullscreen, is_locked_fullscreen_);

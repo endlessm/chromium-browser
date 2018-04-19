@@ -19,8 +19,8 @@
 #include "services/resource_coordinator/public/cpp/page_resource_coordinator.h"
 #include "services/resource_coordinator/public/cpp/process_resource_coordinator.h"
 #include "services/resource_coordinator/public/cpp/resource_coordinator_features.h"
-#include "services/resource_coordinator/public/interfaces/coordination_unit.mojom.h"
-#include "services/resource_coordinator/public/interfaces/service_constants.mojom.h"
+#include "services/resource_coordinator/public/mojom/coordination_unit.mojom.h"
+#include "services/resource_coordinator/public/mojom/service_constants.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
 
 DEFINE_WEB_CONTENTS_USER_DATA_KEY(ResourceCoordinatorWebContentsObserver);
@@ -36,12 +36,14 @@ ResourceCoordinatorWebContentsObserver::ResourceCoordinatorWebContentsObserver(
   }
 
   page_resource_coordinator_ =
-      base::MakeUnique<resource_coordinator::PageResourceCoordinator>(
+      std::make_unique<resource_coordinator::PageResourceCoordinator>(
           connector);
 
   // Make sure to set the visibility property when we create
   // |page_resource_coordinator_|.
-  page_resource_coordinator_->SetVisibility(web_contents->IsVisible());
+  const bool is_visible =
+      web_contents->GetVisibility() != content::Visibility::HIDDEN;
+  page_resource_coordinator_->SetVisibility(is_visible);
 
   if (auto* page_signal_receiver =
           resource_coordinator::PageSignalReceiver::GetInstance()) {
@@ -62,12 +64,19 @@ bool ResourceCoordinatorWebContentsObserver::IsEnabled() {
          resource_coordinator::IsResourceCoordinatorEnabled();
 }
 
-void ResourceCoordinatorWebContentsObserver::WasShown() {
-  page_resource_coordinator_->SetVisibility(true);
+void ResourceCoordinatorWebContentsObserver::DidStartLoading() {
+  page_resource_coordinator_->SetIsLoading(true);
 }
 
-void ResourceCoordinatorWebContentsObserver::WasHidden() {
-  page_resource_coordinator_->SetVisibility(false);
+void ResourceCoordinatorWebContentsObserver::DidStopLoading() {
+  page_resource_coordinator_->SetIsLoading(false);
+}
+
+void ResourceCoordinatorWebContentsObserver::OnVisibilityChanged(
+    content::Visibility visibility) {
+  // TODO(fdoray): An OCCLUDED tab should not be considered visible.
+  const bool is_visible = visibility != content::Visibility::HIDDEN;
+  page_resource_coordinator_->SetVisibility(is_visible);
 }
 
 void ResourceCoordinatorWebContentsObserver::WebContentsDestroyed() {

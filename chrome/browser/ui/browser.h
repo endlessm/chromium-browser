@@ -43,6 +43,7 @@
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/common/page_zoom.h"
 #include "extensions/features/features.h"
+#include "printing/features/features.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/base/window_open_disposition.h"
@@ -69,6 +70,7 @@ class BrowserLiveTabContext;
 class BrowserWindow;
 class FastUnloadController;
 class FindBarController;
+class PictureInPictureWindowController;
 class Profile;
 class ScopedKeepAlive;
 class StatusBubble;
@@ -101,6 +103,10 @@ struct SelectedFileInfo;
 
 namespace web_modal {
 class WebContentsModalDialogHost;
+}
+
+namespace viz {
+class SurfaceId;
 }
 
 class Browser : public TabStripModelObserver,
@@ -489,6 +495,7 @@ class Browser : public TabStripModelObserver,
                            bool is_audible) override;
   void OnDidBlockFramebust(content::WebContents* web_contents,
                            const GURL& url) override;
+  void UpdatePictureInPictureSurfaceId(viz::SurfaceId surface_id) override;
 
   bool is_type_tabbed() const { return type_ == TYPE_TABBED; }
   bool is_type_popup() const { return type_ == TYPE_POPUP; }
@@ -501,9 +508,6 @@ class Browser : public TabStripModelObserver,
 
   // Called each time the browser window is shown.
   void OnWindowDidShow();
-
-  // Show the first run search engine bubble on the location bar.
-  void ShowFirstRunBubble();
 
   ExclusiveAccessManager* exclusive_access_manager() {
     return exclusive_access_manager_.get();
@@ -618,8 +622,12 @@ class Browser : public TabStripModelObserver,
                           const std::string& frame_name,
                           const GURL& target_url,
                           content::WebContents* new_contents) override;
-  void RendererUnresponsive(content::WebContents* source) override;
-  void RendererResponsive(content::WebContents* source) override;
+  void RendererUnresponsive(
+      content::WebContents* source,
+      content::RenderWidgetHost* render_widget_host) override;
+  void RendererResponsive(
+      content::WebContents* source,
+      content::RenderWidgetHost* render_widget_host) override;
   void DidNavigateMainFramePostCommit(
       content::WebContents* web_contents) override;
   content::JavaScriptDialogManager* GetJavaScriptDialogManager(
@@ -676,6 +684,14 @@ class Browser : public TabStripModelObserver,
       const base::Callback<void(bool)>& callback) override;
   gfx::Size GetSizeForNewRenderView(
       content::WebContents* web_contents) const override;
+
+#if BUILDFLAG(ENABLE_PRINTING)
+  void PrintCrossProcessSubframe(
+      content::WebContents* web_contents,
+      const gfx::Rect& rect,
+      int document_cookie,
+      content::RenderFrameHost* subframe_host) const override;
+#endif
 
   // Overridden from CoreTabHelperDelegate:
   // Note that the caller is responsible for deleting |old_contents|.
@@ -972,6 +988,8 @@ class Browser : public TabStripModelObserver,
   std::unique_ptr<extensions::WindowController> extension_window_controller_;
 
   std::unique_ptr<chrome::BrowserCommandController> command_controller_;
+
+  std::unique_ptr<PictureInPictureWindowController> pip_window_controller_;
 
   // True if the browser window has been shown at least once.
   bool window_has_shown_;

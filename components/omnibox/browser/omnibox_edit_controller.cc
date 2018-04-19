@@ -4,6 +4,8 @@
 
 #include "components/omnibox/browser/omnibox_edit_controller.h"
 
+#include "components/toolbar/toolbar_model.h"
+
 void OmniboxEditController::OnAutocompleteAccept(
     const GURL& destination_url,
     WindowOpenDisposition disposition,

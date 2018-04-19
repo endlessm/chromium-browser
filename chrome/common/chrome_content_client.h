@@ -14,9 +14,9 @@
 #include "base/files/file_path.h"
 #include "base/synchronization/lock.h"
 #include "build/build_config.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/origin_trials/chrome_origin_trial_policy.h"
-#include "components/nacl/common/features.h"
+#include "components/nacl/common/buildflags.h"
 #include "content/public/common/content_client.h"
 #include "ppapi/features/features.h"
 

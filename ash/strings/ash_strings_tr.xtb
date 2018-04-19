@@ -23,8 +23,10 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" /> (HDMI/DP)</translation>
 <translation id="1510238584712386396">Başlatıcı</translation>
 <translation id="1525508553941733066">KAPAT</translation>
+<translation id="1537254971476575106">Tam ekran büyüteci</translation>
 <translation id="15373452373711364">Büyük fare imleci</translation>
 <translation id="1550523713251050646">Daha fazla seçenek için tıklayın</translation>
+<translation id="1608626060424371292">Bu kullanıcıyı kaldır</translation>
 <translation id="1621499497873603021">Pilin boşalması için kalan süre, <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">Maalesef şifreniz hâlâ doğrulanamadı. Not: Şifrenizi yakın zamanda değiştirdiyseniz, yeni şifreniz oturumu kapatmanızdan sonra geçerli olacaktır. Lütfen burada eski şifrenizi kullanın.</translation>
 <translation id="1677472565718498478">Kalan süre: <ph name="TIME" /></translation>
@@ -43,12 +45,15 @@
 <translation id="1951012854035635156">Asistan</translation>
 <translation id="1957803754585243749">0°</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
+<translation id="1995660704900986789">Kapat</translation>
 <translation id="2012624427112548395">Ctrl+Arama+H</translation>
 <translation id="2049639323467105390">Bu cihaz <ph name="DOMAIN" /> tarafından yönetiliyor.</translation>
 <translation id="2050339315714019657">Dikey</translation>
 <translation id="2067602449040652523">Klavye parlaklığı</translation>
+<translation id="2081529251031312395">$1 daha sonra yine oturum açabilir.</translation>
 <translation id="2122028596993374965"><ph name="TAB_NAME" /> sekmesinin <ph name="RECEIVER_NAME" /> cihazına yayınını durdur</translation>
 <translation id="2127372758936585790">Düşük güçlü şarj cihazı</translation>
+<translation id="2135456203358955318">Yerleştirilmiş büyüteç</translation>
 <translation id="2144487987174258011">Adobe Flash Player'ı güncellemek için yeniden başlatın</translation>
 <translation id="2208323208084708176">Birleştirilmiş masaüstü modu</translation>
 <translation id="2220572644011485463">PIN veya şifre</translation>
@@ -73,7 +78,6 @@
 <translation id="2653659639078652383">Gönder</translation>
 <translation id="2675319268637823299">Bir yönetici <ph name="USER_EMAIL" /> için çoklu oturum açmayı engellemiş.
     Tüm kullanıcılar devam etmek için çıkış yapmalıdır.</translation>
-<translation id="2700058918926273959">Oturumun süresi <ph name="SESSION_TIME_REMAINING" /> içinde bitiyor. Süre dolduğunda oturumunuz kapatılacaktır.</translation>
 <translation id="2727977024730340865">Düşük güçlü bir şarj cihazına takıldı. Şarj durumu güvenilir olmayabilir.</translation>
 <translation id="2761704814324807722">Durum tepsisi, saat: <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581"><ph name="NAME" /> ile yeniden bağlantı kuruluyor</translation>
@@ -83,6 +87,7 @@
 <translation id="2844169650293029770">USB-C cihaz (sol ön bağlantı noktası)</translation>
 <translation id="2865888419503095837">Ağ bilgisi</translation>
 <translation id="2872961005593481000">Kapat</translation>
+<translation id="2878884018241093801">Yeni öğe yok</translation>
 <translation id="2903844815300039659"><ph name="NAME" /> ağına bağlı, <ph name="STRENGTH" /></translation>
 <translation id="2911940648265863620">Ekranınızı paylaşıyorsunuz</translation>
 <translation id="2942516765047364088">Raf konumu</translation>
@@ -109,7 +114,6 @@
 <translation id="3413817803639110246">Henüz görülecek bir şey yok</translation>
 <translation id="3445925074670675829">USB-C cihaz</translation>
 <translation id="3465566417615315331">Fotoğrafınızı tıklayın</translation>
-<translation id="3473479545200714844">Ekran büyüteci</translation>
 <translation id="3477079411857374384">Control-Üst Karakter-Boşluk</translation>
 <translation id="3510164367642747937">Fare imlecini vurgula</translation>
 <translation id="3513798432020909783">Hesap <ph name="MANAGER_EMAIL" /> tarafından yönetiliyor</translation>
@@ -131,6 +135,7 @@
 <translation id="3891340733213178823">Oturumu kapatmak için Ctrl+ÜstKrktr+Q tuşlarına iki defa basın.</translation>
 <translation id="3893630138897523026">ChromeVox (sesli geri bildirim)</translation>
 <translation id="3899995891769452915">Ses girişi</translation>
+<translation id="3900355044994618856">Oturumunuz <ph name="SESSION_TIME_REMAINING" /> içinde sona erecek</translation>
 <translation id="3901991538546252627"><ph name="NAME" /> ağına bağlanılıyor</translation>
 <translation id="394485226368336402">Ses ayarları</translation>
 <translation id="397105322502079400">Hesaplanııyor...</translation>
@@ -139,6 +144,7 @@
 <translation id="4072264167173457037">Orta düzeyde sinyal</translation>
 <translation id="4279490309300973883">Yansıtılıyor</translation>
 <translation id="4321179778687042513">ctrl</translation>
+<translation id="4331809312908958774">Chrome OS</translation>
 <translation id="4338109981321384717">Büyüteç</translation>
 <translation id="4351433414020964307">Asistan yükleniyor...</translation>
 <translation id="4378551569595875038">Bağlanıyor...</translation>
@@ -183,6 +189,7 @@
 <translation id="5744083938413354016">Dokunarak sürükleme</translation>
 <translation id="5777841717266010279">Ekran paylaşma durdurulsun mu?</translation>
 <translation id="57838592816432529">Sesi kapat</translation>
+<translation id="5820394555380036790">Chromium OS</translation>
 <translation id="5832805196449965646">Kişi Ekle</translation>
 <translation id="5860033963881614850">Kapalı</translation>
 <translation id="5895138241574237353">Yeniden başlat</translation>
@@ -207,6 +214,7 @@
 <ph name="ADDRESS" /> adresine sahip "<ph name="NAME" />" olarak görünecek</translation>
 <translation id="6106745654298855237"><ph name="POWER_SOURCE" /> şarj ediyor</translation>
 <translation id="615957422585914272">Dokunmatik klavyeyi göster</translation>
+<translation id="6164005077879661055">Denetlenen bu kullanıcı kaldırıldığında denetlenen kullanıcıyla ilişkilendirilmiş tüm dosyalar ve yerel veriler kalıcı olarak silinir. Yönetici, denetlenen bu kullanıcıya ilişkin ziyaret edilen web sayfaları ve ayarları <ph name="MANAGEMENT_URL" /> adresinden görüntülemeye devam edebilir.</translation>
 <translation id="6165508094623778733">Daha fazla bilgi edinin</translation>
 <translation id="6267036997247669271"><ph name="NAME" />: Etkinleştiriliyor...</translation>
 <translation id="6284232397434400372">Çözünürlük değiştirildi</translation>
@@ -241,6 +249,7 @@ Bu özelliği sadece güvendiğiniz hesaplarda kullanın.</translation>
 <translation id="6857811139397017780">Şunu etkinleştir: <ph name="NETWORKSERVICE" /></translation>
 <translation id="6911468394164995108">Başka ağa katıl...</translation>
 <translation id="6981982820502123353">Erişilebilirlik</translation>
+<translation id="698231206551913481">Bu kullanıcıyla ilişkilendirilen tüm dosyalar ve yerel veriler, bu kullanıcı kaldırıldıktan sonra kalıcı olarak silinir.</translation>
 <translation id="7029814467594812963">Oturumdan çık</translation>
 <translation id="7034339000180558234"><ph name="TAB_NAME" /> sekmesi <ph name="RECEIVER_NAME" /> üzerinde yayınlanıyor</translation>
 <translation id="7052914147756339792">Duvar kağıdını ayarla...</translation>
@@ -248,6 +257,7 @@ Bu özelliği sadece güvendiğiniz hesaplarda kullanın.</translation>
 <translation id="7066646422045619941">Bu ağ, yöneticiniz tarafından devre dışı bırakıldı.</translation>
 <translation id="7067196344162293536">Otomatik döndür</translation>
 <translation id="7098389117866926363">USB-C cihaz (arkadaki sol bağlantı noktası)</translation>
+<translation id="7131634465328662194">Oturumunuz otomatik olarak kapatılacak.</translation>
 <translation id="7165278925115064263">Alt+Üst Karakter+K</translation>
 <translation id="7168224885072002358"><ph name="TIMEOUT_SECONDS" /> saniye içinde eski çözünürlüğe dönülüyor</translation>
 <translation id="7256634071279256947">Arka mikrofon</translation>
@@ -304,6 +314,7 @@ Bu özelliği sadece güvendiğiniz hesaplarda kullanın.</translation>
 <translation id="8484916590211895857"><ph name="NAME" />: Yeniden bağlanılıyor...</translation>
 <translation id="8517041960877371778"><ph name="DEVICE_TYPE" /> cihazınız açıkken şarj olmayabilir.</translation>
 <translation id="8639760480004882931"><ph name="PERCENTAGE" /> kaldı</translation>
+<translation id="8649101189709089199">Seç ve Dinle</translation>
 <translation id="8652175077544655965">Ayarları kapat</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">Düşük güçlü şarj cihazı bağlandı</translation>
@@ -313,6 +324,7 @@ Bu özelliği sadece güvendiğiniz hesaplarda kullanın.</translation>
 Pencereler taşındıktan sonra gelen bildirimler, pencereler ve iletişim kutuları masaüstleri arasında bölünebilir.</translation>
 <translation id="8825534185036233643">İkiden fazla ekranla yansıtma desteklenmez.</translation>
 <translation id="8828714802988429505">90°</translation>
+<translation id="8841375032071747811">Geri düğmesi</translation>
 <translation id="8850991929411075241">Ara+Esc</translation>
 <translation id="8870509716567206129">Uygulama bölünmüş ekranı desteklemiyor.</translation>
 <translation id="8878886163241303700">Genişletilmiş ekran</translation>

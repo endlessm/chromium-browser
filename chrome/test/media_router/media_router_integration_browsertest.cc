@@ -31,7 +31,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
-#include "media/base/test_data_util.cc"
+#include "media/base/test_data_util.h"
 #include "net/base/filename_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -624,7 +624,7 @@ void MediaRouterIntegrationBrowserTest::FileDialogSelectsFile(
   // Ensure that the media_router_ui is set
   DCHECK(media_router_ui);
   media_router_ui->InitForTest(
-      base::MakeUnique<TestMediaRouterFileDialog>(media_router_ui, file_url));
+      std::make_unique<TestMediaRouterFileDialog>(media_router_ui, file_url));
 }
 
 void MediaRouterIntegrationBrowserTest::FileDialogSelectFails(
@@ -633,7 +633,7 @@ void MediaRouterIntegrationBrowserTest::FileDialogSelectFails(
   // Ensure that the media_router_ui is set
   DCHECK(media_router_ui);
   media_router_ui->InitForTest(
-      base::MakeUnique<TestFailMediaRouterFileDialog>(media_router_ui, issue));
+      std::make_unique<TestFailMediaRouterFileDialog>(media_router_ui, issue));
 }
 
 void MediaRouterIntegrationBrowserTest::RunBasicTest() {

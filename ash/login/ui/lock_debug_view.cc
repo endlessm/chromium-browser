@@ -16,6 +16,7 @@
 #include "ash/login/ui/non_accessible_view.h"
 #include "ash/shell.h"
 #include "base/strings/utf_string_conversions.h"
+#include "mojo/common/values_struct_traits.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/views/controls/button/md_text_button.h"
@@ -288,7 +289,11 @@ LockDebugView::LockDebugView(mojom::TrayActionState initial_note_action_state,
   RebuildDebugUserColumn();
 }
 
-LockDebugView::~LockDebugView() = default;
+LockDebugView::~LockDebugView() {
+  // Make sure debug_data_dispatcher_ lives longer than LockContentsView so
+  // pointer debug_dispatcher_ is always valid for LockContentsView.
+  RemoveChildView(lock_);
+}
 
 void LockDebugView::Layout() {
   views::View::Layout();

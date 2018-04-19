@@ -14,6 +14,10 @@ UiUnsupportedMode GetReasonForPrompt(ModalPromptType prompt) {
       return UiUnsupportedMode::kUnhandledPageInfo;
     case kModalPromptTypeExitVRForVoiceSearchRecordAudioOsPermission:
       return UiUnsupportedMode::kVoiceSearchNeedsRecordAudioOsPermission;
+    case kModalPromptTypeGenericUnsupportedFeature:
+      return UiUnsupportedMode::kGenericUnsupportedFeature;
+    case kModalPromptTypeUpdateKeyboard:
+      return UiUnsupportedMode::kNeedsKeyboardUpdate;
     case kModalPromptTypeNone:
       return UiUnsupportedMode::kCount;
   }

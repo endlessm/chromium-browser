@@ -5,6 +5,14 @@
 // RUN: %clang_cc1 -fopenmp -fopenmp-targets=i386-pc-linux-gnu -x c++ -std=c++11 -triple i386-unknown-unknown -emit-pch -o %t %s
 // RUN: %clang_cc1 -fopenmp -fopenmp-targets=i386-pc-linux-gnu -x c++ -triple i386-unknown-unknown -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck %s  --check-prefix CK1 --check-prefix CK1-32
 
+// RUN: %clang_cc1 -verify -fopenmp-simd -fopenmp-targets=powerpc64le-ibm-linux-gnu -x c++ -triple powerpc64le-unknown-unknown -emit-llvm %s -o - | FileCheck --check-prefix SIMD-ONLY0 %s
+// RUN: %clang_cc1 -fopenmp-simd -fopenmp-targets=powerpc64le-ibm-linux-gnu -x c++ -std=c++11 -triple powerpc64le-unknown-unknown -emit-pch -o %t %s
+// RUN: %clang_cc1 -fopenmp-simd -fopenmp-targets=powerpc64le-ibm-linux-gnu -x c++ -triple powerpc64le-unknown-unknown -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck --check-prefix SIMD-ONLY0 %s
+// RUN: %clang_cc1 -verify -fopenmp-simd -fopenmp-targets=i386-pc-linux-gnu -x c++ -triple i386-unknown-unknown -emit-llvm %s -o - | FileCheck --check-prefix SIMD-ONLY0 %s
+// RUN: %clang_cc1 -fopenmp-simd -fopenmp-targets=i386-pc-linux-gnu -x c++ -std=c++11 -triple i386-unknown-unknown -emit-pch -o %t %s
+// RUN: %clang_cc1 -fopenmp-simd -fopenmp-targets=i386-pc-linux-gnu -x c++ -triple i386-unknown-unknown -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck --check-prefix SIMD-ONLY0 %s
+// SIMD-ONLY0-NOT: {{__kmpc|__tgt}}
+
 // expected-no-diagnostics
 // CK1: [[ST:%.+]] = type { i32, double* }
 // CK1: %struct.kmp_depend_info = type { i[[sz:64|32]],
@@ -60,19 +68,19 @@ void foo(int arg) {
   // CK1: [[SHAREDS:%.+]] = getelementptr inbounds %struct.kmp_task_t, %struct.kmp_task_t* [[TASK_T]], i32 0, i32 0
   // CK1: [[SHAREDS_REF:%.+]] = load i8*, i8** [[SHAREDS]],
   // CK1: [[BC1:%.+]] = bitcast %struct.anon* [[CAPTURES]] to i8*
-  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* [[SHAREDS_REF]], i8* [[BC1]], i[[sz]] 4, i32 4, i1 false)
+  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* align 4 [[SHAREDS_REF]], i8* align 4 [[BC1]], i[[sz]] 4, i1 false)
   // CK1: [[PRIVS:%.+]] = getelementptr inbounds %struct.kmp_task_t_with_privates, %struct.kmp_task_t_with_privates* [[BC]], i32 0, i32 1
   // CK1: [[PRIVS_BASEPTRS:%.+]] = getelementptr inbounds %struct..kmp_privates.t, %struct..kmp_privates.t* [[PRIVS]], i32 0, i32 0
   // CK1: [[BC_PRIVS_BASEPTRS:%.+]] = bitcast [1 x i8*]* [[PRIVS_BASEPTRS]] to i8*
   // CK1: [[BC_BASEPTRS:%.+]] = bitcast i8** [[GEPBP0]] to i8*
-  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* [[BC_PRIVS_BASEPTRS]], i8* [[BC_BASEPTRS]], i[[sz]] {{8|4}}, i32 {{8|4}}, i1 false)
+  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* align {{8|4}} [[BC_PRIVS_BASEPTRS]], i8* align {{8|4}} [[BC_BASEPTRS]], i[[sz]] {{8|4}}, i1 false)
   // CK1: [[PRIVS_PTRS:%.+]] = getelementptr inbounds %struct..kmp_privates.t, %struct..kmp_privates.t* [[PRIVS]], i32 0, i32 1
   // CK1: [[BC_PRIVS_PTRS:%.+]] = bitcast [1 x i8*]* [[PRIVS_PTRS]] to i8*
   // CK1: [[BC_PTRS:%.+]] = bitcast i8** [[GEPP0]] to i8*
-  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* [[BC_PRIVS_PTRS]], i8* [[BC_PTRS]], i[[sz]] {{8|4}}, i32 {{8|4}}, i1 false)
+  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* align {{8|4}} [[BC_PRIVS_PTRS]], i8* align {{8|4}} [[BC_PTRS]], i[[sz]] {{8|4}}, i1 false)
   // CK1: [[PRIVS_SIZES:%.+]] = getelementptr inbounds %struct..kmp_privates.t, %struct..kmp_privates.t* [[PRIVS]], i32 0, i32 2
   // CK1: [[BC_PRIVS_SIZES:%.+]] = bitcast [1 x i[[sz]]]* [[PRIVS_SIZES]] to i8*
-  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* [[BC_PRIVS_SIZES]], i8* bitcast ([1 x i[[sz]]]* [[SIZE00]] to i8*), i[[sz]] {{8|4}}, i32 {{8|4}}, i1 false)
+  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* align {{8|4}} [[BC_PRIVS_SIZES]], i8* align {{8|4}} bitcast ([1 x i[[sz]]]* [[SIZE00]] to i8*), i[[sz]] {{8|4}}, i1 false)
   // CK1: [[DEP:%.+]] = getelementptr inbounds [1 x %struct.kmp_depend_info], [1 x %struct.kmp_depend_info]* [[MAIN_DEP:%.+]], i[[sz]] 0, i[[sz]] 0
   // CK1: [[DEP_ADR:%.+]] = getelementptr inbounds %struct.kmp_depend_info, %struct.kmp_depend_info* [[DEP]], i32 0, i32 0
   // CK1: [[BC_ADR:%.+]] = ptrtoint i32* %{{.+}} to i[[sz]]
@@ -116,19 +124,19 @@ void foo(int arg) {
   // CK1: [[SHAREDS:%.+]] = getelementptr inbounds %struct.kmp_task_t, %struct.kmp_task_t* [[TASK_T]], i32 0, i32 0
   // CK1: [[SHAREDS_REF:%.+]] = load i8*, i8** [[SHAREDS]],
   // CK1: [[BC1:%.+]] = bitcast %struct.anon{{.+}}* [[CAPTURES]] to i8*
-  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* [[SHAREDS_REF]], i8* [[BC1]], i[[sz]] 1, i32 1, i1 false)
+  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* align 1 [[SHAREDS_REF]], i8* align 1 [[BC1]], i[[sz]] 1, i1 false)
   // CK1: [[PRIVS:%.+]] = getelementptr inbounds %struct.kmp_task_t_with_privates{{.+}}, %struct.kmp_task_t_with_privates{{.+}}* [[RES_BC]], i32 0, i32 1
   // CK1: [[PRIVS_BASEPTRS:%.+]] = getelementptr inbounds %struct..kmp_privates.t{{.+}}, %struct..kmp_privates.t{{.+}}* [[PRIVS]], i32 0, i32 0
   // CK1: [[BC_PRIVS_BASEPTRS:%.+]] = bitcast [1 x i8*]* [[PRIVS_BASEPTRS]] to i8*
   // CK1: [[BC_BASEPTRS:%.+]] = bitcast i8** [[GEPBP0]] to i8*
-  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* [[BC_PRIVS_BASEPTRS]], i8* [[BC_BASEPTRS]], i[[sz]] {{8|4}}, i32 {{8|4}}, i1 false)
+  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* align {{8|4}} [[BC_PRIVS_BASEPTRS]], i8* align {{8|4}} [[BC_BASEPTRS]], i[[sz]] {{8|4}}, i1 false)
   // CK1: [[PRIVS_PTRS:%.+]] = getelementptr inbounds %struct..kmp_privates.t{{.+}}, %struct..kmp_privates.t{{.+}}* [[PRIVS]], i32 0, i32 1
   // CK1: [[BC_PRIVS_PTRS:%.+]] = bitcast [1 x i8*]* [[PRIVS_PTRS]] to i8*
   // CK1: [[BC_PTRS:%.+]] = bitcast i8** [[GEPP0]] to i8*
-  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* [[BC_PRIVS_PTRS]], i8* [[BC_PTRS]], i[[sz]] {{8|4}}, i32 {{8|4}}, i1 false)
+  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* align {{8|4}} [[BC_PRIVS_PTRS]], i8* align {{8|4}} [[BC_PTRS]], i[[sz]] {{8|4}}, i1 false)
   // CK1: [[PRIVS_SIZES:%.+]] = getelementptr inbounds %struct..kmp_privates.t{{.+}}, %struct..kmp_privates.t{{.+}}* [[PRIVS]], i32 0, i32 2
   // CK1: [[BC_PRIVS_SIZES:%.+]] = bitcast [1 x i[[sz]]]* [[PRIVS_SIZES]] to i8*
-  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* [[BC_PRIVS_SIZES]], i8* bitcast ([1 x i[[sz]]]* [[SIZE02]] to i8*), i[[sz]] {{8|4}}, i32 {{8|4}}, i1 false)
+  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* align {{8|4}} [[BC_PRIVS_SIZES]], i8* align {{8|4}} bitcast ([1 x i[[sz]]]* [[SIZE02]] to i8*), i[[sz]] {{8|4}}, i1 false)
   // CK1: [[DEP:%.+]] = getelementptr inbounds [3 x %struct.kmp_depend_info], [3 x %struct.kmp_depend_info]* [[MAIN_DEP:%.+]], i[[sz]] 0, i[[sz]] 0
   // CK1: [[DEP_ADR:%.+]] = getelementptr inbounds %struct.kmp_depend_info, %struct.kmp_depend_info* [[DEP]], i32 0, i32 0
   // CK1: [[BC_ADR:%.+]] = ptrtoint i32* %{{.+}} to i[[sz]]
@@ -190,15 +198,15 @@ void foo(int arg) {
   // CK1: [[PRIVS_BASEPTRS:%.+]] = getelementptr inbounds %struct..kmp_privates.t{{.+}}, %struct..kmp_privates.t{{.+}}* [[PRIVS]], i32 0, i32 0
   // CK1: [[BC_PRIVS_BASEPTRS:%.+]] = bitcast [1 x i8*]* [[PRIVS_BASEPTRS]] to i8*
   // CK1: [[BC_BASEPTRS:%.+]] = bitcast i8** [[GEPBP0]] to i8*
-  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* [[BC_PRIVS_BASEPTRS]], i8* [[BC_BASEPTRS]], i[[sz]] {{8|4}}, i32 {{8|4}}, i1 false)
+  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* align {{8|4}} [[BC_PRIVS_BASEPTRS]], i8* align {{8|4}} [[BC_BASEPTRS]], i[[sz]] {{8|4}}, i1 false)
   // CK1: [[PRIVS_PTRS:%.+]] = getelementptr inbounds %struct..kmp_privates.t{{.+}}, %struct..kmp_privates.t{{.+}}* [[PRIVS]], i32 0, i32 1
   // CK1: [[BC_PRIVS_PTRS:%.+]] = bitcast [1 x i8*]* [[PRIVS_PTRS]] to i8*
   // CK1: [[BC_PTRS:%.+]] = bitcast i8** [[GEPP0]] to i8*
-  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* [[BC_PRIVS_PTRS]], i8* [[BC_PTRS]], i[[sz]] {{8|4}}, i32 {{8|4}}, i1 false)
+  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* align {{8|4}} [[BC_PRIVS_PTRS]], i8* align {{8|4}} [[BC_PTRS]], i[[sz]] {{8|4}}, i1 false)
   // CK1: [[PRIVS_SIZES:%.+]] = getelementptr inbounds %struct..kmp_privates.t{{.+}}, %struct..kmp_privates.t{{.+}}* [[PRIVS]], i32 0, i32 2
   // CK1: [[BC_PRIVS_SIZES:%.+]] = bitcast [1 x i[[sz]]]* [[PRIVS_SIZES]] to i8*
   // CK1: [[BC_SIZES:%.+]] = bitcast i[[sz]]* [[GEPS0]] to i8*
-  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* [[BC_PRIVS_SIZES]], i8* [[BC_SIZES]], i[[sz]] {{8|4}}, i32 {{8|4}}, i1 false)
+  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* align {{8|4}} [[BC_PRIVS_SIZES]], i8* align {{8|4}} [[BC_SIZES]], i[[sz]] {{8|4}}, i1 false)
   // CK1: [[DEP:%.+]] = getelementptr inbounds [4 x %struct.kmp_depend_info], [4 x %struct.kmp_depend_info]* [[MAIN_DEP:%.+]], i[[sz]] 0, i[[sz]] 0
   // CK1: [[DEP_ADR:%.+]] = getelementptr inbounds %struct.kmp_depend_info, %struct.kmp_depend_info* [[DEP]], i32 0, i32 0
   // CK1: [[BC_ADR:%.+]] = ptrtoint float* %{{.+}} to i[[sz]]
@@ -264,14 +272,14 @@ void foo(int arg) {
   // CK1: [[PRIVS_BASEPTRS:%.+]] = getelementptr inbounds %struct..kmp_privates.t{{.+}}, %struct..kmp_privates.t{{.+}}* [[PRIVS]], i32 0, i32 0
   // CK1: [[BC_PRIVS_BASEPTRS:%.+]] = bitcast [2 x i8*]* [[PRIVS_BASEPTRS]] to i8*
   // CK1: [[BC_BASEPTRS:%.+]] = bitcast i8** [[GEPBP0]] to i8*
-  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* [[BC_PRIVS_BASEPTRS]], i8* [[BC_BASEPTRS]], i[[sz]] {{16|8}}, i32 {{8|4}}, i1 false)
+  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* align {{8|4}} [[BC_PRIVS_BASEPTRS]], i8* align {{8|4}} [[BC_BASEPTRS]], i[[sz]] {{16|8}}, i1 false)
   // CK1: [[PRIVS_PTRS:%.+]] = getelementptr inbounds %struct..kmp_privates.t{{.+}}, %struct..kmp_privates.t{{.+}}* [[PRIVS]], i32 0, i32 1
   // CK1: [[BC_PRIVS_PTRS:%.+]] = bitcast [2 x i8*]* [[PRIVS_PTRS]] to i8*
   // CK1: [[BC_PTRS:%.+]] = bitcast i8** [[GEPP0]] to i8*
-  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* [[BC_PRIVS_PTRS]], i8* [[BC_PTRS]], i[[sz]] {{16|8}}, i32 {{8|4}}, i1 false)
+  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* align {{8|4}} [[BC_PRIVS_PTRS]], i8* align {{8|4}} [[BC_PTRS]], i[[sz]] {{16|8}}, i1 false)
   // CK1: [[PRIVS_SIZES:%.+]] = getelementptr inbounds %struct..kmp_privates.t{{.+}}, %struct..kmp_privates.t{{.+}}* [[PRIVS]], i32 0, i32 2
   // CK1: [[BC_PRIVS_SIZES:%.+]] = bitcast [2 x i[[sz]]]* [[PRIVS_SIZES]] to i8*
-  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* [[BC_PRIVS_SIZES]], i8* bitcast ([2 x i[[sz]]]* [[SIZE04]] to i8*), i[[sz]] {{16|8}}, i32 {{8|4}}, i1 false)
+  // CK1: call void @llvm.memcpy.p0i8.p0i8.i[[sz]](i8* align {{8|4}} [[BC_PRIVS_SIZES]], i8* align {{8|4}} bitcast ([2 x i[[sz]]]* [[SIZE04]] to i8*), i[[sz]] {{16|8}}, i1 false)
   // CK1: [[DEP:%.+]] = getelementptr inbounds [5 x %struct.kmp_depend_info], [5 x %struct.kmp_depend_info]* [[MAIN_DEP:%.+]], i[[sz]] 0, i[[sz]] 0
   // CK1: [[DEP_ADR:%.+]] = getelementptr inbounds %struct.kmp_depend_info, %struct.kmp_depend_info* [[DEP]], i32 0, i32 0
   // CK1: [[BC_ADR:%.+]] = ptrtoint double* %{{.+}} to i[[sz]]

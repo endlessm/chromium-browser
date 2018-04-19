@@ -19,6 +19,7 @@
 #include "components/autofill/core/common/password_form_fill_data.h"
 #include "components/password_manager/core/browser/log_manager.h"
 #include "components/password_manager/core/browser/mock_password_store.h"
+#include "components/password_manager/core/browser/password_store_consumer.h"
 #include "components/password_manager/core/browser/stub_password_manager_client.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -30,12 +31,14 @@
 #import "ios/chrome/browser/passwords/js_password_manager.h"
 #import "ios/chrome/browser/passwords/password_form_filler.h"
 #include "ios/chrome/browser/passwords/test_helpers.h"
+#include "ios/chrome/browser/web/chrome_web_client.h"
+#import "ios/chrome/browser/web/chrome_web_test.h"
 #import "ios/testing/wait_util.h"
 #import "ios/web/public/navigation_item.h"
 #import "ios/web/public/navigation_manager.h"
 #include "ios/web/public/ssl_status.h"
 #import "ios/web/public/test/fakes/test_web_state.h"
-#import "ios/web/public/test/web_test_with_web_state.h"
+#import "ios/web/public/test/web_js_test.h"
 #import "ios/web/public/web_state/web_state.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -51,12 +54,14 @@
 
 using autofill::PasswordForm;
 using autofill::PasswordFormFillData;
+using password_manager::PasswordStoreConsumer;
 using test_helpers::SetPasswordFormFillData;
 using testing::NiceMock;
 using testing::Return;
 using testing::kWaitForActionTimeout;
 using testing::kWaitForJSCompletionTimeout;
 using testing::WaitUntilConditionOrTimeout;
+using testing::WithArg;
 using testing::_;
 
 namespace {
@@ -112,6 +117,29 @@ PasswordController* CreatePasswordController(
                                                client:std::move(client)];
 }
 
+PasswordForm CreatePasswordForm(const char* origin_url,
+                                const char* username_value,
+                                const char* password_value) {
+  PasswordForm form;
+  form.scheme = PasswordForm::SCHEME_HTML;
+  form.origin = GURL(origin_url);
+  form.signon_realm = origin_url;
+  form.username_value = base::ASCIIToUTF16(username_value);
+  form.password_value = base::ASCIIToUTF16(password_value);
+  return form;
+}
+
+// Invokes the password store consumer with a single copy of |form|.
+ACTION_P(InvokeConsumer, form) {
+  std::vector<std::unique_ptr<PasswordForm>> result;
+  result.push_back(std::make_unique<PasswordForm>(form));
+  arg0->OnGetPasswordStoreResults(std::move(result));
+}
+
+ACTION(InvokeEmptyConsumerWithForms) {
+  arg0->OnGetPasswordStoreResults(std::vector<std::unique_ptr<PasswordForm>>());
+}
+
 }  // namespace
 
 @interface PasswordController (
@@ -127,6 +155,8 @@ PasswordController* CreatePasswordController(
 
 - (void)fillPasswordForm:(const PasswordFormFillData&)formData
        completionHandler:(void (^)(BOOL))completionHandler;
+
+- (void)onNoSavedCredentials;
 
 - (BOOL)getPasswordForm:(PasswordForm*)form
          fromDictionary:(const base::DictionaryValue*)dictionary
@@ -156,15 +186,16 @@ PasswordController* CreatePasswordController(
 
 @end
 
-class PasswordControllerTest : public web::WebTestWithWebState {
+class PasswordControllerTest : public ChromeWebTest {
  public:
   PasswordControllerTest()
-      : store_(new testing::NiceMock<password_manager::MockPasswordStore>()) {}
+      : ChromeWebTest(std::make_unique<ChromeWebClient>()),
+        store_(new testing::NiceMock<password_manager::MockPasswordStore>()) {}
 
   ~PasswordControllerTest() override { store_->ShutdownOnUIThread(); }
 
   void SetUp() override {
-    web::WebTestWithWebState::SetUp();
+    ChromeWebTest::SetUp();
     passwordController_ =
         CreatePasswordController(web_state(), store_.get(), &weak_client_);
     @autoreleasepool {
@@ -187,20 +218,18 @@ class PasswordControllerTest : public web::WebTestWithWebState {
   // YES on success, NO otherwise.
   BOOL BasicFormFill(NSString* html);
 
-  // Retrieve the current suggestions from suggestionController_ sorted in
-  // alphabetical order according to their value properties.
-  NSArray* GetSortedSuggestionValues() {
+  // Retrieve the current suggestions from suggestionController_.
+  NSArray* GetSuggestionValues() {
     NSMutableArray* suggestion_values = [NSMutableArray array];
     for (FormSuggestion* suggestion in [suggestionController_ suggestions])
       [suggestion_values addObject:suggestion.value];
-    return [suggestion_values
-        sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+    return [suggestion_values copy];
   }
 
   // Returns an identifier for the |form_number|th form in the page.
   std::string FormName(int form_number) {
     NSString* kFormNamingScript =
-        @"__gCrWeb.common.getFormIdentifier("
+        @"__gCrWeb.form.getFormIdentifier("
          "    document.querySelectorAll('form')[%d]);";
     return base::SysNSStringToUTF8(ExecuteJavaScript(
         [NSString stringWithFormat:kFormNamingScript, form_number]));
@@ -1025,6 +1054,7 @@ TEST_F(PasswordControllerTest, FLAKY_DontFillReadOnly) {
        "</form>"));
 }
 
+// TODO(crbug.com/817755): Move them HTML const to separate HTML files.
 // An HTML page without a password form.
 static NSString* kHtmlWithoutPasswordForm =
     @"<h2>The rain in Spain stays <i>mainly</i> in the plain.</h2>";
@@ -1075,6 +1105,24 @@ static NSString* kUsernamePasswordVerificationScript =
      "   + ', onkeyup=' + onKeyUpCalled_"
      "   + ', onchange=' + onChangeCalled_;";
 
+// A script that adds a password form.
+static NSString* kAddFormDynamicallyScript =
+    @"var dynamicForm = document.createElement('form');"
+     "dynamicForm.setAttribute('name', 'dynamic_form');"
+     "var inputUsername = document.createElement('input');"
+     "inputUsername.setAttribute('type', 'text');"
+     "inputUsername.setAttribute('id', 'username');"
+     "var inputPassword = document.createElement('input');"
+     "inputPassword.setAttribute('type', 'password');"
+     "inputPassword.setAttribute('id', 'password');"
+     "var submitButton = document.createElement('input');"
+     "submitButton.setAttribute('type', 'submit');"
+     "submitButton.setAttribute('value', 'Submit');"
+     "dynamicForm.appendChild(inputUsername);"
+     "dynamicForm.appendChild(inputPassword);"
+     "dynamicForm.appendChild(submitButton);"
+     "document.body.appendChild(dynamicForm);";
+
 struct SuggestionTestData {
   std::string description;
   NSArray* eval_scripts;
@@ -1115,6 +1163,7 @@ TEST_F(PasswordControllerTest, SuggestionUpdateTests) {
   EXPECT_NSEQ(@"[]=, onkeyup=false, onchange=false",
               ExecuteJavaScript(kUsernamePasswordVerificationScript));
 
+  NSString* showAll = @"Show All\u2026";
   // clang-format off
   SuggestionTestData test_data[] = {
     {
@@ -1123,16 +1172,16 @@ TEST_F(PasswordControllerTest, SuggestionUpdateTests) {
           "evt.initEvent('focus', true, true, window, 1);"
           "username_.dispatchEvent(evt);"),
         @""],
-      @[@"abc", @"user0"],
+      @[@"user0", @"abc", showAll],
       @"[]=, onkeyup=false, onchange=false"
     },
     {
-      "Should not show suggestions when focusing password field",
+      "Should not show password suggestions when focusing password field",
       @[(@"var evt = document.createEvent('Events');"
           "evt.initEvent('focus', true, true, window, 1);"
           "password_.dispatchEvent(evt);"),
         @""],
-      @[],
+      @[showAll],
       @"[]=, onkeyup=false, onchange=false"
     },
     {
@@ -1142,7 +1191,7 @@ TEST_F(PasswordControllerTest, SuggestionUpdateTests) {
           "evt.initEvent('focus', true, true, window, 1);"
           "username_.dispatchEvent(evt);"),
         @""],
-      @[@"abc"],
+      @[@"abc", showAll],
       @"ab[]=, onkeyup=false, onchange=false"
     },
     {
@@ -1156,7 +1205,7 @@ TEST_F(PasswordControllerTest, SuggestionUpdateTests) {
           "evt.keyCode = 98;"
           "username_.dispatchEvent(evt);"),
         @""],
-      @[@"abc"],
+      @[@"abc", showAll],
       @"ab[]=, onkeyup=true, onchange=false"
     },
     {
@@ -1175,7 +1224,7 @@ TEST_F(PasswordControllerTest, SuggestionUpdateTests) {
           "evt.keyCode = 8;"
           "username_.dispatchEvent(evt);"),
         @""],
-      @[@"abc", @"user0"],
+      @[@"user0", @"abc", showAll],
       @"[]=, onkeyup=true, onchange=false"
     },
   };
@@ -1198,7 +1247,7 @@ TEST_F(PasswordControllerTest, SuggestionUpdateTests) {
       WaitForBackgroundTasks();
     }
 
-    EXPECT_NSEQ(data.expected_suggestions, GetSortedSuggestionValues());
+    EXPECT_NSEQ(data.expected_suggestions, GetSuggestionValues());
     EXPECT_NSEQ(data.expected_result,
                 ExecuteJavaScript(kUsernamePasswordVerificationScript));
     // Clear all suggestions.
@@ -1274,7 +1323,11 @@ TEST_F(PasswordControllerTest, SelectingSuggestionShouldFillPasswordForm) {
                           webState:web_state()
                  completionHandler:^(NSArray* suggestions,
                                      id<FormSuggestionProvider> provider) {
-                   EXPECT_EQ(1u, [suggestions count]);
+                   NSMutableArray* suggestion_values = [NSMutableArray array];
+                   for (FormSuggestion* suggestion in suggestions)
+                     [suggestion_values addObject:suggestion.value];
+                   EXPECT_NSEQ((@[ @"abc", @"Show All\u2026" ]),
+                               suggestion_values);
                    block_was_called = YES;
                  }];
     EXPECT_TRUE(block_was_called);
@@ -1459,24 +1512,6 @@ TEST_F(PasswordControllerTest, HTTPSPassword) {
 // not sent to the store then the request the the store is sent.
 TEST_F(PasswordControllerTest, SendingToStoreDynamicallyAddedFormsOnFocus) {
   LoadHtml(kHtmlWithoutPasswordForm);
-
-  // Add a password form dynamically.
-  NSString* kAddFormDynamicallyScript =
-      @"var dynamicForm = document.createElement('form');"
-       "dynamicForm.setAttribute('name', 'dynamic_form');"
-       "var inputUsername = document.createElement('input');"
-       "inputUsername.setAttribute('type', 'text');"
-       "inputUsername.setAttribute('id', 'username');"
-       "var inputPassword = document.createElement('input');"
-       "inputPassword.setAttribute('type', 'password');"
-       "inputPassword.setAttribute('id', 'password');"
-       "var submitButton = document.createElement('input');"
-       "submitButton.setAttribute('type', 'submit');"
-       "submitButton.setAttribute('value', 'Submit');"
-       "dynamicForm.appendChild(inputUsername);"
-       "dynamicForm.appendChild(inputPassword);"
-       "dynamicForm.appendChild(submitButton);"
-       "document.body.appendChild(dynamicForm);";
   ExecuteJavaScript(kAddFormDynamicallyScript);
 
   // The standard pattern is to use a __block variable WaitUntilCondition but
@@ -1557,7 +1592,7 @@ TEST_F(PasswordControllerTest, TouchendAsSubmissionIndicator) {
 // Tests that a touchend event from a button which contains in a password form
 // works as a submission indicator for this password form.
 TEST_F(PasswordControllerTest, SavingFromSameOriginIframe) {
-  // Use a mock LogManager to detect that OnInPageNavigation has been
+  // Use a mock LogManager to detect that OnSameDocumentNavigation has been
   // called. TODO(crbug.com/598672): this is a hack, we should modularize the
   // code better to allow proper unit-testing.
   MockLogManager log_manager;
@@ -1565,7 +1600,7 @@ TEST_F(PasswordControllerTest, SavingFromSameOriginIframe) {
       .WillRepeatedly(Return(&log_manager));
   EXPECT_CALL(log_manager, IsLoggingActive()).WillRepeatedly(Return(true));
   const char kExpectedMessage[] =
-      "Message: \"PasswordManager::OnInPageNavigation\"\n";
+      "Message: \"PasswordManager::OnSameDocumentNavigation\"\n";
 
   // The standard pattern is to use a __block variable WaitUntilCondition but
   // __block variable can't be captured in C++ lambda, so as workaround it's
@@ -1600,4 +1635,106 @@ TEST_F(PasswordControllerTest, SavingFromSameOriginIframe) {
   EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForActionTimeout, ^bool() {
     return *p_expected_message_logged;
   }));
+}
+
+// Tests that when a dynamic form added and the user clicks on the username
+// field in this form, then the request to the Password Store is sent and
+// PassworController is waiting to the response in order to show or not to show
+// password suggestions.
+TEST_F(PasswordControllerTest, CheckAsyncSuggestions) {
+  for (bool store_has_credentials : {false, true}) {
+    LoadHtml(kHtmlWithoutPasswordForm);
+    ExecuteJavaScript(kAddFormDynamicallyScript);
+
+    __block BOOL completion_handler_success = NO;
+    __block BOOL completion_handler_called = NO;
+
+    if (store_has_credentials) {
+      PasswordForm form(CreatePasswordForm(BaseUrl().c_str(), "user", "pw"));
+      EXPECT_CALL(*store_, GetLogins(_, _))
+          .WillOnce(WithArg<1>(InvokeConsumer(form)));
+    } else {
+      EXPECT_CALL(*store_, GetLogins(_, _))
+          .WillRepeatedly(WithArg<1>(InvokeEmptyConsumerWithForms()));
+    }
+    [passwordController_ checkIfSuggestionsAvailableForForm:@"dynamic_form"
+                                                      field:@"username"
+                                                  fieldType:@"text"
+                                                       type:@"focus"
+                                                 typedValue:@""
+                                                isMainFrame:YES
+                                                   webState:web_state()
+                                          completionHandler:^(BOOL success) {
+                                            completion_handler_success =
+                                                success;
+                                            completion_handler_called = YES;
+                                          }];
+    // Wait until the expected handler is called.
+    EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForActionTimeout, ^bool() {
+      return completion_handler_called;
+    }));
+
+    EXPECT_EQ(store_has_credentials, completion_handler_success);
+    testing::Mock::VerifyAndClearExpectations(&store_);
+  }
+}
+
+// Tests that when a dynamic form added and the user clicks on non username
+// field in this form, then the request to the Password Store is sent but no
+// suggestions are shown.
+TEST_F(PasswordControllerTest, CheckNoAsyncSuggestionsOnNonUsernameField) {
+  LoadHtml(kHtmlWithoutPasswordForm);
+  ExecuteJavaScript(kAddFormDynamicallyScript);
+
+  __block BOOL completion_handler_success = NO;
+  __block BOOL completion_handler_called = NO;
+
+  PasswordForm form(CreatePasswordForm(BaseUrl().c_str(), "user", "pw"));
+  EXPECT_CALL(*store_, GetLogins(_, _))
+      .WillOnce(WithArg<1>(InvokeConsumer(form)));
+  [passwordController_ checkIfSuggestionsAvailableForForm:@"dynamic_form"
+                                                    field:@"address"
+                                                fieldType:@"text"
+                                                     type:@"focus"
+                                               typedValue:@""
+                                              isMainFrame:YES
+                                                 webState:web_state()
+                                        completionHandler:^(BOOL success) {
+                                          completion_handler_success = success;
+                                          completion_handler_called = YES;
+                                        }];
+  // Wait until the expected handler is called.
+  EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForActionTimeout, ^bool() {
+    return completion_handler_called;
+  }));
+
+  EXPECT_FALSE(completion_handler_success);
+}
+
+// Tests that when there are no password forms on a page and the user clicks on
+// a text field the completion callback is called with no suggestions result.
+TEST_F(PasswordControllerTest, CheckNoAsyncSuggestionsOnNoPasswordForms) {
+  LoadHtml(kHtmlWithoutPasswordForm);
+
+  __block BOOL completion_handler_success = NO;
+  __block BOOL completion_handler_called = NO;
+
+  EXPECT_CALL(*store_, GetLogins(_, _)).Times(0);
+  [passwordController_ checkIfSuggestionsAvailableForForm:@"form"
+                                                    field:@"address"
+                                                fieldType:@"text"
+                                                     type:@"focus"
+                                               typedValue:@""
+                                              isMainFrame:YES
+                                                 webState:web_state()
+                                        completionHandler:^(BOOL success) {
+                                          completion_handler_success = success;
+                                          completion_handler_called = YES;
+                                        }];
+  // Wait until the expected handler is called.
+  EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForActionTimeout, ^bool() {
+    return completion_handler_called;
+  }));
+
+  EXPECT_FALSE(completion_handler_success);
 }

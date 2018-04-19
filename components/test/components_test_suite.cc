@@ -10,7 +10,6 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/test/launcher/unit_test_launcher.h"
 #include "base/test/test_suite.h"
@@ -28,6 +27,10 @@
 #include "content/public/test/test_content_client_initializer.h"
 #include "content/public/test/unittest_test_suite.h"
 #include "ui/gl/test/gl_surface_test_support.h"
+#endif
+
+#if defined(OS_WIN)
+#include "base/win/scoped_com_initializer.h"
 #endif
 
 namespace {
@@ -92,6 +95,10 @@ class ComponentsTestSuite : public base::TestSuite {
     base::TestSuite::Shutdown();
   }
 
+#if defined(OS_WIN)
+  base::win::ScopedCOMInitializer com_initializer_;
+#endif
+
   DISALLOW_COPY_AND_ASSIGN(ComponentsTestSuite);
 };
 
@@ -124,10 +131,10 @@ class ComponentsUnitTestEventListener : public testing::EmptyTestEventListener {
 
 base::RunTestSuiteCallback GetLaunchCallback(int argc, char** argv) {
 #if !defined(OS_IOS)
-  auto test_suite = base::MakeUnique<content::UnitTestTestSuite>(
+  auto test_suite = std::make_unique<content::UnitTestTestSuite>(
       new ComponentsTestSuite(argc, argv));
 #else
-  auto test_suite = base::MakeUnique<ComponentsTestSuite>(argc, argv);
+  auto test_suite = std::make_unique<ComponentsTestSuite>(argc, argv);
 #endif
 
   // The listener will set up common test environment for all components unit

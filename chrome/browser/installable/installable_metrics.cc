@@ -231,7 +231,9 @@ bool InstallableMetrics::IsReportableInstallSource(WebappInstallSource source) {
          source == WebappInstallSource::AUTOMATIC_PROMPT_CUSTOM_TAB ||
          source == WebappInstallSource::API_BROWSER_TAB ||
          source == WebappInstallSource::API_CUSTOM_TAB ||
-         source == WebappInstallSource::DEBUG;
+         source == WebappInstallSource::DEVTOOLS ||
+         source == WebappInstallSource::AMBIENT_BADGE_BROWSER_TAB ||
+         source == WebappInstallSource::AMBIENT_BADGE_CUSTOM_TAB;
 }
 
 // static
@@ -245,6 +247,9 @@ WebappInstallSource InstallableMetrics::GetInstallSource(
 #endif
 
   switch (trigger) {
+    case InstallTrigger::AMBIENT_BADGE:
+      return is_custom_tab ? WebappInstallSource::AMBIENT_BADGE_CUSTOM_TAB
+                           : WebappInstallSource::AMBIENT_BADGE_BROWSER_TAB;
     case InstallTrigger::API:
       return is_custom_tab ? WebappInstallSource::API_CUSTOM_TAB
                            : WebappInstallSource::API_BROWSER_TAB;
@@ -260,7 +265,7 @@ WebappInstallSource InstallableMetrics::GetInstallSource(
 }
 
 InstallableMetrics::InstallableMetrics()
-    : recorder_(base::MakeUnique<AccumulatingRecorder>()) {}
+    : recorder_(std::make_unique<AccumulatingRecorder>()) {}
 
 InstallableMetrics::~InstallableMetrics() {}
 
@@ -286,7 +291,7 @@ void InstallableMetrics::RecordAddToHomescreenInstallabilityTimeout() {
 
 void InstallableMetrics::Resolve(bool check_passed) {
   recorder_->Resolve(check_passed);
-  recorder_ = base::MakeUnique<DirectRecorder>(check_passed);
+  recorder_ = std::make_unique<DirectRecorder>(check_passed);
 }
 
 void InstallableMetrics::Start() {
@@ -295,5 +300,5 @@ void InstallableMetrics::Start() {
 
 void InstallableMetrics::Flush(bool waiting_for_service_worker) {
   recorder_->Flush(waiting_for_service_worker);
-  recorder_ = base::MakeUnique<AccumulatingRecorder>();
+  recorder_ = std::make_unique<AccumulatingRecorder>();
 }

@@ -45,7 +45,7 @@
 #include "jni/WebsitePreferenceBridge_jni.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "storage/browser/quota/quota_manager.h"
-#include "third_party/WebKit/common/quota/quota_types.mojom.h"
+#include "third_party/WebKit/public/mojom/quota/quota_types.mojom.h"
 #include "url/origin.h"
 #include "url/url_constants.h"
 
@@ -261,6 +261,35 @@ void JNI_WebsitePreferenceBridge_SetSettingForOrigin(
 }
 
 }  // anonymous namespace
+
+static void JNI_WebsitePreferenceBridge_GetClipboardOrigins(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& clazz,
+    const JavaParamRef<jobject>& list) {
+  JNI_WebsitePreferenceBridge_GetOrigins(
+      env, CONTENT_SETTINGS_TYPE_CLIPBOARD_READ,
+      &Java_WebsitePreferenceBridge_insertClipboardInfoIntoList, list, false);
+}
+
+static jint JNI_WebsitePreferenceBridge_GetClipboardSettingForOrigin(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& clazz,
+    const JavaParamRef<jstring>& origin,
+    jboolean is_incognito) {
+  return JNI_WebsitePreferenceBridge_GetSettingForOrigin(
+      env, CONTENT_SETTINGS_TYPE_CLIPBOARD_READ, origin, origin, is_incognito);
+}
+
+static void JNI_WebsitePreferenceBridge_SetClipboardSettingForOrigin(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& clazz,
+    const JavaParamRef<jstring>& origin,
+    jint value,
+    jboolean is_incognito) {
+  JNI_WebsitePreferenceBridge_SetSettingForOrigin(
+      env, CONTENT_SETTINGS_TYPE_CLIPBOARD_READ, origin, origin,
+      static_cast<ContentSetting>(value), is_incognito);
+}
 
 static void JNI_WebsitePreferenceBridge_GetGeolocationOrigins(
     JNIEnv* env,
@@ -678,6 +707,13 @@ void OnStorageInfoReady(const ScopedJavaGlobalRef<jobject>& java_callback,
   base::android::RunCallbackAndroid(java_callback, list);
 }
 
+void OnLocalStorageCleared(const ScopedJavaGlobalRef<jobject>& java_callback) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  Java_StorageInfoClearedCallback_onStorageInfoCleared(
+      base::android::AttachCurrentThread(), java_callback);
+}
+
 void OnStorageInfoCleared(const ScopedJavaGlobalRef<jobject>& java_callback,
                           blink::mojom::QuotaStatusCode code) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -781,12 +817,15 @@ static void JNI_WebsitePreferenceBridge_FetchStorageInfo(
 static void JNI_WebsitePreferenceBridge_ClearLocalStorageData(
     JNIEnv* env,
     const JavaParamRef<jclass>& clazz,
-    const JavaParamRef<jstring>& jorigin) {
+    const JavaParamRef<jstring>& jorigin,
+    const JavaParamRef<jobject>& java_callback) {
   Profile* profile = ProfileManager::GetActiveUserProfile();
   auto local_storage_helper =
       base::MakeRefCounted<BrowsingDataLocalStorageHelper>(profile);
   GURL origin_url = GURL(ConvertJavaStringToUTF8(env, jorigin));
-  local_storage_helper->DeleteOrigin(origin_url);
+  local_storage_helper->DeleteOrigin(
+      origin_url, base::BindOnce(&OnLocalStorageCleared,
+                                 ScopedJavaGlobalRef<jobject>(java_callback)));
 }
 
 static void JNI_WebsitePreferenceBridge_ClearStorageData(

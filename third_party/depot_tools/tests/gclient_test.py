@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import gclient
 import gclient_utils
+import gclient_scm
 from testing_support import trial_dir
 
 
@@ -60,15 +61,15 @@ class GclientTest(trial_dir.TestCase):
     self.previous_dir = os.getcwd()
     os.chdir(self.root_dir)
     # Manual mocks.
-    self._old_createscm = gclient.gclient_scm.CreateSCM
-    gclient.gclient_scm.CreateSCM = self._createscm
+    self._old_createscm = gclient.Dependency.CreateSCM
+    gclient.Dependency.CreateSCM = self._createscm
     self._old_sys_stdout = sys.stdout
     sys.stdout = gclient.gclient_utils.MakeFileAutoFlush(sys.stdout)
     sys.stdout = gclient.gclient_utils.MakeFileAnnotated(sys.stdout)
 
   def tearDown(self):
     self.assertEquals([], self._get_processed())
-    gclient.gclient_scm.CreateSCM = self._old_createscm
+    gclient.Dependency.CreateSCM = self._old_createscm
     sys.stdout = self._old_sys_stdout
     os.chdir(self.previous_dir)
     super(GclientTest, self).tearDown()
@@ -1153,6 +1154,39 @@ class GclientTest(trial_dir.TestCase):
       self.assertIn('allowed_hosts must be', str(e))
     finally:
       self._get_processed()
+
+  def testSameDirAllowMultipleCipdDeps(self):
+    """Verifies gclient allow multiple cipd deps under same directory."""
+    parser = gclient.OptionParser()
+    options, _ = parser.parse_args([])
+    obj = gclient.GClient('foo', options)
+    cipd_root = gclient_scm.CipdRoot(
+        os.path.join(self.root_dir, 'dir1'), 'https://example.com')
+    obj.add_dependencies_and_close(
+      [
+        gclient.Dependency(
+          obj, 'foo', 'raw_url', 'url', None, None, None, None, 'DEPS', True,
+          False, None, True),
+      ],
+      [])
+    obj.dependencies[0].add_dependencies_and_close(
+      [
+        gclient.CipdDependency(obj.dependencies[0], 'foo',
+                               {'package': 'foo_package',
+                                'version': 'foo_version'},
+                               cipd_root, None, True, False,
+                               'fake_condition', True),
+        gclient.CipdDependency(obj.dependencies[0], 'foo',
+                               {'package': 'bar_package',
+                                'version': 'bar_version'},
+                               cipd_root, None, True, False,
+                               'fake_condition', True),
+      ],
+      [])
+    dep0 = obj.dependencies[0].dependencies[0]
+    dep1 = obj.dependencies[0].dependencies[1]
+    self.assertEquals('https://example.com/foo_package@foo_version', dep0.url)
+    self.assertEquals('https://example.com/bar_package@bar_version', dep1.url)
 
 
 if __name__ == '__main__':

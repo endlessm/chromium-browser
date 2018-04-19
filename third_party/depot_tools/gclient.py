@@ -75,6 +75,10 @@
 #   Example:
 #     target_os = [ "ios" ]
 #     target_os_only = True
+#
+# Specifying a target CPU
+#   To specify a target CPU, the variables target_cpu and target_cpu_only
+#   are available and are analagous to target_os and target_os_only.
 
 from __future__ import print_function
 
@@ -94,6 +98,7 @@ import sys
 import time
 import urlparse
 
+import detect_host_arch
 import fix_encoding
 import gclient_eval
 import gclient_scm
@@ -159,14 +164,19 @@ class Hook(object):
     self._verbose = verbose
 
   @staticmethod
-  def from_dict(d, variables=None, verbose=False):
+  def from_dict(d, variables=None, verbose=False, conditions=None):
     """Creates a Hook instance from a dict like in the DEPS file."""
+    # Merge any local and inherited conditions.
+    if conditions and d.get('condition'):
+      condition = '(%s) and (%s)' % (conditions, d['condition'])
+    else:
+      condition = conditions or d.get('condition')
     return Hook(
         d['action'],
         d.get('pattern'),
         d.get('name'),
         d.get('cwd'),
-        d.get('condition'),
+        condition,
         variables=variables,
         # Always print the header if not printing to a TTY.
         verbose=verbose or not setup_color.IS_TTY)
@@ -277,8 +287,9 @@ class DependencySettings(object):
           ('dependency url must be either string or None, '
            'instead of %s') % self._url.__class__.__name__)
     # Make any deps_file path platform-appropriate.
-    for sep in ['/', '\\']:
-      self._deps_file = self._deps_file.replace(sep, os.sep)
+    if self._deps_file:
+      for sep in ['/', '\\']:
+        self._deps_file = self._deps_file.replace(sep, os.sep)
 
   @property
   def deps_file(self):
@@ -342,6 +353,10 @@ class DependencySettings(object):
     else:
       return self.parent.target_os
 
+  @property
+  def target_cpu(self):
+    return self.parent.target_cpu
+
   def get_custom_deps(self, name, url):
     """Returns a custom deps if applicable."""
     if self.parent:
@@ -355,7 +370,7 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
 
   def __init__(self, parent, name, raw_url, url, managed, custom_deps,
                custom_vars, custom_hooks, deps_file, should_process,
-               relative, condition, condition_value):
+               relative, condition, condition_value, print_outbuf=False):
     gclient_utils.WorkItem.__init__(self, name)
     DependencySettings.__init__(
         self, parent, raw_url, url, managed, custom_deps, custom_vars,
@@ -419,8 +434,28 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
       # or just https://blah.  The @123 portion is irrelevant.
       self.resources.append(url.split('@')[0])
 
+    # Controls whether we want to print git's output when we first clone the
+    # dependency
+    self.print_outbuf = print_outbuf
+
     if not self.name and self.parent:
       raise gclient_utils.Error('Dependency without name')
+
+  def ToLines(self):
+    s = []
+    condition_part = (['    "condition": %r,' % self.condition]
+                      if self.condition else [])
+    s.extend([
+        '  # %s' % self.hierarchy(include_url=False),
+        '  "%s": {' % (self.name,),
+        '    "url": "%s",' % (self.raw_url,),
+    ] + condition_part + [
+        '  },',
+        '',
+    ])
+    return s
+
+
 
   @property
   def requirements(self):
@@ -534,7 +569,7 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
               'relative DEPS entry \'%s\' must begin with a slash' % url)
         # Create a scm just to query the full url.
         parent_url = self.parent.parsed_url
-        scm = gclient_scm.CreateSCM(
+        scm = self.CreateSCM(
             parent_url, self.root.root_dir, None, self.outbuf)
         parsed_url = scm.FullUrlForRelativeUrl(url)
       else:
@@ -607,6 +642,24 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
     for d in self.custom_deps:
       if d not in deps:
         deps[d] = self.custom_deps[d]
+    # Make child deps conditional on any parent conditions. This ensures that,
+    # when flattened, recursed entries have the correct restrictions, even if
+    # not explicitly set in the recursed DEPS file. For instance, if
+    # "src/ios_foo" is conditional on "checkout_ios=True", then anything
+    # recursively included by "src/ios_foo/DEPS" should also require
+    # "checkout_ios=True".
+    if self.condition:
+      for dname, dval in deps.iteritems():
+        if isinstance(dval, basestring):
+          dval = {'url': dval}
+          deps[dname] = dval
+        else:
+          assert isinstance(dval, collections.Mapping)
+        if dval.get('condition'):
+          dval['condition'] = '(%s) and (%s)' % (
+              dval['condition'], self.condition)
+        else:
+          dval['condition'] = self.condition
 
     if rel_prefix:
       logging.warning('use_relative_paths enabled.')
@@ -623,6 +676,7 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
   def _deps_to_objects(self, deps, use_relative_paths):
     """Convert a deps dict to a dict of Dependency objects."""
     deps_to_add = []
+    cipd_root = None
     for name, dep_value in deps.iteritems():
       should_process = self.recursion_limit and self.should_process
       deps_file = self.deps_file
@@ -632,30 +686,63 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
           deps_file = ent['deps_file']
       if dep_value is None:
         continue
+
       condition = None
       condition_value = True
       if isinstance(dep_value, basestring):
         raw_url = dep_value
+        dep_type = None
       else:
         # This should be guaranteed by schema checking in gclient_eval.
         assert isinstance(dep_value, collections.Mapping)
-        raw_url = dep_value['url']
+        raw_url = dep_value.get('url')
         # Take into account should_process metadata set by MergeWithOsDeps.
         should_process = (should_process and
                           dep_value.get('should_process', True))
         condition = dep_value.get('condition')
-
-      url = raw_url.format(**self.get_vars())
+        dep_type = dep_value.get('dep_type')
 
       if condition:
         condition_value = gclient_eval.EvaluateCondition(
             condition, self.get_vars())
         if not self._get_option('process_all_deps', False):
           should_process = should_process and condition_value
-      deps_to_add.append(Dependency(
-          self, name, raw_url, url, None, None, self.custom_vars, None,
-          deps_file, should_process, use_relative_paths, condition,
-          condition_value))
+
+      if dep_type == 'cipd':
+        if not cipd_root:
+          cipd_root = gclient_scm.CipdRoot(
+              os.path.join(self.root.root_dir, self.name),
+              # TODO(jbudorick): Support other service URLs as necessary.
+              # Service URLs should be constant over the scope of a cipd
+              # root, so a var per DEPS file specifying the service URL
+              # should suffice.
+              'https://chrome-infra-packages.appspot.com')
+        for package in dep_value.get('packages', []):
+          if 'version' in package:
+            # Matches version to vars value.
+            raw_version = package['version']
+            version = raw_version.format(**self.get_vars())
+            package['version'] = version
+          deps_to_add.append(
+              CipdDependency(
+                  self, name, package, cipd_root,
+                  self.custom_vars, should_process, use_relative_paths,
+                  condition, condition_value))
+      elif dep_type == 'git':
+        url = raw_url.format(**self.get_vars())
+        deps_to_add.append(
+            GitDependency(
+                self, name, raw_url, url, None, None, self.custom_vars, None,
+                deps_file, should_process, use_relative_paths, condition,
+                condition_value))
+      else:
+        url = raw_url.format(**self.get_vars())
+        deps_to_add.append(
+            Dependency(
+                self, name, raw_url, url, None, None, self.custom_vars, None,
+                deps_file, should_process, use_relative_paths, condition,
+                condition_value))
+
     deps_to_add.sort(key=lambda x: x.name)
     return deps_to_add
 
@@ -695,7 +782,8 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
       # Eval the content.
       try:
         if self._get_option('validate_syntax', False):
-          gclient_eval.Exec(deps_content, global_scope, local_scope, filepath)
+          local_scope = gclient_eval.Exec(
+              deps_content, global_scope, local_scope, filepath)
         else:
           exec(deps_content, global_scope, local_scope)
       except SyntaxError as e:
@@ -797,7 +885,8 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
       # Keep original contents of hooks_os for flatten.
       for hook_os, os_hooks in hooks_os.iteritems():
         self._os_deps_hooks[hook_os] = [
-            Hook.from_dict(hook, variables=self.get_vars(), verbose=True)
+            Hook.from_dict(hook, variables=self.get_vars(), verbose=True,
+                           conditions=self.condition)
             for hook in os_hooks]
 
       # Specifically append these to ensure that hooks_os run after hooks.
@@ -813,7 +902,8 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
 
     if self.recursion_limit:
       self._pre_deps_hooks = [
-          Hook.from_dict(hook, variables=self.get_vars(), verbose=True)
+          Hook.from_dict(hook, variables=self.get_vars(), verbose=True,
+                         conditions=self.condition)
           for hook in local_scope.get('pre_deps_hooks', [])
       ]
 
@@ -833,7 +923,8 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
         self.add_dependency(dep)
     self._mark_as_parsed([
         Hook.from_dict(
-            h, variables=self.get_vars(), verbose=self.root._options.verbose)
+            h, variables=self.get_vars(), verbose=self.root._options.verbose,
+            conditions=self.condition)
         for h in hooks
     ])
 
@@ -878,7 +969,7 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
       options = copy.copy(options)
       options.revision = revision_override
       self._used_revision = options.revision
-      self._used_scm = gclient_scm.CreateSCM(
+      self._used_scm = self.CreateSCM(
           parsed_url, self.root.root_dir, self.name, self.outbuf,
           out_cb=work_queue.out_cb)
       self._got_revision = self._used_scm.RunCommand(command, options, args,
@@ -913,7 +1004,7 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
 
     if command == 'recurse':
       # Skip file only checkout.
-      scm = gclient_scm.GetScmName(parsed_url)
+      scm = self.GetScmName(parsed_url)
       if not options.scm or scm in options.scm:
         cwd = os.path.normpath(os.path.join(self.root.root_dir, self.name))
         # Pass in the SCM type as an env variable.  Make sure we don't put
@@ -967,6 +1058,40 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
         else:
           print('Skipped missing %s' % cwd, file=sys.stderr)
 
+  def GetScmName(self, url):
+    """Get the name of the SCM for the given URL.
+
+    While we currently support both git and cipd as SCM implementations,
+    this currently cannot return 'cipd', regardless of the URL, as CIPD
+    has no canonical URL format. If you want to use CIPD as an SCM, you
+    must currently do so by explicitly using a CipdDependency.
+    """
+    if not url:
+      return None
+    url, _ = gclient_utils.SplitUrlRevision(url)
+    if url.endswith('.git'):
+      return 'git'
+    protocol = url.split('://')[0]
+    if protocol in (
+        'file', 'git', 'git+http', 'git+https', 'http', 'https', 'ssh', 'sso'):
+      return 'git'
+    return None
+
+  def CreateSCM(self, url, root_dir=None, relpath=None, out_fh=None,
+                out_cb=None):
+    SCM_MAP = {
+      'cipd': gclient_scm.CipdWrapper,
+      'git': gclient_scm.GitWrapper,
+    }
+
+    scm_name = self.GetScmName(url)
+    if not scm_name in SCM_MAP:
+      raise gclient_utils.Error('No SCM found for url %s' % url)
+    scm_class = SCM_MAP[scm_name]
+    if not scm_class.BinaryExists():
+      raise gclient_utils.Error('%s command not found' % scm_name)
+    return scm_class(url, root_dir, relpath, out_fh, out_cb, self.print_outbuf)
+
   def HasGNArgsFile(self):
     return self._gn_args_file is not None
 
@@ -1004,7 +1129,7 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
       # what files have changed so we always run all hooks. It'd be nice to fix
       # that.
       if (options.force or
-          gclient_scm.GetScmName(self.parsed_url) in ('git', None) or
+          self.GetScmName(self.parsed_url) in ('git', None) or
           os.path.isdir(os.path.join(self.root.root_dir, self.name, '.git'))):
         result.extend(self.deps_hooks)
       else:
@@ -1183,12 +1308,22 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
     # Provide some built-in variables.
     result = {
         'checkout_android': 'android' in self.target_os,
+        'checkout_chromeos': 'chromeos' in self.target_os,
         'checkout_fuchsia': 'fuchsia' in self.target_os,
         'checkout_ios': 'ios' in self.target_os,
         'checkout_linux': 'unix' in self.target_os,
         'checkout_mac': 'mac' in self.target_os,
         'checkout_win': 'win' in self.target_os,
         'host_os': _detect_host_os(),
+
+        'checkout_arm': 'arm' in self.target_cpu,
+        'checkout_arm64': 'arm64' in self.target_cpu,
+        'checkout_x86': 'x86' in self.target_cpu,
+        'checkout_mips': 'mips' in self.target_cpu,
+        'checkout_ppc': 'ppc' in self.target_cpu,
+        'checkout_s390': 's390' in self.target_cpu,
+        'checkout_x64': 'x64' in self.target_cpu,
+        'host_cpu': detect_host_arch.HostArch(),
     }
     # Variables defined in DEPS file override built-in ones.
     result.update(self._vars)
@@ -1272,6 +1407,7 @@ solutions = [
     if 'all' in enforced_os:
       enforced_os = self.DEPS_OS_CHOICES.itervalues()
     self._enforced_os = tuple(set(enforced_os))
+    self._enforced_cpu = detect_host_arch.HostArch(),
     self._root_dir = root_dir
     self.config_content = None
 
@@ -1280,7 +1416,7 @@ solutions = [
     solutions."""
     for dep in self.dependencies:
       if dep.managed and dep.url:
-        scm = gclient_scm.CreateSCM(
+        scm = self.CreateSCM(
             dep.url, self.root_dir, dep.name, self.outbuf)
         actual_url = scm.GetActualRemoteURL(self._options)
         if actual_url and not scm.DoesRemoteURLMatch(self._options):
@@ -1305,10 +1441,10 @@ You should ensure that the URL listed in .gclient is correct and either change
 it or fix the checkout.
 '''  % {'checkout_path': os.path.join(self.root_dir, dep.name),
         'expected_url': dep.url,
-        'expected_scm': gclient_scm.GetScmName(dep.url),
+        'expected_scm': self.GetScmName(dep.url),
         'mirror_string' : mirror_string,
         'actual_url': actual_url,
-        'actual_scm': gclient_scm.GetScmName(actual_url)})
+        'actual_scm': self.GetScmName(actual_url)})
 
   def SetConfig(self, content):
     assert not self.dependencies
@@ -1326,6 +1462,13 @@ it or fix the checkout.
     else:
       self._enforced_os = tuple(set(self._enforced_os).union(target_os))
 
+    # Append any target CPU that is not already being enforced to the tuple.
+    target_cpu = config_dict.get('target_cpu', [])
+    if config_dict.get('target_cpu_only', False):
+      self._enforced_cpu = tuple(set(target_cpu))
+    else:
+      self._enforced_cpu = tuple(set(self._enforced_cpu).union(target_cpu))
+
     cache_dir = config_dict.get('cache_dir', self._options.cache_dir)
     if cache_dir:
       cache_dir = os.path.join(self.root_dir, cache_dir)
@@ -1336,6 +1479,10 @@ it or fix the checkout.
 
     if not target_os and config_dict.get('target_os_only', False):
       raise gclient_utils.Error('Can\'t use target_os_only if target_os is '
+                                'not specified')
+
+    if not target_cpu and config_dict.get('target_cpu_only', False):
+      raise gclient_utils.Error('Can\'t use target_cpu_only if target_cpu is '
                                 'not specified')
 
     deps_to_add = []
@@ -1351,6 +1498,7 @@ it or fix the checkout.
             True,
             None,
             None,
+            True,
             True))
       except KeyError:
         raise gclient_utils.Error('Invalid .gclient file. Solution is '
@@ -1529,7 +1677,7 @@ it or fix the checkout.
             (not any(path.startswith(entry + '/') for path in entries)) and
             os.path.exists(e_dir)):
           # The entry has been removed from DEPS.
-          scm = gclient_scm.CreateSCM(
+          scm = self.CreateSCM(
               prev_url, self.root_dir, entry_fixed, self.outbuf)
 
           # Check to see if this directory is now part of a higher-up checkout.
@@ -1619,7 +1767,7 @@ it or fix the checkout.
       if dep.parsed_url is None:
         return None
       url, _ = gclient_utils.SplitUrlRevision(dep.parsed_url)
-      scm = gclient_scm.CreateSCM(
+      scm = dep.CreateSCM(
           dep.parsed_url, self.root_dir, dep.name, self.outbuf)
       if not os.path.isdir(scm.checkout_path):
         return None
@@ -1697,6 +1845,103 @@ it or fix the checkout.
   @property
   def target_os(self):
     return self._enforced_os
+
+  @property
+  def target_cpu(self):
+    return self._enforced_cpu
+
+
+class GitDependency(Dependency):
+  """A Dependency object that represents a single git checkout."""
+
+  #override
+  def GetScmName(self, url):
+    """Always 'git'."""
+    del url
+    return 'git'
+
+  #override
+  def CreateSCM(self, url, root_dir=None, relpath=None, out_fh=None,
+                out_cb=None):
+    """Create a Wrapper instance suitable for handling this git dependency."""
+    return gclient_scm.GitWrapper(url, root_dir, relpath, out_fh, out_cb)
+
+
+class CipdDependency(Dependency):
+  """A Dependency object that represents a single CIPD package."""
+
+  def __init__(
+      self, parent, name, dep_value, cipd_root,
+      custom_vars, should_process, relative, condition, condition_value):
+    package = dep_value['package']
+    version = dep_value['version']
+    url = urlparse.urljoin(
+        cipd_root.service_url, '%s@%s' % (package, version))
+    super(CipdDependency, self).__init__(
+        parent, name + ':' + package, url, url, None, None, custom_vars,
+        None, None, should_process, relative, condition, condition_value)
+    if relative:
+      # TODO(jbudorick): Implement relative if necessary.
+      raise gclient_utils.Error(
+          'Relative CIPD dependencies are not currently supported.')
+    self._cipd_root = cipd_root
+
+    self._cipd_subdir = os.path.relpath(
+        os.path.join(self.root.root_dir, name), cipd_root.root_dir)
+    self._cipd_package = self._cipd_root.add_package(
+        self._cipd_subdir, package, version)
+
+  def ParseDepsFile(self):
+    """CIPD dependencies are not currently allowed to have nested deps."""
+    self.add_dependencies_and_close([], [])
+
+  #override
+  def verify_validity(self):
+    """CIPD dependencies allow duplicate name for packages in same directory."""
+    logging.info('Dependency(%s).verify_validity()' % self.name)
+    return True
+
+  #override
+  def GetScmName(self, url):
+    """Always 'cipd'."""
+    del url
+    return 'cipd'
+
+  #override
+  def CreateSCM(self, url, root_dir=None, relpath=None, out_fh=None,
+                out_cb=None):
+    """Create a Wrapper instance suitable for handling this CIPD dependency."""
+    return gclient_scm.CipdWrapper(
+        url, root_dir, relpath, out_fh, out_cb,
+        root=self._cipd_root,
+        package=self._cipd_package)
+
+  def ToLines(self):
+    """Return a list of lines representing this in a DEPS file."""
+    s = []
+    if self._cipd_package.authority_for_subdir:
+      condition_part = (['    "condition": %r,' % self.condition]
+                        if self.condition else [])
+      s.extend([
+          '  # %s' % self.hierarchy(include_url=False),
+          '  "%s": {' % (self.name,),
+          '    "packages": [',
+      ])
+      for p in self._cipd_root.packages(self._cipd_subdir):
+        s.extend([
+            '      {',
+            '        "package": "%s",' % p.name,
+            '        "version": "%s",' % p.version,
+            '      },',
+        ])
+      s.extend([
+          '    ],',
+          '    "dep_type": "cipd",',
+      ] + condition_part + [
+          '  },',
+          '',
+      ])
+    return s
 
 
 #### gclient commands.
@@ -1809,7 +2054,7 @@ class Flattener(object):
     if revision and gclient_utils.IsFullGitSha(revision):
       return
 
-    scm = gclient_scm.CreateSCM(
+    scm = dep.CreateSCM(
         dep.parsed_url, self._client.root_dir, dep.name, dep.outbuf)
     revinfo = scm.revinfo(self._client._options, [], None)
 
@@ -1916,12 +2161,27 @@ class Flattener(object):
 
     self._allowed_hosts.update(dep.allowed_hosts)
 
-    # Only include vars listed in the DEPS files, not possible local overrides.
+    # Only include vars explicitly listed in the DEPS files or gclient solution,
+    # not automatic, local overrides (i.e. not all of dep.get_vars()).
+    hierarchy = dep.hierarchy(include_url=False)
     for key, value in dep._vars.iteritems():
       # Make sure there are no conflicting variables. It is fine however
       # to use same variable name, as long as the value is consistent.
       assert key not in self._vars or self._vars[key][1] == value
-      self._vars[key] = (dep, value)
+      self._vars[key] = (hierarchy, value)
+    # Override explicit custom variables.
+    for key, value in dep.custom_vars.iteritems():
+      # Do custom_vars that don't correspond to DEPS vars ever make sense? DEPS
+      # conditionals shouldn't be using vars that aren't also defined in the
+      # DEPS (presubmit actually disallows this), so any new custom_var must be
+      # unused in the DEPS, so no need to add it to the flattened output either.
+      if key not in self._vars:
+        continue
+      # Don't "override" existing vars if it's actually the same value.
+      elif self._vars[key][1] == value:
+        continue
+      # Anything else is overriding a default value from the DEPS.
+      self._vars[key] = (hierarchy + ' [custom_var override]', value)
 
     self._pre_deps_hooks.extend([(dep, hook) for hook in dep.pre_deps_hooks])
 
@@ -2028,17 +2288,8 @@ def _DepsToLines(deps):
   if not deps:
     return []
   s = ['deps = {']
-  for name, dep in sorted(deps.iteritems()):
-    condition_part = (['    "condition": %r,' % dep.condition]
-                      if dep.condition else [])
-    s.extend([
-        '  # %s' % dep.hierarchy(include_url=False),
-        '  "%s": {' % (name,),
-        '    "url": "%s",' % (dep.raw_url,),
-    ] + condition_part + [
-        '  },',
-        '',
-    ])
+  for _, dep in sorted(deps.iteritems()):
+    s.extend(dep.ToLines())
   s.extend(['}', ''])
   return s
 
@@ -2129,9 +2380,9 @@ def _VarsToLines(variables):
     return []
   s = ['vars = {']
   for key, tup in sorted(variables.iteritems()):
-    dep, value = tup
+    hierarchy, value = tup
     s.extend([
-        '  # %s' % dep.hierarchy(include_url=False),
+        '  # %s' % hierarchy,
         '  "%s": %r,' % (key, value),
         '',
     ])

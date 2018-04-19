@@ -13,11 +13,11 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
-#include "cc/test/test_shared_bitmap_manager.h"
+#include "components/viz/test/test_shared_bitmap_manager.h"
 #include "content/public/renderer/render_thread.h"
 #include "ipc/ipc_test_sink.h"
 #include "ipc/message_filter.h"
-#include "services/service_manager/public/interfaces/connector.mojom.h"
+#include "services/service_manager/public/mojom/connector.mojom.h"
 #include "third_party/WebKit/public/web/WebPopupType.h"
 
 struct FrameHostMsg_CreateChildFrame_Params;
@@ -161,7 +161,7 @@ class MockRenderThread : public RenderThread {
   // Observers to notify.
   base::ObserverList<RenderThreadObserver> observers_;
 
-  cc::TestSharedBitmapManager shared_bitmap_manager_;
+  viz::TestSharedBitmapManager shared_bitmap_manager_;
   std::unique_ptr<service_manager::Connector> connector_;
   service_manager::mojom::ConnectorRequest pending_connector_request_;
 

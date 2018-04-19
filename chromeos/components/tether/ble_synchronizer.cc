@@ -25,7 +25,7 @@ BleSynchronizer::BleSynchronizer(
     scoped_refptr<device::BluetoothAdapter> bluetooth_adapter)
     : bluetooth_adapter_(bluetooth_adapter),
       timer_(std::make_unique<base::OneShotTimer>()),
-      clock_(std::make_unique<base::DefaultClock>()),
+      clock_(base::DefaultClock::GetInstance()),
       task_runner_(base::ThreadTaskRunnerHandle::Get()),
       weak_ptr_factory_(this) {}
 
@@ -126,10 +126,10 @@ void BleSynchronizer::ProcessQueue() {
 
 void BleSynchronizer::SetTestDoubles(
     std::unique_ptr<base::Timer> test_timer,
-    std::unique_ptr<base::Clock> test_clock,
+    base::Clock* test_clock,
     scoped_refptr<base::TaskRunner> test_task_runner) {
   timer_ = std::move(test_timer);
-  clock_ = std::move(test_clock);
+  clock_ = test_clock;
   task_runner_ = test_task_runner;
 }
 
@@ -169,7 +169,16 @@ void BleSynchronizer::OnErrorUnregisteringAdvertisement(
   ScheduleCommandCompletion();
   UnregisterArgs* unregister_args = current_command_->unregister_args.get();
   DCHECK(unregister_args);
-  unregister_args->error_callback.Run(error_code);
+  if (error_code == device::BluetoothAdvertisement::ErrorCode::
+                        ERROR_ADVERTISEMENT_DOES_NOT_EXIST) {
+    // The error code indicates that the advertisement no longer exists, which
+    // should never happen since unregistration has not succeeded. Work around
+    // this situation by simply invoking the success callback. See
+    // https://crbug.com/738222 for details.
+    unregister_args->callback.Run();
+  } else {
+    unregister_args->error_callback.Run(error_code);
+  }
 }
 
 void BleSynchronizer::OnDiscoverySessionStarted(

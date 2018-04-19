@@ -102,9 +102,6 @@ Polymer({
    */
   networkLastSelectedGuid_: '',
 
-  /** @private {string} GUID of the default network. */
-  defaultNetworkGuid_: '',
-
   /** @override */
   ready: function() {
     this.updateLocalizedContent();
@@ -129,6 +126,8 @@ Polymer({
           loadTimeData.getString('networkListItemConnectingTo'),
       networkListItemInitializing:
           loadTimeData.getString('networkListItemInitializing'),
+      networkListItemScanning:
+          loadTimeData.getString('networkListItemScanning'),
       networkListItemNotConnected:
           loadTimeData.getString('networkListItemNotConnected'),
       networkListItemNoNetwork:
@@ -335,22 +334,27 @@ Polymer({
   },
 
   /**
-   * This gets called whenever the default network changes.
+   * Event triggered when the default network state may have changed.
    * @param {!{detail: ?CrOnc.NetworkStateProperties}} event
    * @private
    */
   onDefaultNetworkChanged_: function(event) {
     var state = event.detail;
-    this.defaultNetworkGuid_ = (state ? state.GUID : '');
     this.isConnected_ =
-        !!state && state.ConnectionState == CrOnc.ConnectionState.CONNECTED;
-    if (!state || state.GUID != this.networkLastSelectedGuid_)
-      return;
+        state && state.ConnectionState == CrOnc.ConnectionState.CONNECTED;
+  },
 
-    // Duplicate asynchronous event may be delivered to some other screen,
-    // so disable it.
-    this.networkLastSelectedGuid_ = '';
-    this.onSelectedNetworkConnected_();
+  /**
+   * Event triggered when a cr-network-list-item connection state changes.
+   * @param {!{detail: !CrOnc.NetworkStateProperties}} event
+   * @private
+   */
+  onNetworkConnectChanged_: function(event) {
+    var state = event.detail;
+    if (state && state.GUID == this.networkLastSelectedGuid_ &&
+        state.ConnectionState == CrOnc.ConnectionState.CONNECTED) {
+      this.onSelectedNetworkConnected_();
+    }
   },
 
   /**
@@ -362,11 +366,8 @@ Polymer({
   onNetworkListNetworkItemSelected_: function(event) {
     var state = event.detail;
     assert(state);
-    // If the user has not previously made a selection and the default network
-    // is selected and connected, continue to the next screen.
-    if (this.networkLastSelectedGuid_ == '' &&
-        state.GUID == this.defaultNetworkGuid_ &&
-        state.ConnectionState == CrOnc.ConnectionState.CONNECTED) {
+    // If a connected network is selected, continue to the next screen.
+    if (state.ConnectionState == CrOnc.ConnectionState.CONNECTED) {
       this.onSelectedNetworkConnected_();
       return;
     }
@@ -386,13 +387,13 @@ Polymer({
     // Cellular should normally auto connect. If it is selected, show the
     // details UI since there is no configuration UI for Cellular.
     if (state.Type == chrome.networkingPrivate.NetworkType.CELLULAR) {
-      chrome.send('showNetworkDetails', [state.GUID]);
+      chrome.send('showNetworkDetails', [state.Type, state.GUID]);
       return;
     }
 
     // Allow proxy to be set for connected networks.
     if (state.ConnectionState == CrOnc.ConnectionState.CONNECTED) {
-      chrome.send('showNetworkDetails', [state.GUID]);
+      chrome.send('showNetworkDetails', [state.Type, state.GUID]);
       return;
     }
 
@@ -463,7 +464,7 @@ Polymer({
   },
 
   onLanguagesChanged_: function() {
-    this.currentLanguage = Oobe.getSelectedTitle(this.languages);
+    this.currentLanguage = getSelectedTitle(this.languages);
   },
 
   setSelectedKeyboard: function(keyboard_id) {
@@ -485,7 +486,7 @@ Polymer({
   },
 
   onKeyboardsChanged_: function() {
-    this.currentKeyboard = Oobe.getSelectedTitle(this.keyboards);
+    this.currentKeyboard = getSelectedTitle(this.keyboards);
   },
 
   /**

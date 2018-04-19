@@ -6,7 +6,6 @@
 
 #include "ash/multi_profile_uma.h"
 #include "ash/public/cpp/ash_pref_names.h"
-#include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/remote_shelf_item_delegate.h"
 #include "ash/public/cpp/shelf_item.h"
 #include "ash/public/cpp/shelf_model.h"
@@ -16,7 +15,6 @@
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "base/command_line.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -93,14 +91,11 @@ int64_t GetDisplayIDForShelf(ash::Shelf* shelf) {
   return display.id();
 }
 
-// A callback that does nothing after shelf item selection handling.
-void NoopCallback(ash::ShelfAction, base::Optional<ash::MenuItemList>) {}
-
 // Calls ItemSelected with |source|, default arguments, and no callback.
 void SelectItemWithSource(ash::ShelfItemDelegate* delegate,
                           ash::ShelfLaunchSource source) {
   delegate->ItemSelected(nullptr, display::kInvalidDisplayId, source,
-                         base::BindOnce(&NoopCallback));
+                         base::DoNothing());
 }
 
 // Returns true if the given |item| has a pinned shelf item type.
@@ -294,9 +289,10 @@ void ChromeLauncherController::Init() {
 
 ash::ShelfID ChromeLauncherController::CreateAppLauncherItem(
     std::unique_ptr<ash::ShelfItemDelegate> item_delegate,
-    ash::ShelfItemStatus status) {
+    ash::ShelfItemStatus status,
+    const base::string16& title) {
   return InsertAppLauncherItem(std::move(item_delegate), status,
-                               model_->item_count(), ash::TYPE_APP);
+                               model_->item_count(), ash::TYPE_APP, title);
 }
 
 const ash::ShelfItem* ChromeLauncherController::GetItem(
@@ -823,15 +819,6 @@ void ChromeLauncherController::OnAppImageUpdated(const std::string& app_id,
 // ChromeLauncherController protected:
 
 bool ChromeLauncherController::ConnectToShelfController() {
-  // Synchronization is required in the Mash config, since Chrome and Ash run in
-  // separate processes; it's optional via kAshDisableShelfModelSynchronization
-  // in the Classic Ash config, where Chrome can uses Ash's ShelfModel directly.
-  if (!ash_util::IsRunningInMash() &&
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          ash::switches::kAshDisableShelfModelSynchronization)) {
-    return false;
-  }
-
   if (shelf_controller_.is_bound())
     return true;
 
@@ -1078,7 +1065,8 @@ ash::ShelfID ChromeLauncherController::InsertAppLauncherItem(
     std::unique_ptr<ash::ShelfItemDelegate> item_delegate,
     ash::ShelfItemStatus status,
     int index,
-    ash::ShelfItemType shelf_item_type) {
+    ash::ShelfItemType shelf_item_type,
+    const base::string16& title) {
   CHECK(item_delegate);
   CHECK(!GetItem(item_delegate->shelf_id()));
   // Ash's ShelfWindowWatcher handles app panel windows separately.
@@ -1087,6 +1075,7 @@ ash::ShelfID ChromeLauncherController::InsertAppLauncherItem(
   item.status = status;
   item.type = shelf_item_type;
   item.id = item_delegate->shelf_id();
+  item.title = title;
   // Set the delegate first to avoid constructing one in ShelfItemAdded.
   model_->SetShelfItemDelegate(item.id, std::move(item_delegate));
   model_->AddAt(index, item);

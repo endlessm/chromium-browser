@@ -23,8 +23,10 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" /> (HDMI/DP)</translation>
 <translation id="1510238584712386396">Spouštěč</translation>
 <translation id="1525508553941733066">ZAVŘÍT</translation>
+<translation id="1537254971476575106">Lupa celé obrazovky</translation>
 <translation id="15373452373711364">Velký kurzor myši</translation>
 <translation id="1550523713251050646">Kliknutím zobrazíte další možnosti</translation>
+<translation id="1608626060424371292">Odebrat tohoto uživatele</translation>
 <translation id="1621499497873603021">Čas zbývající do vybití baterie: <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">Je nám líto, vaše heslo se stále nedaří ověřit. Poznámka: Pokud jste heslo nedávno změnili, bude nové heslo možné použít až po odhlášení. Zde použijte staré heslo.</translation>
 <translation id="1677472565718498478">Zbývající čas: <ph name="TIME" /></translation>
@@ -43,12 +45,15 @@
 <translation id="1951012854035635156">Asistent</translation>
 <translation id="1957803754585243749">0°</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
+<translation id="1995660704900986789">Vypnout</translation>
 <translation id="2012624427112548395">Ctrl+Hledat+H</translation>
 <translation id="2049639323467105390">Zařízení je spravováno doménou <ph name="DOMAIN" />.</translation>
 <translation id="2050339315714019657">Na výšku</translation>
 <translation id="2067602449040652523">Jas klávesnice</translation>
+<translation id="2081529251031312395">$1 se bude moci později přihlásit.</translation>
 <translation id="2122028596993374965">Ukončit odesílání karty <ph name="TAB_NAME" /> do přijímače <ph name="RECEIVER_NAME" /></translation>
 <translation id="2127372758936585790">Nabíječka má příliš nízký výkon</translation>
+<translation id="2135456203358955318">Zadokovaná lupa</translation>
 <translation id="2144487987174258011">Aktualizace přehrávače Adobe Flash Player vyžaduje restart</translation>
 <translation id="2208323208084708176">Jednotný režim klasické plochy</translation>
 <translation id="2220572644011485463">PIN nebo heslo</translation>
@@ -73,7 +78,6 @@
 <translation id="2653659639078652383">Odeslat</translation>
 <translation id="2675319268637823299">Administrátor vícenásobné přihlášení pro účet <ph name="USER_EMAIL" /> zakázal.
     Všichni uživatelé se před pokračováním musejí odhlásit.</translation>
-<translation id="2700058918926273959">Relace skončí za <ph name="SESSION_TIME_REMAINING" />. Poté budete odhlášeni.</translation>
 <translation id="2727977024730340865">Byla připojena nabíječka s nízkým výkonem. Nabíjení baterie nemusí probíhat spolehlivě.</translation>
 <translation id="2761704814324807722">Systémový panel, čas <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581">Obnovování připojení k síti <ph name="NAME" /></translation>
@@ -83,6 +87,7 @@
 <translation id="2844169650293029770">Zařízení USB Type-C (levý přední port)</translation>
 <translation id="2865888419503095837">Informace o síti</translation>
 <translation id="2872961005593481000">Vypnout</translation>
+<translation id="2878884018241093801">Žádné nedávné položky</translation>
 <translation id="2903844815300039659">Jste připojeni k síti <ph name="NAME" />, <ph name="STRENGTH" /></translation>
 <translation id="2911940648265863620">Sdílíte svou obrazovku</translation>
 <translation id="2942516765047364088">Pozice poličky</translation>
@@ -109,7 +114,6 @@
 <translation id="3413817803639110246">Zatím zde není nic k vidění</translation>
 <translation id="3445925074670675829">Zařízení USB Type-C</translation>
 <translation id="3465566417615315331">Klikněte na svou fotku</translation>
-<translation id="3473479545200714844">Lupa obrazovky</translation>
 <translation id="3477079411857374384">Control + Shift + mezerník</translation>
 <translation id="3510164367642747937">Zvýraznit ukazatel myši</translation>
 <translation id="3513798432020909783">Správce účtu: <ph name="MANAGER_EMAIL" /></translation>
@@ -131,6 +135,7 @@
 <translation id="3891340733213178823">Odhlaste se dvojitým stisknutím kombinace kláves Ctrl+Shift+Q.</translation>
 <translation id="3893630138897523026">ChromeVox (hlasová odezva)</translation>
 <translation id="3899995891769452915">Hlasový vstup</translation>
+<translation id="3900355044994618856">Relace skončí za <ph name="SESSION_TIME_REMAINING" /></translation>
 <translation id="3901991538546252627">Připojování k síti <ph name="NAME" /></translation>
 <translation id="394485226368336402">Nastavení zvuku</translation>
 <translation id="397105322502079400">Probíhá výpočet…</translation>
@@ -139,6 +144,7 @@
 <translation id="4072264167173457037">Střední signál</translation>
 <translation id="4279490309300973883">Zrcadlení</translation>
 <translation id="4321179778687042513">ctrl</translation>
+<translation id="4331809312908958774">Chrome OS</translation>
 <translation id="4338109981321384717">Lupa</translation>
 <translation id="4351433414020964307">Asistent se načítá...</translation>
 <translation id="4378551569595875038">Připojování...</translation>
@@ -183,6 +189,7 @@
 <translation id="5744083938413354016">Přetažení klepnutím</translation>
 <translation id="5777841717266010279">Ukončit sdílení obrazovky?</translation>
 <translation id="57838592816432529">Ztlumit</translation>
+<translation id="5820394555380036790">Chromium OS</translation>
 <translation id="5832805196449965646">Přidat uživatele</translation>
 <translation id="5860033963881614850">Vypnuto</translation>
 <translation id="5895138241574237353">Restartovat</translation>
@@ -206,6 +213,7 @@
 <translation id="607652042414456612">Váš počítač mohou objevit okolní zařízení Bluetooth, ve kterých se bude zobrazovat s názvem „<ph name="NAME" />“ a adresou <ph name="ADDRESS" />.</translation>
 <translation id="6106745654298855237"><ph name="POWER_SOURCE" /> – nabíjení</translation>
 <translation id="615957422585914272">Zobrazit softwarovou klávesnici</translation>
+<translation id="6164005077879661055">Po odebrání dozorovaného uživatele budou trvale smazány všechny soubory a místní data, která jsou k němu přiřazena. Navštívené weby a nastavení tohoto dozorovaného uživatele může správce i nadále zobrazit na adrese <ph name="MANAGEMENT_URL" />.</translation>
 <translation id="6165508094623778733">Další informace</translation>
 <translation id="6267036997247669271"><ph name="NAME" />: Probíhá aktivace...</translation>
 <translation id="6284232397434400372">Rozlišení se změnilo</translation>
@@ -232,7 +240,7 @@ Tuto funkci používejte pouze s účty, kterým důvěřujete.</translation>
 <translation id="6657585470893396449">Heslo</translation>
 <translation id="6691659475504239918">Hledat+Shift+H</translation>
 <translation id="6700713906295497288">Tlačítko nabídky IME</translation>
-<translation id="6713285437468012787">Zařízení Bluetooth „<ph name="DEVICE_NAME" />“ bylo spárováno a je nyní k dispozici všem uživatelům. Toto párování můžete odebrat pomocí Nastavení.</translation>
+<translation id="6713285437468012787">Zařízení Bluetooth „<ph name="DEVICE_NAME" />“ bylo spárováno a je teď k dispozici všem uživatelům. Toto párování můžete odebrat pomocí Nastavení.</translation>
 <translation id="6715542151869432661">Nebyla nalezena žádná mobilní zařízení.</translation>
 <translation id="6785414152754474415">Baterie je nabita na <ph name="PERCENTAGE" /> % a nabíjí se.</translation>
 <translation id="6803622936009808957">Zobrazení nelze zrcadlit, protože nebyla nalezena podporovaná rozlišení. Místo toho se spustil režim rozšířené pracovní plochy.</translation>
@@ -240,6 +248,7 @@ Tuto funkci používejte pouze s účty, kterým důvěřujete.</translation>
 <translation id="6857811139397017780">Aktivovat: <ph name="NETWORKSERVICE" /></translation>
 <translation id="6911468394164995108">Připojit k jiné...</translation>
 <translation id="6981982820502123353">Usnadnění</translation>
+<translation id="698231206551913481">Po odebrání tohoto uživatele budou trvale smazány všechny soubory a místní data, která jsou k němu přiřazena.</translation>
 <translation id="7029814467594812963">Ukončit relaci</translation>
 <translation id="7034339000180558234">Odesílání karty <ph name="TAB_NAME" /> do zařízení <ph name="RECEIVER_NAME" /></translation>
 <translation id="7052914147756339792">Nastavení tapety...</translation>
@@ -247,6 +256,7 @@ Tuto funkci používejte pouze s účty, kterým důvěřujete.</translation>
 <translation id="7066646422045619941">Tato síť je zakázána vaším administrátorem.</translation>
 <translation id="7067196344162293536">Automatické otáčení</translation>
 <translation id="7098389117866926363">Zařízení USB Type-C (levý zadní port)</translation>
+<translation id="7131634465328662194">Budete automaticky odhlášeni.</translation>
 <translation id="7165278925115064263">Alt + Shift + K</translation>
 <translation id="7168224885072002358">Původní rozlišení bude obnoveno za <ph name="TIMEOUT_SECONDS" /></translation>
 <translation id="7256634071279256947">Zadní mikrofon</translation>
@@ -303,6 +313,7 @@ Tuto funkci používejte pouze s účty, kterým důvěřujete.</translation>
 <translation id="8484916590211895857"><ph name="NAME" />: Obnovování připojení...</translation>
 <translation id="8517041960877371778">Je možné, že když bude zařízení <ph name="DEVICE_TYPE" /> zapnuté, nebude se nabíjet.</translation>
 <translation id="8639760480004882931">Zbývá <ph name="PERCENTAGE" /> %</translation>
+<translation id="8649101189709089199">Poslech vybraného textu</translation>
 <translation id="8652175077544655965">Zavřít nastavení</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">Byla připojena nabíječka s nízkým napětím</translation>
@@ -312,6 +323,7 @@ Tuto funkci používejte pouze s účty, kterým důvěřujete.</translation>
 Následné oznámení, okna a dialogy mohou být rozděleny mezi plochy.</translation>
 <translation id="8825534185036233643">Zrcadlení s více než dvěma obrazovkami není podporováno.</translation>
 <translation id="8828714802988429505">90°</translation>
+<translation id="8841375032071747811">Tlačítko Zpět</translation>
 <translation id="8850991929411075241">Hledat+Esc</translation>
 <translation id="8870509716567206129">Aplikace nepodporuje režim rozdělené obrazovky.</translation>
 <translation id="8878886163241303700">Rozšíření obrazovky</translation>

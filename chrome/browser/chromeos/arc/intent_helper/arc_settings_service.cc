@@ -18,6 +18,7 @@
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/system/timezone_resolver_manager.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/chromeos_switches.h"
@@ -41,7 +42,7 @@
 #include "components/proxy_config/pref_proxy_config_tracker_impl.h"
 #include "components/proxy_config/proxy_config_dictionary.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
-#include "net/proxy/proxy_config.h"
+#include "net/proxy_resolution/proxy_config.h"
 
 using ::chromeos::CrosSettings;
 using ::chromeos::system::TimezoneSettings;
@@ -59,10 +60,10 @@ bool GetHttpProxyServer(const ProxyConfigDictionary* proxy_config_dict,
   proxy_rules.ParseFromString(proxy_rules_string);
 
   const net::ProxyList* proxy_list = nullptr;
-  if (proxy_rules.type == net::ProxyConfig::ProxyRules::TYPE_SINGLE_PROXY) {
+  if (proxy_rules.type == net::ProxyConfig::ProxyRules::Type::PROXY_LIST) {
     proxy_list = &proxy_rules.single_proxies;
   } else if (proxy_rules.type ==
-             net::ProxyConfig::ProxyRules::TYPE_PROXY_PER_SCHEME) {
+             net::ProxyConfig::ProxyRules::Type::PROXY_LIST_PER_SCHEME) {
     proxy_list = proxy_rules.MapUrlSchemeToProxyList(url::kHttpScheme);
   }
   if (!proxy_list || proxy_list->IsEmpty())
@@ -561,7 +562,10 @@ void ArcSettingsServiceImpl::SyncProxySettings() const {
 
 void ArcSettingsServiceImpl::SyncReportingConsent() const {
   bool consent = false;
-  CrosSettings::Get()->GetBoolean(chromeos::kStatsReportingPref, &consent);
+  // Public session user never saw the consent even if the admin forced
+  // the pref by a policy.
+  if (!profiles::IsPublicSession())
+    CrosSettings::Get()->GetBoolean(chromeos::kStatsReportingPref, &consent);
   base::DictionaryValue extras;
   extras.SetBoolean("reportingConsent", consent);
   SendSettingsBroadcast("org.chromium.arc.intent_helper.SET_REPORTING_CONSENT",

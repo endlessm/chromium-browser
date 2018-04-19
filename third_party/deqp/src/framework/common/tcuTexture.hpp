@@ -110,6 +110,9 @@ public:
 		FLOAT64,
 		FLOAT_UNSIGNED_INT_24_8_REV,
 
+		UNORM_SHORT_10,
+		UNORM_SHORT_12,
+
 		CHANNELTYPE_LAST
 	};
 
@@ -202,6 +205,15 @@ public:
 		FILTERMODE_LAST
 	};
 
+	enum ReductionMode
+	{
+		WEIGHTED_AVERAGE = 0,
+		MIN,
+		MAX,
+
+		REDUCTIONMODE_LAST
+	};
+
 	enum CompareMode
 	{
 		COMPAREMODE_NONE = 0,
@@ -233,6 +245,10 @@ public:
 	// Minifcation & magnification
 	FilterMode			minFilter;
 	FilterMode			magFilter;
+
+	// min/max filtering reduction
+	ReductionMode		reductionMode;
+
 	float				lodThreshold;		// lod <= lodThreshold ? magnified : minified
 
 	// Coordinate normalization
@@ -266,12 +282,14 @@ public:
 			 int				compareChannel_		= 0,
 			 const Vec4&		borderColor_		= Vec4(0.0f, 0.0f, 0.0f, 0.0f),
 			 bool				seamlessCubeMap_	= false,
-			 DepthStencilMode	depthStencilMode_	= MODE_DEPTH)
+			 DepthStencilMode	depthStencilMode_	= MODE_DEPTH,
+			 ReductionMode		reductionMode_		= WEIGHTED_AVERAGE)
 		: wrapS				(wrapS_)
 		, wrapT				(wrapT_)
 		, wrapR				(wrapR_)
 		, minFilter			(minFilter_)
 		, magFilter			(magFilter_)
+		, reductionMode		(reductionMode_)
 		, lodThreshold		(lodThreshold_)
 		, normalizedCoords	(normalizedCoords_)
 		, compare			(compare_)
@@ -288,6 +306,7 @@ public:
 		, wrapR				(WRAPMODE_LAST)
 		, minFilter			(FILTERMODE_LAST)
 		, magFilter			(FILTERMODE_LAST)
+		, reductionMode		(REDUCTIONMODE_LAST)
 		, lodThreshold		(0.0f)
 		, normalizedCoords	(true)
 		, compare			(COMPAREMODE_NONE)

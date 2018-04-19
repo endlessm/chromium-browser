@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">Địa chỉ 1</translation>
 <translation id="1545749641540134597">Quét mã QR</translation>
 <translation id="1580783302095112590">Thư đã được gửi.</translation>
+<translation id="1582732959743469162">Thao tác này sẽ ngừng tất cả hoạt động tải xuống đang diễn ra.</translation>
 <translation id="1612730193129642006">Hiển thị lưới tab</translation>
+<translation id="1644574205037202324">Lịch sử</translation>
 <translation id="1646446875146297738">Bật tính năng 'Không theo dõi' nghĩa là một yêu cầu sẽ đi kèm với lưu lượng duyệt web của bạn. Mọi ảnh hưởng đều phụ thuộc vào việc liệu trang web có phản hồi yêu cầu không và cách thức yêu cầu được diễn giải.
 
 Ví dụ: một số trang web có thể phản hồi yêu cầu này bằng cách hiển thị cho bạn các quảng cáo không dựa trên các trang web khác mà bạn đã truy cập. Nhiều trang web sẽ vẫn thu thập và sử dụng dữ liệu duyệt web của bạn - ví dụ: để cải thiện bảo mật, cung cấp nội dung, dịch vụ, quảng cáo và các đề xuất về trang web của chúng và tạo số liệu thống kê báo cáo. <ph name="BEGIN_LINK" />Tìm hiểu thêm<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@ Ví dụ: một số trang web có thể phản hồi yêu cầu này bằng cá
 <translation id="3175081911749765310">Dịch vụ web</translation>
 <translation id="3207960819495026254">Đã được đánh dấu trang</translation>
 <translation id="3210163015918861891">Đồng bộ hóa đã tắt</translation>
+<translation id="3224641773458703735">Để xuất mật khẩu, trước tiên bạn phải đặt mật mã trên thiết bị của mình.</translation>
 <translation id="3240426699337459095">Đã sao chép liên kết</translation>
 <translation id="3244271242291266297">MM</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> trong số <ph name="NUM_SUGGESTIONS" /></translation>
@@ -153,6 +156,7 @@ Ví dụ: một số trang web có thể phản hồi yêu cầu này bằng cá
 <translation id="3771033907050503522">Tab ẩn danh</translation>
 <translation id="3779810277399252432">Không có kết nối Internet.</translation>
 <translation id="3783017676699494206">Lưu hình ảnh</translation>
+<translation id="3789841737615482174">Cài đặt</translation>
 <translation id="385051799172605136">Quay lại</translation>
 <translation id="3897092660631435901">Menu</translation>
 <translation id="3928666092801078803">Kết hợp dữ liệu của tôi</translation>
@@ -220,7 +224,6 @@ Dữ liệu của bạn đã được mã hóa bằng cụm mật khẩu đồng
 <translation id="5300589172476337783">Hiển thị</translation>
 <translation id="5317780077021120954">Lưu</translation>
 <translation id="5327248766486351172">Tên</translation>
-<translation id="533632423981297619">Mật khẩu của bạn sẽ hiển thị với bất kỳ ai có thể xem tệp đã xuất. Không chia sẻ tệp này với bất cứ ai.</translation>
 <translation id="5388358297987318779">Mở hình ảnh</translation>
 <translation id="5409365236829784218">Không có ứng dụng nào được cài đặt có thể mở tệp này.</translation>
 <translation id="5433691172869980887">Đã sao chép tên người dùng</translation>
@@ -249,6 +252,7 @@ Dữ liệu của bạn đã được mã hóa bằng cụm mật khẩu đồng
 <translation id="5871497086027727873">1 dấu trang đã được di chuyển</translation>
 <translation id="5911030830365207728">Google Dịch</translation>
 <translation id="5916664084637901428">Bật</translation>
+<translation id="5938160824633642847">Thiết bị của bạn gần hết không gian lưu trữ. Hãy giải phóng dung lượng và thử lại.</translation>
 <translation id="5948291296578561264">Điều này cho phép bạn lưu ảnh vào thư viện ảnh của mình.</translation>
 <translation id="5955891643922670672">Đang xem phiên bản ngoại tuyến</translation>
 <translation id="5964480694698977962">Tạo tab ẩn danh mới.</translation>
@@ -280,7 +284,9 @@ Dữ liệu của bạn đã được mã hóa bằng cụm mật khẩu đồng
 <translation id="633809752005859102">Đã xảy ra sự cố nào đó. Chúng tôi sẽ xem xét vấn đề đó.</translation>
 <translation id="6342069812937806050">Vừa mới</translation>
 <translation id="6344783595350022745">Xóa văn bản</translation>
+<translation id="6346549652287021269">Bắt đầu lượt tải xuống mới?</translation>
 <translation id="6362362396625799311">Không có tab ẩn danh nào</translation>
+<translation id="6374469231428023295">Thử lại</translation>
 <translation id="6380866119319257197">Nếu bạn quên cụm mật khẩu hoặc muốn thay đổi cài đặt này, hãy <ph name="BEGIN_LINK" />đặt lại đồng bộ hóa<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">Tên trên thẻ</translation>
 <translation id="6406506848690869874">Đồng bộ hóa</translation>
@@ -289,6 +295,7 @@ Dữ liệu của bạn đã được mã hóa bằng cụm mật khẩu đồng
 
 Dữ liệu của bạn đã được mã hóa bằng cụm mật khẩu đồng bộ hóa của bạn vào <ph name="TIME" />. Nhập cụm mật khẩu đó để bắt đầu đồng bộ hóa.</translation>
 <translation id="6418346271604475326">Đang chuẩn bị PDF</translation>
+<translation id="6434591244308415567">Đã xảy ra lỗi. Hãy thử lại sau.</translation>
 <translation id="6445051938772793705">Quốc gia</translation>
 <translation id="6445981559479772097">Đã gửi tin nhắn.</translation>
 <translation id="6464071786529933911">Mở trong tab ẩn danh mới</translation>
@@ -299,6 +306,7 @@ Dữ liệu của bạn đã được mã hóa bằng cụm mật khẩu đồng
 <translation id="6657585470893396449">Mật khẩu</translation>
 <translation id="667999046851023355">Tài liệu</translation>
 <translation id="6713747756340119864">Google Apps</translation>
+<translation id="6730682669179532099">Không thể xuất mật khẩu</translation>
 <translation id="6762156594045689028">Để thay đổi cài đặt này, hãy <ph name="BEGIN_LINK" />đặt lại đồng bộ hóa<ph name="END_LINK" /></translation>
 <translation id="6780034285637185932">Mã zip</translation>
 <translation id="6785453220513215166">Đang gửi báo cáo lỗi...</translation>
@@ -308,13 +316,16 @@ Dữ liệu của bạn đã được mã hóa bằng cụm mật khẩu đồng
 <translation id="681368974849482173">Đã tạo mục</translation>
 <translation id="6896758677409633944">Sao chép</translation>
 <translation id="6903907808598579934">Bật đồng bộ hóa</translation>
+<translation id="6914783257214138813">Bất cứ ai có thể xem tệp đã xuất đều có thể biết mật khẩu của bạn.</translation>
 <translation id="6945221475159498467">Chọn</translation>
 <translation id="6973630695168034713">Thư mục</translation>
 <translation id="7004499039102548441">Các tab gần đây</translation>
 <translation id="7006788746334555276">Cài đặt nội dung</translation>
+<translation id="7029809446516969842">Mật khẩu</translation>
 <translation id="7031882061095297553">Đồng bộ hóa với</translation>
 <translation id="7053983685419859001">Chặn</translation>
 <translation id="7062545763355031412">Chấp nhận và chuyển đổi tài khoản</translation>
+<translation id="7102005569666697658">Đang tải xuống… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">Ẩn</translation>
 <translation id="7133798577887235672">Tên đầy đủ</translation>
 <translation id="7136892417564438900">Máy ảnh không khả dụng</translation>
@@ -325,6 +336,7 @@ Dữ liệu của bạn đã được mã hóa bằng cụm mật khẩu đồng
 <translation id="7203585745079012652">Trả lời bằng giọng nói</translation>
 <translation id="722055596168483966">Cá nhân hóa dịch vụ của Google</translation>
 <translation id="7272437679830969316">Không thể xác minh danh tính của bạn. Chưa sao chép mật khẩu.</translation>
+<translation id="7291368939935408496">Đang chuẩn bị mật khẩu...</translation>
 <translation id="7336264872878993241">Đã tải xuống <ph name="PERCENT" /> phần trăm</translation>
 <translation id="7346909386216857016">Ok</translation>
 <translation id="7400418766976504921">URL</translation>
@@ -349,6 +361,7 @@ Dữ liệu của bạn đã được mã hóa bằng cụm mật khẩu đồng
 <translation id="7769602470925380267">Chấp nhận và đăng xuất</translation>
 <translation id="7772032839648071052">Xác nhận cụm mật khẩu</translation>
 <translation id="780301667611848630">Không, cảm ơn</translation>
+<translation id="7856733331829174190">Không thể tải xuống</translation>
 <translation id="7859704718976024901">Lịch sử duyệt web</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">Xuất mật khẩu...</translation>
@@ -409,6 +422,7 @@ Dữ liệu của bạn đã được mã hóa bằng cụm mật khẩu đồng
 <translation id="9083392325882095631">1 mục</translation>
 <translation id="9100610230175265781">Yêu cầu cụm mật khẩu</translation>
 <translation id="9148126808321036104">Đăng nhập lại</translation>
+<translation id="915371508759614899">Hủy tải xuống?</translation>
 <translation id="9157836665414082580">Hộp thoại loại bỏ</translation>
 <translation id="9188680907066685419">Đăng xuất khỏi tài khoản được quản lý</translation>
 <translation id="9203116392574189331">Tiếp nối</translation>

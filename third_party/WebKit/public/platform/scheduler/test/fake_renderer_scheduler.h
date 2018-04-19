@@ -23,7 +23,7 @@ class FakeRendererScheduler : public RendererScheduler {
   std::unique_ptr<WebThread> CreateMainThread() override;
   scoped_refptr<base::SingleThreadTaskRunner> DefaultTaskRunner() override;
   scoped_refptr<base::SingleThreadTaskRunner> CompositorTaskRunner() override;
-  scoped_refptr<base::SingleThreadTaskRunner> LoadingTaskRunner() override;
+  scoped_refptr<base::SingleThreadTaskRunner> InputTaskRunner() override;
   scoped_refptr<SingleThreadIdleTaskRunner> IdleTaskRunner() override;
   scoped_refptr<base::SingleThreadTaskRunner> IPCTaskRunner() override;
   std::unique_ptr<RenderWidgetSchedulingState> NewRenderWidgetSchedulingState()
@@ -63,7 +63,8 @@ class FakeRendererScheduler : public RendererScheduler {
   bool MainThreadSeemsUnresponsive(
       base::TimeDelta main_thread_responsiveness_threshold) override;
   void SetRendererProcessType(RendererProcessType type) override;
-  WebScopedVirtualTimePauser CreateWebScopedVirtualTimePauser() override;
+  WebScopedVirtualTimePauser CreateWebScopedVirtualTimePauser(
+      WebScopedVirtualTimePauser::VirtualTaskDuration duration) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(FakeRendererScheduler);

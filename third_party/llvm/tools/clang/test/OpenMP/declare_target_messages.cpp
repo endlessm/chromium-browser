@@ -1,5 +1,7 @@
 // RUN: %clang_cc1 -triple x86_64-apple-macos10.7.0 -verify -fopenmp -fnoopenmp-use-tls -ferror-limit 100 -o - %s
 
+// RUN: %clang_cc1 -triple x86_64-apple-macos10.7.0 -verify -fopenmp-simd -fnoopenmp-use-tls -ferror-limit 100 -o - %s
+
 #pragma omp end declare target // expected-error {{unexpected OpenMP directive '#pragma omp end declare target'}}
 
 int a, b; // expected-warning {{declaration is not declared in any declare target region}}
@@ -30,6 +32,33 @@ struct NonT {
 };
 
 typedef int sint;
+
+template <typename T>
+T bla1() { return 0; }
+
+#pragma omp declare target
+template <typename T>
+T bla2() { return 0; }
+#pragma omp end declare target
+
+template<>
+float bla2() { return 1.0; }
+
+#pragma omp declare target
+void blub2() {
+  bla2<float>();
+  bla2<int>();
+}
+#pragma omp end declare target
+
+void t2() {
+#pragma omp target
+  {
+    bla2<float>();
+    bla2<long>();
+  }
+}
+
 
 #pragma omp declare target // expected-note {{to match this '#pragma omp declare target'}}
 #pragma omp threadprivate(a) // expected-note {{defined as threadprivate or thread local}}

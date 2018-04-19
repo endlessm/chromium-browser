@@ -34,9 +34,9 @@
 #include "components/proxy_config/proxy_config_pref_names.h"
 #include "components/proxy_config/proxy_prefs.h"
 #include "net/base/host_port_pair.h"
-#include "net/proxy/proxy_config.h"
-#include "net/proxy/proxy_list.h"
-#include "net/proxy/proxy_server.h"
+#include "net/base/proxy_server.h"
+#include "net/proxy_resolution/proxy_config.h"
+#include "net/proxy_resolution/proxy_list.h"
 #include "net/url_request/url_request_context_getter.h"
 
 namespace {
@@ -205,9 +205,9 @@ void DataReductionProxyChromeSettings::InitDataReductionProxySettings(
 #endif
 
   std::unique_ptr<data_reduction_proxy::DataReductionProxyService> service =
-      base::MakeUnique<data_reduction_proxy::DataReductionProxyService>(
+      std::make_unique<data_reduction_proxy::DataReductionProxyService>(
           this, profile_prefs, request_context_getter, std::move(store),
-          base::MakeUnique<
+          std::make_unique<
               data_reduction_proxy::DataReductionProxyPingbackClientImpl>(
               request_context_getter, ui_task_runner),
           ui_task_runner, io_data->io_task_runner(), db_task_runner,

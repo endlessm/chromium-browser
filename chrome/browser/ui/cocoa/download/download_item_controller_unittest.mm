@@ -46,20 +46,21 @@ class DownloadItemControllerTest : public CocoaProfileTest {
 
     download_item_.reset(new ::testing::NiceMock<content::MockDownloadItem>);
     ON_CALL(*download_item_, GetState())
-        .WillByDefault(Return(content::DownloadItem::IN_PROGRESS));
+        .WillByDefault(Return(download::DownloadItem::IN_PROGRESS));
     ON_CALL(*download_item_, GetFileNameToReportUser())
         .WillByDefault(Return(base::FilePath()));
     ON_CALL(*download_item_, GetDangerType())
-        .WillByDefault(Return(content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS));
+        .WillByDefault(Return(download::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS));
     ON_CALL(*download_item_, GetTargetFilePath())
         .WillByDefault(ReturnRefOfCopy(base::FilePath()));
     ON_CALL(*download_item_, GetLastReason())
-        .WillByDefault(Return(content::DOWNLOAD_INTERRUPT_REASON_NONE));
+        .WillByDefault(Return(download::DOWNLOAD_INTERRUPT_REASON_NONE));
     ON_CALL(*download_item_, GetURL()).WillByDefault(ReturnRefOfCopy(GURL()));
     ON_CALL(*download_item_, GetReferrerUrl())
         .WillByDefault(ReturnRefOfCopy(GURL()));
-    ON_CALL(*download_item_, GetTargetDisposition()).WillByDefault(
-        Return(content::DownloadItem::TARGET_DISPOSITION_OVERWRITE));
+    ON_CALL(*download_item_, GetTargetDisposition())
+        .WillByDefault(
+            Return(download::DownloadItem::TARGET_DISPOSITION_OVERWRITE));
 
     id shelf_controller =
         [OCMockObject mockForClass:[DownloadShelfController class]];
@@ -101,7 +102,7 @@ TEST_F(DownloadItemControllerTest, NormalDownload) {
 
 TEST_F(DownloadItemControllerTest, DangerousDownload) {
   ON_CALL(*download_item_, GetDangerType())
-      .WillByDefault(Return(content::DOWNLOAD_DANGER_TYPE_DANGEROUS_FILE));
+      .WillByDefault(Return(download::DOWNLOAD_DANGER_TYPE_DANGEROUS_FILE));
   ON_CALL(*download_item_, IsDangerous()).WillByDefault(Return(true));
   [[(id)shelf_controller_ expect] layoutItems];
   download_item_->NotifyObserversDownloadUpdated();
@@ -117,7 +118,7 @@ TEST_F(DownloadItemControllerTest, NormalDownloadBecomesDangerous) {
   // The download is now marked as dangerous.
   [[(id)shelf_controller_ expect] layoutItems];
   ON_CALL(*download_item_, GetDangerType())
-      .WillByDefault(Return(content::DOWNLOAD_DANGER_TYPE_DANGEROUS_FILE));
+      .WillByDefault(Return(download::DOWNLOAD_DANGER_TYPE_DANGEROUS_FILE));
   ON_CALL(*download_item_, IsDangerous()).WillByDefault(Return(true));
   download_item_->NotifyObserversDownloadUpdated();
 
@@ -128,7 +129,7 @@ TEST_F(DownloadItemControllerTest, NormalDownloadBecomesDangerous) {
   // And then marked as safe again.
   [[(id)shelf_controller_ expect] layoutItems];
   ON_CALL(*download_item_, GetDangerType())
-      .WillByDefault(Return(content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS));
+      .WillByDefault(Return(download::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS));
   ON_CALL(*download_item_, IsDangerous()).WillByDefault(Return(false));
   download_item_->NotifyObserversDownloadUpdated();
 

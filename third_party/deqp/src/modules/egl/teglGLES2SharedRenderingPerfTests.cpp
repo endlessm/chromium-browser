@@ -717,17 +717,17 @@ void TestContext::render (void)
 class TestThread : de::Thread
 {
 public:
-					TestThread		(const vector<TestContext*> contexts);
+					TestThread		(const vector<TestContext*> contexts, const Library& egl);
 					~TestThread		(void);
 
 	void			start			(void);
 	void			join			(void);
-	void			log				(TestLog& log);
 
 	bool			resultOk		(void) { return m_isOk; }
 
 private:
 	vector<TestContext*>	m_contexts;
+	const Library&			m_egl;
 	bool					m_isOk;
 	string					m_errorString;
 
@@ -747,8 +747,9 @@ private:
 					TestThread	(const TestThread&);
 };
 
-TestThread::TestThread (const vector<TestContext*> contexts)
+TestThread::TestThread (const vector<TestContext*> contexts, const Library& egl)
 	: m_contexts		(contexts)
+	, m_egl				(egl)
 	, m_isOk			(false)
 	, m_errorString		("")
 	, m_beginTimeUs		(0)
@@ -763,12 +764,6 @@ TestThread::TestThread (const vector<TestContext*> contexts)
 TestThread::~TestThread (void)
 {
 	m_contexts.clear();
-}
-
-void TestThread::log (TestLog& testLog)
-{
-	if (!m_isOk)
-		testLog << TestLog::Message << "Thread failed: " << m_errorString << TestLog::EndMessage;
 }
 
 void TestThread::start (void)
@@ -807,6 +802,8 @@ void TestThread::run (void)
 		m_isOk			= false;
 		m_errorString	= "Got unknown exception";
 	}
+
+	m_egl.releaseThread();
 }
 
 class SharedRenderingPerfCase : public TestCase
@@ -886,7 +883,7 @@ void SharedRenderingPerfCase::deinit (void)
 namespace
 {
 
-void createThreads (vector<TestThread*>& threads, int threadCount, int perThreadContextCount, vector<TestContext*>& contexts)
+void createThreads (vector<TestThread*>& threads, int threadCount, int perThreadContextCount, vector<TestContext*>& contexts, const Library& egl)
 {
 	DE_ASSERT(threadCount * perThreadContextCount == (int)contexts.size());
 	DE_ASSERT(threads.empty());
@@ -898,7 +895,7 @@ void createThreads (vector<TestThread*>& threads, int threadCount, int perThread
 		for (int contextNdx = 0; contextNdx < perThreadContextCount; contextNdx++)
 			threadContexts.push_back(contexts[threadNdx * perThreadContextCount + contextNdx]);
 
-		threads.push_back(new TestThread(threadContexts));
+		threads.push_back(new TestThread(threadContexts, egl));
 
 		threadContexts.clear();
 	}
@@ -1043,7 +1040,7 @@ TestCase::IterateResult SharedRenderingPerfCase::iterate (void)
 	if (m_results.empty())
 		logTestConfig(m_testCtx.getLog(), m_config);
 
-	createThreads(threads, m_config.threadCount, m_config.perThreadContextCount, m_contexts);
+	createThreads(threads, m_config.threadCount, m_config.perThreadContextCount, m_contexts, m_eglTestCtx.getLibrary());
 
 	beginTimeUs = deGetMicroseconds();
 

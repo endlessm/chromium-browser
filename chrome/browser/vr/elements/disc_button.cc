@@ -28,7 +28,6 @@ DiscButton::DiscButton(base::RepeatingCallback<void()> click_handler,
   vector_icon->SetIcon(icon);
   vector_icon->set_bubble_events(true);
   vector_icon->SetTransitionedProperties({TRANSFORM});
-  vector_icon->set_hit_testable(false);
   foreground_ = vector_icon.get();
 
   // We now need to reparent the hit target so that it is a child of the
@@ -64,7 +63,7 @@ void DiscButton::OnSetName() {
 
 void DiscButton::NotifyClientSizeAnimated(const gfx::SizeF& size,
                                           int target_property_id,
-                                          cc::Animation* animation) {
+                                          cc::KeyframeModel* animation) {
   Button::NotifyClientSizeAnimated(size, target_property_id, animation);
   if (target_property_id == BOUNDS) {
     background()->SetSize(size.width(), size.height());

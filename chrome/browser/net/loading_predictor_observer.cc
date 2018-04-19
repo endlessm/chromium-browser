@@ -100,14 +100,14 @@ void LoadingPredictorObserver::OnRequestStarted(
   if (!LoadingDataCollector::ShouldRecordRequest(request, resource_type))
     return;
 
-  auto summary = base::MakeUnique<URLRequestSummary>();
+  auto summary = std::make_unique<URLRequestSummary>();
   summary->resource_url = request->original_url();
   summary->resource_type = resource_type;
 
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       base::BindOnce(&LoadingPredictorObserver::OnRequestStartedOnUIThread,
-                     base::Unretained(this), base::Passed(std::move(summary)),
+                     base::Unretained(this), std::move(summary),
                      web_contents_getter, request->site_for_cookies(),
                      request->creation_time()));
 
@@ -132,7 +132,7 @@ void LoadingPredictorObserver::OnRequestRedirected(
   if (!LoadingDataCollector::ShouldRecordRedirect(request))
     return;
 
-  auto summary = base::MakeUnique<URLRequestSummary>();
+  auto summary = std::make_unique<URLRequestSummary>();
   if (!URLRequestSummary::SummarizeResponse(*request, summary.get())) {
     return;
   }
@@ -141,7 +141,7 @@ void LoadingPredictorObserver::OnRequestRedirected(
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       base::BindOnce(&LoadingPredictorObserver::OnRequestRedirectedOnUIThread,
-                     base::Unretained(this), base::Passed(std::move(summary)),
+                     base::Unretained(this), std::move(summary),
                      web_contents_getter, request->site_for_cookies(),
                      request->creation_time()));
 
@@ -168,7 +168,7 @@ void LoadingPredictorObserver::OnResponseStarted(
 
   if (!LoadingDataCollector::ShouldRecordResponse(request))
     return;
-  auto summary = base::MakeUnique<URLRequestSummary>();
+  auto summary = std::make_unique<URLRequestSummary>();
   if (!URLRequestSummary::SummarizeResponse(*request, summary.get())) {
     return;
   }
@@ -176,7 +176,7 @@ void LoadingPredictorObserver::OnResponseStarted(
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       base::BindOnce(&LoadingPredictorObserver::OnResponseStartedOnUIThread,
-                     base::Unretained(this), base::Passed(std::move(summary)),
+                     base::Unretained(this), std::move(summary),
                      web_contents_getter, request->site_for_cookies(),
                      request->creation_time()));
 

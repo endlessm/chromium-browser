@@ -99,6 +99,10 @@ public:
 
 	tcu::TestStatus	iterate	(void)
 	{
+		// Check device for anisotropic filtering support
+		if (!m_context.getDeviceFeatures().samplerAnisotropy)
+			TCU_THROW(NotSupportedError, "Skipping anisotropic tests since the device does not support anisotropic filtering.");
+
 		TextureRenderer	renderer	(m_context, VK_SAMPLE_COUNT_1_BIT, ANISOTROPY_TEST_RESOLUTION, ANISOTROPY_TEST_RESOLUTION);
 		TestTexture2DSp	texture		= TestTexture2DSp(new pipeline::TestTexture2D(vk::mapVkFormat(VK_FORMAT_R8G8B8A8_UNORM), ANISOTROPY_TEST_RESOLUTION, ANISOTROPY_TEST_RESOLUTION));
 
@@ -132,9 +136,13 @@ public:
 					renderedFrame.getAccess(), renderedAnisotropyFrame.getAccess(), 0.05f, tcu::COMPARE_LOG_RESULT))
 				return tcu::TestStatus::fail("Fail");
 
-			if (floatThresholdCompare (m_context.getTestContext().getLog(), "Expecting comparison to fail", "Expecting comparison to fail",
-					renderedFrame.getAccess(), renderedAnisotropyFrame.getAccess(), Vec4(0.05f), tcu::COMPARE_LOG_RESULT))
-				return tcu::TestStatus::fail("Fail");
+			// Anisotropic filtering is implementation dependent. Expecting differences with minification/magnification filter set to NEAREST is too strict.
+			if (m_refParams.minFilter != tcu::Sampler::NEAREST && m_refParams.magFilter != tcu::Sampler::NEAREST)
+			{
+				if (floatThresholdCompare (m_context.getTestContext().getLog(), "Expecting comparison to fail", "Expecting comparison to fail",
+							   renderedFrame.getAccess(), renderedAnisotropyFrame.getAccess(), Vec4(0.05f), tcu::COMPARE_LOG_RESULT))
+					return tcu::TestStatus::fail("Fail");
+			}
 		}
 		return tcu::TestStatus::pass("Pass");
 	}

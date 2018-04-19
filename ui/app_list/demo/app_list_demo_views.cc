@@ -7,25 +7,19 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/command_line.h"
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "build/build_config.h"
-#include "content/public/browser/web_contents.h"
-#include "content/public/common/content_switches.h"
 #include "ui/app_list/test/app_list_test_model.h"
 #include "ui/app_list/test/app_list_test_view_delegate.h"
 #include "ui/app_list/views/app_list_view.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/resources/grit/ui_resources.h"
-#include "ui/views/controls/webview/webview.h"
 #include "ui/views_content_client/views_content_client.h"
 
 namespace {
-
-class AppListDemoService;
 
 // Number of dummy apps to populate in the app list.
 const int kInitialItems = 20;
@@ -34,8 +28,7 @@ const int kInitialItems = 20;
 // window is closed, and to close the window if it is simply dismissed.
 class DemoAppListViewDelegate : public app_list::test::AppListTestViewDelegate {
  public:
-  explicit DemoAppListViewDelegate(content::BrowserContext* browser_context)
-      : view_(NULL), browser_context_(browser_context) {}
+  DemoAppListViewDelegate() : view_(NULL) {}
   ~DemoAppListViewDelegate() override {}
 
   app_list::AppListView* InitView(gfx::NativeWindow window_context);
@@ -43,12 +36,9 @@ class DemoAppListViewDelegate : public app_list::test::AppListTestViewDelegate {
   // Overridden from AppListViewDelegate:
   void Dismiss() override;
   void ViewClosing() override;
-  views::View* CreateStartPageWebView(const gfx::Size& size) override;
 
  private:
   app_list::AppListView* view_;  // Weak. Owns this.
-  content::BrowserContext* browser_context_;
-  std::unique_ptr<content::WebContents> web_contents_;
 
   DISALLOW_COPY_AND_ASSIGN(DemoAppListViewDelegate);
 };
@@ -64,7 +54,6 @@ app_list::AppListView* DemoAppListViewDelegate::InitView(
   app_list::AppListView::InitParams params;
   params.parent = container;
   view_->Initialize(params);
-  view_->MaybeSetAnchorPoint(gfx::Point(300, 300));
 
   // Populate some apps.
   GetTestModel()->PopulateApps(kInitialItems);
@@ -89,25 +78,9 @@ void DemoAppListViewDelegate::ViewClosing() {
   base::RunLoop::QuitCurrentWhenIdleDeprecated();
 }
 
-views::View* DemoAppListViewDelegate::CreateStartPageWebView(
-    const gfx::Size& size) {
-  web_contents_.reset(content::WebContents::Create(
-      content::WebContents::CreateParams(browser_context_)));
-  web_contents_->GetController().LoadURL(GURL("http://www.google.com/"),
-                                         content::Referrer(),
-                                         ui::PAGE_TRANSITION_AUTO_TOPLEVEL,
-                                         std::string());
-  views::WebView* web_view = new views::WebView(
-      web_contents_->GetBrowserContext());
-  web_view->SetPreferredSize(size);
-  web_view->SetWebContents(web_contents_.get());
-  return web_view;
-}
-
 void ShowAppList(content::BrowserContext* browser_context,
                  gfx::NativeWindow window_context) {
-  DemoAppListViewDelegate* delegate =
-      new DemoAppListViewDelegate(browser_context);
+  DemoAppListViewDelegate* delegate = new DemoAppListViewDelegate;
   app_list::AppListView* view = delegate->InitView(window_context);
   view->GetWidget()->Show();
   view->GetWidget()->Activate();
@@ -117,7 +90,6 @@ void ShowAppList(content::BrowserContext* browser_context,
 
 int main(int argc, const char** argv) {
   ui::ViewsContentClient views_content_client(argc, argv);
-
   views_content_client.set_task(base::Bind(&ShowAppList));
   return views_content_client.RunMain();
 }

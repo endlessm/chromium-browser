@@ -304,6 +304,16 @@ public class PeerConnection {
   /** Java version of PeerConnectionInterface.CandidateNetworkPolicy */
   public enum CandidateNetworkPolicy { ALL, LOW_COST }
 
+  // Keep in sync with webrtc/rtc_base/network_constants.h.
+  public enum AdapterType {
+    UNKNOWN,
+    ETHERNET,
+    WIFI,
+    CELLULAR,
+    VPN,
+    LOOPBACK,
+  }
+
   /** Java version of rtc::KeyType */
   public enum KeyType { RSA, ECDSA }
 
@@ -332,6 +342,7 @@ public class PeerConnection {
   }
 
   /** Java version of PeerConnectionInterface.RTCConfiguration */
+  // TODO(qingsi): Resolve the naming inconsistency of fields with/without units.
   public static class RTCConfiguration {
     public IceTransportsType iceTransportsType;
     public List<IceServer> iceServers;
@@ -349,6 +360,10 @@ public class PeerConnection {
     public boolean pruneTurnPorts;
     public boolean presumeWritableWhenFullyRelayed;
     public Integer iceCheckMinInterval;
+    // The interval in milliseconds at which STUN candidates will resend STUN binding requests
+    // to keep NAT bindings open.
+    // The default value in the implementation is used if this field is null.
+    public Integer stunCandidateKeepaliveIntervalMs;
     public boolean disableIPv6OnWifi;
     // By default, PeerConnection will use a limited number of IPv6 network
     // interfaces, in order to avoid too many ICE candidate pairs being created
@@ -368,6 +383,9 @@ public class PeerConnection {
     public Integer screencastMinBitrate;
     public Boolean combinedAudioVideoBwe;
     public Boolean enableDtlsSrtp;
+    // Use "Unknown" to represent no preference of adapter types, not the
+    // preference of adapters of unknown types.
+    public AdapterType networkPreference;
 
     // This is an optional wrapper for the C++ webrtc::TurnCustomizer.
     public TurnCustomizer turnCustomizer;
@@ -392,6 +410,7 @@ public class PeerConnection {
       pruneTurnPorts = false;
       presumeWritableWhenFullyRelayed = false;
       iceCheckMinInterval = null;
+      stunCandidateKeepaliveIntervalMs = null;
       disableIPv6OnWifi = false;
       maxIPv6Networks = 5;
       iceRegatherIntervalRange = null;
@@ -403,6 +422,7 @@ public class PeerConnection {
       screencastMinBitrate = null;
       combinedAudioVideoBwe = null;
       enableDtlsSrtp = null;
+      networkPreference = AdapterType.UNKNOWN;
     }
 
     @CalledByNative("RTCConfiguration")
@@ -486,6 +506,11 @@ public class PeerConnection {
     }
 
     @CalledByNative("RTCConfiguration")
+    Integer getStunCandidateKeepaliveInterval() {
+      return stunCandidateKeepaliveIntervalMs;
+    }
+
+    @CalledByNative("RTCConfiguration")
     boolean getDisableIPv6OnWifi() {
       return disableIPv6OnWifi;
     }
@@ -543,6 +568,11 @@ public class PeerConnection {
     @CalledByNative("RTCConfiguration")
     Boolean getEnableDtlsSrtp() {
       return enableDtlsSrtp;
+    }
+
+    @CalledByNative("RTCConfiguration")
+    AdapterType getNetworkPreference() {
+      return networkPreference;
     }
   };
 

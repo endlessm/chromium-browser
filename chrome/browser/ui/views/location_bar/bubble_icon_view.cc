@@ -17,6 +17,7 @@
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
 #include "ui/views/animation/ink_drop_highlight.h"
 #include "ui/views/animation/ink_drop_impl.h"
+#include "ui/views/animation/ink_drop_mask.h"
 #include "ui/views/bubble/bubble_dialog_delegate.h"
 
 void BubbleIconView::Init() {
@@ -28,7 +29,8 @@ void BubbleIconView::Init() {
 }
 
 BubbleIconView::BubbleIconView(CommandUpdater* command_updater, int command_id)
-    : image_(new views::ImageView()),
+    : widget_observer_(this),
+      image_(new views::ImageView()),
       command_updater_(command_updater),
       command_id_(command_id),
       active_(false),
@@ -54,15 +56,22 @@ void BubbleIconView::SetTooltipText(const base::string16& tooltip) {
   image_->SetTooltipText(tooltip);
 }
 
-void BubbleIconView::OnBubbleCreated(LocationBarBubbleDelegateView* bubble) {
-  // This observer is removed when the bubble's widget is destroyed, by
-  // |OnWidgetDestroying|.
-  bubble->GetWidget()->AddObserver(this);
+void BubbleIconView::SetHighlighted(bool bubble_visible) {
+  AnimateInkDrop(bubble_visible ? views::InkDropState::ACTIVATED
+                                : views::InkDropState::DEACTIVATED,
+                 nullptr);
+}
+
+void BubbleIconView::OnBubbleWidgetCreated(views::Widget* bubble_widget) {
+  widget_observer_.SetWidget(bubble_widget);
+
+  if (bubble_widget->IsVisible())
+    SetHighlighted(true);
 }
 
 void BubbleIconView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   image_->GetAccessibleNodeData(node_data);
-  node_data->role = ui::AX_ROLE_BUTTON;
+  node_data->role = ax::mojom::Role::kButton;
 }
 
 bool BubbleIconView::GetTooltipText(const gfx::Point& p,
@@ -72,7 +81,8 @@ bool BubbleIconView::GetTooltipText(const gfx::Point& p,
 
 gfx::Size BubbleIconView::CalculatePreferredSize() const {
   gfx::Rect image_rect(image_->GetPreferredSize());
-  image_rect.Inset(-gfx::Insets(LocationBarView::kIconInteriorPadding));
+  image_rect.Inset(
+      -gfx::Insets(GetLayoutConstant(LOCATION_BAR_ICON_INTERIOR_PADDING)));
   DCHECK_EQ(image_rect.height(),
             GetLayoutConstant(LOCATION_BAR_HEIGHT) -
                 2 * (GetLayoutConstant(LOCATION_BAR_ELEMENT_PADDING) +
@@ -166,17 +176,29 @@ std::unique_ptr<views::InkDrop> BubbleIconView::CreateInkDrop() {
   return std::move(ink_drop);
 }
 
+std::unique_ptr<views::InkDropRipple> BubbleIconView::CreateInkDropRipple()
+    const {
+  return std::make_unique<views::FloodFillInkDropRipple>(
+      size(), GetInkDropCenterBasedOnLastEvent(), GetInkDropBaseColor(),
+      ink_drop_visible_opacity());
+}
+
+std::unique_ptr<views::InkDropHighlight>
+BubbleIconView::CreateInkDropHighlight() const {
+  return CreateDefaultInkDropHighlight(
+      gfx::RectF(GetMirroredRect(GetContentsBounds())).CenterPoint(), size());
+}
+
 SkColor BubbleIconView::GetInkDropBaseColor() const {
   return color_utils::DeriveDefaultIconColor(GetNativeTheme()->GetSystemColor(
       ui::NativeTheme::kColorId_TextfieldDefaultColor));
 }
 
-std::unique_ptr<views::InkDropRipple> BubbleIconView::CreateInkDropRipple()
-    const {
-  return std::make_unique<views::FloodFillInkDropRipple>(
-      gfx::Size(kDefaultInkDropSize, kDefaultInkDropSize),
-      GetInkDropCenterBasedOnLastEvent(), GetInkDropBaseColor(),
-      ink_drop_visible_opacity());
+std::unique_ptr<views::InkDropMask> BubbleIconView::CreateInkDropMask() const {
+  if (!BackgroundWith1PxBorder::IsRounded())
+    return nullptr;
+  return std::make_unique<views::RoundRectInkDropMask>(size(), gfx::Insets(),
+                                                       height() / 2.f);
 }
 
 void BubbleIconView::OnGestureEvent(ui::GestureEvent* event) {
@@ -185,17 +207,6 @@ void BubbleIconView::OnGestureEvent(ui::GestureEvent* event) {
     ExecuteCommand(EXECUTE_SOURCE_GESTURE);
     event->SetHandled();
   }
-}
-
-void BubbleIconView::OnWidgetDestroying(views::Widget* widget) {
-  widget->RemoveObserver(this);
-}
-
-void BubbleIconView::OnWidgetVisibilityChanged(views::Widget* widget,
-                                               bool visible) {
-  // |widget| is a bubble that has just got shown / hidden.
-  if (!visible)
-    AnimateInkDrop(views::InkDropState::DEACTIVATED, nullptr /* event */);
 }
 
 void BubbleIconView::ExecuteCommand(ExecuteSource source) {
@@ -208,6 +219,7 @@ void BubbleIconView::OnBoundsChanged(const gfx::Rect& previous_bounds) {
   views::BubbleDialogDelegateView* bubble = GetBubble();
   if (bubble)
     bubble->OnAnchorBoundsChanged();
+  InkDropHostView::OnBoundsChanged(previous_bounds);
 }
 
 void BubbleIconView::UpdateIcon() {
@@ -218,7 +230,7 @@ void BubbleIconView::UpdateIcon() {
               ui::NativeTheme::kColorId_ProminentButtonColor)
           : GetInkDropBaseColor();
   image_->SetImage(gfx::CreateVectorIcon(
-      GetVectorIcon(), LocationBarView::kIconWidth, icon_color));
+      GetVectorIcon(), GetLayoutConstant(LOCATION_BAR_ICON_SIZE), icon_color));
 }
 
 void BubbleIconView::SetActiveInternal(bool active) {
@@ -226,4 +238,25 @@ void BubbleIconView::SetActiveInternal(bool active) {
     return;
   active_ = active;
   UpdateIcon();
+}
+
+BubbleIconView::WidgetObserver::WidgetObserver(BubbleIconView* parent)
+    : parent_(parent), scoped_observer_(this) {}
+
+BubbleIconView::WidgetObserver::~WidgetObserver() = default;
+
+void BubbleIconView::WidgetObserver::SetWidget(views::Widget* widget) {
+  scoped_observer_.RemoveAll();
+  scoped_observer_.Add(widget);
+}
+
+void BubbleIconView::WidgetObserver::OnWidgetDestroying(views::Widget* widget) {
+  scoped_observer_.Remove(widget);
+}
+
+void BubbleIconView::WidgetObserver::OnWidgetVisibilityChanged(
+    views::Widget* widget,
+    bool visible) {
+  // |widget| is a bubble that has just got shown / hidden.
+  parent_->SetHighlighted(visible);
 }

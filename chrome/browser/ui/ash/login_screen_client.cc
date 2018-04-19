@@ -9,8 +9,9 @@
 #include "ash/public/interfaces/constants.mojom.h"
 #include "chrome/browser/chromeos/login/lock/screen_locker.h"
 #include "chrome/browser/chromeos/login/reauth_stats.h"
+#include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/ui/user_adding_screen.h"
-#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
+#include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "content/public/common/service_manager_connection.h"
 #include "services/service_manager/public/cpp/connector.h"
 
@@ -60,6 +61,9 @@ void LoginScreenClient::AuthenticateUser(
     delegate_->HandleAuthenticateUser(account_id, hashed_password,
                                       sync_password_data, authenticated_by_pin,
                                       std::move(callback));
+  } else {
+    LOG(ERROR) << "Returning failed authentication attempt; no delegate";
+    std::move(callback).Run(false);
   }
 }
 
@@ -106,8 +110,15 @@ void LoginScreenClient::FocusLockScreenApps(bool reverse) {
     HandleFocusLeavingLockScreenApps(reverse);
 }
 
+void LoginScreenClient::ShowGaiaSignin() {
+  if (chromeos::LoginDisplayHost::default_host()) {
+    chromeos::LoginDisplayHost::default_host()->UpdateGaiaDialogVisibility(
+        true /*visible*/);
+  }
+}
+
 void LoginScreenClient::LoadWallpaper(const AccountId& account_id) {
-  chromeos::WallpaperManager::Get()->ShowUserWallpaper(account_id);
+  WallpaperControllerClient::Get()->ShowUserWallpaper(account_id);
 }
 
 void LoginScreenClient::SignOutUser() {

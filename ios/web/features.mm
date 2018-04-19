@@ -7,8 +7,8 @@
 namespace web {
 namespace features {
 
-const base::Feature kWorkaroundForMissingRedirectCallback{
-    "WorkaroundForMissingRedirectCallback", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kContextMenuElementPostMessage{
+    "ContextMenuElementPostMessage", base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kSlimNavigationManager{"SlimNavigationManager",
                                            base::FEATURE_DISABLED_BY_DEFAULT};

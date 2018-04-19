@@ -18,19 +18,19 @@
 
 namespace viz {
 class BeginFrameSource;
+class TestContextProvider;
 class TestLayerTreeFrameSink;
 }
 
 namespace cc {
 
 class AnimationHost;
-class AnimationPlayer;
 class LayerImpl;
 class LayerTreeHost;
 class LayerTreeHostForTesting;
 class LayerTreeTestLayerTreeFrameSinkClient;
 class Proxy;
-class TestContextProvider;
+class SingleKeyframeEffectAnimation;
 class TestTaskGraphRunner;
 
 // Creates the virtual viewport layer hierarchy under the given root_layer.
@@ -72,12 +72,14 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   virtual void EndTest();
   void EndTestAfterDelayMs(int delay_milliseconds);
 
-  void PostAddAnimationToMainThreadPlayer(
-      AnimationPlayer* player_to_receive_animation);
-  void PostAddInstantAnimationToMainThreadPlayer(
-      AnimationPlayer* player_to_receive_animation);
-  void PostAddLongAnimationToMainThreadPlayer(
-      AnimationPlayer* player_to_receive_animation);
+  void PostAddNoDamageAnimationToMainThread(
+      SingleKeyframeEffectAnimation* animation_to_receive_animation);
+  void PostAddOpacityAnimationToMainThread(
+      SingleKeyframeEffectAnimation* animation_to_receive_animation);
+  void PostAddOpacityAnimationToMainThreadInstantly(
+      SingleKeyframeEffectAnimation* animation_to_receive_animation);
+  void PostAddOpacityAnimationToMainThreadDelayed(
+      SingleKeyframeEffectAnimation* animation_to_receive_animation);
   void PostSetLocalSurfaceIdToMainThread(
       const viz::LocalSurfaceId& local_surface_id);
   void PostSetDeferCommitsToMainThread(bool defer_commits);
@@ -105,6 +107,9 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   std::unique_ptr<LayerTreeFrameSink>
   ReleaseLayerTreeFrameSinkOnLayerTreeHost();
   void SetVisibleOnLayerTreeHost(bool visible);
+  void SetInitialDeviceScaleFactor(float initial_device_scale_factor) {
+    initial_device_scale_factor_ = initial_device_scale_factor;
+  }
 
   virtual void AfterTest() = 0;
   virtual void WillBeginTest();
@@ -166,8 +171,11 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   }
 
  private:
-  virtual void DispatchAddAnimationToPlayer(
-      AnimationPlayer* player_to_receive_animation,
+  virtual void DispatchAddNoDamageAnimation(
+      SingleKeyframeEffectAnimation* animation_to_receive_animation,
+      double animation_duration);
+  virtual void DispatchAddOpacityAnimation(
+      SingleKeyframeEffectAnimation* animation_to_receive_animation,
       double animation_duration);
   void DispatchSetLocalSurfaceId(const viz::LocalSurfaceId& local_surface_id);
   void DispatchSetDeferCommits(bool defer_commits);
@@ -182,6 +190,7 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   void DispatchNextCommitWaitsForActivation();
 
   LayerTreeSettings settings_;
+  float initial_device_scale_factor_ = 1.f;
 
   CompositorMode mode_;
 
@@ -210,7 +219,7 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   std::unique_ptr<viz::TestGpuMemoryBufferManager> gpu_memory_buffer_manager_;
   std::unique_ptr<TestTaskGraphRunner> task_graph_runner_;
   base::CancelableClosure timeout_;
-  scoped_refptr<TestContextProvider> compositor_contexts_;
+  scoped_refptr<viz::TestContextProvider> compositor_contexts_;
   base::WeakPtr<LayerTreeTest> main_thread_weak_ptr_;
   base::WeakPtrFactory<LayerTreeTest> weak_factory_;
 };

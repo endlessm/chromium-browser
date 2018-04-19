@@ -9,7 +9,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyFloat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -35,13 +34,13 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowLog;
 
+import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Feature;
 import org.chromium.content.browser.RenderCoordinates;
 import org.chromium.content.browser.webcontents.WebContentsImpl;
 import org.chromium.content_public.browser.SelectionClient;
 import org.chromium.content_public.browser.SelectionMetricsLogger;
 import org.chromium.content_public.browser.SelectionPopupController;
-import org.chromium.testing.local.LocalRobolectricTestRunner;
 import org.chromium.ui.base.MenuSourceType;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.touch_selection.SelectionEventType;
@@ -49,7 +48,7 @@ import org.chromium.ui.touch_selection.SelectionEventType;
 /**
  * Unit tests for {@link SelectionPopupController}.
  */
-@RunWith(LocalRobolectricTestRunner.class)
+@RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
 public class SelectionPopupControllerTest {
     private SelectionPopupControllerImpl mController;
@@ -466,26 +465,18 @@ public class SelectionPopupControllerTest {
         mController.setSelectionInsertionHandleObserver(handleObserver);
 
         // Selection handles shown.
-        mController.onSelectionEvent(
-                SelectionEventType.SELECTION_HANDLES_SHOWN, 0, 0, 0, 0, 0.f, 0.f);
-        // Selection handles moved, but drag wasn't triggered, so no handleDragStartedOrMoved call.
-        mController.onSelectionEvent(
-                SelectionEventType.SELECTION_HANDLES_MOVED, 0, 0, 0, 0, 0.f, 0.f);
-        order.verify(handleObserver, never()).handleDragStartedOrMoved(anyFloat(), anyFloat());
+        mController.onSelectionEvent(SelectionEventType.SELECTION_HANDLES_SHOWN, 0, 0, 0, 0);
 
-        // Selection handle drag started.
-        mController.onSelectionEvent(
-                SelectionEventType.SELECTION_HANDLE_DRAG_STARTED, 0, 0, 0, 0, 0.f, 0.f);
+        // Selection handles drag started.
+        mController.onDragUpdate(0.f, 0.f);
         order.verify(handleObserver).handleDragStartedOrMoved(0.f, 0.f);
 
         // Moving.
-        mController.onSelectionEvent(
-                SelectionEventType.SELECTION_HANDLES_MOVED, 0, 0, 0, 0, 5.f, 5.f);
+        mController.onDragUpdate(5.f, 5.f);
         order.verify(handleObserver).handleDragStartedOrMoved(5.f, 5.f);
 
         // Selection handle drag stopped.
-        mController.onSelectionEvent(
-                SelectionEventType.SELECTION_HANDLE_DRAG_STOPPED, 0, 0, 0, 0, 0.f, 0.f);
+        mController.onSelectionEvent(SelectionEventType.SELECTION_HANDLE_DRAG_STOPPED, 0, 0, 0, 0);
         order.verify(handleObserver).handleDragStopped();
     }
 
@@ -498,26 +489,18 @@ public class SelectionPopupControllerTest {
         mController.setSelectionInsertionHandleObserver(handleObserver);
 
         // Insertion handle shown.
-        mController.onSelectionEvent(
-                SelectionEventType.INSERTION_HANDLE_SHOWN, 0, 0, 0, 0, 0.f, 0.f);
-        // Insertion handle moved, but drag wasn't triggered, so no handleDragStartedOrMoved call.
-        mController.onSelectionEvent(
-                SelectionEventType.INSERTION_HANDLE_MOVED, 0, 0, 0, 0, 0.f, 0.f);
-        order.verify(handleObserver, never()).handleDragStartedOrMoved(anyFloat(), anyFloat());
+        mController.onSelectionEvent(SelectionEventType.INSERTION_HANDLE_SHOWN, 0, 0, 0, 0);
 
         // Insertion handle drag started.
-        mController.onSelectionEvent(
-                SelectionEventType.INSERTION_HANDLE_DRAG_STARTED, 0, 0, 0, 0, 0.f, 0.f);
+        mController.onDragUpdate(0.f, 0.f);
         order.verify(handleObserver).handleDragStartedOrMoved(0.f, 0.f);
 
         // Moving.
-        mController.onSelectionEvent(
-                SelectionEventType.INSERTION_HANDLE_MOVED, 0, 0, 0, 0, 5.f, 5.f);
+        mController.onDragUpdate(5.f, 5.f);
         order.verify(handleObserver).handleDragStartedOrMoved(5.f, 5.f);
 
         // Insertion handle drag stopped.
-        mController.onSelectionEvent(
-                SelectionEventType.INSERTION_HANDLE_DRAG_STOPPED, 0, 0, 0, 0, 0.f, 0.f);
+        mController.onSelectionEvent(SelectionEventType.INSERTION_HANDLE_DRAG_STOPPED, 0, 0, 0, 0);
         order.verify(handleObserver).handleDragStopped();
     }
 

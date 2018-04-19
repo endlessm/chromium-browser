@@ -40,6 +40,41 @@ class MODULES_EXPORT V8VoidCallbackFunctionModules final : public CallbackFuncti
       : CallbackFunctionBase(callback_function) {}
 };
 
+template <>
+class MODULES_TEMPLATE_CLASS_EXPORT V8PersistentCallbackFunction<V8VoidCallbackFunctionModules> final : public V8PersistentCallbackFunctionBase {
+  using V8CallbackFunction = V8VoidCallbackFunctionModules;
+
+ public:
+  ~V8PersistentCallbackFunction() override = default;
+
+  // Returns a wrapper-tracing version of this callback function.
+  V8CallbackFunction* ToNonV8Persistent() { return Proxy(); }
+
+  MODULES_EXTERN_TEMPLATE_EXPORT
+  v8::Maybe<void> Invoke(ScriptWrappable* callback_this_value) WARN_UNUSED_RESULT;
+  MODULES_EXTERN_TEMPLATE_EXPORT
+  void InvokeAndReportException(ScriptWrappable* callback_this_value);
+
+ private:
+  explicit V8PersistentCallbackFunction(V8CallbackFunction* callback_function)
+      : V8PersistentCallbackFunctionBase(callback_function) {}
+
+  V8CallbackFunction* Proxy() {
+    return As<V8CallbackFunction>();
+  }
+
+  template <typename V8CallbackFunction>
+  friend V8PersistentCallbackFunction<V8CallbackFunction>*
+  ToV8PersistentCallbackFunction(V8CallbackFunction*);
+};
+
+// V8VoidCallbackFunctionModules is designed to be used with wrapper-tracing.
+// As blink::Persistent does not perform wrapper-tracing, use of
+// |WrapPersistent| for callback functions is likely (if not always) misuse.
+// Thus, this code prohibits such a use case. The call sites should explicitly
+// use WrapPersistent(V8PersistentCallbackFunction<T>*).
+Persistent<V8VoidCallbackFunctionModules> WrapPersistent(V8VoidCallbackFunctionModules*) = delete;
+
 }  // namespace blink
 
 #endif  // V8VoidCallbackFunctionModules_h

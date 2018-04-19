@@ -49,9 +49,9 @@
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/sync/glue/sync_start_util.h"
 #include "chrome/browser/web_data_service_factory.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
@@ -68,7 +68,7 @@
 #include "components/history/core/test/history_service_test_util.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/keyed_service/core/refcounted_keyed_service.h"
-#include "components/offline_pages/features/features.h"
+#include "components/offline_pages/buildflags/buildflags.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
 #include "components/omnibox/browser/history_index_restore_observer.h"
 #include "components/omnibox/browser/in_memory_url_index.h"
@@ -182,10 +182,10 @@ class TestExtensionURLRequestContextGetter
 
 std::unique_ptr<KeyedService> BuildHistoryService(
     content::BrowserContext* context) {
-  return base::MakeUnique<history::HistoryService>(
-      base::MakeUnique<ChromeHistoryClient>(
+  return std::make_unique<history::HistoryService>(
+      std::make_unique<ChromeHistoryClient>(
           BookmarkModelFactory::GetForBrowserContext(context)),
-      base::MakeUnique<history::ContentVisitDelegate>(context));
+      std::make_unique<history::ContentVisitDelegate>(context));
 }
 
 std::unique_ptr<KeyedService> BuildInMemoryURLIndex(
@@ -205,7 +205,7 @@ std::unique_ptr<KeyedService> BuildBookmarkModel(
     content::BrowserContext* context) {
   Profile* profile = Profile::FromBrowserContext(context);
   std::unique_ptr<BookmarkModel> bookmark_model(
-      new BookmarkModel(base::MakeUnique<ChromeBookmarkClient>(
+      new BookmarkModel(std::make_unique<ChromeBookmarkClient>(
           profile, ManagedBookmarkServiceFactory::GetForProfile(profile))));
   bookmark_model->Load(profile->GetPrefs(), profile->GetPath(),
                        profile->GetIOTaskRunner(),
@@ -223,17 +223,17 @@ void TestProfileErrorCallback(WebDataServiceWrapper::ErrorType error_type,
 std::unique_ptr<KeyedService> BuildWebDataService(
     content::BrowserContext* context) {
   const base::FilePath& context_path = context->GetPath();
-  return base::MakeUnique<WebDataServiceWrapper>(
+  return std::make_unique<WebDataServiceWrapper>(
       context_path, g_browser_process->GetApplicationLocale(),
       BrowserThread::GetTaskRunnerForThread(BrowserThread::UI),
       sync_start_util::GetFlareForSyncableService(context_path),
-      &TestProfileErrorCallback);
+      base::BindRepeating(&TestProfileErrorCallback));
 }
 
 #if BUILDFLAG(ENABLE_OFFLINE_PAGES)
 std::unique_ptr<KeyedService> BuildOfflinePageModel(
     content::BrowserContext* context) {
-  return base::MakeUnique<offline_pages::StubOfflinePageModel>();
+  return std::make_unique<offline_pages::StubOfflinePageModel>();
 }
 #endif
 
@@ -321,7 +321,7 @@ TestingProfile::TestingProfile(
     const TestingFactories& factories,
     const std::string& profile_name)
     : start_time_(Time::Now()),
-      prefs_(prefs.release()),
+      prefs_(std::move(prefs)),
       testing_prefs_(NULL),
       force_incognito_(false),
       original_profile_(parent),
@@ -637,7 +637,7 @@ base::FilePath TestingProfile::GetPath() const {
 #if !defined(OS_ANDROID)
 std::unique_ptr<content::ZoomLevelDelegate>
 TestingProfile::CreateZoomLevelDelegate(const base::FilePath& partition_path) {
-  return base::MakeUnique<ChromeZoomLevelPrefs>(
+  return std::make_unique<ChromeZoomLevelPrefs>(
       GetPrefs(), GetPath(), partition_path,
       zoom::ZoomEventManager::GetForBrowserContext(this)->GetWeakPtr());
 }
@@ -785,8 +785,8 @@ void TestingProfile::CreateIncognitoPrefService() {
   DCHECK(!testing_prefs_);
   // Simplified version of ProfileImpl::GetOffTheRecordPrefs(). Note this
   // leaves testing_prefs_ unset.
-  prefs_.reset(CreateIncognitoPrefServiceSyncable(
-      original_profile_->prefs_.get(), nullptr, nullptr));
+  prefs_ = CreateIncognitoPrefServiceSyncable(original_profile_->prefs_.get(),
+                                              nullptr, nullptr);
   user_prefs::UserPrefs::Set(this, prefs_.get());
 }
 
@@ -800,8 +800,7 @@ void TestingProfile::CreateProfilePolicyConnector() {
   if (!policy_service_) {
     std::vector<policy::ConfigurationPolicyProvider*> providers;
     std::unique_ptr<policy::PolicyServiceImpl> policy_service =
-        std::make_unique<policy::PolicyServiceImpl>();
-    policy_service->SetProviders(providers);
+        std::make_unique<policy::PolicyServiceImpl>(std::move(providers));
     policy_service_ = std::move(policy_service);
   }
   profile_policy_connector_.reset(new policy::ProfilePolicyConnector());

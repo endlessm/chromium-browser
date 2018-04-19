@@ -14,6 +14,7 @@
 #include "ash/wm/overview/window_selector.h"
 #include "ash/wm/window_state_observer.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "base/scoped_observer.h"
 #include "ui/aura/window_observer.h"
 #include "ui/gfx/geometry/rect.h"
@@ -28,6 +29,7 @@ class Shadow;
 
 namespace ash {
 
+class OverviewWindowAnimationObserver;
 class WindowSelectorItem;
 
 // Represents a grid of windows in the Overview Mode in a particular root
@@ -89,9 +91,11 @@ class ASH_EXPORT WindowGrid : public aura::WindowObserver,
   // Returns the target selected window, or NULL if there is none selected.
   WindowSelectorItem* SelectedWindow() const;
 
-  // Returns true if a window is contained in any of the WindowSelectorItems
-  // this grid owns.
-  bool Contains(const aura::Window* window) const;
+  // Returns the WindowSelectorItem if a window is contained in any of the
+  // WindowSelectorItems this grid owns. Returns nullptr if no such a
+  // WindowSelectorItem exist.
+  WindowSelectorItem* GetWindowSelectorItemContaining(
+      const aura::Window* window) const;
 
   // Adds |window| to the grid. Intended to be used by split view. |window|
   // cannot already be on the grid.
@@ -123,6 +127,11 @@ class ASH_EXPORT WindowGrid : public aura::WindowObserver,
 
   void UpdateCannotSnapWarningVisibility();
 
+  // Called when any WindowSelectorItem on any WindowGrid has started/ended
+  // being dragged.
+  void OnSelectorItemDragStarted(WindowSelectorItem* item);
+  void OnSelectorItemDragEnded();
+
   // Returns true if the grid has no more windows.
   bool empty() const { return window_list_.empty(); }
 
@@ -151,7 +160,34 @@ class ASH_EXPORT WindowGrid : public aura::WindowObserver,
   void OnPostWindowStateTypeChange(wm::WindowState* window_state,
                                    mojom::WindowStateType old_type) override;
 
+  bool IsNoItemsIndicatorLabelVisibleForTesting();
+
+  WindowSelector* window_selector() { return window_selector_; }
+
+  void set_window_animation_observer(
+      base::WeakPtr<OverviewWindowAnimationObserver> observer) {
+    window_animation_observer_ = observer;
+  }
+  base::WeakPtr<OverviewWindowAnimationObserver> window_animation_observer() {
+    return window_animation_observer_;
+  }
+
+  // Sets |should_animate_when_entering_| and |should_animate_when_exiting_|
+  // of the selector items of the windows based on where the first MRU window
+  // covering the available workspace is found. Also sets the
+  // |should_be_observed_when_exiting_| of the last should-animate item.
+  // |selector_item| is not nullptr when |selector_item| is the selected item
+  // when exiting overview mode.
+  void SetWindowListAnimationStates(
+      WindowSelectorItem* selected_item,
+      WindowSelector::OverviewTransition transition);
+
+  // Reset |selector_item|'s |should_animate_when_entering_|,
+  // |should_animate_when_exiting_| and |should_be_observed_when_exiting_|.
+  void ResetWindowListAnimationStates();
+
  private:
+  class ShieldView;
   friend class WindowSelectorTest;
 
   // Initializes the screen shield widget.
@@ -185,6 +221,16 @@ class ASH_EXPORT WindowGrid : public aura::WindowObserver,
                               int* min_right,
                               int* max_right);
 
+  // Sets |selector_item|'s |should_animate_when_entering_|,
+  // |should_animate_when_exiting_| and |should_be_observed_when_exiting_|.
+  // |selector_item| is not nullptr when |selector_item| is the selected item
+  // when exiting overview mode.
+  void SetWindowSelectorItemAnimationState(
+      WindowSelectorItem* selector_item,
+      bool* has_fullscreen_coverred,
+      bool selected,
+      WindowSelector::OverviewTransition transition);
+
   // Root window the grid is in.
   aura::Window* root_window_;
 
@@ -199,6 +245,9 @@ class ASH_EXPORT WindowGrid : public aura::WindowObserver,
 
   // Widget that darkens the screen background.
   std::unique_ptr<views::Widget> shield_widget_;
+
+  // A pointer to |shield_widget_|'s content view.
+  ShieldView* shield_view_ = nullptr;
 
   // Widget that indicates to the user which is the selected window.
   std::unique_ptr<views::Widget> selection_widget_;
@@ -217,6 +266,12 @@ class ASH_EXPORT WindowGrid : public aura::WindowObserver,
 
   // This WindowGrid's total bounds in screen coordinates.
   gfx::Rect bounds_;
+
+  // Weak ptr to the observer monitoring the exit animation of the first MRU
+  // window which covers the available workspace. The observer will be deleted
+  // by itself when the animation completes.
+  base::WeakPtr<OverviewWindowAnimationObserver> window_animation_observer_ =
+      nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(WindowGrid);
 };

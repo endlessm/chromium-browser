@@ -21,6 +21,7 @@ class SequencedTaskRunner;
 class TaskRunner;
 }
 
+// This class contains the non-CrOS desktop implementation of the detector.
 class UpgradeDetectorImpl : public UpgradeDetector,
                             public variations::VariationsService::Observer {
  public:
@@ -33,6 +34,10 @@ class UpgradeDetectorImpl : public UpgradeDetector,
 
   // Returns the global instance.
   static UpgradeDetectorImpl* GetInstance();
+
+  // UpgradeDetector:
+  base::TimeDelta GetHighAnnoyanceLevelDelta() override;
+  base::TimeTicks GetHighAnnoyanceDeadline() override;
 
  protected:
   UpgradeDetectorImpl();
@@ -64,6 +69,9 @@ class UpgradeDetectorImpl : public UpgradeDetector,
   // enough time has elapsed to update the severity (which maps to visual
   // badging) of the notification.
   void StartUpgradeNotificationTimer();
+
+  // Lazy-initialization for the various threshold deltas (idempotent).
+  void InitializeThresholds();
 
   // Sends out a notification and starts a one shot timer to wait until
   // notifying the user.
@@ -101,9 +109,11 @@ class UpgradeDetectorImpl : public UpgradeDetector,
   // True if auto update is turned on.
   bool is_auto_update_enabled_;
 
-  // When the upgrade was detected - either a software update or a variations
-  // update, whichever happened first.
-  base::TimeTicks upgrade_detected_time_;
+  // The various deltas from detection time to the different annoyance levels;
+  // lazy-initialized by InitializeThresholds.
+  base::TimeDelta high_threshold_;
+  base::TimeDelta elevated_threshold_;
+  base::TimeDelta low_threshold_;
 
   // The date the binaries were built.
   base::Time build_date_;

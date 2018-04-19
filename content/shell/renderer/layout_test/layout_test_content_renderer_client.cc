@@ -4,6 +4,9 @@
 
 #include "content/shell/renderer/layout_test/layout_test_content_renderer_client.h"
 
+#include <string>
+#include <utility>
+
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/debug/debugger.h"
@@ -23,6 +26,7 @@
 #include "content/shell/renderer/layout_test/layout_test_render_frame_observer.h"
 #include "content/shell/renderer/layout_test/layout_test_render_thread_observer.h"
 #include "content/shell/renderer/layout_test/test_media_stream_renderer_factory.h"
+#include "content/shell/renderer/layout_test/test_websocket_handshake_throttle.h"
 #include "content/shell/renderer/shell_render_view_observer.h"
 #include "content/shell/test_runner/web_frame_test_proxy.h"
 #include "content/shell/test_runner/web_test_interfaces.h"
@@ -131,13 +135,6 @@ LayoutTestContentRendererClient::~LayoutTestContentRendererClient() {
 }
 
 void LayoutTestContentRendererClient::RenderThreadStarted() {
-// Unless/until WebM files are added to the media layout tests, we need to
-// avoid removing MP4/H264/AAC so that layout tests can run on Android.
-// TODO(chcunningham): We should fix the tests to always use non-proprietary
-// codecs and just delete this code. http://crbug.com/787575
-#if !defined(OS_ANDROID)
-  media::RemoveProprietaryMediaTypesAndCodecsForTests();
-#endif
   ShellContentRendererClient::RenderThreadStarted();
   shell_observer_.reset(new LayoutTestRenderThreadObserver());
 }
@@ -230,6 +227,11 @@ LayoutTestContentRendererClient::CreateMediaStreamRendererFactory() {
 #endif
 }
 
+std::unique_ptr<blink::WebSocketHandshakeThrottle>
+LayoutTestContentRendererClient::CreateWebSocketHandshakeThrottle() {
+  return std::make_unique<TestWebSocketHandshakeThrottle>();
+}
+
 void LayoutTestContentRendererClient::DidInitializeWorkerContextOnWorkerThread(
     v8::Local<v8::Context> context) {
   blink::WebTestingSupport::InjectInternalsObject(context);
@@ -248,6 +250,12 @@ void LayoutTestContentRendererClient::
           switches::kEnableFontAntialiasing)) {
     blink::SetFontAntialiasingEnabledForTest(true);
   }
+}
+
+bool LayoutTestContentRendererClient::AllowIdleMediaSuspend() {
+  // Disable idle media suspend to avoid layout tests getting into accidentally
+  // bad states if they take too long to run.
+  return false;
 }
 
 }  // namespace content

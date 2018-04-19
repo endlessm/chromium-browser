@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_CHROMEOS_EXTENSIONS_WALLPAPER_PRIVATE_API_H_
 #define CHROME_BROWSER_CHROMEOS_EXTENSIONS_WALLPAPER_PRIVATE_API_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -14,9 +15,14 @@
 #include "components/wallpaper/wallpaper_files_id.h"
 #include "net/url_request/url_fetcher_delegate.h"
 
+namespace backdrop_wallpaper_handlers {
+class CollectionInfoFetcher;
+class ImageInfoFetcher;
+}  // namespace backdrop_wallpaper_handlers
+
 namespace base {
 class RefCountedBytes;
-}
+}  // namespace base
 
 // Wallpaper manager strings.
 class WallpaperPrivateGetStringsFunction : public UIThreadExtensionFunction {
@@ -299,6 +305,101 @@ class WallpaperPrivateRecordWallpaperUMAFunction
 
   // ExtensionFunction:
   ResponseAction Run() override;
+};
+
+class WallpaperPrivateGetCollectionsInfoFunction
+    : public UIThreadExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("wallpaperPrivate.getCollectionsInfo",
+                             WALLPAPERPRIVATE_GETCOLLECTIONSINFO)
+  WallpaperPrivateGetCollectionsInfoFunction();
+
+ protected:
+  ~WallpaperPrivateGetCollectionsInfoFunction() override;
+
+  // UIThreadExtensionFunction:
+  ResponseAction Run() override;
+
+ private:
+  // The fetcher responsible for downloading and deserializing collections info.
+  std::unique_ptr<backdrop_wallpaper_handlers::CollectionInfoFetcher>
+      collection_info_fetcher_;
+
+  // Callback upon completion of fetching the collections info.
+  void OnCollectionsInfoFetched(
+      bool success,
+      const std::vector<extensions::api::wallpaper_private::CollectionInfo>&
+          collections_info_list);
+
+  DISALLOW_COPY_AND_ASSIGN(WallpaperPrivateGetCollectionsInfoFunction);
+};
+
+class WallpaperPrivateGetImagesInfoFunction : public UIThreadExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("wallpaperPrivate.getImagesInfo",
+                             WALLPAPERPRIVATE_GETIMAGESINFO)
+  WallpaperPrivateGetImagesInfoFunction();
+
+ protected:
+  ~WallpaperPrivateGetImagesInfoFunction() override;
+
+  // UIThreadExtensionFunction:
+  ResponseAction Run() override;
+
+ private:
+  // The fetcher responsible for downloading and deserializing the info of
+  // images belonging to a specific collection.
+  std::unique_ptr<backdrop_wallpaper_handlers::ImageInfoFetcher>
+      image_info_fetcher_;
+
+  // Callback upon completion of fetching the images info.
+  void OnImagesInfoFetched(
+      bool success,
+      const std::vector<extensions::api::wallpaper_private::ImageInfo>&
+          images_info_list);
+
+  DISALLOW_COPY_AND_ASSIGN(WallpaperPrivateGetImagesInfoFunction);
+};
+
+class WallpaperPrivateGetLocalImagePathsFunction
+    : public UIThreadExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("wallpaperPrivate.getLocalImagePaths",
+                             WALLPAPERPRIVATE_GETLOCALIMAGEPATHS)
+  WallpaperPrivateGetLocalImagePathsFunction();
+
+ protected:
+  ~WallpaperPrivateGetLocalImagePathsFunction() override;
+
+  // UIThreadExtensionFunction:
+  ResponseAction Run() override;
+
+ private:
+  // Responds with the list of collected image paths.
+  void OnGetImagePathsComplete(const std::vector<std::string>& image_Pathss);
+
+  DISALLOW_COPY_AND_ASSIGN(WallpaperPrivateGetLocalImagePathsFunction);
+};
+
+class WallpaperPrivateGetLocalImageDataFunction
+    : public UIThreadExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("wallpaperPrivate.getLocalImageData",
+                             WALLPAPERPRIVATE_GETLOCALIMAGEDATA)
+  WallpaperPrivateGetLocalImageDataFunction();
+
+ protected:
+  ~WallpaperPrivateGetLocalImageDataFunction() override;
+
+  // UIThreadExtensionFunction:
+  ResponseAction Run() override;
+
+ private:
+  // Responds with the image data or an error message.
+  void OnReadImageDataComplete(std::unique_ptr<std::string> image_data,
+                               bool success);
+
+  DISALLOW_COPY_AND_ASSIGN(WallpaperPrivateGetLocalImageDataFunction);
 };
 
 #endif  // CHROME_BROWSER_CHROMEOS_EXTENSIONS_WALLPAPER_PRIVATE_API_H_

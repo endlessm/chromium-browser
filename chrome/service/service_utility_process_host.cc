@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/containers/queue.h"
@@ -29,7 +30,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/chrome_utility_printing_messages.h"
 #include "chrome/service/service_process_catalog_source.h"
-#include "chrome/services/printing/public/interfaces/pdf_to_emf_converter.mojom.h"
+#include "chrome/services/printing/public/mojom/pdf_to_emf_converter.mojom.h"
 #include "content/public/common/child_process_host.h"
 #include "content/public/common/connection_filter.h"
 #include "content/public/common/content_switches.h"
@@ -51,8 +52,8 @@
 #include "sandbox/win/src/sandbox_types.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "services/service_manager/public/cpp/connector.h"
-#include "services/service_manager/public/interfaces/constants.mojom.h"
-#include "services/service_manager/public/interfaces/service.mojom.h"
+#include "services/service_manager/public/mojom/constants.mojom.h"
+#include "services/service_manager/public/mojom/service.mojom.h"
 #include "services/service_manager/runner/host/service_process_launcher.h"
 #include "services/service_manager/runner/host/service_process_launcher_factory.h"
 #include "services/service_manager/sandbox/sandbox_type.h"
@@ -319,7 +320,7 @@ bool ServiceUtilityProcessHost::StartRenderPDFPagesToMetafile(
   ReportUmaEvent(SERVICE_UTILITY_METAFILE_REQUEST);
   base::File pdf_file(pdf_path, base::File::FLAG_OPEN | base::File::FLAG_READ |
                                     base::File::FLAG_DELETE_ON_CLOSE);
-  if (!pdf_file.IsValid() || !StartProcess(false))
+  if (!pdf_file.IsValid() || !StartProcess(/*sandbox=*/true))
     return false;
 
   DCHECK(!waiting_for_reply_);
@@ -333,7 +334,7 @@ bool ServiceUtilityProcessHost::StartRenderPDFPagesToMetafile(
 bool ServiceUtilityProcessHost::StartGetPrinterCapsAndDefaults(
     const std::string& printer_name) {
   ReportUmaEvent(SERVICE_UTILITY_CAPS_REQUEST);
-  if (!StartProcess(true))
+  if (!StartProcess(/*sandbox=*/false))
     return false;
   DCHECK(!waiting_for_reply_);
   waiting_for_reply_ = true;
@@ -343,7 +344,7 @@ bool ServiceUtilityProcessHost::StartGetPrinterCapsAndDefaults(
 bool ServiceUtilityProcessHost::StartGetPrinterSemanticCapsAndDefaults(
     const std::string& printer_name) {
   ReportUmaEvent(SERVICE_UTILITY_SEMANTIC_CAPS_REQUEST);
-  if (!StartProcess(true))
+  if (!StartProcess(/*sandbox=*/false))
     return false;
   DCHECK(!waiting_for_reply_);
   waiting_for_reply_ = true;
@@ -351,7 +352,7 @@ bool ServiceUtilityProcessHost::StartGetPrinterSemanticCapsAndDefaults(
       new ChromeUtilityMsg_GetPrinterSemanticCapsAndDefaults(printer_name));
 }
 
-bool ServiceUtilityProcessHost::StartProcess(bool no_sandbox) {
+bool ServiceUtilityProcessHost::StartProcess(bool sandbox) {
   base::FilePath exe_path = GetUtilityProcessCmd();
   if (exe_path.empty()) {
     NOTREACHED() << "Unable to get utility process binary name.";
@@ -413,7 +414,7 @@ bool ServiceUtilityProcessHost::StartProcess(bool no_sandbox) {
   cmd_line.AppendSwitch(switches::kLang);
   cmd_line.AppendArg(switches::kPrefetchArgumentOther);
 
-  if (Launch(&cmd_line, no_sandbox)) {
+  if (Launch(&cmd_line, sandbox)) {
     ReportUmaEvent(SERVICE_UTILITY_STARTED);
     return true;
   }
@@ -422,18 +423,24 @@ bool ServiceUtilityProcessHost::StartProcess(bool no_sandbox) {
 }
 
 bool ServiceUtilityProcessHost::Launch(base::CommandLine* cmd_line,
-                                       bool no_sandbox) {
+                                       bool sandbox) {
+  const base::CommandLine& service_command_line =
+      *base::CommandLine::ForCurrentProcess();
+  static const char* const kForwardSwitches[] = {
+      switches::kDisableLogging,
+      switches::kEnableLogging,
+      switches::kIPCConnectionTimeout,
+      switches::kLoggingLevel,
+      switches::kUtilityStartupDialog,
+      switches::kV,
+      switches::kVModule,
+  };
+  cmd_line->CopySwitchesFrom(service_command_line, kForwardSwitches,
+                             arraysize(kForwardSwitches));
+
   mojo::edk::ScopedPlatformHandle parent_handle;
   bool success = false;
-  if (no_sandbox) {
-    mojo::edk::NamedPlatformChannelPair named_pair;
-    parent_handle = named_pair.PassServerHandle();
-    named_pair.PrepareToPassClientHandleToChildProcess(cmd_line);
-
-    cmd_line->AppendSwitch(switches::kNoSandbox);
-    process_ = base::LaunchProcess(*cmd_line, base::LaunchOptions());
-    success = process_.IsValid();
-  } else {
+  if (sandbox) {
     mojo::edk::PlatformChannelPair channel_pair;
     parent_handle = channel_pair.PassServerHandle();
     mojo::edk::ScopedPlatformHandle client_handle =
@@ -452,6 +459,14 @@ bool ServiceUtilityProcessHost::Launch(base::CommandLine* cmd_line,
       process_ = std::move(process);
       success = true;
     }
+  } else {
+    mojo::edk::NamedPlatformChannelPair named_pair;
+    parent_handle = named_pair.PassServerHandle();
+    named_pair.PrepareToPassClientHandleToChildProcess(cmd_line);
+
+    cmd_line->AppendSwitch(switches::kNoSandbox);
+    process_ = base::LaunchProcess(*cmd_line, base::LaunchOptions());
+    success = process_.IsValid();
   }
 
   if (success) {

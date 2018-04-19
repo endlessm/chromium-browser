@@ -108,8 +108,8 @@ void TestExtensionPrefs::RecreateExtensionPrefs() {
     // it to finish.
     pref_service_->CommitPendingWrite();
     base::RunLoop run_loop;
-    ASSERT_TRUE(task_runner_->PostTaskAndReply(
-        FROM_HERE, base::BindOnce(&base::DoNothing), run_loop.QuitClosure()));
+    ASSERT_TRUE(task_runner_->PostTaskAndReply(FROM_HERE, base::DoNothing(),
+                                               run_loop.QuitClosure()));
     run_loop.Run();
   }
 
@@ -193,7 +193,8 @@ void TestExtensionPrefs::AddExtension(Extension* extension) {
                                 std::string());
 }
 
-PrefService* TestExtensionPrefs::CreateIncognitoPrefService() const {
+std::unique_ptr<PrefService> TestExtensionPrefs::CreateIncognitoPrefService()
+    const {
   return CreateIncognitoPrefServiceSyncable(
       pref_service_.get(),
       new ExtensionPrefStore(extension_pref_value_map_.get(), true), nullptr);

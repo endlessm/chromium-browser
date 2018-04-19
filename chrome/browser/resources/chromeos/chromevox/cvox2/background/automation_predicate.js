@@ -46,18 +46,23 @@ AutomationPredicate.roles = function(roles) {
 /**
  * Constructs a predicate given a list of roles or predicates.
  * @param {{anyRole: (Array<Role>|undefined),
- *          anyPredicate: (Array<AutomationPredicate.Unary>|undefined)}} params
+ *          anyPredicate: (Array<AutomationPredicate.Unary>|undefined),
+ *          anyAttribute: (Object|undefined)}} params
  * @return {AutomationPredicate.Unary}
  */
 AutomationPredicate.match = function(params) {
   var anyRole = params.anyRole || [];
   var anyPredicate = params.anyPredicate || [];
+  var anyAttribute = params.anyAttribute || {};
   return function(node) {
     return anyRole.some(function(role) {
       return role == node.role;
     }) ||
         anyPredicate.some(function(p) {
           return p(node);
+        }) ||
+        Object.keys(anyAttribute).some(function(key) {
+          return node[key] === anyAttribute[key];
         });
   };
 };
@@ -162,7 +167,7 @@ AutomationPredicate.focused = function(node) {
  */
 AutomationPredicate.leaf = function(node) {
   return !node.firstChild || node.role == Role.BUTTON ||
-      node.role == Role.BUTTON_DROP_DOWN || node.role == Role.POP_UP_BUTTON ||
+      node.role == Role.POP_UP_BUTTON ||
       node.role == Role.SLIDER || node.role == Role.TEXT_FIELD ||
       node.state[State.INVISIBLE] || node.children.every(function(n) {
         return n.state[State.INVISIBLE];
@@ -338,7 +343,7 @@ AutomationPredicate.root = function(node) {
           (node.parent.root.role == Role.DESKTOP &&
            node.parent.role == Role.WEB_VIEW);
     default:
-      return false;
+      return !!node.modal;
   }
 };
 
@@ -392,6 +397,16 @@ AutomationPredicate.checkable = AutomationPredicate.roles([
   Role.CHECK_BOX, Role.RADIO_BUTTON, Role.MENU_ITEM_CHECK_BOX,
   Role.MENU_ITEM_RADIO, Role.TREE_ITEM
 ]);
+
+/**
+ * Returns if the node is clickable.
+ * @param {!AutomationNode} node
+ * @return {boolean}
+ */
+AutomationPredicate.clickable = AutomationPredicate.match({
+  anyPredicate: [AutomationPredicate.button, AutomationPredicate.link],
+  anyAttribute: {clickable: true}
+});
 
 // Table related predicates.
 /**

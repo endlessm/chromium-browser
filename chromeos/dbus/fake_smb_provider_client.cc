@@ -32,7 +32,7 @@ void FakeSmbProviderClient::Unmount(int32_t mount_id, StatusCallback callback) {
 void FakeSmbProviderClient::ReadDirectory(int32_t mount_id,
                                           const base::FilePath& directory_path,
                                           ReadDirectoryCallback callback) {
-  smbprovider::DirectoryEntryList entry_list;
+  smbprovider::DirectoryEntryListProto entry_list;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(callback), smbprovider::ERROR_OK, entry_list));
@@ -41,7 +41,7 @@ void FakeSmbProviderClient::ReadDirectory(int32_t mount_id,
 void FakeSmbProviderClient::GetMetadataEntry(int32_t mount_id,
                                              const base::FilePath& entry_path,
                                              GetMetdataEntryCallback callback) {
-  smbprovider::DirectoryEntry entry;
+  smbprovider::DirectoryEntryProto entry;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(callback), smbprovider::ERROR_OK, entry));
@@ -57,6 +57,75 @@ void FakeSmbProviderClient::OpenFile(int32_t mount_id,
 
 void FakeSmbProviderClient::CloseFile(int32_t mount_id,
                                       int32_t file_id,
+                                      StatusCallback callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), smbprovider::ERROR_OK));
+}
+
+void FakeSmbProviderClient::ReadFile(int32_t mount_id,
+                                     int32_t file_id,
+                                     int64_t offset,
+                                     int32_t length,
+                                     ReadFileCallback callback) {
+  base::ScopedFD fd;
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), smbprovider::ERROR_OK,
+                                std::move(fd)));
+}
+
+void FakeSmbProviderClient::DeleteEntry(int32_t mount_id,
+                                        const base::FilePath& entry_path,
+                                        bool recursive,
+                                        StatusCallback callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), smbprovider::ERROR_OK));
+}
+
+void FakeSmbProviderClient::CreateFile(int32_t mount_id,
+                                       const base::FilePath& file_path,
+                                       StatusCallback callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), smbprovider::ERROR_OK));
+}
+
+void FakeSmbProviderClient::Truncate(int32_t mount_id,
+                                     const base::FilePath& file_path,
+                                     int64_t length,
+                                     StatusCallback callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), smbprovider::ERROR_OK));
+}
+
+void FakeSmbProviderClient::WriteFile(int32_t mount_id,
+                                      int32_t file_id,
+                                      int64_t offset,
+                                      int32_t length,
+                                      base::ScopedFD temp_fd,
+                                      StatusCallback callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), smbprovider::ERROR_OK));
+}
+
+void FakeSmbProviderClient::CreateDirectory(
+    int32_t mount_id,
+    const base::FilePath& directory_path,
+    bool recursive,
+    StatusCallback callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), smbprovider::ERROR_OK));
+}
+
+void FakeSmbProviderClient::MoveEntry(int32_t mount_id,
+                                      const base::FilePath& source_path,
+                                      const base::FilePath& target_path,
+                                      StatusCallback callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), smbprovider::ERROR_OK));
+}
+
+void FakeSmbProviderClient::CopyEntry(int32_t mount_id,
+                                      const base::FilePath& source_path,
+                                      const base::FilePath& target_path,
                                       StatusCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), smbprovider::ERROR_OK));

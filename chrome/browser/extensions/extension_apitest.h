@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/compiler_specific.h"
+#include "base/strings/string_piece_forward.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "content/public/browser/notification_registrar.h"
@@ -127,6 +128,18 @@ class ExtensionApiTest : public ExtensionBrowserTest {
                            const std::string& page_url,
                            int flags);
 
+  // As above but with support for injecting a custom argument into the test
+  // config.
+  bool RunExtensionSubtestWithArg(const std::string& extension_name,
+                                  const std::string& page_url,
+                                  const char* custom_arg);
+
+  // As above but with support for custom flags defined in Flags above.
+  bool RunExtensionSubtestWithArgAndFlags(const std::string& extension_name,
+                                          const std::string& page_url,
+                                          const char* custom_arg,
+                                          int flags);
+
   // Load |page_url| and wait for pass / fail notification from the extension
   // API on the page.
   bool RunPageTest(const std::string& page_url);
@@ -187,6 +200,10 @@ class ExtensionApiTest : public ExtensionBrowserTest {
   // details will be available to JavaScript tests using
   // chrome.test.getConfig().
   bool StartFTPServer(const base::FilePath& root_directory);
+
+  // Sets the additional string argument |customArg| to the test config object,
+  // which is available to javascript tests using chrome.test.getConfig().
+  void SetCustomArg(base::StringPiece custom_arg);
 
   // Test that exactly one extension loaded.  If so, return a pointer to
   // the extension.  If not, return NULL and set message_.

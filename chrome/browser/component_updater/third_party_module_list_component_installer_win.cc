@@ -19,6 +19,7 @@
 #include "base/values.h"
 #include "base/version.h"
 #include "chrome/browser/conflicts/module_database_win.h"
+#include "chrome/browser/conflicts/third_party_conflicts_manager_win.h"
 #include "components/component_updater/component_updater_paths.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -45,7 +46,8 @@ const uint8_t kThirdPartyModuleListPublicKeySHA256[32] = {
 const char kThirdPartyModuleListName[] = "Third Party Module List";
 
 ThirdPartyModuleListComponentInstallerPolicy::
-    ThirdPartyModuleListComponentInstallerPolicy(ModuleListManager* manager)
+    ThirdPartyModuleListComponentInstallerPolicy(
+        ThirdPartyConflictsManager* manager)
     : manager_(manager) {}
 
 ThirdPartyModuleListComponentInstallerPolicy::
@@ -78,10 +80,10 @@ void ThirdPartyModuleListComponentInstallerPolicy::ComponentReady(
     const base::Version& version,
     const base::FilePath& install_dir,
     std::unique_ptr<base::DictionaryValue> manifest) {
-  // Forward the notification to the ModuleListManager on the current (UI)
-  // thread. The manager is responsible for the work of actually loading the
-  // module list, etc, on background threads.
-  manager_->LoadModuleList(version, GetModuleListPath(install_dir));
+  // Forward the notification to the ThirdPartyConflictsManager on the current
+  // (UI) thread. The manager is responsible for the work of actually loading
+  // the module list, etc, on background threads.
+  manager_->LoadModuleList(GetModuleListPath(install_dir));
 }
 
 bool ThirdPartyModuleListComponentInstallerPolicy::VerifyInstallation(
@@ -95,9 +97,15 @@ bool ThirdPartyModuleListComponentInstallerPolicy::VerifyInstallation(
 
 base::FilePath
 ThirdPartyModuleListComponentInstallerPolicy::GetRelativeInstallDir() const {
-  // The same path is used for installation and for the registry key to keep
-  // things consistent.
-  return base::FilePath(ModuleListManager::kModuleListRegistryKeyPath);
+  static constexpr wchar_t kRelativeModuleListInstallDir[] =
+      L"ThirdPartyModuleList"
+#ifdef _WIN64
+      "64";
+#else
+      "32";
+#endif
+
+  return base::FilePath(kRelativeModuleListInstallDir);
 }
 
 void ThirdPartyModuleListComponentInstallerPolicy::GetHash(
@@ -134,7 +142,10 @@ void RegisterThirdPartyModuleListComponent(ComponentUpdateService* cus) {
   ModuleDatabase* database = ModuleDatabase::GetInstance();
   if (!database)
     return;
-  ModuleListManager* manager = &database->module_list_manager();
+  ThirdPartyConflictsManager* manager =
+      database->third_party_conflicts_manager();
+  if (!manager)
+    return;
   auto installer = base::MakeRefCounted<ComponentInstaller>(
       std::make_unique<ThirdPartyModuleListComponentInstallerPolicy>(manager));
   installer->Register(cus, base::OnceClosure());

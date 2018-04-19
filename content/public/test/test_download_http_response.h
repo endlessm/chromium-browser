@@ -9,10 +9,15 @@
 #include <string>
 
 #include "base/containers/queue.h"
+#include "base/sequence_checker.h"
 #include "net/http/http_response_info.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
+
+namespace net {
+class HttpByteRange;
+}  // namespace net
 
 namespace content {
 
@@ -28,6 +33,22 @@ class TestDownloadHttpResponse : public net::test_server::HttpResponse {
 
   // Called when an injected error triggers.
   using InjectErrorCallback = base::Callback<void(int64_t, int64_t)>;
+
+  struct HttpResponseData {
+    HttpResponseData() = default;
+    HttpResponseData(int64_t min_offset,
+                     int64_t max_offset,
+                     const std::string& header,
+                     const std::string& body);
+    HttpResponseData(const HttpResponseData& other) = default;
+
+    // The range for first byte position in range header to use this response.
+    int64_t min_offset = -1;
+    int64_t max_offset = -1;
+
+    std::string headers;
+    std::string body;
+  };
 
   struct Parameters {
     // Constructs a Parameters structure using the default constructor, but with
@@ -51,6 +72,13 @@ class TestDownloadHttpResponse : public net::test_server::HttpResponse {
 
     // Clears the errors in injected_errors.
     void ClearInjectedErrors();
+
+    // Sets the response for range request when the starting offset of
+    // the request falls into [min_offset, max_offset].
+    void SetResponseForRangeRequest(int64_t min_offset,
+                                    int64_t max_offset,
+                                    const std::string& headers,
+                                    const std::string& body);
 
     // Contents of the ETag header field of the response.  No Etag header is
     // sent if this field is empty.
@@ -84,6 +112,9 @@ class TestDownloadHttpResponse : public net::test_server::HttpResponse {
 
     // If specified, return this as the http response to the client.
     std::string static_response;
+
+    // List of responses for range requests.
+    std::vector<HttpResponseData> range_request_responses;
 
     // Error offsets to be injected. The response will successfully fulfill
     // requests to read up to offset. An attempt to read the byte at offset
@@ -222,6 +253,15 @@ class TestDownloadHttpResponse : public net::test_server::HttpResponse {
   // Gets the response body to send.
   std::string GetResponseBody();
 
+  // Parses the starting offset of range header from |request_|.
+  // Return empty byte range vector when parse failed.
+  std::vector<net::HttpByteRange> ParseRequestRangeHeader();
+
+  // Gets response header and body for range request starts from
+  // |first_byte_position|.
+  // Returns false if no specific responses are found.
+  bool GetResponseForRangeRequest(std::string* headers, std::string* body);
+
   // The parsed beginning and end range offset from the |request_|.
   int64_t requested_range_begin_;
   int64_t requested_range_end_;
@@ -229,7 +269,7 @@ class TestDownloadHttpResponse : public net::test_server::HttpResponse {
   // Parameters associated with this response.
   Parameters parameters_;
 
-  // Request received from the client
+  // Request received from the client.
   net::test_server::HttpRequest request_;
 
   // Callback to run when the response is sent.
@@ -266,12 +306,19 @@ class TestDownloadResponseHandler {
   void OnRequestCompleted(
       std::unique_ptr<TestDownloadHttpResponse::CompletedRequest> request);
 
+  // Wait for a certain number of requests to complete.
+  void WaitUntilCompletion(size_t request_count);
+
   using CompletedRequests =
       std::vector<std::unique_ptr<TestDownloadHttpResponse::CompletedRequest>>;
   CompletedRequests const& completed_requests() { return completed_requests_; }
 
  private:
   CompletedRequests completed_requests_;
+  size_t request_count_ = 0u;
+  std::unique_ptr<base::RunLoop> run_loop_;
+  SEQUENCE_CHECKER(sequence_checker_);
+
   DISALLOW_COPY_AND_ASSIGN(TestDownloadResponseHandler);
 };
 

@@ -19,6 +19,8 @@ import org.junit.runners.model.Statement;
 
 import org.chromium.base.CollectionUtil;
 import org.chromium.base.CommandLine;
+import org.chromium.base.ContextUtils;
+import org.chromium.base.Log;
 import org.chromium.base.test.BaseTestResult.PreTestHook;
 import org.chromium.base.test.util.DisableIfSkipCheck;
 import org.chromium.base.test.util.MinAndroidSdkLevelSkipCheck;
@@ -39,6 +41,7 @@ import java.util.List;
  *  and {@link #isIgnored} to add SkipChecks and PreTesthook.
  */
 public class BaseJUnit4ClassRunner extends AndroidJUnit4ClassRunner {
+    private static final String TAG = "BaseJUnit4ClassRunnr";
     private final List<SkipCheck> mSkipChecks;
     private final List<PreTestHook> mPreTestHooks;
 
@@ -127,6 +130,16 @@ public class BaseJUnit4ClassRunner extends AndroidJUnit4ClassRunner {
         return l;
     }
 
+    @Override
+    protected void collectInitializationErrors(List<Throwable> errors) {
+        super.collectInitializationErrors(errors);
+        // Log any initialization errors to help debugging, as the host-side test runner can get
+        // confused by the thrown exception.
+        if (!errors.isEmpty()) {
+            Log.e(TAG, "Initialization errors in %s: %s", getTestClass().getName(), errors);
+        }
+    }
+
     /**
      * Change this static function to add or take out default {@code SkipCheck}s.
      */
@@ -156,13 +169,17 @@ public class BaseJUnit4ClassRunner extends AndroidJUnit4ClassRunner {
      */
     @Override
     public void run(RunNotifier notifier) {
+        ContextUtils.initApplicationContext(
+                InstrumentationRegistry.getTargetContext().getApplicationContext());
         if (shouldListTests(InstrumentationRegistry.getArguments())) {
             for (Description child : getDescription().getChildren()) {
                 notifier.fireTestStarted(child);
                 notifier.fireTestFinished(child);
             }
         } else {
-            initCommandLineForTest();
+            if (!CommandLine.isInitialized()) {
+                initCommandLineForTest();
+            }
             super.run(notifier);
         }
     }

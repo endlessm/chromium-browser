@@ -21,6 +21,7 @@ class ScreenPositionClient;
 namespace chromecast {
 
 class CastFocusClientAura;
+class CastSystemGestureEventHandler;
 class CastWindowTreeHost;
 
 class CastWindowManagerAura : public CastWindowManager,
@@ -39,6 +40,14 @@ class CastWindowManagerAura : public CastWindowManager,
   aura::Window* GetDefaultParent(aura::Window* window,
                                  const gfx::Rect& bounds) override;
 
+  void AddSideSwipeGestureHandler(
+      CastSideSwipeGestureHandlerInterface* handler) override;
+
+  void RemoveSideSwipeGestureHandler(
+      CastSideSwipeGestureHandlerInterface* handler) override;
+
+  void SetColorInversion(bool enable) override;
+
  private:
   friend class CastWindowManager;
 
@@ -52,6 +61,7 @@ class CastWindowManagerAura : public CastWindowManager,
   std::unique_ptr<aura::client::DefaultCaptureClient> capture_client_;
   std::unique_ptr<CastFocusClientAura> focus_client_;
   std::unique_ptr<aura::client::ScreenPositionClient> screen_position_client_;
+  std::unique_ptr<CastSystemGestureEventHandler> system_gesture_event_handler_;
 
   DISALLOW_COPY_AND_ASSIGN(CastWindowManagerAura);
 };

@@ -8,9 +8,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
@@ -33,6 +36,7 @@ import android.view.View;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestRule;
@@ -45,14 +49,13 @@ import org.mockito.exceptions.base.MockitoAssertionError;
 import org.mockito.internal.verification.Times;
 import org.mockito.internal.verification.api.VerificationDataInOrder;
 import org.mockito.verification.VerificationMode;
-import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
 import org.robolectric.shadows.ShadowResources;
 
 import org.chromium.base.Callback;
-import org.chromium.base.ContextUtils;
+import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeFeatureList;
@@ -66,6 +69,7 @@ import org.chromium.chrome.browser.ntp.snippets.SnippetArticle;
 import org.chromium.chrome.browser.ntp.snippets.SuggestionsSource;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge;
 import org.chromium.chrome.browser.preferences.ChromePreferenceManager;
+import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.signin.SigninManager;
 import org.chromium.chrome.browser.signin.SigninManager.SignInAllowedObserver;
 import org.chromium.chrome.browser.signin.SigninManager.SignInStateObserver;
@@ -85,7 +89,6 @@ import org.chromium.components.signin.test.util.AccountHolder;
 import org.chromium.components.signin.test.util.FakeAccountManagerDelegate;
 import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.testing.local.CustomShadowAsyncTask;
-import org.chromium.testing.local.LocalRobolectricTestRunner;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -97,10 +100,11 @@ import java.util.List;
  * Unit tests for {@link NewTabPageAdapter}. {@link AccountManagerFacade} uses AsyncTasks, thus
  * the need for {@link CustomShadowAsyncTask}.
  */
-@RunWith(LocalRobolectricTestRunner.class)
+@RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE, shadows = {CustomShadowAsyncTask.class})
 @DisableFeatures({ChromeFeatureList.NTP_CONDENSED_LAYOUT, ChromeFeatureList.CHROME_HOME,
-        ChromeFeatureList.CONTENT_SUGGESTIONS_SCROLL_TO_LOAD})
+        ChromeFeatureList.CONTENT_SUGGESTIONS_SCROLL_TO_LOAD,
+        ChromeFeatureList.NTP_ARTICLE_SUGGESTIONS_EXPANDABLE_HEADER})
 public class NewTabPageAdapterTest {
     @Rule
     public DisableHistogramsRule mDisableHistogramsRule = new DisableHistogramsRule();
@@ -119,6 +123,8 @@ public class NewTabPageAdapterTest {
     private OfflinePageBridge mOfflinePageBridge;
     @Mock
     private SuggestionsUiDelegate mUiDelegate;
+    @Mock
+    private PrefServiceBridge mPrefServiceBridge;
 
     /**
      * Stores information about a section that should be present in the adapter.
@@ -272,7 +278,6 @@ public class NewTabPageAdapterTest {
     public void setUp() {
         MockitoAnnotations.initMocks(this);
 
-        ContextUtils.initApplicationContextForTests(RuntimeEnvironment.application);
 
         // Ensure that NetworkChangeNotifier is initialized.
         if (!NetworkChangeNotifier.isInitialized()) {
@@ -307,6 +312,11 @@ public class NewTabPageAdapterTest {
         mSource.setInfoForCategory(
                 TEST_CATEGORY, new CategoryInfoBuilder(TEST_CATEGORY).showIfEmpty().build());
 
+        // Initialize a test instance for PrefServiceBridge.
+        when(mPrefServiceBridge.getBoolean(anyInt())).thenReturn(false);
+        doNothing().when(mPrefServiceBridge).setBoolean(anyInt(), anyBoolean());
+        PrefServiceBridge.setInstanceForTesting(mPrefServiceBridge);
+
         resetUiDelegate();
         reloadNtp();
     }
@@ -317,6 +327,7 @@ public class NewTabPageAdapterTest {
         SigninManager.setInstanceForTesting(null);
         ChromePreferenceManager.getInstance().setNewTabPageSigninPromoDismissed(false);
         ChromePreferenceManager.getInstance().clearNewTabPageSigninPromoSuppressionPeriodStart();
+        PrefServiceBridge.setInstanceForTesting(null);
     }
 
     /**
@@ -1018,6 +1029,7 @@ public class NewTabPageAdapterTest {
         assertEquals(0, preferenceManager.getNewTabPageSigninPromoSuppressionPeriodStart());
     }
 
+    @Ignore // Disabled for new Chrome Home, see: https://crbug.com/805160
     @Test
     @Feature({"Ntp"})
     @EnableFeatures(ChromeFeatureList.CHROME_HOME)
@@ -1185,6 +1197,7 @@ public class NewTabPageAdapterTest {
                 mAdapter.getFirstPositionForType(ItemViewType.ALL_DISMISSED));
     }
 
+    @Ignore // Disabled for new Chrome Home, see: https://crbug.com/805160
     @Test
     @Feature({"Ntp"})
     @EnableFeatures(ChromeFeatureList.CHROME_HOME)

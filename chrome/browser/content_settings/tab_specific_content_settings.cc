@@ -53,7 +53,7 @@
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/cookies/canonical_cookie.h"
 #include "storage/common/fileapi/file_system_types.h"
-#include "third_party/WebKit/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
 #include "url/origin.h"
 
 using content::BrowserThread;
@@ -163,8 +163,8 @@ void TabSpecificContentSettings::CookieChanged(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   TabSpecificContentSettings* settings = GetForWCGetter(wc_getter);
   if (settings)
-    settings->OnCookieChanged(url, frame_url, cookie, options,
-                              blocked_by_policy);
+    settings->OnCookieChange(url, frame_url, cookie, options,
+                             blocked_by_policy);
 }
 
 // static
@@ -418,7 +418,7 @@ void TabSpecificContentSettings::OnCookiesRead(
   NotifySiteDataObservers();
 }
 
-void TabSpecificContentSettings::OnCookieChanged(
+void TabSpecificContentSettings::OnCookieChange(
     const GURL& url,
     const GURL& frame_url,
     const net::CanonicalCookie& cookie,

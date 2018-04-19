@@ -23,8 +23,10 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" /> (HDMI/DP)</translation>
 <translation id="1510238584712386396">துவக்கி</translation>
 <translation id="1525508553941733066">நிராகரி</translation>
+<translation id="1537254971476575106">முழுத்திரைப் பெரிதாக்கி</translation>
 <translation id="15373452373711364">பெரிய மவுஸ் இடஞ்சுட்டி</translation>
 <translation id="1550523713251050646">மேலும் விருப்பங்களுக்குக் கிளிக் செய்யவும்</translation>
+<translation id="1608626060424371292">இவரை அகற்று</translation>
 <translation id="1621499497873603021">இன்னும் <ph name="TIME_LEFT" /> இல் பேட்டரி காலியாகிவிடும்</translation>
 <translation id="1658406695958299976">மன்னிக்கவும், உங்கள் கடவுச்சொல் இன்னும் சரிபார்க்கப்படவில்லை. குறிப்பு: உங்கள் கடவுச்சொல்லைச் சமீபத்தில் மாற்றியிருந்தால், நீங்கள் வெளியேறியவுடன் புதிய கடவுச்சொல் பயன்படுத்தப்படும், இங்கு பழைய கடவுச்சொல்லைப் பயன்படுத்தவும்.</translation>
 <translation id="1677472565718498478"><ph name="TIME" /> மணி நேரம்</translation>
@@ -43,12 +45,15 @@
 <translation id="1951012854035635156">அசிஸ்டண்ட்</translation>
 <translation id="1957803754585243749">0°</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
+<translation id="1995660704900986789">முடக்கு</translation>
 <translation id="2012624427112548395">கன்ட்ரோல்+தேடல்+H</translation>
 <translation id="2049639323467105390"><ph name="DOMAIN" /> ஆல் இந்த சாதனம் நிர்வகிக்கப்படுகிறது.</translation>
 <translation id="2050339315714019657">செங்குத்து நிலை</translation>
 <translation id="2067602449040652523">விசைப்பலகை ஒளிர்வு</translation>
+<translation id="2081529251031312395">$1 ஆல் பிறகு உள்நுழைய முடியும்.</translation>
 <translation id="2122028596993374965"><ph name="TAB_NAME" />ஐ <ph name="RECEIVER_NAME" />க்கு அனுப்புவதை நிறுத்து</translation>
 <translation id="2127372758936585790">குறைந்த சக்திகொண்ட சார்ஜர்</translation>
+<translation id="2135456203358955318">டாக் செய்யப்பட்ட பெரிதாக்கி</translation>
 <translation id="2144487987174258011">Adobe Flash Playerஐப் புதுப்பிக்க, மீண்டும் தொடங்கவும்</translation>
 <translation id="2208323208084708176">ஒன்றிணைந்த டெஸ்க்டாப் பயன்முறை</translation>
 <translation id="2220572644011485463">பின் அல்லது கடவுச்சொல்</translation>
@@ -73,7 +78,6 @@
 <translation id="2653659639078652383">சமர்ப்பி</translation>
 <translation id="2675319268637823299"><ph name="USER_EMAIL" />க்கு, பல உள்நுழைவை நிர்வாகி அனுமதிக்கவில்லை.
     தொடர, எல்லாப் பயனர்களும் வெளியேற வேண்டும்.</translation>
-<translation id="2700058918926273959"><ph name="SESSION_TIME_REMAINING" /> இல் அமர்வு முடிந்துவிடும். வெளியேற்றப்படுவீர்கள்.</translation>
 <translation id="2727977024730340865">குறைந்த சக்தியிலான சார்ஜர் செருகப்பட்டுள்ளது. பேட்டரி சார்ஜிங் நம்பகமானதாக இல்லாமல் இருக்கலாம்.</translation>
 <translation id="2761704814324807722">நிலைத் தட்டு, நேரம் <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581"><ph name="NAME" /> உடன் மீண்டும் இணைக்கிறது</translation>
@@ -83,6 +87,7 @@
 <translation id="2844169650293029770">USB-C சாதனம் (இடது பக்கம் முன்னே இருக்கும் போர்ட்)</translation>
 <translation id="2865888419503095837">நெட்வொர்க் தகவல்</translation>
 <translation id="2872961005593481000">நிறுத்து</translation>
+<translation id="2878884018241093801">சமீபத்திய உருப்படிகள் எதுவுமில்லை</translation>
 <translation id="2903844815300039659"><ph name="NAME" /> உடன் இணைக்கப்பட்டுள்ளீர்கள், <ph name="STRENGTH" /></translation>
 <translation id="2911940648265863620">உங்கள் திரையைப் பகிர்கிறீர்கள்</translation>
 <translation id="2942516765047364088">அடுக்கின் நிலை</translation>
@@ -109,7 +114,6 @@
 <translation id="3413817803639110246">பார்ப்பதற்கு எதுவுமில்லை</translation>
 <translation id="3445925074670675829">USB-C சாதனம்</translation>
 <translation id="3465566417615315331">உங்கள் படத்தைக் கிளிக் செய்யவும்</translation>
-<translation id="3473479545200714844">திரை உருப்பெருக்கி</translation>
 <translation id="3477079411857374384">கன்ட்ரோல்-ஷிஃப்ட்-ஸ்பேஸ்</translation>
 <translation id="3510164367642747937">மவுஸ் கர்சரைத் தனிப்படுத்து</translation>
 <translation id="3513798432020909783">கணக்கை நிர்வகிப்பது: <ph name="MANAGER_EMAIL" /></translation>
@@ -131,6 +135,7 @@
 <translation id="3891340733213178823">வெளியேற Ctrl+Shift+Q ஐ இருமுறை அழுத்தவும்.</translation>
 <translation id="3893630138897523026">ChromeVox (பேச்சுவடிவ கருத்து)</translation>
 <translation id="3899995891769452915">குரல் உள்ளீடு</translation>
+<translation id="3900355044994618856">உங்கள் அமர்வு <ph name="SESSION_TIME_REMAINING" /> இல் முடியும்</translation>
 <translation id="3901991538546252627"><ph name="NAME" /> க்கு இணைக்கிறது</translation>
 <translation id="394485226368336402">ஆடியோ அமைப்புகள்</translation>
 <translation id="397105322502079400">கணக்கிடுகிறது...</translation>
@@ -139,6 +144,7 @@
 <translation id="4072264167173457037">நடுத்தரமான சிக்னல்</translation>
 <translation id="4279490309300973883">பிரதிபலிக்கிறது</translation>
 <translation id="4321179778687042513">ctrl</translation>
+<translation id="4331809312908958774">Chrome OS</translation>
 <translation id="4338109981321384717">உருப்பெருக்கி</translation>
 <translation id="4351433414020964307">அசிஸ்டண்ட்டை ஏற்றுகிறது...</translation>
 <translation id="4378551569595875038">இணைக்கிறது...</translation>
@@ -183,6 +189,7 @@
 <translation id="5744083938413354016">தட்டி நகர்த்துதல்</translation>
 <translation id="5777841717266010279">திரைப் பகிர்வதை நிறுத்தவா?</translation>
 <translation id="57838592816432529">ஒலியடக்கு</translation>
+<translation id="5820394555380036790">Chromium OS</translation>
 <translation id="5832805196449965646">நபரைச் சேர்</translation>
 <translation id="5860033963881614850">ஆஃப்</translation>
 <translation id="5895138241574237353">மறுதொடக்கம்</translation>
@@ -206,6 +213,7 @@
 <translation id="607652042414456612">உங்கள் கணினி அருகிலுள்ள புளூடூத் சாதனங்களைக் கண்டறியக்கூடியது, மேலும் <ph name="ADDRESS" /> என்ற முகவரியுடன் "<ph name="NAME" />" என்ற பெயரில் தோன்றும்</translation>
 <translation id="6106745654298855237"><ph name="POWER_SOURCE" /> சார்ஜ் ஏற்றப்படுகிறது</translation>
 <translation id="615957422585914272">ஆன்-ஸ்கிரீன் விசைப்பலகையைக் காட்டு</translation>
+<translation id="6164005077879661055">இந்தக் கண்காணிக்கப்படும் பயனர் அகற்றப்பட்டவுடன் கண்காணிக்கப்படும் பயனருடன் தொடர்புடைய எல்லா கோப்புகளும், அகத் தரவும் நிரந்தரமாக நீக்கப்படும். இந்தக் கண்காணிக்கப்படும் பயனர் பார்வையிட்ட இணையதளங்களையும் அமைப்புகளையும் <ph name="MANAGEMENT_URL" /> இல் இன்னும் நிர்வாகியால் பார்க்க முடியும்.</translation>
 <translation id="6165508094623778733">மேலும் அறிக</translation>
 <translation id="6267036997247669271"><ph name="NAME" />: செயல்படுத்துகிறது...</translation>
 <translation id="6284232397434400372">தெளிவு மாற்றப்பட்டது</translation>
@@ -240,6 +248,7 @@
 <translation id="6857811139397017780"><ph name="NETWORKSERVICE" /> ஐ செயல்படுத்து</translation>
 <translation id="6911468394164995108">மற்றொன்றில் சேர்...</translation>
 <translation id="6981982820502123353">அணுகல் தன்மை</translation>
+<translation id="698231206551913481">இந்தப் பயனர் அகற்றப்பட்டதும், பயனருடன் தொடர்புடைய எல்லா கோப்புகளும் அகத் தரவும் நிரந்தரமாக நீக்கப்படும்.</translation>
 <translation id="7029814467594812963">அமர்விலிருந்து வெளியேறவும்</translation>
 <translation id="7034339000180558234"><ph name="TAB_NAME" />ஐ <ph name="RECEIVER_NAME" />க்கு அனுப்புகிறது</translation>
 <translation id="7052914147756339792">வால்பேப்பரை அமை...</translation>
@@ -247,6 +256,7 @@
 <translation id="7066646422045619941">இந்த நெட்வொர்க் உங்கள் நிர்வாகியால் முடக்கப்பட்டுள்ளது.</translation>
 <translation id="7067196344162293536">தானியங்கு சுழற்றல்</translation>
 <translation id="7098389117866926363">USB-C சாதனம் (பின்பக்கம் உள்ள இடது போர்ட்)</translation>
+<translation id="7131634465328662194">நீங்கள் தானாக வெளியேற்றப்படுவீர்கள்.</translation>
 <translation id="7165278925115064263">ஆல்ட்+ஷிஃப்ட்+K</translation>
 <translation id="7168224885072002358"><ph name="TIMEOUT_SECONDS" /> வினாடிகளில் பழைய தெளிவுதிறனுக்கு மாற்றியமைக்கப்படும்</translation>
 <translation id="7256634071279256947">பின்பக்க மைக்ரோஃபோன்</translation>
@@ -303,6 +313,7 @@
 <translation id="8484916590211895857"><ph name="NAME" />: மீண்டும் இணைக்கிறது...</translation>
 <translation id="8517041960877371778">இயக்கப்பட்டிருக்கும் போது உங்கள் <ph name="DEVICE_TYPE" /> இல் சார்ஜ் ஏறாது.</translation>
 <translation id="8639760480004882931"><ph name="PERCENTAGE" /> மீதமுள்ளது</translation>
+<translation id="8649101189709089199">பேசும் திரை</translation>
 <translation id="8652175077544655965">அமைப்புகளை மூடும்</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">குறைந்த சக்தியிலான சார்ஜர் இணைக்கப்பட்டுள்ளது</translation>
@@ -312,6 +323,7 @@
 அடுத்தடுத்து வரும் அறிவிப்புகள், சாளரங்கள், உரையாடல்கள் ஆகியவை டெஸ்க்டாப்புகளுக்கு இடையே பிரிக்கப்படலாம்.</translation>
 <translation id="8825534185036233643">இரண்டிற்கும் மேற்பட்ட திரைகளில் பிரதிபலிப்பது ஆதரிக்கப்படவில்லை.</translation>
 <translation id="8828714802988429505">90°</translation>
+<translation id="8841375032071747811">முந்தையது பொத்தான்</translation>
 <translation id="8850991929411075241">Search+Esc</translation>
 <translation id="8870509716567206129">திரையைப் பிரிப்பதைப் பயன்பாடு ஆதரிக்கவில்லை.</translation>
 <translation id="8878886163241303700">திரையை விரிவாக்குகிறது</translation>

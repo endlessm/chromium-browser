@@ -32,8 +32,8 @@ static const char kTestHintsVersion[] = "1.2.3";
 class TestOptimizationGuideService
     : public optimization_guide::OptimizationGuideService {
  public:
-  TestOptimizationGuideService(
-      const scoped_refptr<base::SingleThreadTaskRunner>& io_thread_task_runner)
+  explicit TestOptimizationGuideService(
+      scoped_refptr<base::SingleThreadTaskRunner> io_thread_task_runner)
       : optimization_guide::OptimizationGuideService(io_thread_task_runner) {}
   ~TestOptimizationGuideService() override {}
 
@@ -77,15 +77,15 @@ class OptimizationHintsComponentInstallerTest : public PlatformTest {
     ASSERT_TRUE(component_install_dir_.CreateUniqueTempDir());
 
     auto optimization_guide_service =
-        base::MakeUnique<TestOptimizationGuideService>(
+        std::make_unique<TestOptimizationGuideService>(
             base::ThreadTaskRunnerHandle::Get());
     optimization_guide_service_ = optimization_guide_service.get();
 
-    pref_service_ = base::MakeUnique<TestingPrefServiceSimple>();
+    pref_service_ = std::make_unique<TestingPrefServiceSimple>();
 
     TestingBrowserProcess::GetGlobal()->SetOptimizationGuideService(
         std::move(optimization_guide_service));
-    policy_ = base::MakeUnique<OptimizationHintsComponentInstallerPolicy>();
+    policy_ = std::make_unique<OptimizationHintsComponentInstallerPolicy>();
   }
 
   void TearDown() override {

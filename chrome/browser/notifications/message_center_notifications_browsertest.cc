@@ -24,10 +24,9 @@
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/message_center_types.h"
-#include "ui/message_center/notification.h"
-#include "ui/message_center/notification_types.h"
-#include "ui/message_center/notifier_id.h"
-#include "ui/message_center/public/cpp/message_center_switches.h"
+#include "ui/message_center/public/cpp/notification.h"
+#include "ui/message_center/public/cpp/notification_types.h"
+#include "ui/message_center/public/cpp/notifier_id.h"
 
 using message_center::Notification;
 
@@ -72,7 +71,7 @@ class MessageCenterNotificationsTest : public InProcessBrowserTest {
   }
 
   message_center::MessageCenter* message_center() {
-    return g_browser_process->message_center();
+    return message_center::MessageCenter::Get();
   }
 
   Profile* profile() { return browser()->profile(); }

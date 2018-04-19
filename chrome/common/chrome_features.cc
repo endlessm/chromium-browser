@@ -35,7 +35,14 @@ const base::Feature kShow10_9ObsoleteInfobar{"Show109ObsoleteInfobar",
 
 // Enables the fullscreen toolbar to reveal itself if it's hidden.
 const base::Feature kFullscreenToolbarReveal{"FullscreenToolbarReveal",
-                                             base::FEATURE_DISABLED_BY_DEFAULT};
+                                             base::FEATURE_ENABLED_BY_DEFAULT};
+
+#if BUILDFLAG(MAC_VIEWS_BROWSER)
+// Causes Views browser builds to use Views browser windows by default rather
+// than Cocoa browser windows.
+const base::Feature kViewsBrowserWindows{"ViewsBrowserWindows",
+                                         base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
 
 // Use toolkit-views for profile chooser menu.
 const base::Feature kViewsProfileChooser{"ViewsProfileChooser",
@@ -122,7 +129,15 @@ const base::Feature kBrowserHangFixesExperiment{
 // Enables or disables the browser's touch bar.
 const base::Feature kBrowserTouchBar{"BrowserTouchBar",
                                      base::FEATURE_ENABLED_BY_DEFAULT};
+#endif
 
+// Enables or disables redirecting users who get an interstitial when
+// accessing https://support.google.com/chrome/answer/6098869 to local
+// connection help content.
+const base::Feature kBundledConnectionHelpFeature{
+    "BundledConnectionHelp", base::FEATURE_DISABLED_BY_DEFAULT};
+
+#if defined(OS_MACOSX)
 // Enables or disables touch bar support for dialogs.
 const base::Feature kDialogTouchBar{"DialogTouchBar",
                                     base::FEATURE_DISABLED_BY_DEFAULT};
@@ -138,28 +153,21 @@ const base::Feature kTabMetricsLogging{"TabMetricsLogging",
                                        base::FEATURE_ENABLED_BY_DEFAULT};
 #endif
 
-// Enables Basic/Advanced tabs in ClearBrowsingData.
-const base::Feature kTabsInCbd{"TabsInCBD", base::FEATURE_ENABLED_BY_DEFAULT};
-
 // If enabled, we'll only take thumbnails of unknown URLs (i.e. URLs that are
 // not (yet) part of TopSites) if they have an interesting transition type, i.e.
 // one that qualifies for inclusion in TopSites.
 const base::Feature kCaptureThumbnailDependingOnTransitionType{
     "CaptureThumbnailDependingOnTransitionType",
-    base::FEATURE_DISABLED_BY_DEFAULT};
+    base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Whether to capture page thumbnails when navigating away from the current page
 // (in addition to any other times this might happen).
 const base::Feature kCaptureThumbnailOnNavigatingAway{
-    "CaptureThumbnailOnNavigatingAway", base::FEATURE_DISABLED_BY_DEFAULT};
+    "CaptureThumbnailOnNavigatingAway", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enables change picture video mode.
 const base::Feature kChangePictureVideoMode{"ChangePictureVideoMode",
                                             base::FEATURE_ENABLED_BY_DEFAULT};
-
-// Whether to trigger app banner installability checks on page load.
-const base::Feature kCheckInstallabilityForBannerOnLoad{
-    "CheckInstallabilityForBannerOnLoad", base::FEATURE_DISABLED_BY_DEFAULT};
 
 #if defined(OS_ANDROID)
 // Enables clearing of browsing data which is older than given time period.
@@ -178,12 +186,11 @@ const base::Feature kContentFullscreen{"ContentFullscreen",
 // Enables a site-wide permission in the UI which controls access to the
 // asynchronous Clipboard web API.
 const base::Feature kClipboardContentSetting{"ClipboardContentSetting",
-                                             base::FEATURE_DISABLED_BY_DEFAULT};
+                                             base::FEATURE_ENABLED_BY_DEFAULT};
 
-#if defined(OS_ANDROID)
-// Experiment to extract structured metadata for app indexing.
-const base::Feature kCopylessPaste{"CopylessPaste",
-                                   base::FEATURE_ENABLED_BY_DEFAULT};
+#if defined(OS_CHROMEOS)
+// Enable project Crostini, Linux VMs on Chrome OS.
+const base::Feature kCrostini{"Crostini", base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
 
 #if defined(OS_WIN)
@@ -197,6 +204,10 @@ const base::Feature kDesktopIOSPromotion{"DesktopIOSPromotion",
 const base::Feature kDesktopPWAWindowing{"DesktopPWAWindowing",
                                          base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Enables or disables Desktop PWAs capturing links.
+const base::Feature kDesktopPWAsLinkCapturing{
+    "DesktopPWAsLinkCapturing", base::FEATURE_DISABLED_BY_DEFAULT};
+
 #if !defined(OS_ANDROID)
 const base::Feature kDoodlesOnLocalNtp{"DoodlesOnLocalNtp",
                                        base::FEATURE_DISABLED_BY_DEFAULT};
@@ -205,13 +216,23 @@ const base::Feature kDoodlesOnLocalNtp{"DoodlesOnLocalNtp",
 #if defined(OS_ANDROID)
 // Enables downloads as a foreground service for all versions of Android.
 const base::Feature kDownloadsForeground{"DownloadsForeground",
-                                         base::FEATURE_DISABLED_BY_DEFAULT};
+                                         base::FEATURE_ENABLED_BY_DEFAULT};
 #endif
 
 #if defined(OS_ANDROID)
 // Enable changing default downloads storage location on Android.
 const base::Feature kDownloadsLocationChange{"DownloadsLocationChange",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
+
+#if defined(OS_CHROMEOS)
+// If enabled, the Chrome OS Settings UI will include a menu for the unified
+// MultiDevice settings.
+const base::Feature kEnableUnifiedMultiDeviceSettings{
+    "EnableUnifiedMultiDeviceSettings", base::FEATURE_DISABLED_BY_DEFAULT};
+// Enable the device to setup all MultiDevice services in a single workflow.
+const base::Feature kEnableUnifiedMultiDeviceSetup{
+    "EnableUnifiedMultiDeviceSetup", base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
 
 // Enables Expect CT reporting, which sends reports for opted-in sites
@@ -223,6 +244,11 @@ const base::Feature kExpectCTReporting{"ExpectCTReporting",
 // developers more control over when to show them.
 const base::Feature kExperimentalAppBanners{"ExperimentalAppBanners",
                                             base::FEATURE_DISABLED_BY_DEFAULT};
+
+#if defined(OS_CHROMEOS)
+extern const base::Feature kExperimentalCrostiniUI{
+    "ExperimentalCrostiniUI", base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
 
 // An experimental fullscreen prototype that allows pages to map browser and
 // system-reserved keyboard shortcuts.
@@ -253,6 +279,11 @@ const base::Feature kVrBrowsingExperimentalFeatures{
 // Controls experimental rendering features for VR browsing.
 const base::Feature kVrBrowsingExperimentalRendering{
     "VrBrowsingExperimentalRendering", base::FEATURE_DISABLED_BY_DEFAULT};
+
+#if BUILDFLAG(ENABLE_OCULUS_VR)
+// Controls Oculus support.
+const base::Feature kOculusVR{"OculusVR", base::FEATURE_DISABLED_BY_DEFAULT};
+#endif  // ENABLE_OCULUS_VR
 
 #if BUILDFLAG(ENABLE_OPENVR)
 // Controls OpenVR support.
@@ -296,6 +327,12 @@ const base::Feature kImportantSitesInCbd{"ImportantSitesInCBD",
 const base::Feature kImprovedRecoveryComponent{
     "ImprovedRecoveryComponent", base::FEATURE_DISABLED_BY_DEFAULT};
 
+#if defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
+// A feature that controls whether Chrome warns about incompatible applications.
+const base::Feature kIncompatibleApplicationsWarning{
+    "IncompatibleApplicationsWarning", base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
+
 #if !defined(OS_ANDROID)
 // Enables Casting a Presentation API-enabled website to a secondary display.
 const base::Feature kLocalScreenCasting{"LocalScreenCasting",
@@ -334,8 +371,8 @@ const base::Feature kMacMaterialDesignDownloadShelf{
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 // Enabled or disabled the Material Design version of chrome://extensions.
-const base::Feature kMaterialDesignExtensions{
-    "MaterialDesignExtensions", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kMaterialDesignExtensions{"MaterialDesignExtensions",
+                                              base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Sets whether dismissing the new-tab-page override bubble counts as
 // acknowledgement.
@@ -374,6 +411,9 @@ const base::Feature kModuleDatabase{"ModuleDatabase",
 // Enables or disables multidevice features and corresponding UI on Chrome OS.
 const base::Feature kMultidevice{"Multidevice",
                                  base::FEATURE_DISABLED_BY_DEFAULT};
+// Enables or disables the MultiDevice API on Chrome OS.
+const base::Feature kMultiDeviceApi{"MultiDeviceApi",
+                                    base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
 
 // Enables the use of native notification centers instead of using the Message
@@ -428,6 +468,11 @@ const base::Feature kUseNewAcceptLanguageHeader{
 const base::Feature kPermissionsBlacklist{
     "PermissionsBlacklist", base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Delegate permissions to cross-origin iframes when the feature has been
+// allowed by feature policy.
+const base::Feature kPermissionDelegation{"PermissionDelegation",
+                                          base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Disables PostScript generation when printing to PostScript capable printers
 // and instead sends Emf files.
 #if defined(OS_WIN)
@@ -459,6 +504,8 @@ const base::Feature kPreloadLockScreen{"PreloadLockScreen",
 // Enables the new Print Preview UI.
 const base::Feature kNewPrintPreview{"NewPrintPreview",
                                      base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kNupPrinting{"NupPrinting",
+                                 base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW) && !defined(OS_WIN) && !defined(OS_MACOSX)
@@ -490,7 +537,7 @@ const base::Feature kSafeSearchUrlReporting{"SafeSearchUrlReporting",
 
 // Controls whether the user is prompted when sites request attestation.
 const base::Feature kSecurityKeyAttestationPrompt{
-    "SecurityKeyAttestationPrompt", base::FEATURE_DISABLED_BY_DEFAULT};
+    "SecurityKeyAttestationPrompt", base::FEATURE_ENABLED_BY_DEFAULT};
 
 #if defined(OS_MACOSX)
 // Whether to show all dialogs with toolkit-views on Mac, rather than Cocoa. A
@@ -526,6 +573,11 @@ const base::Feature kSoundContentSetting{"SoundContentSetting",
 const base::Feature kSupervisedUserCreation{"SupervisedUserCreation",
                                             base::FEATURE_ENABLED_BY_DEFAULT};
 
+// Enables or disabled committed interstitials for Supervised User
+// interstitials.
+const base::Feature kSupervisedUserCommittedInterstitials{
+    "SupervisedUserCommittedInterstitials", base::FEATURE_DISABLED_BY_DEFAULT};
+
 #if defined(OS_CHROMEOS)
 // Enables or disables chrome://sys-internals.
 const base::Feature kSysInternals{"SysInternals",
@@ -544,6 +596,10 @@ const base::Feature kSyzyasanDeferredFree{"SyzyasanDeferredFree",
 const base::Feature kTopSitesFromSiteEngagement{
     "TopSitesFromSiteEngagement", base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Improved and unified consent for privacy-related features.
+const base::Feature kUnifiedConsent{"UnifiedConsent",
+                                    base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Enables using the local NTP if Google is the default search engine.
 const base::Feature kUseGoogleLocalNtp{"UseGoogleLocalNtp",
                                        base::FEATURE_DISABLED_BY_DEFAULT};
@@ -560,12 +616,6 @@ const base::Feature kUserActivityEventLogging{"UserActivityEventLogging",
 const base::Feature kVoiceSearchOnLocalNtp{"VoiceSearchOnLocalNtp",
                                            base::FEATURE_ENABLED_BY_DEFAULT};
 #endif
-
-#if defined(OS_WIN)
-// Enables the accelerated default browser flow for Windows 10.
-const base::Feature kWin10AcceleratedDefaultBrowserFlow{
-    "Win10AcceleratedDefaultBrowserFlow", base::FEATURE_DISABLED_BY_DEFAULT};
-#endif  // defined(OS_WIN)
 
 #if defined(OS_CHROMEOS)
 // Enables or disables the opt-in IME menu in the language settings page.
@@ -617,5 +667,11 @@ const base::Feature kTPMFirmwareUpdate{"TPMFirmwareUpdate",
                                        base::FEATURE_DISABLED_BY_DEFAULT};
 
 #endif  // defined(OS_CHROMEOS)
+
+#if defined(OS_WIN)
+// Enables the accelerated default browser flow for Windows 10.
+const base::Feature kWin10AcceleratedDefaultBrowserFlow{
+    "Win10AcceleratedDefaultBrowserFlow", base::FEATURE_DISABLED_BY_DEFAULT};
+#endif  // defined(OS_WIN)
 
 }  // namespace features

@@ -39,9 +39,9 @@
 #include "net/base/load_flags.h"
 #include "net/base/network_change_notifier.h"
 #include "net/base/network_interfaces.h"
+#include "net/base/proxy_server.h"
 #include "net/log/net_log_source_type.h"
 #include "net/nqe/effective_connection_type.h"
-#include "net/proxy/proxy_server.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_fetcher_delegate.h"
@@ -274,7 +274,7 @@ bool DataReductionProxyConfig::IsBypassedByDataReductionProxyLocalRules(
     const net::ProxyConfig& data_reduction_proxy_config) const {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(request.context());
-  DCHECK(request.context()->proxy_service());
+  DCHECK(request.context()->proxy_resolution_service());
   net::ProxyInfo result;
   data_reduction_proxy_config.proxy_rules().Apply(
       request.url(), &result);
@@ -291,9 +291,9 @@ bool DataReductionProxyConfig::AreDataReductionProxiesBypassed(
     base::TimeDelta* min_retry_delay) const {
   DCHECK(thread_checker_.CalledOnValidThread());
   if (request.context() != nullptr &&
-      request.context()->proxy_service() != nullptr) {
+      request.context()->proxy_resolution_service() != nullptr) {
     return AreProxiesBypassed(
-        request.context()->proxy_service()->proxy_retry_info(),
+        request.context()->proxy_resolution_service()->proxy_retry_info(),
         data_reduction_proxy_config.proxy_rules(),
         request.url().SchemeIsCryptographic(), min_retry_delay);
   }
@@ -306,8 +306,8 @@ bool DataReductionProxyConfig::AreProxiesBypassed(
     const net::ProxyConfig::ProxyRules& proxy_rules,
     bool is_https,
     base::TimeDelta* min_retry_delay) const {
-  // Data reduction proxy config is TYPE_PROXY_PER_SCHEME.
-  if (proxy_rules.type != net::ProxyConfig::ProxyRules::TYPE_PROXY_PER_SCHEME)
+  // Data reduction proxy config is Type::PROXY_LIST_PER_SCHEME.
+  if (proxy_rules.type != net::ProxyConfig::ProxyRules::Type::PROXY_LIST_PER_SCHEME)
     return false;
 
   if (is_https)
@@ -363,8 +363,8 @@ bool DataReductionProxyConfig::IsProxyBypassed(
 bool DataReductionProxyConfig::ContainsDataReductionProxy(
     const net::ProxyConfig::ProxyRules& proxy_rules) const {
   DCHECK(thread_checker_.CalledOnValidThread());
-  // Data Reduction Proxy configurations are always TYPE_PROXY_PER_SCHEME.
-  if (proxy_rules.type != net::ProxyConfig::ProxyRules::TYPE_PROXY_PER_SCHEME)
+  // Data Reduction Proxy configurations are always Type::PROXY_LIST_PER_SCHEME.
+  if (proxy_rules.type != net::ProxyConfig::ProxyRules::Type::PROXY_LIST_PER_SCHEME)
     return false;
 
   const net::ProxyList* http_proxy_list =
@@ -761,7 +761,8 @@ bool DataReductionProxyConfig::ShouldAcceptServerPreview(
   DCHECK((request.load_flags() & net::LOAD_MAIN_FRAME_DEPRECATED) != 0);
   DCHECK(!request.url().SchemeIsCryptographic());
 
-  if (!base::FeatureList::IsEnabled(
+  if (!previews::params::ArePreviewsAllowed() ||
+      !base::FeatureList::IsEnabled(
           features::kDataReductionProxyDecidesTransform)) {
     return false;
   }

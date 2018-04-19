@@ -315,9 +315,13 @@ public class ConnectActivity extends Activity {
         CallActivity.EXTRA_NOAUDIOPROCESSING_ENABLED, R.string.pref_noaudioprocessing_default,
         useValuesFromIntent);
 
-    // Check Disable Audio Processing flag.
     boolean aecDump = sharedPrefGetBoolean(R.string.pref_aecdump_key,
         CallActivity.EXTRA_AECDUMP_ENABLED, R.string.pref_aecdump_default, useValuesFromIntent);
+
+    boolean saveInputAudioToFile =
+        sharedPrefGetBoolean(R.string.pref_enable_save_input_audio_to_file_key,
+            CallActivity.EXTRA_SAVE_INPUT_AUDIO_TO_FILE_ENABLED,
+            R.string.pref_enable_save_input_audio_to_file_default, useValuesFromIntent);
 
     // Check OpenSL ES enabled flag.
     boolean useOpenSLES = sharedPrefGetBoolean(R.string.pref_opensles_key,
@@ -430,6 +434,11 @@ public class ConnectActivity extends Activity {
     boolean tracing = sharedPrefGetBoolean(R.string.pref_tracing_key, CallActivity.EXTRA_TRACING,
         R.string.pref_tracing_default, useValuesFromIntent);
 
+    // Check Enable RtcEventLog.
+    boolean rtcEventLogEnabled = sharedPrefGetBoolean(R.string.pref_enable_rtceventlog_key,
+        CallActivity.EXTRA_ENABLE_RTCEVENTLOG, R.string.pref_enable_rtceventlog_default,
+        useValuesFromIntent);
+
     // Get datachannel options
     boolean dataChannelEnabled = sharedPrefGetBoolean(R.string.pref_enable_datachannel_key,
         CallActivity.EXTRA_DATA_CHANNEL_ENABLED, R.string.pref_enable_datachannel_default,
@@ -471,6 +480,7 @@ public class ConnectActivity extends Activity {
       intent.putExtra(CallActivity.EXTRA_FLEXFEC_ENABLED, flexfecEnabled);
       intent.putExtra(CallActivity.EXTRA_NOAUDIOPROCESSING_ENABLED, noAudioProcessing);
       intent.putExtra(CallActivity.EXTRA_AECDUMP_ENABLED, aecDump);
+      intent.putExtra(CallActivity.EXTRA_SAVE_INPUT_AUDIO_TO_FILE_ENABLED, saveInputAudioToFile);
       intent.putExtra(CallActivity.EXTRA_OPENSLES_ENABLED, useOpenSLES);
       intent.putExtra(CallActivity.EXTRA_DISABLE_BUILT_IN_AEC, disableBuiltInAEC);
       intent.putExtra(CallActivity.EXTRA_DISABLE_BUILT_IN_AGC, disableBuiltInAGC);
@@ -481,6 +491,7 @@ public class ConnectActivity extends Activity {
       intent.putExtra(CallActivity.EXTRA_AUDIOCODEC, audioCodec);
       intent.putExtra(CallActivity.EXTRA_DISPLAY_HUD, displayHud);
       intent.putExtra(CallActivity.EXTRA_TRACING, tracing);
+      intent.putExtra(CallActivity.EXTRA_ENABLE_RTCEVENTLOG, rtcEventLogEnabled);
       intent.putExtra(CallActivity.EXTRA_CMDLINE, commandLineRun);
       intent.putExtra(CallActivity.EXTRA_RUNTIME, runTimeMs);
 

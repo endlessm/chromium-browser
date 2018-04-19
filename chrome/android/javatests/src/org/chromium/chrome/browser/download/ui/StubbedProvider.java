@@ -11,12 +11,12 @@ import android.os.Handler;
 import android.os.Looper;
 
 import org.chromium.base.Callback;
-import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.chrome.browser.download.DownloadInfo;
 import org.chromium.chrome.browser.download.DownloadItem;
 import org.chromium.chrome.browser.widget.ThumbnailProvider;
 import org.chromium.chrome.browser.widget.selection.SelectionDelegate;
+import org.chromium.components.download.DownloadState;
 import org.chromium.components.offline_items_collection.ContentId;
 import org.chromium.components.offline_items_collection.LegacyHelpers;
 import org.chromium.components.offline_items_collection.OfflineContentProvider;
@@ -26,7 +26,6 @@ import org.chromium.components.offline_items_collection.OfflineItemFilter;
 import org.chromium.components.offline_items_collection.OfflineItemProgressUnit;
 import org.chromium.components.offline_items_collection.OfflineItemState;
 import org.chromium.components.offline_items_collection.VisualsCallback;
-import org.chromium.content_public.browser.DownloadState;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -113,13 +112,6 @@ public class StubbedProvider implements BackendProvider {
             // Immediately indicate that the delegate has loaded.
             observer = addedObserver;
             addCallback.notifyCalled();
-
-            ThreadUtils.runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    observer.onItemsAvailable();
-                }
-            });
         }
 
         @Override
@@ -160,11 +152,6 @@ public class StubbedProvider implements BackendProvider {
         public void resumeDownload(ContentId id, boolean hasUserGesture) {}
         @Override
         public void cancelDownload(ContentId id) {}
-
-        @Override
-        public boolean areItemsAvailable() {
-            return true;
-        }
 
         @Override
         public void getItemById(ContentId id, Callback<OfflineItem> callback) {

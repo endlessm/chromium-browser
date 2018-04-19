@@ -187,8 +187,7 @@ class RecentTabsSubMenuModelTest
         mock_sync_service_->GetSyncClient()->GetSyncSessionsClient(),
         sync_prefs_.get(), local_device_.get(), &dummy_router_,
         base::Bind(&FakeSyncServiceObserverList::NotifyForeignSessionUpdated,
-                   base::Unretained(&fake_sync_service_observer_list_)),
-        base::Closure());
+                   base::Unretained(&fake_sync_service_observer_list_)));
 
     manager_->MergeDataAndStartSyncing(
         syncer::SESSIONS, syncer::SyncDataList(),
@@ -226,7 +225,7 @@ class RecentTabsSubMenuModelTest
                 IsDataTypeControllerRunning(syncer::PROXY_TABS))
         .WillRepeatedly(Return(true));
     EXPECT_CALL(*mock_sync_service_, GetOpenTabsUIDelegateMock())
-        .WillRepeatedly(Return(manager_.get()));
+        .WillRepeatedly(Return(manager_->GetOpenTabsUIDelegate()));
   }
 
   void NotifySyncEnabled() {

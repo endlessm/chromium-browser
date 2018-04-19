@@ -250,84 +250,226 @@ def main(argv):
   if options.packages:
     package_list = options.packages.split(':')
 
+  overlays = []
   if options.overlays:
-    overlays = {}
     for path in options.overlays.split(':'):
       if not os.path.isdir(path):
         cros_build_lib.Die('Cannot find overlay: %s' % path)
-      overlays[os.path.realpath(path)] = []
+      overlays.append(os.path.realpath(path))
   else:
     logging.warning('Missing --overlays argument')
-    overlays = {
-        '%s/private-overlays/chromeos-overlay' % options.srcroot: [],
-        '%s/third_party/chromiumos-overlay' % options.srcroot: [],
-    }
+    overlays.extend([
+        '%s/private-overlays/chromeos-overlay' % options.srcroot,
+        '%s/third_party/chromiumos-overlay' % options.srcroot])
 
   manifest = git.ManifestCheckout.Cached(options.srcroot)
 
-  if options.command == 'commit':
-    portage_util.BuildEBuildDictionary(overlays, options.all, package_list,
-                                       allow_blacklisted=options.force)
-
-  # Contains the array of packages we actually revved.
-  revved_packages = []
-  new_package_atoms = []
+  # Dict mapping from each overlay to its tracking branch.
+  overlay_tracking_branch = {}
+  # Dict mapping from each git repository (project) to a list of its overlays.
+  git_project_overlays = {}
 
   for overlay in overlays:
-    ebuilds = overlays[overlay]
+    remote_ref = git.GetTrackingBranchViaManifest(overlay, manifest=manifest)
+    overlay_tracking_branch[overlay] = remote_ref.ref
+    git_project_overlays.setdefault(remote_ref.project_name, []).append(overlay)
+
+  if options.command == 'push':
+    _WorkOnPush(options, overlay_tracking_branch, git_project_overlays)
+  elif options.command == 'commit':
+    _WorkOnCommit(options, overlays, overlay_tracking_branch,
+                  git_project_overlays, manifest, package_list)
+
+
+def _WorkOnPush(options, overlay_tracking_branch, git_project_overlays):
+  """Push uprevs of overlays belonging to differet git projects in parallel.
+
+  Args:
+    options: The options object returned by the argument parser.
+    overlay_tracking_branch: A dict mapping from each overlay to its tracking
+      branch.
+    git_project_overlays: A dict mapping from each git repository to a list of
+      its overlays.
+  """
+  inputs = [[options, overlays_per_project, overlay_tracking_branch]
+            for overlays_per_project in git_project_overlays.itervalues()]
+  parallel.RunTasksInProcessPool(_PushOverlays, inputs)
+
+
+def _PushOverlays(options, overlays, overlay_tracking_branch):
+  """Push uprevs for overlays in sequence.
+
+  Args:
+    options: The options object returned by the argument parser.
+    overlays: A list of overlays to push uprevs in sequence.
+    overlay_tracking_branch: A dict mapping from each overlay to its tracking
+      branch.
+  """
+  for overlay in overlays:
     if not os.path.isdir(overlay):
-      logging.warning('Skipping %s' % overlay)
+      logging.warning('Skipping %s, which is not a directory.', overlay)
       continue
 
-    # Note we intentionally work from the non push tracking branch;
-    # everything built thus far has been against it (meaning, http mirrors),
-    # thus we should honor that.  During the actual push, the code switches
-    # to the correct urls, and does an appropriate rebasing.
-    tracking_branch = git.GetTrackingBranchViaManifest(
-        overlay, manifest=manifest).ref
+    tracking_branch = overlay_tracking_branch[overlay]
+    PushChange(constants.STABLE_EBUILD_BRANCH, tracking_branch, options.dryrun,
+               cwd=overlay, staging_branch=options.staging_branch)
 
-    if options.command == 'push':
-      PushChange(constants.STABLE_EBUILD_BRANCH, tracking_branch,
-                 options.dryrun, cwd=overlay,
-                 staging_branch=options.staging_branch)
-    elif options.command == 'commit':
-      existing_commit = git.GetGitRepoRevision(overlay)
-      work_branch = GitBranch(constants.STABLE_EBUILD_BRANCH, tracking_branch,
-                              cwd=overlay)
-      work_branch.CreateBranch()
-      if not work_branch.Exists():
-        cros_build_lib.Die('Unable to create stabilizing branch in %s' %
-                           overlay)
 
-      # In the case of uprevving overlays that have patches applied to them,
-      # include the patched changes in the stabilizing branch.
-      git.RunGit(overlay, ['rebase', existing_commit])
+def _WorkOnCommit(options, overlays, overlay_tracking_branch,
+                  git_project_overlays, manifest, package_list):
+  """Commit uprevs of overlays belonging to different git projects in parallel.
 
-      messages = []
-      for ebuild in ebuilds:
-        if options.verbose:
-          logging.info('Working on %s, info %s', ebuild.package,
-                       ebuild.cros_workon_vars)
-        try:
-          new_package = ebuild.RevWorkOnEBuild(options.srcroot, manifest)
-          if new_package:
-            revved_packages.append(ebuild.package)
-            new_package_atoms.append('=%s' % new_package)
-            messages.append(_GIT_COMMIT_MESSAGE % ebuild.package)
-        except (OSError, IOError):
-          logging.warning(
-              'Cannot rev %s\n'
-              'Note you will have to go into %s '
-              'and reset the git repo yourself.' % (ebuild.package, overlay))
-          raise
+  Args:
+    options: The options object returned by the argument parser.
+    overlays: A list of overlays to work on.
+    overlay_tracking_branch: A dict mapping from each overlay to its tracking
+      branch.
+    git_project_overlays: A dict mapping from each git repository to a list of
+      its overlays.
+    manifest: The manifest of the given source root.
+    package_list: A list of packages passed from commandline to work on.
+  """
+  overlay_ebuilds = _GetOverlayToEbuildsMap(options, overlays, package_list)
 
-      if messages:
-        portage_util.EBuild.CommitChange('\n\n'.join(messages), overlay)
+  with parallel.Manager() as manager:
+    # Contains the array of packages we actually revved.
+    revved_packages = manager.list()
+    new_package_atoms = manager.list()
 
-  if options.command == 'commit':
+    inputs = [[options, manifest, overlays_per_project, overlay_tracking_branch,
+               overlay_ebuilds, revved_packages, new_package_atoms]
+              for overlays_per_project in git_project_overlays.itervalues()]
+    parallel.RunTasksInProcessPool(_CommitOverlays, inputs)
+
     chroot_path = os.path.join(options.srcroot, constants.DEFAULT_CHROOT_DIR)
     if os.path.exists(chroot_path):
       CleanStalePackages(options.srcroot, options.boards.split(':'),
                          new_package_atoms)
     if options.drop_file:
       osutils.WriteFile(options.drop_file, ' '.join(revved_packages))
+
+
+def _GetOverlayToEbuildsMap(options, overlays, package_list):
+  """Get ebuilds for overlays.
+
+  Args:
+    options: The options object returned by the argument parser.
+    overlays: A list of overlays to work on.
+    package_list: A list of packages passed from commandline to work on.
+
+  Returns:
+    A dict mapping each overlay to a list of ebuilds belonging to it.
+  """
+  overlay_ebuilds = {}
+  inputs = [[overlay, options.all, package_list, options.force]
+            for overlay in overlays]
+  result = parallel.RunTasksInProcessPool(
+      portage_util.GetOverlayEBuilds, inputs)
+  for idx, ebuilds in enumerate(result):
+    overlay_ebuilds[overlays[idx]] = ebuilds
+
+  return overlay_ebuilds
+
+
+def _CommitOverlays(options, manifest, overlays, overlay_tracking_branch,
+                    overlay_ebuilds, revved_packages, new_package_atoms):
+  """Commit uprevs for overlays in sequence.
+
+  Args:
+    options: The options object returned by the argument parser.
+    manifest: The manifest of the given source root.
+    overlays: A list over overlays to commit.
+    overlay_tracking_branch: A dict mapping from each overlay to its tracking
+      branch.
+    overlay_ebuilds: A dict mapping overlays to their ebuilds.
+    revved_packages: A shared list of revved packages.
+    new_package_atoms: A shared list of new package atoms.
+  """
+  for overlay in overlays:
+    if not os.path.isdir(overlay):
+      logging.warning('Skipping %s, which is not a directory.', overlay)
+      continue
+
+    # Note we intentionally work from the non push tracking branch;
+    # everything built thus far has been against it (meaning, http mirrors),
+    # thus we should honor that.  During the actual push, the code switches
+    # to the correct urls, and does an appropriate rebasing.
+    tracking_branch = overlay_tracking_branch[overlay]
+
+    existing_commit = git.GetGitRepoRevision(overlay)
+    work_branch = GitBranch(constants.STABLE_EBUILD_BRANCH, tracking_branch,
+                            cwd=overlay)
+    work_branch.CreateBranch()
+    if not work_branch.Exists():
+      cros_build_lib.Die('Unable to create stabilizing branch in %s' %
+                         overlay)
+
+    # In the case of uprevving overlays that have patches applied to them,
+    # include the patched changes in the stabilizing branch.
+    git.RunGit(overlay, ['rebase', existing_commit])
+
+    ebuilds = overlay_ebuilds.get(overlay, [])
+    if ebuilds:
+      with parallel.Manager() as manager:
+        # Contains the array of packages we actually revved.
+        messages = manager.list()
+        ebuild_paths_to_add = manager.list()
+        ebuild_paths_to_remove = manager.list()
+
+        inputs = [[overlay, ebuild, manifest, options, ebuild_paths_to_add,
+                   ebuild_paths_to_remove, messages, revved_packages,
+                   new_package_atoms] for ebuild in ebuilds]
+        parallel.RunTasksInProcessPool(_WorkOnEbuild, inputs)
+
+        if ebuild_paths_to_add:
+          logging.info('Adding new stable ebuild paths %s in overlay %s.',
+                       ebuild_paths_to_add, overlay)
+          git.RunGit(overlay, ['add'] + list(ebuild_paths_to_add))
+
+        if ebuild_paths_to_remove:
+          logging.info('Removing old ebuild paths %s in overlay %s.',
+                       ebuild_paths_to_remove, overlay)
+          git.RunGit(overlay, ['rm', '-f'] + list(ebuild_paths_to_remove))
+
+        if messages:
+          portage_util.EBuild.CommitChange('\n\n'.join(messages), overlay)
+
+
+def _WorkOnEbuild(overlay, ebuild, manifest, options, ebuild_paths_to_add,
+                  ebuild_paths_to_remove, messages, revved_packages,
+                  new_package_atoms):
+  """Work on a single ebuild.
+
+  Args:
+    overlay: The overlay where the ebuild belongs to.
+    ebuild: The ebuild to work on.
+    manifest: The manifest of the given source root.
+    options: The options object returned by the argument parser.
+    ebuild_paths_to_add: New stable ebuild paths to add to git.
+    ebuild_paths_to_remove: Old ebuild paths to remove from git.
+    messages: A share list of commit messages.
+    revved_packages: A shared list of revved packages.
+    new_package_atoms: A shared list of new package atoms.
+  """
+  if options.verbose:
+    logging.info('Working on %s, info %s', ebuild.package,
+                 ebuild.cros_workon_vars)
+  try:
+    result = ebuild.RevWorkOnEBuild(options.srcroot, manifest)
+    if result:
+      new_package, ebuild_path_to_add, ebuild_path_to_remove = result
+
+      if ebuild_path_to_add:
+        ebuild_paths_to_add.append(ebuild_path_to_add)
+      if ebuild_path_to_remove:
+        ebuild_paths_to_remove.append(ebuild_path_to_remove)
+
+      messages.append(_GIT_COMMIT_MESSAGE % ebuild.package)
+      revved_packages.append(ebuild.package)
+      new_package_atoms.append('=%s' % new_package)
+  except (OSError, IOError):
+    logging.warning(
+        'Cannot rev %s\n'
+        'Note you will have to go into %s '
+        'and reset the git repo yourself.', ebuild.package, overlay)
+    raise

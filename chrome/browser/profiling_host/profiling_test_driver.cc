@@ -12,12 +12,14 @@
 #include "base/process/process_handle.h"
 #include "base/run_loop.h"
 #include "base/task_scheduler/post_task.h"
+#include "base/threading/platform_thread.h"
 #include "base/trace_event/heap_profiler_event_filter.h"
 #include "base/trace_event/trace_config_memory_test_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/common/profiling/memlog_allocator_shim.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/tracing_controller.h"
 #include "content/public/common/service_manager_connection.h"
 
@@ -27,9 +29,16 @@ namespace {
 
 const char kTestCategory[] = "kTestCategory";
 const char kMallocEvent[] = "kMallocEvent";
+const char kMallocTypeTag[] = "kMallocTypeTag";
 const char kPAEvent[] = "kPAEvent";
 const char kVariadicEvent[] = "kVariadicEvent";
+const char kThreadName[] = "kThreadName";
 
+// Note: When we test sampling with |sample_everything| = true, we set the
+// sampling interval to 2. It's important that all allocations made in this file
+// have size >> 2, so that the probability that they are sampled is
+// exponentially close to 1.
+//
 // Make some specific allocations in Browser to do a deeper test of the
 // allocation tracking.
 constexpr int kMallocAllocSize = 7907;
@@ -37,11 +46,36 @@ constexpr int kMallocAllocCount = 157;
 
 constexpr int kVariadicAllocCount = 157;
 
+// The sample rate should not affect the sampled allocations. Intentionally
+// choose an odd number.
+constexpr int kSampleRate = 7777;
+constexpr int kSamplingAllocSize = 100;
+constexpr int kSamplingAllocCount = 10000;
+const char kSamplingAllocTypeName[] = "kSamplingAllocTypeName";
+
 // Test fixed-size partition alloc. The size must be aligned to system pointer
 // size.
 constexpr int kPartitionAllocSize = 8 * 23;
 constexpr int kPartitionAllocCount = 107;
 static const char* kPartitionAllocTypeName = "kPartitionAllocTypeName";
+
+// Whether at least 1 renderer exists, and all renderers are being profiled.
+bool RenderersAreBeingProfiled(
+    const std::vector<base::ProcessId>& profiled_pids) {
+  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  size_t renderer_count = 0;
+  for (auto iter = content::RenderProcessHost::AllHostsIterator();
+       !iter.IsAtEnd(); iter.Advance()) {
+    base::ProcessId pid = base::GetProcId(iter.GetCurrentValue()->GetHandle());
+    if (std::find(profiled_pids.begin(), profiled_pids.end(), pid) ==
+        profiled_pids.end()) {
+      return false;
+    }
+    ++renderer_count;
+  }
+
+  return renderer_count != 0;
+}
 
 // On success, populates |pid|.
 int NumProcessesWithName(base::Value* dump_json, std::string name, int* pid) {
@@ -80,7 +114,9 @@ int NumProcessesWithName(base::Value* dump_json, std::string name, int* pid) {
   return num_processes;
 }
 
-base::Value* FindHeapsV2(base::ProcessId pid, base::Value* dump_json) {
+base::Value* FindArgDump(base::ProcessId pid,
+                         base::Value* dump_json,
+                         const char* arg) {
   base::Value* events = dump_json->FindKey("traceEvents");
   base::Value* dumps = nullptr;
   base::Value* heaps_v2 = nullptr;
@@ -98,16 +134,18 @@ base::Value* FindHeapsV2(base::ProcessId pid, base::Value* dump_json) {
     if (static_cast<base::ProcessId>(found_pid->GetInt()) != pid)
       continue;
     dumps = &event;
-    heaps_v2 = dumps->FindPath({"args", "dumps", "heaps_v2"});
+    heaps_v2 = dumps->FindPath({"args", "dumps", arg});
     if (heaps_v2)
       return heaps_v2;
   }
   return nullptr;
 }
 
+constexpr uint64_t kNullParent = std::numeric_limits<int>::max();
 struct Node {
-  uint64_t name_id;
+  int name_id;
   std::string name;
+  int parent_id = kNullParent;
 };
 using NodeMap = std::unordered_map<uint64_t, Node>;
 
@@ -117,6 +155,47 @@ bool ParseNodes(base::Value* heaps_v2, NodeMap* output) {
   for (const base::Value& node_value : nodes->GetList()) {
     const base::Value* id = node_value.FindKey("id");
     const base::Value* name_sid = node_value.FindKey("name_sid");
+    if (!id || !name_sid) {
+      LOG(ERROR) << "Node missing id or name_sid field";
+      return false;
+    }
+
+    Node node;
+    node.name_id = name_sid->GetInt();
+
+    const base::Value* parent_id = node_value.FindKey("parent");
+    if (parent_id) {
+      node.parent_id = parent_id->GetInt();
+    }
+
+    (*output)[id->GetInt()] = node;
+  }
+
+  base::Value* strings = heaps_v2->FindPath({"maps", "strings"});
+  for (const base::Value& string_value : strings->GetList()) {
+    const base::Value* id = string_value.FindKey("id");
+    const base::Value* string = string_value.FindKey("string");
+    if (!id || !string) {
+      LOG(ERROR) << "String struct missing id or string field";
+      return false;
+    }
+    for (auto& pair : *output) {
+      if (pair.second.name_id == id->GetInt()) {
+        pair.second.name = string->GetString();
+        break;
+      }
+    }
+  }
+
+  return true;
+}
+
+// Parses maps.types and maps.strings. Returns |true| on success.
+bool ParseTypes(base::Value* heaps_v2, NodeMap* output) {
+  base::Value* types = heaps_v2->FindPath({"maps", "types"});
+  for (const base::Value& type_value : types->GetList()) {
+    const base::Value* id = type_value.FindKey("id");
+    const base::Value* name_sid = type_value.FindKey("name_sid");
     if (!id || !name_sid) {
       LOG(ERROR) << "Node missing id or name_sid field";
       return false;
@@ -136,7 +215,7 @@ bool ParseNodes(base::Value* heaps_v2, NodeMap* output) {
       return false;
     }
     for (auto& pair : *output) {
-      if (pair.second.name_id == static_cast<uint64_t>(id->GetInt())) {
+      if (pair.second.name_id == id->GetInt()) {
         pair.second.name = string->GetString();
         break;
       }
@@ -152,7 +231,8 @@ bool ValidateDump(base::Value* heaps_v2,
                   int expected_alloc_count,
                   const char* allocator_name,
                   const char* type_name,
-                  const std::string& frame_name) {
+                  const std::string& frame_name,
+                  const std::string& thread_name) {
   base::Value* sizes =
       heaps_v2->FindPath({"allocators", allocator_name, "sizes"});
   if (!sizes) {
@@ -249,25 +329,21 @@ bool ValidateDump(base::Value* heaps_v2,
 
   // Find the type, if an expectation was passed in.
   if (type_name) {
-    bool found = false;
-    int type = types_list[browser_alloc_index].GetInt();
-    base::Value* strings = heaps_v2->FindPath({"maps", "strings"});
-    for (const base::Value& dict : strings->GetList()) {
-      // Each dict has the format {"id":1,"string":"kPartitionAllocTypeName"}
-      int id = dict.FindKey("id")->GetInt();
-      if (id == type) {
-        found = true;
-        std::string name = dict.FindKey("string")->GetString();
-        if (name != type_name) {
-          LOG(ERROR) << "actual name: " << name
-                     << " expected name: " << type_name;
-          return false;
-        }
-        break;
-      }
+    NodeMap node_map;
+    if (!ParseTypes(heaps_v2, &node_map)) {
+      LOG(ERROR) << "Failed to parse type and string structs";
+      return false;
     }
-    if (!found) {
-      LOG(ERROR) << "Failed to find type name string: " << type_name;
+
+    int type = types_list[browser_alloc_index].GetInt();
+    auto it = node_map.find(type);
+    if (it == node_map.end()) {
+      LOG(ERROR) << "Failed to look up type.";
+      return false;
+    }
+    if (it->second.name != type_name) {
+      LOG(ERROR) << "actual name: " << it->second.name
+                 << " expected name: " << type_name;
       return false;
     }
   }
@@ -284,7 +360,7 @@ bool ValidateDump(base::Value* heaps_v2,
     auto it = node_map.find(node_id);
 
     if (it == node_map.end()) {
-      LOG(ERROR) << "Failed to find root for node with id: " << node_id;
+      LOG(ERROR) << "Failed to find frame for node with id: " << node_id;
       return false;
     }
 
@@ -295,6 +371,154 @@ bool ValidateDump(base::Value* heaps_v2,
     }
   }
 
+  // Check that the thread [top frame] has the right name.
+  if (!thread_name.empty()) {
+    NodeMap node_map;
+    if (!ParseNodes(heaps_v2, &node_map)) {
+      LOG(ERROR) << "Failed to parse node and string structs";
+      return false;
+    }
+
+    int node_id = nodes_list[browser_alloc_index].GetInt();
+    auto it = node_map.find(node_id);
+    while (true) {
+      if (it == node_map.end() || it->second.parent_id == kNullParent)
+        break;
+      it = node_map.find(it->second.parent_id);
+    }
+
+    if (it == node_map.end()) {
+      LOG(ERROR) << "Failed to find root for node with id: " << node_id;
+      return false;
+    }
+
+    if (it->second.name != thread_name) {
+      LOG(ERROR) << "Wrong name: " << it->second.name
+                 << " for thread with expected name: " << thread_name;
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// |expected_size| of 0 means no expectation.
+bool GetAllocatorSubarray(base::Value* heaps_v2,
+                          const char* allocator_name,
+                          const char* subarray_name,
+                          size_t expected_size,
+                          const base::Value::ListStorage** output) {
+  base::Value* subarray =
+      heaps_v2->FindPath({"allocators", allocator_name, subarray_name});
+  if (!subarray) {
+    LOG(ERROR) << "Failed to find path: 'allocators." << allocator_name << "."
+               << subarray_name << "' in heaps v2";
+    return false;
+  }
+
+  const base::Value::ListStorage& subarray_list = subarray->GetList();
+  if (expected_size && subarray_list.size() != expected_size) {
+    LOG(ERROR) << subarray_name << " has wrong size";
+    return false;
+  }
+
+  *output = &subarray_list;
+  return true;
+}
+
+bool ValidateSamplingAllocations(base::Value* heaps_v2,
+                                 const char* allocator_name,
+                                 int approximate_size,
+                                 int approximate_count,
+                                 const char* type_name) {
+  // Maps type ids to strings.
+  NodeMap type_map;
+  if (!ParseTypes(heaps_v2, &type_map))
+    return false;
+
+  bool found = false;
+  int id_of_type = 0;
+  for (auto& pair : type_map) {
+    if (pair.second.name == type_name) {
+      id_of_type = pair.first;
+      found = true;
+    }
+  }
+
+  if (!found) {
+    LOG(ERROR) << "Failed to find type with name: " << type_name;
+    return false;
+  }
+
+  // Find the type with the appropriate id.
+  const base::Value::ListStorage* types_list;
+  if (!GetAllocatorSubarray(heaps_v2, allocator_name, "types", 0,
+                            &types_list)) {
+    return false;
+  }
+
+  found = false;
+  size_t index = 0;
+  for (size_t i = 0; i < types_list->size(); ++i) {
+    if ((*types_list)[i].GetInt() == id_of_type) {
+      index = i;
+      found = true;
+      break;
+    }
+  }
+
+  if (!found) {
+    LOG(ERROR) << "Failed to find type with correct sid";
+    return false;
+  }
+
+  // Look up the size.
+  const base::Value::ListStorage* sizes;
+  if (!GetAllocatorSubarray(heaps_v2, allocator_name, "sizes",
+                            types_list->size(), &sizes)) {
+    return false;
+  }
+
+  if ((*sizes)[index].GetInt() < approximate_size / 2 ||
+      (*sizes)[index].GetInt() > approximate_size * 2) {
+    LOG(ERROR) << "sampling size " << (*sizes)[index].GetInt()
+               << " was not within a factor of 2 of expected size "
+               << approximate_size;
+    return false;
+  }
+
+  // Look up the count.
+  const base::Value::ListStorage* counts;
+  if (!GetAllocatorSubarray(heaps_v2, allocator_name, "counts",
+                            types_list->size(), &counts)) {
+    return false;
+  }
+
+  if ((*counts)[index].GetInt() < approximate_count / 2 ||
+      (*counts)[index].GetInt() > approximate_count * 2) {
+    LOG(ERROR) << "sampling size " << (*counts)[index].GetInt()
+               << " was not within a factor of 2 of expected count "
+               << approximate_count;
+    return false;
+  }
+  return true;
+}
+
+bool ValidateProcessMmaps(base::Value* process_mmaps,
+                          bool should_have_contents) {
+  base::Value* vm_regions = process_mmaps->FindKey("vm_regions");
+  size_t count = vm_regions->GetList().size();
+  if (should_have_contents) {
+    if (count == 0) {
+      LOG(ERROR) << "vm_regions should have contents, but doesn't";
+      return false;
+    }
+  } else {
+    if (count != 0) {
+      LOG(ERROR) << "vm_regions should be empty, but has contents";
+      return false;
+    }
+  }
   return true;
 }
 
@@ -325,7 +549,10 @@ bool ProfilingTestDriver::RunTest(const Options& options) {
   if (running_on_ui_thread_) {
     if (!CheckOrStartProfiling())
       return false;
-    MakeTestAllocations();
+    if (ShouldProfileRenderer())
+      WaitForProfilingToStartForAllRenderersUIThread();
+    if (ShouldProfileBrowser())
+      MakeTestAllocations();
     CollectResults(true);
   } else {
     content::BrowserThread::PostTask(
@@ -336,10 +563,30 @@ bool ProfilingTestDriver::RunTest(const Options& options) {
     wait_for_ui_thread_.Wait();
     if (!initialization_success_)
       return false;
-    content::BrowserThread::PostTask(
-        content::BrowserThread::UI, FROM_HERE,
-        base::Bind(&ProfilingTestDriver::MakeTestAllocations,
-                   base::Unretained(this)));
+    if (ShouldProfileRenderer()) {
+      // On Android, there is a warm-up renderer that is sometimes started
+      // before the ProfilingProcessHost can be started. This renderer will
+      // therefore not be profiled, even if Chrome is started with the
+      // --memlog=all-renderers switch.
+      content::BrowserThread::PostTask(
+          content::BrowserThread::UI, FROM_HERE,
+          base::Bind(&ProfilingProcessHost::StartProfilingRenderersForTesting,
+                     base::Unretained(ProfilingProcessHost::GetInstance())));
+
+      content::BrowserThread::PostTask(
+          content::BrowserThread::UI, FROM_HERE,
+          base::Bind(
+              &ProfilingTestDriver::
+                  WaitForProfilingToStartForAllRenderersUIThreadAndSignal,
+              base::Unretained(this)));
+      wait_for_ui_thread_.Wait();
+    }
+    if (ShouldProfileBrowser()) {
+      content::BrowserThread::PostTask(
+          content::BrowserThread::UI, FROM_HERE,
+          base::Bind(&ProfilingTestDriver::MakeTestAllocations,
+                     base::Unretained(this)));
+    }
     content::BrowserThread::PostTask(
         content::BrowserThread::UI, FROM_HERE,
         base::Bind(&ProfilingTestDriver::CollectResults, base::Unretained(this),
@@ -413,7 +660,10 @@ bool ProfilingTestDriver::CheckOrStartProfiling() {
     }
   }
 
-  ProfilingProcessHost::Start(connection, options_.mode, options_.stack_mode);
+  ProfilingProcessHost::Start(connection, options_.mode, options_.stack_mode,
+                              options_.should_sample,
+                              options_.sample_everything ? 2 : kSampleRate);
+  ProfilingProcessHost::GetInstance()->SetKeepSmallAllocations(true);
 
   if (run_loop)
     run_loop->Run();
@@ -424,12 +674,23 @@ bool ProfilingTestDriver::CheckOrStartProfiling() {
 void ProfilingTestDriver::MakeTestAllocations() {
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
 
+  base::PlatformThread::SetName(kThreadName);
+
+  // In sampling mode, only sampling allocations are relevant.
+  if (!IsRecordingAllAllocations()) {
+    leaks_.reserve(kSamplingAllocCount);
+    for (int i = 0; i < kSamplingAllocCount; ++i) {
+      leaks_.push_back(static_cast<char*>(partition_allocator_.root()->Alloc(
+          kSamplingAllocSize, kSamplingAllocTypeName)));
+    }
+    return;
+  }
+
   leaks_.reserve(2 * kMallocAllocCount + 1 + kPartitionAllocSize);
 
   {
-    DisableAllocationTrackingForCurrentThreadForTesting();
+    TRACE_HEAP_PROFILER_API_SCOPED_TASK_EXECUTION event(kMallocTypeTag);
     TRACE_EVENT0(kTestCategory, kMallocEvent);
-    EnableAllocationTrackingForCurrentThreadForTesting();
 
     for (int i = 0; i < kMallocAllocCount; ++i) {
       leaks_.push_back(new char[kMallocAllocSize]);
@@ -437,9 +698,7 @@ void ProfilingTestDriver::MakeTestAllocations() {
   }
 
   {
-    DisableAllocationTrackingForCurrentThreadForTesting();
     TRACE_EVENT0(kTestCategory, kPAEvent);
-    EnableAllocationTrackingForCurrentThreadForTesting();
 
     for (int i = 0; i < kPartitionAllocCount; ++i) {
       leaks_.push_back(static_cast<char*>(partition_allocator_.root()->Alloc(
@@ -448,9 +707,7 @@ void ProfilingTestDriver::MakeTestAllocations() {
   }
 
   {
-    DisableAllocationTrackingForCurrentThreadForTesting();
     TRACE_EVENT0(kTestCategory, kVariadicEvent);
-    EnableAllocationTrackingForCurrentThreadForTesting();
 
     for (int i = 0; i < kVariadicAllocCount; ++i) {
       leaks_.push_back(new char[i + 8000]);  // Variadic allocation.
@@ -482,7 +739,6 @@ void ProfilingTestDriver::CollectResults(bool synchronous) {
   profiling::ProfilingProcessHost::GetInstance()->RequestTraceWithHeapDump(
       base::Bind(&ProfilingTestDriver::TraceFinished, base::Unretained(this),
                  std::move(finish_tracing_closure)),
-      true /* keep_small_allocations */,
       false /* strip_path_from_mapped_files */);
 
   if (synchronous)
@@ -498,7 +754,7 @@ void ProfilingTestDriver::TraceFinished(base::Closure closure,
 
 bool ProfilingTestDriver::ValidateBrowserAllocations(base::Value* dump_json) {
   base::Value* heaps_v2 =
-      FindHeapsV2(base::Process::Current().Pid(), dump_json);
+      FindArgDump(base::Process::Current().Pid(), dump_json, "heaps_v2");
 
   if (options_.mode != ProfilingProcessHost::Mode::kAll &&
       options_.mode != ProfilingProcessHost::Mode::kBrowser &&
@@ -528,42 +784,62 @@ bool ProfilingTestDriver::ValidateBrowserAllocations(base::Value* dump_json) {
     should_validate_dumps = false;
 #endif
 
-  if (should_validate_dumps) {
-    result = ValidateDump(heaps_v2, kMallocAllocSize * kMallocAllocCount,
-                          kMallocAllocCount, "malloc", nullptr,
-                          HasPseudoFrames() ? kMallocEvent : "");
-    if (!result) {
-      LOG(ERROR) << "Failed to validate malloc fixed allocations";
-      return false;
+  std::string thread_name = ShouldIncludeNativeThreadNames() ? kThreadName : "";
+
+  if (IsRecordingAllAllocations()) {
+    if (should_validate_dumps) {
+      result = ValidateDump(heaps_v2, kMallocAllocSize * kMallocAllocCount,
+                            kMallocAllocCount, "malloc",
+                            HasPseudoFrames() ? kMallocTypeTag : nullptr,
+                            HasPseudoFrames() ? kMallocEvent : "", thread_name);
+      if (!result) {
+        LOG(ERROR) << "Failed to validate malloc fixed allocations";
+        return false;
+      }
+
+      result = ValidateDump(
+          heaps_v2, total_variadic_allocations_, kVariadicAllocCount, "malloc",
+          nullptr, HasPseudoFrames() ? kVariadicEvent : "", thread_name);
+      if (!result) {
+        LOG(ERROR) << "Failed to validate malloc variadic allocations";
+        return false;
+      }
     }
 
-    result = ValidateDump(heaps_v2, total_variadic_allocations_,
-                          kVariadicAllocCount, "malloc", nullptr,
-                          HasPseudoFrames() ? kVariadicEvent : "");
+    // TODO(ajwong): Like malloc, all Partition-Alloc allocations get glommed
+    // together for some Android device/OS configurations. However, since there
+    // is only one place that uses partition alloc in the browser process [this
+    // test], the count is still valid. This should still be made more robust by
+    // fixing backtrace. https://crbug.com/786450.
+    result = ValidateDump(heaps_v2, kPartitionAllocSize * kPartitionAllocCount,
+                          kPartitionAllocCount, "partition_alloc",
+                          kPartitionAllocTypeName,
+                          HasPseudoFrames() ? kPAEvent : "", thread_name);
     if (!result) {
-      LOG(ERROR) << "Failed to validate malloc variadic allocations";
+      LOG(ERROR) << "Failed to validate PA allocations";
       return false;
     }
-  }
-
-  // TODO(ajwong): Like malloc, all Partition-Alloc allocations get glommed
-  // together for some Android device/OS configurations. However, since there is
-  // only one place that uses partition alloc in the browser process [this
-  // test], the count is still valid. This should still be made more robust by
-  // fixing backtrace. https://crbug.com/786450.
-  result =
-      ValidateDump(heaps_v2, kPartitionAllocSize * kPartitionAllocCount,
-                   kPartitionAllocCount, "partition_alloc",
-                   kPartitionAllocTypeName, HasPseudoFrames() ? kPAEvent : "");
-  if (!result) {
-    LOG(ERROR) << "Failed to validate PA allocations";
-    return false;
+  } else {
+    bool result = ValidateSamplingAllocations(
+        heaps_v2, "partition_alloc", kSamplingAllocSize * kSamplingAllocCount,
+        kSamplingAllocCount, kSamplingAllocTypeName);
+    if (!result) {
+      LOG(ERROR) << "Failed to validate sampling allocations";
+      return false;
+    }
   }
 
   int process_count = NumProcessesWithName(dump_json, "Browser", nullptr);
   if (process_count != 1) {
     LOG(ERROR) << "Found " << process_count
                << " processes with name: Browser. Expected 1.";
+    return false;
+  }
+
+  base::Value* process_mmaps =
+      FindArgDump(base::Process::Current().Pid(), dump_json, "process_mmaps");
+  if (!ValidateProcessMmaps(process_mmaps, !HasPseudoFrames())) {
+    LOG(ERROR) << "Failed to validate browser process mmaps.";
     return false;
   }
 
@@ -579,11 +855,17 @@ bool ProfilingTestDriver::ValidateRendererAllocations(base::Value* dump_json) {
   }
 
   base::ProcessId renderer_pid = static_cast<base::ProcessId>(pid);
-  base::Value* heaps_v2 = FindHeapsV2(renderer_pid, dump_json);
-  if (options_.mode == ProfilingProcessHost::Mode::kAll ||
-      options_.mode == ProfilingProcessHost::Mode::kAllRenderers) {
+  base::Value* heaps_v2 = FindArgDump(renderer_pid, dump_json, "heaps_v2");
+  if (ShouldProfileRenderer()) {
     if (!heaps_v2) {
       LOG(ERROR) << "Failed to find heaps v2 for renderer";
+      return false;
+    }
+
+    base::Value* process_mmaps =
+        FindArgDump(renderer_pid, dump_json, "process_mmaps");
+    if (!ValidateProcessMmaps(process_mmaps, !HasPseudoFrames())) {
+      LOG(ERROR) << "Failed to validate renderer process mmaps.";
       return false;
     }
 
@@ -620,8 +902,62 @@ bool ProfilingTestDriver::ShouldProfileBrowser() {
          options_.mode == ProfilingProcessHost::Mode::kMinimal;
 }
 
+bool ProfilingTestDriver::ShouldProfileRenderer() {
+  return options_.mode == ProfilingProcessHost::Mode::kAll ||
+         options_.mode == ProfilingProcessHost::Mode::kAllRenderers;
+}
+
+bool ProfilingTestDriver::ShouldIncludeNativeThreadNames() {
+  return options_.stack_mode == mojom::StackMode::NATIVE_WITH_THREAD_NAMES;
+}
+
 bool ProfilingTestDriver::HasPseudoFrames() {
-  return options_.stack_mode != profiling::mojom::StackMode::NATIVE;
+  return options_.stack_mode == mojom::StackMode::PSEUDO ||
+         options_.stack_mode == mojom::StackMode::MIXED;
+}
+
+bool ProfilingTestDriver::IsRecordingAllAllocations() {
+  return !options_.should_sample || options_.sample_everything;
+}
+
+void ProfilingTestDriver::WaitForProfilingToStartForAllRenderersUIThread() {
+  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  while (true) {
+    std::vector<base::ProcessId> profiled_pids;
+    base::RunLoop run_loop;
+    auto callback = base::BindOnce(
+        [](std::vector<base::ProcessId>* results, base::OnceClosure finished,
+           std::vector<base::ProcessId> pids) {
+          results->swap(pids);
+          std::move(finished).Run();
+        },
+        &profiled_pids, run_loop.QuitClosure());
+    profiling::ProfilingProcessHost::GetInstance()->GetProfiledPids(
+        std::move(callback));
+    run_loop.Run();
+
+    if (RenderersAreBeingProfiled(profiled_pids))
+      break;
+  }
+}
+
+void ProfilingTestDriver::
+    WaitForProfilingToStartForAllRenderersUIThreadAndSignal() {
+  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  profiling::ProfilingProcessHost::GetInstance()->GetProfiledPids(
+      base::BindOnce(&ProfilingTestDriver::
+                         WaitForProfilingToStartForAllRenderersUIThreadCallback,
+                     base::Unretained(this)));
+}
+
+void ProfilingTestDriver::
+    WaitForProfilingToStartForAllRenderersUIThreadCallback(
+        std::vector<base::ProcessId> results) {
+  if (RenderersAreBeingProfiled(results)) {
+    wait_for_ui_thread_.Signal();
+    return;
+  }
+  WaitForProfilingToStartForAllRenderersUIThreadAndSignal();
 }
 
 }  // namespace profiling

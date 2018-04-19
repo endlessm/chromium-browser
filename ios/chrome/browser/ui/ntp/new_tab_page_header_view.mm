@@ -11,7 +11,7 @@
 #import "ios/chrome/browser/ui/image_util/image_util.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_header_constants.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_toolbar_controller.h"
-#import "ios/chrome/browser/ui/toolbar/public/toolbar_utils.h"
+#import "ios/chrome/browser/ui/toolbar/legacy/toolbar_utils.h"
 #import "ios/chrome/browser/ui/toolbar/toolbar_snapshot_providing.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/common/material_timing.h"
@@ -56,18 +56,9 @@
       [[NewTabPageToolbarController alloc] initWithDispatcher:dispatcher];
   _toolbarController.readingListModel = readingListModel;
 
-  UIView* toolbarView = [_toolbarController view];
-
   [self addSubview:[_toolbarController view]];
 
-  if (IsSafeAreaCompatibleToolbarEnabled()) {
-    [self addConstraintsToToolbar];
-  } else {
-    CGRect toolbarFrame = self.bounds;
-    toolbarFrame.size.height = ntp_header::kToolbarHeight;
-    toolbarView.frame = toolbarFrame;
-    [toolbarView setAutoresizingMask:UIViewAutoresizingFlexibleWidth];
-  }
+  [self addConstraintsToToolbar];
 }
 
 - (void)setCanGoForward:(BOOL)canGoForward {
@@ -109,6 +100,11 @@
                                UIViewAutoresizingFlexibleTopMargin];
   [searchField addSubview:_shadow];
   [_shadow setAlpha:0];
+}
+
+- (CGFloat)searchFieldProgressForOffset:(CGFloat)offset {
+  NOTREACHED();
+  return 0;
 }
 
 - (void)updateSearchFieldWidth:(NSLayoutConstraint*)widthConstraint
@@ -168,11 +164,8 @@
 
 - (void)safeAreaInsetsDidChange {
   [super safeAreaInsetsDidChange];
-  if (IsSafeAreaCompatibleToolbarEnabled()) {
-    _toolbarController.heightConstraint.constant =
-        ToolbarHeightWithTopOfScreenOffset(
-            [_toolbarController statusBarOffset]);
-  }
+  _toolbarController.heightConstraint.constant =
+      ToolbarHeightWithTopOfScreenOffset([_toolbarController statusBarOffset]);
 }
 
 - (void)fadeOutShadow {

@@ -23,7 +23,6 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task_scheduler/post_task.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
@@ -349,16 +348,9 @@ void WizardController::Init(OobeScreen first_screen) {
   // an eligible controller is detected later.
   SetControllerDetectedPref(false);
 
-  // Show Material Design unless explicitly disabled or for an untested UX,
-  // or when resuming an OOBE that had it disabled or unset. We use an if/else
-  // here to try and not set state when it is the default value so it can
-  // change and affect the OOBE again.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kDisableMdOobe))
-    SetShowMdOobe(false);
-  else if ((screen_pref.empty() ||
-            GetLocalState()->HasPrefPath(prefs::kOobeMdMode)) ||
-           GetLocalState()->GetBoolean(prefs::kOobeMdMode))
+  if ((screen_pref.empty() ||
+       GetLocalState()->HasPrefPath(prefs::kOobeMdMode)) ||
+      GetLocalState()->GetBoolean(prefs::kOobeMdMode))
     SetShowMdOobe(true);
 
   // TODO(drcrash): Remove this after testing (http://crbug.com/647411).
@@ -582,15 +574,40 @@ void WizardController::ShowTermsOfServiceScreen() {
 }
 
 void WizardController::ShowSyncConsentScreen() {
+#if defined(GOOGLE_CHROME_BUILD)
+  const user_manager::UserManager* user_manager =
+      user_manager::UserManager::Get();
+  // Skip for non-regular users and for users without Gaia account.
+  if (!user_manager->IsLoggedInAsUserWithGaiaAccount() ||
+      user_manager->IsLoggedInAsPublicAccount() ||
+      (user_manager->IsCurrentUserNonCryptohomeDataEphemeral() &&
+       user_manager->GetActiveUser()->GetType() !=
+           user_manager::USER_TYPE_REGULAR)) {
+    ShowArcTermsOfServiceScreen();
+    return;
+  }
+  VLOG(1) << "Showing Sync Consent screen.";
+  UpdateStatusAreaVisibilityForScreen(OobeScreen::SCREEN_SYNC_CONSENT);
+  SetCurrentScreen(GetScreen(OobeScreen::SCREEN_SYNC_CONSENT));
+#else
   ShowArcTermsOfServiceScreen();
+#endif
 }
 
 void WizardController::ShowArcTermsOfServiceScreen() {
-  if (ShouldShowArcTerms()) {
+  if (arc::IsArcTermsOfServiceOobeNegotiationNeeded()) {
     VLOG(1) << "Showing ARC Terms of Service screen.";
     UpdateStatusAreaVisibilityForScreen(
         OobeScreen::SCREEN_ARC_TERMS_OF_SERVICE);
     SetCurrentScreen(GetScreen(OobeScreen::SCREEN_ARC_TERMS_OF_SERVICE));
+    // Assistant Wizard also uses wizard for ARC opt-in, unlike other scenarios
+    // which use ArcSupport for now, because we're interested in only OOBE flow.
+    // Note that this part also needs to be updated on b/65861628.
+    // TODO(khmel): add unit test once we have support for OobeUI.
+    if (!host_->IsVoiceInteractionOobe()) {
+      ProfileManager::GetActiveUserProfile()->GetPrefs()->SetBoolean(
+          arc::prefs::kArcTermsShownInOobe, true);
+    }
   } else {
     ShowUserImageScreen();
   }
@@ -876,9 +893,7 @@ void WizardController::OnTermsOfServiceDeclined() {
 }
 
 void WizardController::OnTermsOfServiceAccepted() {
-  // If the user accepts the Terms of Service, advance to the PlayStore terms
-  // of serice.
-  ShowArcTermsOfServiceScreen();
+  ShowSyncConsentScreen();
 }
 
 void WizardController::OnArcTermsOfServiceSkipped() {
@@ -1403,8 +1418,7 @@ void WizardController::AddNetworkRequested(const std::string& onc_spec) {
 
   if (NetworkAllowUpdate(network_state)) {
     network_screen->CreateAndConnectNetworkFromOnc(
-        onc_spec, base::Bind(&base::DoNothing),
-        network_handler::ErrorCallback());
+        onc_spec, base::DoNothing(), network_handler::ErrorCallback());
   } else {
     network_screen->CreateAndConnectNetworkFromOnc(
         onc_spec,
@@ -1639,45 +1653,6 @@ bool WizardController::SetOnTimeZoneResolvedForTesting(
 bool WizardController::IsRemoraPairingOobe() const {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kHostPairingOobe);
-}
-
-bool WizardController::ShouldShowArcTerms() const {
-  const base::CommandLine* command_line =
-      base::CommandLine::ForCurrentProcess();
-  if (!command_line->HasSwitch(chromeos::switches::kEnableArcOOBEOptIn)) {
-    VLOG(1) << "Skip ARC Terms of Service screen because ARC OOBE OptIn is "
-            << "disabled.";
-    return false;
-  }
-  if (!user_manager::UserManager::Get()->IsUserLoggedIn()) {
-    VLOG(1) << "Skip ARC Terms of Service screen because user is not "
-            << "logged in.";
-    return false;
-  }
-
-  const Profile* profile = ProfileManager::GetActiveUserProfile();
-  if (!arc::IsArcAllowedForProfile(profile)) {
-    VLOG(1) << "Skip ARC Terms of Service screen because ARC is not allowed.";
-    return false;
-  }
-  if (profile->GetPrefs()->IsManagedPreference(arc::prefs::kArcEnabled) &&
-      !profile->GetPrefs()->GetBoolean(arc::prefs::kArcEnabled)) {
-    VLOG(1) << "Skip ARC Terms of Service screen because ARC is disabled.";
-    return false;
-  }
-
-  if (!arc::IsPlayStoreAvailable()) {
-    VLOG(1) << "Skip ARC Terms of Service screen because Play Store is not "
-               "available on the device.";
-    return false;
-  }
-
-  if (arc::IsActiveDirectoryUserForProfile(profile)) {
-    VLOG(1) << "Skip ARC Terms of Service screen because it does not apply to "
-               "Active Directory users.";
-    return false;
-  }
-  return true;
 }
 
 bool WizardController::ShouldShowVoiceInteractionValueProp() const {

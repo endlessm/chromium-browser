@@ -8,6 +8,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/guid.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_feature_list.h"
@@ -27,31 +28,37 @@
 #include "components/proxy_config/proxy_config_pref_names.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/storage_partition.h"
-#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
-#include "content/public/common/simple_url_loader.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/simple_url_loader_test_helper.h"
-#include "content/public/test/test_url_loader_client.h"
 #include "mojo/common/data_pipe_utils.h"
 #include "net/base/filename_util.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_response_headers.h"
+#include "net/test/embedded_test_server/controllable_http_response.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "net/test/spawned_test_server/spawned_test_server.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
+#include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/resource_response.h"
 #include "services/network/public/cpp/resource_response_info.h"
-#include "services/network/public/interfaces/network_service.mojom.h"
-#include "services/network/public/interfaces/url_loader.mojom.h"
-#include "services/network/public/interfaces/url_loader_factory.mojom.h"
+#include "services/network/public/cpp/simple_url_loader.h"
+#include "services/network/public/mojom/network_service.mojom.h"
+#include "services/network/public/mojom/url_loader.mojom.h"
+#include "services/network/public/mojom/url_loader_factory.mojom.h"
+#include "services/network/test/test_url_loader_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
+
+const char kCacheRandomPath[] = "/cacherandom";
+
+// Path using a ControllableHttpResponse that's part of the test fixture.
+const char kControllablePath[] = "/controllable";
 
 enum class NetworkServiceState {
   kDisabled,
@@ -86,22 +93,54 @@ class NetworkContextConfigurationBrowserTest
   };
 
   NetworkContextConfigurationBrowserTest() {
-    EXPECT_TRUE(embedded_test_server()->Start());
+    // Have to get a port before setting up the command line, but can only set
+    // up the connection listener after there's a main thread, so can't start
+    // the test server here.
+    EXPECT_TRUE(embedded_test_server()->InitializeAndListen());
+  }
+
+  // Returns a cacheable response (10 hours) that is some random text.
+  static std::unique_ptr<net::test_server::HttpResponse> HandleCacheRandom(
+      const net::test_server::HttpRequest& request) {
+    if (request.relative_url != kCacheRandomPath)
+      return nullptr;
+
+    std::unique_ptr<net::test_server::BasicHttpResponse> response =
+        std::make_unique<net::test_server::BasicHttpResponse>();
+    response->set_content(base::GenerateGUID());
+    response->set_content_type("text/plain");
+    response->AddCustomHeader("Cache-Control", "max-age=60000");
+    return std::move(response);
   }
 
   ~NetworkContextConfigurationBrowserTest() override {}
 
   void SetUpInProcessBrowserTestFixture() override {
     if (GetParam().network_service_state != NetworkServiceState::kDisabled)
-      feature_list_.InitAndEnableFeature(features::kNetworkService);
+      feature_list_.InitAndEnableFeature(network::features::kNetworkService);
   }
 
   void SetUpOnMainThread() override {
+    controllable_http_response_ =
+        std::make_unique<net::test_server::ControllableHttpResponse>(
+            embedded_test_server(), kControllablePath);
+    embedded_test_server()->RegisterRequestHandler(base::BindRepeating(
+        &NetworkContextConfigurationBrowserTest::HandleCacheRandom));
+    embedded_test_server()->StartAcceptingConnections();
+
     if (GetParam().network_context_type ==
         NetworkContextType::kIncognitoProfile) {
       incognito_ = CreateIncognitoBrowser();
     }
     SimulateNetworkServiceCrashIfNecessary();
+  }
+
+  void TearDownOnMainThread() override {
+    // Have to destroy this before the main message loop is torn down. Need to
+    // leave the embedded test server up for tests that use
+    // |live_during_shutdown_simple_loader_|. It's safe to destroy the
+    // ControllableHttpResponse before the test server.
+    controllable_http_response_.reset();
   }
 
   // Returns, as a string, a PAC script that will use the EmbeddedTestServer as
@@ -122,12 +161,14 @@ class NetworkContextConfigurationBrowserTest
       case NetworkContextType::kProfile:
         return content::BrowserContext::GetDefaultStoragePartition(
                    browser()->profile())
-            ->GetURLLoaderFactoryForBrowserProcess();
+            ->GetURLLoaderFactoryForBrowserProcess()
+            .get();
       case NetworkContextType::kIncognitoProfile:
         DCHECK(incognito_);
         return content::BrowserContext::GetDefaultStoragePartition(
                    incognito_->profile())
-            ->GetURLLoaderFactoryForBrowserProcess();
+            ->GetURLLoaderFactoryForBrowserProcess()
+            .get();
     }
     NOTREACHED();
     return nullptr;
@@ -217,8 +258,8 @@ class NetworkContextConfigurationBrowserTest
     request->url = GURL("http://jabberwocky.test:1872/echo");
 
     content::SimpleURLLoaderTestHelper simple_loader_helper;
-    std::unique_ptr<content::SimpleURLLoader> simple_loader =
-        content::SimpleURLLoader::Create(std::move(request),
+    std::unique_ptr<network::SimpleURLLoader> simple_loader =
+        network::SimpleURLLoader::Create(std::move(request),
                                          TRAFFIC_ANNOTATION_FOR_TESTS);
 
     simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
@@ -228,6 +269,30 @@ class NetworkContextConfigurationBrowserTest
     EXPECT_EQ(net::OK, simple_loader->NetError());
     ASSERT_TRUE(simple_loader_helper.response_body());
     EXPECT_EQ(*simple_loader_helper.response_body(), "Echo");
+  }
+
+  // Makes a request that hangs, and will live until browser shutdown.
+  void MakeLongLivedRequestThatHangsUntilShutdown() {
+    std::unique_ptr<network::ResourceRequest> request =
+        std::make_unique<network::ResourceRequest>();
+    request->url = embedded_test_server()->GetURL(kControllablePath);
+    live_during_shutdown_simple_loader_ = network::SimpleURLLoader::Create(
+        std::move(request), TRAFFIC_ANNOTATION_FOR_TESTS);
+    live_during_shutdown_simple_loader_helper_ =
+        std::make_unique<content::SimpleURLLoaderTestHelper>();
+
+    live_during_shutdown_simple_loader_
+        ->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+            loader_factory(),
+            live_during_shutdown_simple_loader_helper_->GetCallback());
+
+    // Don't actually care about controlling the response, just need to wait
+    // until it sees the request, to make sure that a URLRequest has been
+    // created to potentially leak. Since the |controllable_http_response_| is
+    // not used to send a response to the request, the request just hangs until
+    // the NetworkContext is destroyed (Or the test server is shut down, but the
+    // NetworkContext should be destroyed before that happens, in this test).
+    controllable_http_response_->WaitForRequest();
   }
 
  private:
@@ -275,6 +340,14 @@ class NetworkContextConfigurationBrowserTest
   Browser* incognito_ = nullptr;
   base::test::ScopedFeatureList feature_list_;
 
+  std::unique_ptr<net::test_server::ControllableHttpResponse>
+      controllable_http_response_;
+
+  // Used in tests that need a live request during browser shutdown.
+  std::unique_ptr<network::SimpleURLLoader> live_during_shutdown_simple_loader_;
+  std::unique_ptr<content::SimpleURLLoaderTestHelper>
+      live_during_shutdown_simple_loader_helper_;
+
   DISALLOW_COPY_AND_ASSIGN(NetworkContextConfigurationBrowserTest);
 };
 
@@ -283,8 +356,8 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, BasicRequest) {
       std::make_unique<network::ResourceRequest>();
   request->url = embedded_test_server()->GetURL("/echo");
   content::SimpleURLLoaderTestHelper simple_loader_helper;
-  std::unique_ptr<content::SimpleURLLoader> simple_loader =
-      content::SimpleURLLoader::Create(std::move(request),
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
                                        TRAFFIC_ANNOTATION_FOR_TESTS);
 
   simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
@@ -303,8 +376,8 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, DataURL) {
       std::make_unique<network::ResourceRequest>();
   request->url = GURL("data:text/plain,foo");
   content::SimpleURLLoaderTestHelper simple_loader_helper;
-  std::unique_ptr<content::SimpleURLLoader> simple_loader =
-      content::SimpleURLLoader::Create(std::move(request),
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
                                        TRAFFIC_ANNOTATION_FOR_TESTS);
 
   simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
@@ -333,8 +406,8 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, FileURL) {
       std::make_unique<network::ResourceRequest>();
   request->url = net::FilePathToFileURL(file_path);
   content::SimpleURLLoaderTestHelper simple_loader_helper;
-  std::unique_ptr<content::SimpleURLLoader> simple_loader =
-      content::SimpleURLLoader::Create(std::move(request),
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
                                        TRAFFIC_ANNOTATION_FOR_TESTS);
 
   simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
@@ -356,8 +429,8 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, Cache) {
       std::make_unique<network::ResourceRequest>();
   request->url = request_url;
   content::SimpleURLLoaderTestHelper simple_loader_helper;
-  std::unique_ptr<content::SimpleURLLoader> simple_loader =
-      content::SimpleURLLoader::Create(std::move(request),
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
                                        TRAFFIC_ANNOTATION_FOR_TESTS);
 
   simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
@@ -376,8 +449,8 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, Cache) {
       std::make_unique<network::ResourceRequest>();
   request2->url = request_url;
   content::SimpleURLLoaderTestHelper simple_loader_helper2;
-  std::unique_ptr<content::SimpleURLLoader> simple_loader2 =
-      content::SimpleURLLoader::Create(std::move(request2),
+  std::unique_ptr<network::SimpleURLLoader> simple_loader2 =
+      network::SimpleURLLoader::Create(std::move(request2),
                                        TRAFFIC_ANNOTATION_FOR_TESTS);
   simple_loader2->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
       loader_factory(), simple_loader_helper2.GetCallback());
@@ -404,22 +477,19 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, PRE_DiskCache) {
   // a random port, so need to know the port to try and retrieve it from the
   // cache in the next test). The profile directory is preserved between the
   // PRE_DiskCache and DiskCache run, so can just keep a file there.
-  GURL test_url = embedded_test_server()->GetURL("/echoheadercache?foo");
+  GURL test_url = embedded_test_server()->GetURL(kCacheRandomPath);
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::FilePath save_url_file_path = browser()->profile()->GetPath().Append(
       FILE_PATH_LITERAL("url_for_test.txt"));
-  ASSERT_EQ(static_cast<int>(test_url.spec().length()),
-            base::WriteFile(save_url_file_path, test_url.spec().c_str(),
-                            test_url.spec().length()));
 
   // Make a request whose response should be cached.
   std::unique_ptr<network::ResourceRequest> request =
       std::make_unique<network::ResourceRequest>();
   request->url = test_url;
-  request->headers.SetHeader("foo", "foopity foo");
+
   content::SimpleURLLoaderTestHelper simple_loader_helper;
-  std::unique_ptr<content::SimpleURLLoader> simple_loader =
-      content::SimpleURLLoader::Create(std::move(request),
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
                                        TRAFFIC_ANNOTATION_FOR_TESTS);
   simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
       loader_factory(), simple_loader_helper.GetCallback());
@@ -427,7 +497,16 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, PRE_DiskCache) {
 
   EXPECT_EQ(net::OK, simple_loader->NetError());
   ASSERT_TRUE(simple_loader_helper.response_body());
-  EXPECT_EQ(*simple_loader_helper.response_body(), "foopity foo");
+  EXPECT_FALSE(simple_loader_helper.response_body()->empty());
+
+  // Write the URL and expected response to a file.
+  std::string file_data =
+      test_url.spec() + "\n" + *simple_loader_helper.response_body();
+  ASSERT_EQ(
+      static_cast<int>(file_data.length()),
+      base::WriteFile(save_url_file_path, file_data.data(), file_data.size()));
+
+  EXPECT_TRUE(embedded_test_server()->ShutdownAndWaitUntilComplete());
 }
 
 // Check if the URL loaded in PRE_DiskCache is still in the cache, across a
@@ -437,40 +516,51 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, DiskCache) {
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::FilePath save_url_file_path = browser()->profile()->GetPath().Append(
       FILE_PATH_LITERAL("url_for_test.txt"));
-  std::string test_url_string;
-  ASSERT_TRUE(ReadFileToString(save_url_file_path, &test_url_string));
-  GURL test_url = GURL(content::kChromeUINetworkViewCacheURL + test_url_string);
-  ASSERT_TRUE(test_url.is_valid()) << test_url_string;
+  std::string file_data;
+  ASSERT_TRUE(ReadFileToString(save_url_file_path, &file_data));
 
-  content::TestURLLoaderClient client;
-  // Read from the cache directly, as the test server may theoretically have
-  // been restarted on the same port by another test.
-  network_context()->HandleViewCacheRequest(test_url,
-                                            client.CreateInterfacePtr());
+  size_t newline_pos = file_data.find('\n');
+  ASSERT_NE(newline_pos, std::string::npos);
 
-  // The request should succeed, whether the response was cached or not.
-  client.RunUntilResponseReceived();
-  ASSERT_TRUE(client.response_head().headers);
-  EXPECT_EQ(200, client.response_head().headers->response_code());
-  client.RunUntilResponseBodyArrived();
-  std::string response_body;
-  EXPECT_TRUE(mojo::common::BlockingCopyToString(client.response_body_release(),
-                                                 &response_body));
-  client.RunUntilComplete();
-  EXPECT_EQ(net::OK, client.completion_status().error_code);
+  GURL test_url = GURL(file_data.substr(0, newline_pos));
+  ASSERT_TRUE(test_url.is_valid()) << test_url.possibly_invalid_spec();
 
-  // The response body from the above test should only appear in the view-cache
-  // result if there is an on-disk cache.
+  std::string original_response = file_data.substr(newline_pos + 1);
+
+  // Request the same test URL as may have been cached by PRE_DiskCache.
+  std::unique_ptr<network::ResourceRequest> request =
+      std::make_unique<network::ResourceRequest>();
+  request->url = test_url;
+  content::SimpleURLLoaderTestHelper simple_loader_helper;
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
+                                       TRAFFIC_ANNOTATION_FOR_TESTS);
+  simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      loader_factory(), simple_loader_helper.GetCallback());
+  simple_loader_helper.WaitForCallback();
+
+  std::string response_body = simple_loader_helper.response_body()
+                                  ? *simple_loader_helper.response_body()
+                                  : "";
+
+  // The response body from the above test should only appear in the response
+  // if there is an on-disk cache.
   if (GetHttpCacheType() != StorageType::kDisk) {
-    EXPECT_EQ(response_body.find("foopity foo"), std::string::npos);
+    EXPECT_NE(original_response, response_body);
   } else {
-    EXPECT_NE(response_body.find("foopity foo"), std::string::npos);
+    EXPECT_EQ(original_response, response_body);
   }
 }
 
 IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, ProxyConfig) {
   SetProxyPref(embedded_test_server()->host_port_pair());
   TestProxyConfigured();
+}
+
+// This test should not end in an AssertNoURLLRequests CHECK.
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest,
+                       ShutdownWithLiveRequest) {
+  MakeLongLivedRequestThatHangsUntilShutdown();
 }
 
 class NetworkContextConfigurationFixedPortBrowserTest
@@ -498,8 +588,8 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationFixedPortBrowserTest,
   // the test server anyways.
   request->url = GURL("http://127.0.0.1/echo");
   content::SimpleURLLoaderTestHelper simple_loader_helper;
-  std::unique_ptr<content::SimpleURLLoader> simple_loader =
-      content::SimpleURLLoader::Create(std::move(request),
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
                                        TRAFFIC_ANNOTATION_FOR_TESTS);
 
   simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
@@ -665,8 +755,8 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationFtpPacBrowserTest, FtpPac) {
   request->url = GURL("http://jabberwocky.test:1872/echo");
 
   content::SimpleURLLoaderTestHelper simple_loader_helper;
-  std::unique_ptr<content::SimpleURLLoader> simple_loader =
-      content::SimpleURLLoader::Create(std::move(request),
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
                                        TRAFFIC_ANNOTATION_FOR_TESTS);
 
   simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(

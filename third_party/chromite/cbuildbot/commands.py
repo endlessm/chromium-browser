@@ -172,7 +172,7 @@ def WipeOldOutput(buildroot):
 
 def MakeChroot(buildroot, replace, use_sdk, chrome_root=None, extra_env=None):
   """Wrapper around make_chroot."""
-  cmd = ['cros_sdk', '--buildbot-log-version', '--nouse-image']
+  cmd = ['cros_sdk', '--buildbot-log-version']
   cmd.append('--create' if use_sdk else '--bootstrap')
 
   if replace:
@@ -192,7 +192,7 @@ def RunChrootUpgradeHooks(buildroot, chrome_root=None, extra_env=None):
     chrome_root: The directory where chrome is stored.
     extra_env: A dictionary of environment variables to set.
   """
-  chroot_args = ['--nouse-image']
+  chroot_args = []
   if chrome_root:
     chroot_args.append('--chrome_root=%s' % chrome_root)
 
@@ -302,7 +302,7 @@ def VerifyBinpkg(buildroot, board, pkg, packages, extra_env=None):
     If the package is found and is built from source, raise MissingBinpkg.
     If the package is not found, or it is installed from a binpkg, do nothing.
   """
-  cmd = ['emerge-%s' % board, '-pegNvq', '--with-bdeps=y',
+  cmd = ['emerge-%s' % board, '-pegNuvq', '--with-bdeps=y',
          '--color=n'] + list(packages)
   result = RunBuildScript(buildroot, cmd, capture_output=True,
                           enter_chroot=True, extra_env=extra_env)
@@ -544,12 +544,12 @@ def GetFirmwareVersions(buildroot, board):
   else:
     return FirmwareVersions(None, None, None, None, None)
 
-def RunCrosConfigHost(buildroot, board, args):
+def RunCrosConfigHost(buildroot, boardroot, args):
   """Run the cros_config_host tool in the buildroot
 
   Args:
     buildroot: The buildroot of the current build.
-    board: The board the build is for.
+    boardroot: The board sysroot.
     args: List of arguments to pass.
 
   Returns:
@@ -561,12 +561,29 @@ def RunCrosConfigHost(buildroot, board, args):
     return None
   tool = path_util.ToChrootPath(tool)
 
-  config_fname = os.path.join(cros_build_lib.GetSysroot(board), 'usr', 'share',
-                              'chromeos-config', 'config.dtb')
-  result = cros_build_lib.RunCommand(
-      [tool, '-c', config_fname] + args,
-      enter_chroot=True, capture_output=True, log_output=True, cwd=buildroot,
-      error_code_ok=True)
+  config_fname = os.path.join(
+      boardroot,
+      'usr',
+      'share',
+      'chromeos-config',
+      'config.dtb')
+  if not os.path.isfile(config_fname):
+    config_fname = os.path.join(
+        boardroot,
+        'usr',
+        'share',
+        'chromeos-config',
+        'yaml',
+        'private-files.yaml')
+
+  if not os.path.isfile(config_fname):
+    return None
+  result = cros_build_lib.RunCommand([tool, '-c', config_fname] + args,
+                                     enter_chroot=True,
+                                     capture_output=True,
+                                     log_output=True,
+                                     cwd=buildroot,
+                                     error_code_ok=True)
   if result.returncode:
     # Show the output for debugging purposes.
     if 'No such file or directory' not in result.error:
@@ -574,7 +591,7 @@ def RunCrosConfigHost(buildroot, board, args):
     return None
   return result.output.strip().splitlines()
 
-def GetModels(buildroot, board):
+def GetModels(buildroot, boardroot):
   """Obtain a list of models supported by a unified board
 
   This ignored whitelabel models since GoldenEye has no specific support for
@@ -582,13 +599,13 @@ def GetModels(buildroot, board):
 
   Args:
     buildroot: The buildroot of the current build.
-    board: The board the build is for.
+    boardroot: The board sysroot.
 
   Returns:
     A list of models supported by this board, if it is a unified build; None,
     if it is not a unified build.
   """
-  return RunCrosConfigHost(buildroot, board, ['list-models'])
+  return RunCrosConfigHost(buildroot, boardroot, ['list-models'])
 
 def BuildImage(buildroot, board, images_to_build, version=None,
                builder_path=None, rootfs_verification=True, extra_env=None,
@@ -2117,6 +2134,28 @@ def BuildAutotestServerPackageTarball(buildroot, cwd, tarball_dir):
   return tarball
 
 
+def BuildAutotestTarballsForHWTest(buildroot, cwd, tarball_dir):
+  """Generate the "usual" autotest tarballs required for running HWTests.
+
+  These tarballs are created in multiple places wherever they need to be staged
+  for running HWTests.
+
+  Args:
+    buildroot: Root directory where build occurs.
+    cwd: Current working directory.
+    tarball_dir: Location for storing autotest tarballs.
+
+  Returns:
+    A list of paths of the generated tarballs.
+  """
+  return [
+      BuildAutotestControlFilesTarball(buildroot, cwd, tarball_dir),
+      BuildAutotestPackagesTarball(buildroot, cwd, tarball_dir),
+      BuildAutotestTestSuitesTarball(buildroot, cwd, tarball_dir),
+      BuildAutotestServerPackageTarball(buildroot, cwd, tarball_dir),
+  ]
+
+
 def BuildFullAutotestTarball(buildroot, board, tarball_dir):
   """Tar up the full autotest directory into image_dir.
 
@@ -2152,11 +2191,12 @@ def BuildFullAutotestTarball(buildroot, board, tarball_dir):
 
 def BuildUnitTestTarball(buildroot, board, tarball_dir):
   """Tar up the UnitTest binaries."""
-  tarball = os.path.join(tarball_dir, 'unit_tests.tar')
+  tarball = 'unit_tests.tar'
+  tarball_path = os.path.join(tarball_dir, tarball)
   cwd = os.path.abspath(os.path.join(
       buildroot, 'chroot', 'build', board, constants.UNITTEST_PKG_PATH))
   # UnitTest binaries are already compressed so just create a tar file.
-  BuildTarball(buildroot, ['.'], tarball, cwd=cwd,
+  BuildTarball(buildroot, ['.'], tarball_path, cwd=cwd,
                compressed=False, error_code_ok=True)
   return tarball
 
@@ -2574,12 +2614,13 @@ def SyncChrome(build_root, chrome_root, useflags, tag=None, revision=None):
     tag: If supplied, the Chrome tag to sync.
     revision: If supplied, the Chrome revision to sync.
   """
+  sync_chrome = os.path.join(build_root, 'chromite', 'bin', 'sync_chrome')
+  internal = constants.USE_CHROME_INTERNAL in useflags
   # --reset tells sync_chrome to blow away local changes and to feel
   # free to delete any directories that get in the way of syncing. This
   # is needed for unattended operation.
-  sync_chrome = os.path.join(build_root, 'chromite', 'bin', 'sync_chrome')
-  internal = constants.USE_CHROME_INTERNAL in useflags
-  cmd = [sync_chrome, '--reset']
+  # --ignore-locks tells sync_chrome to ignore git-cache locks.
+  cmd = [sync_chrome, '--reset', '--ignore_locks']
   cmd += ['--internal'] if internal else []
   cmd += ['--tag', tag] if tag is not None else []
   cmd += ['--revision', revision] if revision is not None else []

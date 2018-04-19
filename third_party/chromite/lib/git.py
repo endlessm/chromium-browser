@@ -87,17 +87,22 @@ class GitException(Exception):
   """An exception related to git."""
 
 
-class RemoteRef(object):
-  """Object representing a remote ref.
+# remote: git remote name (e.g., 'origin',
+#   'https://chromium.googlesource.com/chromiumos/chromite.git', etc.).
+# ref: git remote/local ref name (e.g., 'refs/heads/master').
+# project_name: git project name (e.g., 'chromiumos/chromite'.)
+_RemoteRef = collections.namedtuple(
+    '_RemoteRef', ('remote', 'ref', 'project_name'))
 
-  A remote ref encapsulates both a remote (e.g., 'origin',
-  'https://chromium.googlesource.com/chromiumos/chromite.git', etc.) and a ref
-  name (e.g., 'refs/heads/master').
-  """
 
-  def __init__(self, remote, ref):
-    self.remote = remote
-    self.ref = ref
+class RemoteRef(_RemoteRef):
+  """Object representing a remote ref."""
+
+  def __new__(cls, remote, ref, project_name=None):
+    return super(RemoteRef, cls).__new__(cls, remote, ref, project_name)
+
+  def __init__(self, remote, ref, project_name=None):
+    super(RemoteRef, self).__init__(remote, ref, project_name)
 
 
 def FindRepoDir(path):
@@ -1014,7 +1019,9 @@ def GetTrackingBranchViaManifest(git_repo, for_checkout=True, for_push=False,
       if not revision.startswith('refs/heads/'):
         return None
 
-    return RemoteRef(remote, revision)
+    project_name = checkout.get('name', None)
+
+    return RemoteRef(remote, revision, project_name=project_name)
   except EnvironmentError as e:
     if e.errno != errno.ENOENT:
       raise

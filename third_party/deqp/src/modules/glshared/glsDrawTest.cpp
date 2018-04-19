@@ -43,6 +43,7 @@
 #include "tcuFloat.hpp"
 #include "tcuTextureUtil.hpp"
 
+#include "gluContextInfo.hpp"
 #include "gluPixelTransfer.hpp"
 #include "gluCallLogWrapper.hpp"
 
@@ -885,7 +886,7 @@ inline GLValue::Half abs (GLValue::Half val)
 	return GLValue::Half::create(std::fabs(val.to<float>()));
 }
 
-// AttriuteArray
+// AttributeArray
 
 class AttributeArray
 {
@@ -894,7 +895,6 @@ public:
 								~AttributeArray		(void);
 
 	void						data				(DrawTestSpec::Target target, size_t size, const char* data, DrawTestSpec::Usage usage);
-	void						subdata				(DrawTestSpec::Target target, int offset, int size, const char* data);
 	void						setupArray			(bool bound, int offset, int size, DrawTestSpec::InputType inType, DrawTestSpec::OutputType outType, bool normalized, int stride, int instanceDivisor, const rr::GenericVec4& defaultAttrib, bool isPositionAttr, bool bgraComponentOrder);
 	void						bindAttribute		(deUint32 loc);
 	void						bindIndexArray		(DrawTestSpec::Target storage);
@@ -989,24 +989,6 @@ void AttributeArray::data (DrawTestSpec::Target target, size_t size, const char*
 		m_data = new char[size];
 		std::memcpy(m_data, ptr, size);
 	}
-	else
-		DE_ASSERT(false);
-}
-
-void AttributeArray::subdata (DrawTestSpec::Target target, int offset, int size, const char* ptr)
-{
-	m_target = target;
-
-	if (m_storage == DrawTestSpec::STORAGE_BUFFER)
-	{
-		m_ctx.bindBuffer(targetToGL(target), m_glBuffer);
-		GLU_EXPECT_NO_ERROR(m_ctx.getError(), "glBindBuffer()");
-
-		m_ctx.bufferSubData(targetToGL(target), offset, size, ptr);
-		GLU_EXPECT_NO_ERROR(m_ctx.getError(), "glBufferSubData()");
-	}
-	else if (m_storage == DrawTestSpec::STORAGE_USER)
-		std::memcpy(m_data + offset, ptr, size);
 	else
 		DE_ASSERT(false);
 }
@@ -1536,77 +1518,12 @@ public:
 private:
 	template<typename T>
 	static char*			createIndices			(int seed, int elementCount, int offset, int min, int max, int indexBase);
-	static void				setData					(char* data, DrawTestSpec::InputType type, deRandom& rnd, GLValue min, GLValue max);
 
 	static char*			generateBasicArray		(int seed, int elementCount, int componentCount, int offset, int stride, DrawTestSpec::InputType type);
 	template<typename T, typename GLType>
 	static char*			createBasicArray		(int seed, int elementCount, int componentCount, int offset, int stride);
 	static char*			generatePackedArray		(int seed, int elementCount, int componentCount, int offset, int stride);
 };
-
-void RandomArrayGenerator::setData (char* data, DrawTestSpec::InputType type, deRandom& rnd, GLValue min, GLValue max)
-{
-	switch (type)
-	{
-		case DrawTestSpec::INPUTTYPE_FLOAT:
-		{
-			alignmentSafeAssignment<float>(data, getRandom<GLValue::Float>(rnd, min.fl, max.fl));
-			break;
-		}
-
-		case DrawTestSpec::INPUTTYPE_SHORT:
-		{
-			alignmentSafeAssignment<deInt16>(data, getRandom<GLValue::Short>(rnd, min.s, max.s));
-			break;
-		}
-
-		case DrawTestSpec::INPUTTYPE_UNSIGNED_SHORT:
-		{
-			alignmentSafeAssignment<deUint16>(data, getRandom<GLValue::Ushort>(rnd, min.us, max.us));
-			break;
-		}
-
-		case DrawTestSpec::INPUTTYPE_BYTE:
-		{
-			alignmentSafeAssignment<deInt8>(data, getRandom<GLValue::Byte>(rnd, min.b, max.b));
-			break;
-		}
-
-		case DrawTestSpec::INPUTTYPE_UNSIGNED_BYTE:
-		{
-			alignmentSafeAssignment<deUint8>(data, getRandom<GLValue::Ubyte>(rnd, min.ub, max.ub));
-			break;
-		}
-
-		case DrawTestSpec::INPUTTYPE_FIXED:
-		{
-			alignmentSafeAssignment<deInt32>(data, getRandom<GLValue::Fixed>(rnd, min.fi, max.fi));
-			break;
-		}
-
-		case DrawTestSpec::INPUTTYPE_INT:
-		{
-			alignmentSafeAssignment<deInt32>(data, getRandom<GLValue::Int>(rnd, min.i, max.i));
-			break;
-		}
-
-		case DrawTestSpec::INPUTTYPE_UNSIGNED_INT:
-		{
-			alignmentSafeAssignment<deUint32>(data, getRandom<GLValue::Uint>(rnd, min.ui, max.ui));
-			break;
-		}
-
-		case DrawTestSpec::INPUTTYPE_HALF:
-		{
-			alignmentSafeAssignment<deFloat16>(data, getRandom<GLValue::Half>(rnd, min.h, max.h).getValue());
-			break;
-		}
-
-		default:
-			DE_ASSERT(false);
-			break;
-	}
-}
 
 char* RandomArrayGenerator::generateArray (int seed, int elementCount, int componentCount, int offset, int stride, DrawTestSpec::InputType type)
 {
@@ -3118,6 +3035,7 @@ static bool containsLineCases (const std::vector<DrawTestSpec>& m_specs)
 DrawTest::DrawTest (tcu::TestContext& testCtx, glu::RenderContext& renderCtx, const DrawTestSpec& spec, const char* name, const char* desc)
 	: TestCase			(testCtx, name, desc)
 	, m_renderCtx		(renderCtx)
+	, m_contextInfo		(DE_NULL)
 	, m_refBuffers		(DE_NULL)
 	, m_refContext		(DE_NULL)
 	, m_glesContext		(DE_NULL)
@@ -3135,6 +3053,7 @@ DrawTest::DrawTest (tcu::TestContext& testCtx, glu::RenderContext& renderCtx, co
 DrawTest::DrawTest (tcu::TestContext& testCtx, glu::RenderContext& renderCtx, const char* name, const char* desc)
 	: TestCase			(testCtx, name, desc)
 	, m_renderCtx		(renderCtx)
+	, m_contextInfo		(DE_NULL)
 	, m_refBuffers		(DE_NULL)
 	, m_refContext		(DE_NULL)
 	, m_glesContext		(DE_NULL)
@@ -3214,6 +3133,7 @@ void DrawTest::init (void)
 	m_maxDiffRed	= deCeilFloatToInt32(256.0f * (6.0f / (float)(1 << m_renderCtx.getRenderTarget().getPixelFormat().redBits)));
 	m_maxDiffGreen	= deCeilFloatToInt32(256.0f * (6.0f / (float)(1 << m_renderCtx.getRenderTarget().getPixelFormat().greenBits)));
 	m_maxDiffBlue	= deCeilFloatToInt32(256.0f * (6.0f / (float)(1 << m_renderCtx.getRenderTarget().getPixelFormat().blueBits)));
+	m_contextInfo	= glu::ContextInfo::create(m_renderCtx);
 }
 
 void DrawTest::deinit (void)
@@ -3223,21 +3143,32 @@ void DrawTest::deinit (void)
 	delete m_refBuffers;
 	delete m_refContext;
 	delete m_glesContext;
+	delete m_contextInfo;
 
 	m_glArrayPack	= DE_NULL;
 	m_rrArrayPack	= DE_NULL;
 	m_refBuffers	= DE_NULL;
 	m_refContext	= DE_NULL;
 	m_glesContext	= DE_NULL;
+	m_contextInfo	= DE_NULL;
 }
 
 DrawTest::IterateResult DrawTest::iterate (void)
 {
 	const int					specNdx			= (m_iteration / 2);
+	const DrawTestSpec&			spec			= m_specs[specNdx];
+
+	if (spec.drawMethod == DrawTestSpec::DRAWMETHOD_DRAWELEMENTS_BASEVERTEX ||
+		spec.drawMethod == DrawTestSpec::DRAWMETHOD_DRAWELEMENTS_INSTANCED_BASEVERTEX ||
+		spec.drawMethod == DrawTestSpec::DRAWMETHOD_DRAWELEMENTS_RANGED_BASEVERTEX)
+	{
+		const bool supportsES32 = contextSupports(m_renderCtx.getType(), glu::ApiType::es(3, 2));
+		TCU_CHECK_AND_THROW(NotSupportedError, supportsES32 || m_contextInfo->isExtensionSupported("GL_EXT_draw_elements_base_vertex"), "GL_EXT_draw_elements_base_vertex is not supported.");
+	}
+
 	const bool					drawStep		= (m_iteration % 2) == 0;
 	const bool					compareStep		= (m_iteration % 2) == 1;
 	const IterateResult			iterateResult	= ((size_t)m_iteration + 1 == m_specs.size()*2) ? (STOP) : (CONTINUE);
-	const DrawTestSpec&			spec			= m_specs[specNdx];
 	const bool					updateProgram	= (m_iteration == 0) || (drawStep && !checkSpecsShaderCompatible(m_specs[specNdx], m_specs[specNdx-1])); // try to use the same shader in all iterations
 	IterationLogSectionEmitter	sectionEmitter	(m_testCtx.getLog(), specNdx, m_specs.size(), m_iteration_descriptions[specNdx], drawStep && m_specs.size()!=1);
 
@@ -3363,6 +3294,7 @@ DrawTest::IterateResult DrawTest::iterate (void)
 			else
 			{
 				m_glArrayPack->render(spec.primitive, spec.drawMethod, spec.first, (int)primitiveElementCount, DrawTestSpec::INDEXTYPE_LAST, DE_NULL, 0, 0, spec.instanceCount, spec.indirectOffset, 0, coordScale, colorScale, DE_NULL);
+				m_testCtx.touchWatchdog();
 				m_rrArrayPack->render(spec.primitive, spec.drawMethod, spec.first, (int)primitiveElementCount, DrawTestSpec::INDEXTYPE_LAST, DE_NULL, 0, 0, spec.instanceCount, spec.indirectOffset, 0, coordScale, colorScale, DE_NULL);
 			}
 		}

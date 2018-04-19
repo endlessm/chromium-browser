@@ -127,7 +127,7 @@ UPDATE_PAYLOAD_DIR = os.path.join(
     constants.UPDATE_ENGINE_SCRIPTS_PATH, 'update_payload')
 
 # Number of seconds to wait for the post check version to settle.
-POST_CHECK_SETTLE_SECONDS = 5
+POST_CHECK_SETTLE_SECONDS = 15
 
 # Number of seconds to delay between post check retries.
 POST_CHECK_RETRY_SECONDS = 5
@@ -154,6 +154,10 @@ class AutoUpdateVerifyError(ChromiumOSUpdateError):
 
 class DevserverCannotStartError(ChromiumOSUpdateError):
   """Raised when devserver cannot restart after stateful update."""
+
+
+class RebootVerificationError(ChromiumOSUpdateError):
+  """Raised for failing to reboot errors."""
 
 
 class BaseUpdater(object):
@@ -1141,8 +1145,7 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
       raise PreSetupUpdateError('%s is not in an installable state' %
                                 self.device.hostname)
 
-  def _VerifyBootExpectations(self, expected_kernel_state, rollback_message,
-                              old_boot_id=None):
+  def _VerifyBootExpectations(self, expected_kernel_state, rollback_message):
     """Verify that we fully booted given expected kernel state.
 
     It verifies that we booted using the correct kernel state, and that the
@@ -1153,14 +1156,8 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
         expect to be booted onto partition 4 etc. See output of _GetKernelState.
       rollback_message: string to raise as a RootfsUpdateError if we booted
         with the wrong partition.
-      old_boot_id: string of previous boot id.  If specified, will verify
-        that this is a different boot.
     """
     logging.debug('Start verifying boot expectations...')
-
-    if old_boot_id and not self.device.CheckIfRebooted(old_boot_id):
-      raise RootfsUpdateError('Device has not rebooted, still boot_id %s' %
-                              old_boot_id)
 
     # Figure out the newly active kernel
     active_kernel_state = self._GetKernelState()[0]
@@ -1386,7 +1383,7 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
                          **self._cmd_kwargs_omit_error)
     self._Reboot('post check of rootfs update')
 
-  def PostCheckCrOSUpdate(self, old_boot_id=None):
+  def PostCheckCrOSUpdate(self):
     """Post check for the whole auto-update process."""
     logging.debug('Post check for the whole CrOS update...')
     start_time = time.time()
@@ -1400,11 +1397,11 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
     # Loop in case the initial check happens before the reboot.
     while True:
       try:
+        start_verify_time = time.time()
         self._VerifyBootExpectations(
             self.inactive_kernel, rollback_message=
             'Build %s failed to boot on %s; system rolled back to previous '
-            'build' % (self.update_version, self.device.hostname),
-            old_boot_id=old_boot_id)
+            'build' % (self.update_version, self.device.hostname))
 
         # Check that we've got the build we meant to install.
         if not self._CheckVersionToConfirmInstall():
@@ -1413,10 +1410,11 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
               '%s instead' % (self.device.hostname,
                               self.update_version,
                               self._GetReleaseVersion()))
-      except (ChromiumOSUpdateError, RootfsUpdateError) as e:
+      except RebootVerificationError as e:
         # If a minimum amount of time since starting the check has not
-        # occurred, wait and retry.
-        if time.time() - start_time < POST_CHECK_SETTLE_SECONDS:
+        # occurred, wait and retry.  Use the start of the verification
+        # time in case an SSH call takes a long time to return/fail.
+        if start_verify_time - start_time < POST_CHECK_SETTLE_SECONDS:
           logging.warning('Delaying for re-check of %s to update to %s (%s)' %
                           (self.device.hostname, self.update_version, e))
           time.sleep(POST_CHECK_RETRY_SECONDS)
@@ -1464,3 +1462,23 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
         self._CollectDevServerHostLog(ds)
       ds.Stop()
       self._CopyHostLogFromDevice('reboot')
+
+  def AwaitReboot(self, old_boot_id):
+    """Await a reboot, ensuring that it is no longer running old_boot_id.
+
+    Args:
+      old_boot_id: The boot_id that must be transitioned away from for success.
+
+    Returns:
+      True if the device has successfully rebooted.
+
+    Raises:
+      RebootVerificationError if a successful reboot has not occurred.
+    """
+    logging.debug('Awaiting reboot from %s...', old_boot_id)
+
+    if not self.device.AwaitReboot(old_boot_id):
+      raise RebootVerificationError('Device has not rebooted from %s' %
+                                    old_boot_id)
+
+    return True

@@ -15,21 +15,23 @@
 namespace vr {
 
 // A repositioner adjusts the position of its children by rotation. The
-// reposition is driven by controller.
+// reposition is driven by controller. It maintains a transform and updates it
+// when enabled as either the head or the controller move. In a nutshell, it
+// rotates the elements per the angular change in the controller orientation,
+// adjusting the up vector of the content so that it aligns with the head's up
+// vector. As the window is being repositioned, we rotate it so that it remains
+// pointing upward.
 class Repositioner : public UiElement {
  public:
-  explicit Repositioner(float content_depth);
+  Repositioner();
   ~Repositioner() override;
-
-  void set_laser_origin(const gfx::Point3F& laser_origin) {
-    laser_origin_ = laser_origin;
-  }
 
   void set_laser_direction(const gfx::Vector3dF& laser_direction) {
     laser_direction_ = laser_direction;
   }
 
-  void set_enable(bool enable) { enabled_ = enable; }
+  void SetEnabled(bool enabled);
+  void Reset();
 
  private:
   gfx::Transform LocalTransform() const override;
@@ -37,13 +39,16 @@ class Repositioner : public UiElement {
   void UpdateTransform(const gfx::Transform& head_pose);
   bool OnBeginFrame(const base::TimeTicks& time,
                     const gfx::Transform& head_pose) override;
+#ifndef NDEBUG
   void DumpGeometry(std::ostringstream* os) const override;
+#endif
 
-  gfx::Transform transform_;
   bool enabled_ = false;
-  float content_depth_;
-  gfx::Point3F laser_origin_;
+  gfx::Transform transform_;
   gfx::Vector3dF laser_direction_;
+
+  gfx::Transform initial_transform_;
+  gfx::Vector3dF initial_laser_direction_;
 
   DISALLOW_COPY_AND_ASSIGN(Repositioner);
 };

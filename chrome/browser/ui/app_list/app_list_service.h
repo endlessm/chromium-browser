@@ -75,13 +75,6 @@ class AppListService {
   // profile to local prefs as the default app list profile.
   virtual void ShowForProfile(Profile* requested_profile) = 0;
 
-  // Shows the app list, and switches to voice search. Used by always-on
-  // hotwording.
-  virtual void ShowForVoiceSearch(
-      Profile* profile,
-      const scoped_refptr<content::SpeechRecognitionSessionPreamble>& preamble)
-      = 0;
-
   // Shows the app list, and reveals the page that contains |extension_id|. This
   // should only be called for things that show in the app list, and only when
   // they begin or complete installing. If |start_discovery_tracking| is set,
@@ -104,9 +97,6 @@ class AppListService {
   // operating system and shell.
   virtual void EnableAppList(Profile* initial_profile,
                              AppListEnableSource enable_source) = 0;
-
-  // Get the window the app list is in, or NULL if the app list isn't visible.
-  virtual gfx::NativeWindow GetAppListWindow() = 0;
 
   // Returns a pointer to the platform specific AppListControllerDelegate.
   virtual AppListControllerDelegate* GetControllerDelegate() = 0;

@@ -69,16 +69,13 @@ class ASH_EXPORT MessageCenterView
 
   void SetIsClosing(bool is_closing);
 
-  base::string16 GetButtonBarTitle() const;
-
   void SetMaxHeight(int max_height) { max_height_ = max_height; }
 
   // Overridden from views::FocusChangeListener
   void OnWillChangeFocus(views::View* before, views::View* now) override {}
   void OnDidChangeFocus(views::View* before, views::View* now) override;
 
-  // Fallback background color when the device does not support blur.
-  static const SkColor kBackgroundColor;
+  void UpdateScrollerShadowVisibility();
 
   static const size_t kMaxVisibleNotifications;
 
@@ -143,7 +140,11 @@ class ASH_EXPORT MessageCenterView
   // - Only NotifierSettingsView moves.
   // Thus, these two methods are needed.
   int GetSettingsHeightForWidth(int width) const;
-  int GetContentHeightDuringAnimation(int width) const;
+  int GetContentHeightDuringAnimation() const;
+
+  // Returns the height for the given |width| of the view correspond to |mode|
+  // e.g. |settings_view_|.
+  int GetContentHeightForMode(Mode mode, int width) const;
 
   message_center::MessageCenter* message_center_;
   message_center::UiController* ui_controller_;
@@ -151,6 +152,7 @@ class ASH_EXPORT MessageCenterView
   // Child views.
   views::ScrollView* scroller_ = nullptr;
   std::unique_ptr<MessageListView> message_list_view_;
+  views::View* scroller_shadow_ = nullptr;
   NotifierSettingsView* settings_view_ = nullptr;
   views::View* no_notifications_view_ = nullptr;
   MessageCenterButtonBar* button_bar_ = nullptr;

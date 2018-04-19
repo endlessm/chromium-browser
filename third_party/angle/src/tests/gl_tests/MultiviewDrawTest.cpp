@@ -223,26 +223,26 @@ class MultiviewRenderTestBase : public MultiviewDrawTest
                 int textureWidth = viewWidth * numViews;
                 glBindTexture(GL_TEXTURE_2D, mColorTexture);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, textureWidth, height, 0, GL_RGBA,
-                             GL_UNSIGNED_BYTE, NULL);
+                             GL_UNSIGNED_BYTE, nullptr);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 
                 glBindTexture(GL_TEXTURE_2D, mDepthTexture);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, textureWidth, height, 0,
-                             GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+                             GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
                 glBindTexture(GL_TEXTURE_2D, 0);
                 break;
             }
             case GL_FRAMEBUFFER_MULTIVIEW_LAYERED_ANGLE:
                 glBindTexture(GL_TEXTURE_2D_ARRAY, mColorTexture);
                 glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, viewWidth, height, numLayers, 0,
-                             GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                             GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 
                 glBindTexture(GL_TEXTURE_2D_ARRAY, mDepthTexture);
                 glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT32F, viewWidth, height,
-                             numLayers, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+                             numLayers, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
                 glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
                 break;
             default:
@@ -483,7 +483,7 @@ class MultiviewRenderPrimitiveTest : public MultiviewRenderTest
         glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(Vector2), vertexData.data(),
                      GL_STATIC_DRAW);
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
     }
 
     void checkGreenChannel(const GLubyte expectedGreenChannelData[])
@@ -762,17 +762,9 @@ TEST_P(MultiviewDrawValidationTest, ActiveTransformFeedback)
 // 2) does not generate any error if the number of views in the draw framebuffer is 1.
 TEST_P(MultiviewDrawValidationTest, ActiveTimeElapsedQuery)
 {
-    if (!requestMultiviewExtension())
-    {
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!requestMultiviewExtension());
 
-    if (!extensionEnabled("GL_EXT_disjoint_timer_query"))
-    {
-        std::cout << "Test skipped because GL_EXT_disjoint_timer_query is not available."
-                  << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!extensionEnabled("GL_EXT_disjoint_timer_query"));
 
     const GLint viewportOffsets[4] = {0, 0, 2, 0};
     const std::string &vsSource =
@@ -1703,7 +1695,7 @@ TEST_P(MultiviewSideBySideRenderTest, NoLeakingFragments)
     glBufferData(GL_ARRAY_BUFFER, vertexDataInClipSpace.size() * sizeof(Vector2),
                  vertexDataInClipSpace.data(), GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
 
     // Test rendering points.
     {

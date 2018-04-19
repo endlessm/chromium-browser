@@ -20,6 +20,7 @@
 #include "ash/system/user/rounded_image_view.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/utf_string_conversions.h"
+#include "mojo/common/values_struct_traits.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/layer_animation_sequence.h"
 #include "ui/compositor/layer_animator.h"
@@ -404,17 +405,13 @@ void LoginUserView::ButtonPressed(views::Button* sender,
   if (sender == user_dropdown_) {
     DCHECK(user_dropdown_);
     if (!user_menu_->IsVisible()) {
-      base::string16 display_name =
-          base::UTF8ToUTF16(current_user_->basic_user_info->display_name);
-
       user_menu_->ShowUserMenu(
-          current_user_->is_device_owner
-              ? l10n_util::GetStringFUTF16(IDS_ASH_LOGIN_POD_OWNER_USER,
-                                           display_name)
-              : display_name,
+          base::UTF8ToUTF16(current_user_->basic_user_info->display_name),
           base::UTF8ToUTF16(current_user_->basic_user_info->display_email),
+          current_user_->basic_user_info->type, current_user_->is_device_owner,
           user_dropdown_ /*anchor_view*/, user_dropdown_ /*bubble_opener*/,
-          false /*show_remove_user*/);
+          current_user_->can_remove /*show_remove_user*/,
+          base::OnceClosure() /*do_remove_user*/);
     } else {
       user_menu_->Close();
     }

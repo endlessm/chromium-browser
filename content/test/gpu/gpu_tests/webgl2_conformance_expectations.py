@@ -88,6 +88,22 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
         'texturelodoffset.html',
         bug=794335)
 
+    self.Fail('conformance2/textures/misc/copy-texture-image-same-texture.html',
+        ['mac', 'linux'], bug=809233)
+    self.Fail('conformance2/textures/misc/copy-texture-image-same-texture.html',
+        ['win', 'nvidia', 'opengl'], bug=809594)
+    self.Fail('conformance2/transform_feedback/simultaneous_binding.html',
+        bug=696345)
+    self.Fail('conformance2/uniforms/' +
+        'incompatible-texture-type-for-sampler.html',
+        bug=809237)
+
+    self.Fail('conformance/glsl/bugs/assign-to-swizzled-twice-in-function.html',
+        ['nvidia'], bug=798117)
+    self.Fail('conformance/glsl/bugs/' +
+        'in-parameter-passed-as-inout-argument-and-global.html',
+        ['nvidia'], bug=792210)
+
     # Windows only.
     self.Fail('conformance2/buffers/uniform-buffers.html',
         ['win'], bug=757098)
@@ -104,6 +120,11 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
         ['win'], bug=736926)
     self.Fail('conformance2/uniforms/uniform-blocks-with-arrays.html',
         ['win'], bug=2103) # angle bug ID
+    self.Fail('conformance2/rendering/' +
+        'framebuffer-texture-changing-base-level.html',
+        ['win'], bug=2291) # angle bug ID
+    self.Fail('conformance/glsl/bugs/if-return-and-elseif.html',
+        ['win'], bug=2325) # angle bug ID
 
     # Win / NVidia
     self.Flaky('deqp/functional/gles3/fbomultisample*',
@@ -195,10 +216,13 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
         ['win', 'nvidia', 'opengl'], bug=791289)
     self.Fail('conformance2/rendering/canvas-resizing-with-pbo-bound.html',
         ['win', 'nvidia', 'opengl'], bug=794613)
-    self.Flaky('deqp/functional/gles3/shadercommonfunction.html',
+    self.Fail('deqp/functional/gles3/shadercommonfunction.html',
         ['win', 'nvidia', 'opengl'], bug=795030)
-    self.Flaky('deqp/functional/gles3/shaderpackingfunction.html',
+    self.Fail('deqp/functional/gles3/shaderpackingfunction.html',
         ['win', 'nvidia', 'opengl'], bug=795030)
+    self.Fail('conformance2/rendering/' +
+        'blitframebuffer-srgb-and-linear-drawbuffers.html',
+        ['win', 'nvidia', 'opengl'], bug=2355) # ANGLE bug ID
 
     # Win / AMD
     self.Fail('conformance2/rendering/blitframebuffer-stencil-only.html',
@@ -1176,6 +1200,8 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
         ['linux', 'amd'], bug=658844)
     self.Fail('conformance2/uniforms/uniform-blocks-with-arrays.html',
         ['linux', 'amd'], bug=2103) # angle bug ID
+    self.Fail('conformance2/uniforms/simple-buffer-change.html',
+        ['linux', 'amd', 'no_angle'], bug=809595)
 
     # Linux AMD R7 240
     self.Fail('conformance2/textures/canvas/' +

@@ -53,6 +53,19 @@ namespace texture
 namespace util
 {
 
+deUint32 findQueueFamilyIndexWithCaps (const InstanceInterface& vkInstance, VkPhysicalDevice physicalDevice, VkQueueFlags requiredCaps)
+{
+	const std::vector<VkQueueFamilyProperties>	queueProps	= getPhysicalDeviceQueueFamilyProperties(vkInstance, physicalDevice);
+
+	for (size_t queueNdx = 0; queueNdx < queueProps.size(); queueNdx++)
+	{
+		if ((queueProps[queueNdx].queueFlags & requiredCaps) == requiredCaps)
+			return (deUint32)queueNdx;
+	}
+
+	TCU_THROW(NotSupportedError, "No matching queue found");
+}
+
 struct ShaderParameters {
 	float		bias;				//!< User-supplied bias.
 	float		ref;				//!< Reference value for shadow lookups.
@@ -285,14 +298,15 @@ void initializePrograms(vk::SourceCollections& programCollection, glu::Precision
 }
 
 TextureBinding::TextureBinding (Context& context)
-	: m_context			(context)
+	: m_context				(context)
 {
 }
 
-TextureBinding::TextureBinding (Context& context, const TestTextureSp& textureData, const TextureBinding::Type type)
-	: m_context			(context)
-	, m_type			(type)
-	, m_textureData		(textureData)
+TextureBinding::TextureBinding (Context& context, const TestTextureSp& textureData, const TextureBinding::Type type, const TextureBinding::ImageBackingMode backingMode)
+	: m_context				(context)
+	, m_type				(type)
+	, m_backingMode			(backingMode)
+	, m_textureData			(textureData)
 {
 	updateTextureData(m_textureData, m_type);
 }
@@ -301,25 +315,25 @@ void TextureBinding::updateTextureData (const TestTextureSp& textureData, const 
 {
 	const DeviceInterface&						vkd						= m_context.getDeviceInterface();
 	const VkDevice								vkDevice				= m_context.getDevice();
-	const VkQueue								queue					= m_context.getUniversalQueue();
-	const deUint32								queueFamilyIndex		= m_context.getUniversalQueueFamilyIndex();
+	const bool									sparse					= m_backingMode == IMAGE_BACKING_MODE_SPARSE;
+	const deUint32								queueFamilyIndices[]	= {m_context.getUniversalQueueFamilyIndex(), m_context.getSparseQueueFamilyIndex()};
 	Allocator&									allocator				= m_context.getDefaultAllocator();
-
 	m_type			= textureType;
 	m_textureData	= textureData;
 
 	const bool									isCube					= m_type == TYPE_CUBE_MAP;
-	const VkImageCreateFlags					imageCreateFlags		= isCube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
+	VkImageCreateFlags							imageCreateFlags		= (isCube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0) | (sparse ? (VK_IMAGE_CREATE_SPARSE_BINDING_BIT | VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT) : 0);
 	const VkImageViewType						imageViewType			= textureTypeToImageViewType(textureType);
 	const VkImageType							imageType				= imageViewTypeToImageType(imageViewType);
 	const VkImageTiling							imageTiling				= VK_IMAGE_TILING_OPTIMAL;
 	const VkImageUsageFlags						imageUsageFlags			= VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-	const VkFormat								format					= mapTextureFormat(textureData->getTextureFormat());
+	const VkFormat								format					= textureData->isCompressed() ? mapCompressedTextureFormat(textureData->getCompressedLevel(0, 0).getFormat()) : mapTextureFormat(textureData->getTextureFormat());
 	const tcu::UVec3							textureDimension		= textureData->getTextureDimension();
 	const deUint32								mipLevels				= textureData->getNumLevels();
 	const deUint32								arraySize				= textureData->getArraySize();
 	vk::VkImageFormatProperties					imageFormatProperties;
 	const VkResult								imageFormatQueryResult	= m_context.getInstanceInterface().getPhysicalDeviceImageFormatProperties(m_context.getPhysicalDevice(), format, imageType, imageTiling, imageUsageFlags, imageCreateFlags, &imageFormatProperties);
+	const VkSharingMode							sharingMode				= (sparse && m_context.getUniversalQueueFamilyIndex() != m_context.getSparseQueueFamilyIndex()) ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
 
 	if (imageFormatQueryResult == VK_ERROR_FORMAT_NOT_SUPPORTED)
 	{
@@ -359,19 +373,44 @@ void TextureBinding::updateTextureData (const TestTextureSp& textureData, const 
 		VK_SAMPLE_COUNT_1_BIT,											// VkSampleCountFlagBits	samples;
 		imageTiling,													// VkImageTiling			tiling;
 		imageUsageFlags,												// VkImageUsageFlags		usage;
-		VK_SHARING_MODE_EXCLUSIVE,										// VkSharingMode			sharingMode;
-		1u,																// deUint32					queueFamilyIndexCount;
-		&queueFamilyIndex,												// const deUint32*			pQueueFamilyIndices;
+		sharingMode,													// VkSharingMode			sharingMode;
+		sharingMode == VK_SHARING_MODE_CONCURRENT ? 2u : 1u,			// deUint32					queueFamilyIndexCount;
+		queueFamilyIndices,												// const deUint32*			pQueueFamilyIndices;
 		VK_IMAGE_LAYOUT_UNDEFINED										// VkImageLayout			initialLayout;
 	};
 
-	m_textureImage			= createImage(vkd, vkDevice, &imageParams);
-	m_textureImageMemory	= allocator.allocate(getImageMemoryRequirements(vkd, vkDevice, *m_textureImage), MemoryRequirement::Any);
-	VK_CHECK(vkd.bindImageMemory(vkDevice, *m_textureImage, m_textureImageMemory->getMemory(), m_textureImageMemory->getOffset()));
+	m_textureImage = createImage(vkd, vkDevice, &imageParams);
+
+	if (sparse)
+	{
+		pipeline::uploadTestTextureSparse	(vkd,
+											 vkDevice,
+											 m_context.getPhysicalDevice(),
+											 m_context.getInstanceInterface(),
+											 imageParams,
+											 m_context.getUniversalQueue(),
+											 m_context.getUniversalQueueFamilyIndex(),
+											 m_context.getSparseQueue(),
+											 allocator,
+											 m_allocations,
+											 *m_textureData,
+											 *m_textureImage);
+	}
+	else
+	{
+		m_textureImageMemory = allocator.allocate(getImageMemoryRequirements(vkd, vkDevice, *m_textureImage), MemoryRequirement::Any);
+		VK_CHECK(vkd.bindImageMemory(vkDevice, *m_textureImage, m_textureImageMemory->getMemory(), m_textureImageMemory->getOffset()));
+
+		pipeline::uploadTestTexture	(vkd,
+									 vkDevice,
+									 m_context.getUniversalQueue(),
+									 m_context.getUniversalQueueFamilyIndex(),
+									 allocator,
+									 *m_textureData,
+									 *m_textureImage);
+	}
 
 	updateTextureViewMipLevels(0, mipLevels - 1);
-
-	pipeline::uploadTestTexture(vkd, vkDevice, queue, queueFamilyIndex, allocator, *m_textureData, *m_textureImage);
 }
 
 void TextureBinding::updateTextureViewMipLevels (deUint32 baseLevel, deUint32 maxLevel)
@@ -379,7 +418,7 @@ void TextureBinding::updateTextureViewMipLevels (deUint32 baseLevel, deUint32 ma
 	const DeviceInterface&						vkd						= m_context.getDeviceInterface();
 	const VkDevice								vkDevice				= m_context.getDevice();
 	const vk::VkImageViewType					imageViewType			= textureTypeToImageViewType(m_type);
-	const vk::VkFormat							format					= mapTextureFormat(m_textureData->getTextureFormat());
+	const vk::VkFormat							format					= m_textureData->isCompressed() ? mapCompressedTextureFormat(m_textureData->getCompressedLevel(0, 0).getFormat()) : mapTextureFormat(m_textureData->getTextureFormat());
 	const bool									isShadowTexture			= tcu::hasDepthComponent(m_textureData->getTextureFormat().order);
 	const VkImageAspectFlags					aspectMask				= isShadowTexture ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
 	const deUint32								layerCount				= m_textureData->getArraySize();
@@ -429,17 +468,7 @@ TextureRenderer::TextureRenderer (Context& context, VkSampleCountFlagBits sample
 	Allocator&									allocator				= m_context.getDefaultAllocator();
 
 	// Command Pool
-	{
-		const VkCommandPoolCreateInfo			cmdPoolCreateInfo		=
-		{
-			VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,					// VkStructureType             sType;
-			DE_NULL,													// const void*                 pNext;
-			VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,			// VkCommandPoolCreateFlags    flags;
-			queueFamilyIndex											// deUint32                    queueFamilyIndex;
-		};
-
-		m_commandPool = createCommandPool(vkd, vkDevice, &cmdPoolCreateInfo, DE_NULL);
-	}
+	m_commandPool = createCommandPool(vkd, vkDevice, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, queueFamilyIndex);
 
 	// Image
 	{
@@ -725,16 +754,7 @@ TextureRenderer::TextureRenderer (Context& context, VkSampleCountFlagBits sample
 	}
 
 	// Fence
-	{
-		const VkFenceCreateInfo					fenceParams					=
-		{
-			VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,	// VkStructureType		sType;
-			DE_NULL,								// const void*			pNext;
-			VK_FENCE_CREATE_SIGNALED_BIT			// VkFenceCreateFlags	flags;
-		};
-
-		m_fence = createFence(vkd, vkDevice, &fenceParams);
-	}
+	m_fence = createFence(vkd, vkDevice);
 
 	// Result Buffer
 	{
@@ -781,16 +801,7 @@ void TextureRenderer::clearImage(VkImage image)
 		1								// deUint32				layerCount;
 	};
 
-	const VkCommandBufferAllocateInfo		cmdBufferAllocateInfo	=
-	{
-		VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,				// VkStructureType             sType;
-		DE_NULL,													// const void*                 pNext;
-		*m_commandPool,												// VkCommandPool               commandPool;
-		VK_COMMAND_BUFFER_LEVEL_PRIMARY,							// VkCommandBufferLevel        level;
-		1															// deUint32                    commandBufferCount;
-	};
-
-	commandBuffer = allocateCommandBuffer(vkd, vkDevice, &cmdBufferAllocateInfo);
+	commandBuffer = allocateCommandBuffer(vkd, vkDevice, *m_commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
 	const VkCommandBufferBeginInfo		cmdBufferBeginInfo		=
 	{
@@ -814,7 +825,7 @@ void TextureRenderer::clearImage(VkImage image)
 	vkd.cmdClearColorImage(*commandBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &color, 1, &subResourcerange);
 
 	addImageTransitionBarrier(*commandBuffer, image,
-							  VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,				// VkPipelineStageFlags		srcStageMask
+							  VK_PIPELINE_STAGE_TRANSFER_BIT,					// VkPipelineStageFlags		srcStageMask
 							  VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,				// VkPipelineStageFlags		dstStageMask
 							  VK_ACCESS_TRANSFER_WRITE_BIT,						// VkAccessFlags			srcAccessMask
 							  VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,				// VkAccessFlags			dstAccessMask
@@ -841,24 +852,24 @@ void TextureRenderer::clearImage(VkImage image)
 	VK_CHECK(vkd.waitForFences(vkDevice, 1, &m_fence.get(), true, ~(0ull) /* infinity */));
 }
 
-void TextureRenderer::add2DTexture (const TestTexture2DSp& texture)
+void TextureRenderer::add2DTexture (const TestTexture2DSp& texture, TextureBinding::ImageBackingMode backingMode)
 {
-	m_textureBindings.push_back(TextureBindingSp(new TextureBinding(m_context, texture, TextureBinding::TYPE_2D)));
+	m_textureBindings.push_back(TextureBindingSp(new TextureBinding(m_context, texture, TextureBinding::TYPE_2D, backingMode)));
 }
 
-void TextureRenderer::addCubeTexture (const TestTextureCubeSp& texture)
+void TextureRenderer::addCubeTexture (const TestTextureCubeSp& texture, TextureBinding::ImageBackingMode backingMode)
 {
-	m_textureBindings.push_back(TextureBindingSp(new TextureBinding(m_context, texture, TextureBinding::TYPE_CUBE_MAP)));
+	m_textureBindings.push_back(TextureBindingSp(new TextureBinding(m_context, texture, TextureBinding::TYPE_CUBE_MAP, backingMode)));
 }
 
-void TextureRenderer::add2DArrayTexture (const TestTexture2DArraySp& texture)
+void TextureRenderer::add2DArrayTexture (const TestTexture2DArraySp& texture, TextureBinding::ImageBackingMode backingMode)
 {
-	m_textureBindings.push_back(TextureBindingSp(new TextureBinding(m_context, texture, TextureBinding::TYPE_2D_ARRAY)));
+	m_textureBindings.push_back(TextureBindingSp(new TextureBinding(m_context, texture, TextureBinding::TYPE_2D_ARRAY, backingMode)));
 }
 
-void TextureRenderer::add3DTexture (const TestTexture3DSp& texture)
+void TextureRenderer::add3DTexture (const TestTexture3DSp& texture, TextureBinding::ImageBackingMode backingMode)
 {
-	m_textureBindings.push_back(TextureBindingSp(new TextureBinding(m_context, texture, TextureBinding::TYPE_3D)));
+	m_textureBindings.push_back(TextureBindingSp(new TextureBinding(m_context, texture, TextureBinding::TYPE_3D, backingMode)));
 }
 
 const pipeline::TestTexture2D& TextureRenderer::get2DTexture (int textureIndex) const
@@ -1122,8 +1133,8 @@ void TextureRenderer::renderQuad (tcu::Surface&									result,
 	else
 		DE_ASSERT(DE_FALSE);
 
-	Unique<VkShaderModule>					vertexShaderModule		(createShaderModule(vkd, vkDevice, m_context.getBinaryCollection().get("vertext_" + std::string(getProgramName(progSpec))), 0));
-	Unique<VkShaderModule>					fragmentShaderModule	(createShaderModule(vkd, vkDevice, m_context.getBinaryCollection().get("fragment_" + std::string(getProgramName(progSpec))), 0));
+	Unique<VkShaderModule>					vertexShaderModule			(createShaderModule(vkd, vkDevice, m_context.getBinaryCollection().get("vertext_" + std::string(getProgramName(progSpec))), 0));
+	Unique<VkShaderModule>					fragmentShaderModule		(createShaderModule(vkd, vkDevice, m_context.getBinaryCollection().get("fragment_" + std::string(getProgramName(progSpec))), 0));
 
 	Move<VkSampler>							sampler;
 	Move<VkDescriptorSet>					descriptorSet[2];
@@ -1134,10 +1145,14 @@ void TextureRenderer::renderQuad (tcu::Surface&									result,
 	Move<VkPipeline>						graphicsPipeline;
 	Move<VkBuffer>							vertexBuffer;
 	de::MovePtr<Allocation>					vertexBufferMemory;
-	const deUint32							positionDataSize		= deUint32(sizeof(float) * 4 * 4);
-	const deUint32							textureCoordDataSize	= deUint32(sizeof(float) * numComps * 4);
 
-	const VkPhysicalDeviceProperties		properties				= m_context.getDeviceProperties();
+	const VkDeviceSize						vertexBufferOffset			= 0;
+	const deUint32							vertexPositionStrideSize	= deUint32(sizeof(tcu::Vec4));
+	const deUint32							vertexTextureStrideSize		= deUint32(numComps * sizeof(float));
+	const deUint32							positionDataSize			= vertexPositionStrideSize * 4u;
+	const deUint32							textureCoordDataSize		= vertexTextureStrideSize * 4u;
+
+	const VkPhysicalDeviceProperties		properties					= m_context.getDeviceProperties();
 
 	if (positionDataSize > properties.limits.maxVertexInputAttributeOffset)
 	{
@@ -1169,9 +1184,6 @@ void TextureRenderer::renderQuad (tcu::Surface&									result,
 				DE_NULL														// const VkSpecializationInfo*		pSpecializationInfo;
 			}
 		};
-
-		const deUint32							vertexPositionStrideSize			= deUint32(sizeof(tcu::Vec4));
-		const deUint32							vertexTextureStrideSize				= deUint32(numComps * sizeof(float));
 
 		const VkVertexInputBindingDescription	vertexInputBindingDescription[2]	=
 		{
@@ -1328,7 +1340,11 @@ void TextureRenderer::renderQuad (tcu::Surface&									result,
 
 		if (samplerCreateInfo.magFilter == VK_FILTER_LINEAR || samplerCreateInfo.minFilter == VK_FILTER_LINEAR || samplerCreateInfo.mipmapMode == VK_SAMPLER_MIPMAP_MODE_LINEAR)
 		{
-			const VkFormatProperties formatProperties = getPhysicalDeviceFormatProperties(m_context.getInstanceInterface(), m_context.getPhysicalDevice(), mapTextureFormat(m_textureBindings[texUnit]->getTestTexture().getTextureFormat()));
+			const pipeline::TestTexture&	testTexture			= m_textureBindings[texUnit]->getTestTexture();
+			const VkFormat					textureFormat		= testTexture.isCompressed() ? mapCompressedTextureFormat(testTexture.getCompressedLevel(0, 0).getFormat())
+																							 : mapTextureFormat          (testTexture.getTextureFormat());
+			const VkFormatProperties		formatProperties	= getPhysicalDeviceFormatProperties(m_context.getInstanceInterface(), m_context.getPhysicalDevice(), textureFormat);
+
 			if (!(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))
 				TCU_THROW(NotSupportedError, "Linear filtering for this image format is not supported");
 		}
@@ -1423,12 +1439,17 @@ void TextureRenderer::renderQuad (tcu::Surface&									result,
 
 	// Create Vertex Buffer
 	{
+		VkDeviceSize bufferSize = positionDataSize + textureCoordDataSize;
+
+		// Pad the buffer size to a stride multiple for the last element so that it isn't out of bounds
+		bufferSize += vertexTextureStrideSize - ((bufferSize - vertexBufferOffset) % vertexTextureStrideSize);
+
 		const VkBufferCreateInfo			vertexBufferParams		=
 		{
 			VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,		// VkStructureType		sType;
 			DE_NULL,									// const void*			pNext;
 			0u,											// VkBufferCreateFlags	flags;
-			positionDataSize + textureCoordDataSize,	// VkDeviceSize			size;
+			bufferSize,									// VkDeviceSize			size;
 			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,			// VkBufferUsageFlags	usage;
 			VK_SHARING_MODE_EXCLUSIVE,					// VkSharingMode		sharingMode;
 			1u,											// deUint32				queueFamilyCount;
@@ -1447,18 +1468,7 @@ void TextureRenderer::renderQuad (tcu::Surface&									result,
 	}
 
 	// Create Command Buffer
-	{
-		const VkCommandBufferAllocateInfo		cmdBufferAllocateInfo	=
-		{
-			VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,				// VkStructureType             sType;
-			DE_NULL,													// const void*                 pNext;
-			*m_commandPool,												// VkCommandPool               commandPool;
-			VK_COMMAND_BUFFER_LEVEL_PRIMARY,							// VkCommandBufferLevel        level;
-			1															// deUint32                    commandBufferCount;
-		};
-
-		commandBuffer = allocateCommandBuffer(vkd, vkDevice, &cmdBufferAllocateInfo);
-	}
+	commandBuffer = allocateCommandBuffer(vkd, vkDevice, *m_commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
 	// Begin Command Buffer
 	{
@@ -1492,8 +1502,6 @@ void TextureRenderer::renderQuad (tcu::Surface&									result,
 		vkd.cmdBeginRenderPass(*commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 	}
 
-	const VkDeviceSize						vertexBufferOffset		= 0;
-
 	vkd.cmdBindPipeline(*commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *graphicsPipeline);
 	vkd.cmdBindDescriptorSets(*commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipelineLayout, 0u, 1, &descriptorSet[0].get(), 0u, DE_NULL);
 	vkd.cmdBindDescriptorSets(*commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipelineLayout, 1u, 1, &descriptorSet[1].get(), 0u, DE_NULL);
@@ -1509,8 +1517,8 @@ void TextureRenderer::renderQuad (tcu::Surface&									result,
 		{
 			VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,	// VkStructureType		sType;
 			DE_NULL,									// const void*			pNext;
-			VK_ACCESS_TRANSFER_WRITE_BIT,				// VkMemoryOutputFlags	outputMask;
-			VK_ACCESS_HOST_READ_BIT,					// VkMemoryInputFlags	inputMask;
+			VK_ACCESS_TRANSFER_WRITE_BIT,				// VkAccessFlags		srcAccessMask;
+			VK_ACCESS_HOST_READ_BIT,					// VkAccessFlags		dstAccessMask;
 			VK_QUEUE_FAMILY_IGNORED,					// deUint32				srcQueueFamilyIndex;
 			VK_QUEUE_FAMILY_IGNORED,					// deUint32				destQueueFamilyIndex;
 			*m_resultBuffer,							// VkBuffer				buffer;

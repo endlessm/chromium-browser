@@ -138,7 +138,6 @@ void TestWebContents::TestDidNavigateWithSequenceNumber(
   params.gesture = NavigationGestureUser;
   params.method = "GET";
   params.post_id = 0;
-  params.was_within_same_document = was_within_same_document;
   params.http_status_code = 200;
   params.url_is_unreachable = false;
   if (item_sequence_number != -1 && document_sequence_number != -1) {
@@ -159,7 +158,7 @@ void TestWebContents::TestDidNavigateWithSequenceNumber(
   params.searchable_form_url = GURL();
   params.searchable_form_encoding = std::string();
 
-  rfh->SendNavigateWithParams(&params);
+  rfh->SendNavigateWithParams(&params, was_within_same_document);
 }
 
 const std::string& TestWebContents::GetSaveFrameHeaders() {
@@ -286,8 +285,9 @@ RenderViewHostDelegateView* TestWebContents::GetDelegateView() {
   return WebContentsImpl::GetDelegateView();
 }
 
-void TestWebContents::SetOpener(TestWebContents* opener) {
-  frame_tree_.root()->SetOpener(opener->GetFrameTree()->root());
+void TestWebContents::SetOpener(WebContents* opener) {
+  frame_tree_.root()->SetOpener(
+      static_cast<WebContentsImpl*>(opener)->GetFrameTree()->root());
 }
 
 void TestWebContents::AddPendingContents(TestWebContents* contents) {
@@ -391,6 +391,16 @@ void TestWebContents::SetWasRecentlyAudible(bool audible) {
 
 void TestWebContents::SetIsCurrentlyAudible(bool audible) {
   audio_stream_monitor()->set_is_currently_audible_for_testing(audible);
+}
+
+void TestWebContents::TestOnUserInteraction(blink::WebInputEvent::Type type) {
+  // Use the first RenderWidgetHost from the frame tree to make sure that the
+  // interaction doesn't get ignored.
+  DCHECK(frame_tree_.Nodes().begin() != frame_tree_.Nodes().end());
+  RenderWidgetHostImpl* render_widget_host = (*frame_tree_.Nodes().begin())
+                                                 ->current_frame_host()
+                                                 ->GetRenderWidgetHost();
+  OnUserInteraction(render_widget_host, type);
 }
 
 }  // namespace content

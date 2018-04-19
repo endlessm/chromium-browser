@@ -215,9 +215,7 @@ void OmniboxViewMac::SaveStateToTab(WebContents* tab) {
 
 void OmniboxViewMac::OnTabChanged(const WebContents* web_contents) {
   const OmniboxViewMacState* state = GetStateFromTab(web_contents);
-  model()->RestoreState(
-      controller()->GetToolbarModel()->GetFormattedURL(nullptr),
-      state ? &state->model_state : NULL);
+  model()->RestoreState(state ? &state->model_state : NULL);
   // Restore focus and selection if they were present when the tab
   // was switched away.
   if (state && state->has_focus) {
@@ -238,8 +236,7 @@ void OmniboxViewMac::ResetTabState(WebContents* web_contents) {
 }
 
 void OmniboxViewMac::Update() {
-  if (model()->SetPermanentText(
-          controller()->GetToolbarModel()->GetFormattedURL(nullptr))) {
+  if (model()->ResetDisplayUrls()) {
     // Restore everything to the baseline look.
     RevertAll();
 
@@ -398,10 +395,6 @@ void OmniboxViewMac::RevertAll() {
 }
 
 void OmniboxViewMac::UpdatePopup() {
-  model()->SetInputInProgress(true);
-  if (!model()->has_focus())
-    return;
-
   // Comment copied from OmniboxViewWin::UpdatePopup():
   // Don't inline autocomplete when:
   //   * The user is deleting text
@@ -415,8 +408,8 @@ void OmniboxViewMac::UpdatePopup() {
       prevent_inline_autocomplete = true;
   }
 
-  model()->StartAutocomplete([editor selectedRange].length != 0,
-                            prevent_inline_autocomplete);
+  model()->UpdateInput([editor selectedRange].length != 0,
+                       prevent_inline_autocomplete);
 }
 
 void OmniboxViewMac::CloseOmniboxPopup() {
@@ -596,7 +589,8 @@ void OmniboxViewMac::ApplyTextAttributes(
   DCHECK(attributing_display_string_ == nil);
   base::AutoReset<NSMutableAttributedString*> resetter(
       &attributing_display_string_, attributed_string);
-  UpdateTextStyle(display_text, ChromeAutocompleteSchemeClassifier(profile_));
+  UpdateTextStyle(display_text, model()->CurrentTextIsURL(),
+                  ChromeAutocompleteSchemeClassifier(profile_));
 }
 
 void OmniboxViewMac::OnTemporaryTextMaybeChanged(

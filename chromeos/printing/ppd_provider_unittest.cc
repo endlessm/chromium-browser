@@ -74,14 +74,28 @@ class PpdProviderTest : public ::testing::Test {
 
   void TearDown() override { StopFakePpdServer(); }
 
-  // Create and return a provider for a test that uses the given |locale|.
-  scoped_refptr<PpdProvider> CreateProvider(const std::string& locale) {
+  // Create and return a provider for a test that uses the given |locale|.  If
+  // run_cache_on_test_thread is true, we'll run the cache using the
+  // scoped_task_environment_; otherwise we'll let it spawn it's own background
+  // threads.  You should only run the cache on the test thread if you need to
+  // explicity drain cache actions independently of draining ppd provider
+  // actions; otherwise letting the cache spawn its own thread should be safe,
+  // and better exercises the code paths under test.
+  scoped_refptr<PpdProvider> CreateProvider(const std::string& locale,
+                                            bool run_cache_on_test_thread) {
     auto provider_options = PpdProvider::Options();
     provider_options.ppd_server_root = std::string("https://") + kPpdServer;
 
+    if (run_cache_on_test_thread) {
+      ppd_cache_ = PpdCache::CreateForTesting(
+          ppd_cache_temp_dir_.GetPath(),
+          scoped_task_environment_.GetMainThreadTaskRunner());
+    } else {
+      ppd_cache_ = PpdCache::Create(ppd_cache_temp_dir_.GetPath());
+    }
     return PpdProvider::Create(locale, request_context_getter_.get(),
-                               PpdCache::Create(ppd_cache_temp_dir_.GetPath()),
-                               base::Version("40.8.6753.09"), provider_options);
+                               ppd_cache_, base::Version("40.8.6753.09"),
+                               provider_options);
   }
 
   // Create an interceptor that serves a small fileset of ppd server files.
@@ -252,8 +266,8 @@ class PpdProviderTest : public ::testing::Test {
   void RunLocalizationTest(const std::string& browser_locale,
                            const std::string& expected_used_locale) {
     captured_resolve_manufacturers_.clear();
-    auto provider = CreateProvider(browser_locale);
-    provider->ResolveManufacturers(base::Bind(
+    auto provider = CreateProvider(browser_locale, false);
+    provider->ResolveManufacturers(base::BindOnce(
         &PpdProviderTest::CaptureResolveManufacturers, base::Unretained(this)));
     scoped_task_environment_.RunUntilIdle();
     provider = nullptr;
@@ -302,8 +316,9 @@ class PpdProviderTest : public ::testing::Test {
   base::ScopedTempDir ppd_cache_temp_dir_;
   base::ScopedTempDir interceptor_temp_dir_;
 
-  // Provider to be used in the test.
-  scoped_refptr<PpdProvider> ppd_provider_;
+  // Reference to the underlying ppd_cache_ so we can muck with it to test
+  // cache-dependent behavior of ppd_provider_.
+  scoped_refptr<PpdCache> ppd_cache_;
 
   // Misc extra stuff needed for the test environment to function.
   //  base::TestMessageLoop loop_;
@@ -313,11 +328,11 @@ class PpdProviderTest : public ::testing::Test {
 // Test that we get back manufacturer maps as expected.
 TEST_F(PpdProviderTest, ManufacturersFetch) {
   StartFakePpdServer();
-  auto provider = CreateProvider("en");
+  auto provider = CreateProvider("en", false);
   // Issue two requests at the same time, both should be resolved properly.
-  provider->ResolveManufacturers(base::Bind(
+  provider->ResolveManufacturers(base::BindOnce(
       &PpdProviderTest::CaptureResolveManufacturers, base::Unretained(this)));
-  provider->ResolveManufacturers(base::Bind(
+  provider->ResolveManufacturers(base::BindOnce(
       &PpdProviderTest::CaptureResolveManufacturers, base::Unretained(this)));
   scoped_task_environment_.RunUntilIdle();
   ASSERT_EQ(2UL, captured_resolve_manufacturers_.size());
@@ -333,11 +348,11 @@ TEST_F(PpdProviderTest, ManufacturersFetch) {
 // is almost exactly the same as the above test, we just don't bring up the fake
 // server first.
 TEST_F(PpdProviderTest, ManufacturersFetchNoServer) {
-  auto provider = CreateProvider("en");
+  auto provider = CreateProvider("en", false);
   // Issue two requests at the same time, both should be resolved properly.
-  provider->ResolveManufacturers(base::Bind(
+  provider->ResolveManufacturers(base::BindOnce(
       &PpdProviderTest::CaptureResolveManufacturers, base::Unretained(this)));
-  provider->ResolveManufacturers(base::Bind(
+  provider->ResolveManufacturers(base::BindOnce(
       &PpdProviderTest::CaptureResolveManufacturers, base::Unretained(this)));
   scoped_task_environment_.RunUntilIdle();
   ASSERT_EQ(2UL, captured_resolve_manufacturers_.size());
@@ -363,7 +378,7 @@ TEST_F(PpdProviderTest, LocalizationAndFallbacks) {
 // simultaneously.
 TEST_F(PpdProviderTest, RepeatedMakeModel) {
   StartFakePpdServer();
-  auto provider = CreateProvider("en");
+  auto provider = CreateProvider("en", false);
 
   PpdProvider::PrinterSearchData unrecognized_printer;
   unrecognized_printer.make_and_model = {"Printer Printer"};
@@ -377,15 +392,15 @@ TEST_F(PpdProviderTest, RepeatedMakeModel) {
   // Resolve the same thing repeatedly.
   provider->ResolvePpdReference(
       unrecognized_printer,
-      base::Bind(&PpdProviderTest::CaptureResolvePpdReference,
-                 base::Unretained(this)));
+      base::BindOnce(&PpdProviderTest::CaptureResolvePpdReference,
+                     base::Unretained(this)));
   provider->ResolvePpdReference(
-      mixed, base::Bind(&PpdProviderTest::CaptureResolvePpdReference,
-                        base::Unretained(this)));
+      mixed, base::BindOnce(&PpdProviderTest::CaptureResolvePpdReference,
+                            base::Unretained(this)));
   provider->ResolvePpdReference(
       recognized_printer,
-      base::Bind(&PpdProviderTest::CaptureResolvePpdReference,
-                 base::Unretained(this)));
+      base::BindOnce(&PpdProviderTest::CaptureResolvePpdReference,
+                     base::Unretained(this)));
   scoped_task_environment_.RunUntilIdle();
 
   ASSERT_EQ(static_cast<size_t>(3), captured_resolve_ppd_references_.size());
@@ -403,7 +418,7 @@ TEST_F(PpdProviderTest, RepeatedMakeModel) {
 // Test successful and unsuccessful usb resolutions.
 TEST_F(PpdProviderTest, UsbResolution) {
   StartFakePpdServer();
-  auto provider = CreateProvider("en");
+  auto provider = CreateProvider("en", false);
 
   PpdProvider::PrinterSearchData search_data;
 
@@ -411,21 +426,21 @@ TEST_F(PpdProviderTest, UsbResolution) {
   search_data.usb_vendor_id = 0x031f;
   search_data.usb_product_id = 1592;
   provider->ResolvePpdReference(
-      search_data, base::Bind(&PpdProviderTest::CaptureResolvePpdReference,
-                              base::Unretained(this)));
+      search_data, base::BindOnce(&PpdProviderTest::CaptureResolvePpdReference,
+                                  base::Unretained(this)));
   // Should get back "Some other canonical reference"
   search_data.usb_vendor_id = 0x031f;
   search_data.usb_product_id = 6535;
   provider->ResolvePpdReference(
-      search_data, base::Bind(&PpdProviderTest::CaptureResolvePpdReference,
-                              base::Unretained(this)));
+      search_data, base::BindOnce(&PpdProviderTest::CaptureResolvePpdReference,
+                                  base::Unretained(this)));
 
   // Extant vendor id, nonexistant device id, should get a NOT_FOUND
   search_data.usb_vendor_id = 0x031f;
   search_data.usb_product_id = 8162;
   provider->ResolvePpdReference(
-      search_data, base::Bind(&PpdProviderTest::CaptureResolvePpdReference,
-                              base::Unretained(this)));
+      search_data, base::BindOnce(&PpdProviderTest::CaptureResolvePpdReference,
+                                  base::Unretained(this)));
 
   // Nonexistant vendor id, should get a NOT_FOUND in the real world, but
   // the URL interceptor we're using considers all nonexistant files to
@@ -434,8 +449,8 @@ TEST_F(PpdProviderTest, UsbResolution) {
   search_data.usb_vendor_id = 1234;
   search_data.usb_product_id = 1782;
   provider->ResolvePpdReference(
-      search_data, base::Bind(&PpdProviderTest::CaptureResolvePpdReference,
-                              base::Unretained(this)));
+      search_data, base::BindOnce(&PpdProviderTest::CaptureResolvePpdReference,
+                                  base::Unretained(this)));
   scoped_task_environment_.RunUntilIdle();
 
   ASSERT_EQ(captured_resolve_ppd_references_.size(), static_cast<size_t>(4));
@@ -458,20 +473,22 @@ void ResolveManufacturersNop(PpdProvider::CallbackResultCode code,
 // sure we can get the PpdReference for each of the resolved printers.
 TEST_F(PpdProviderTest, ResolvePrinters) {
   StartFakePpdServer();
-  auto provider = CreateProvider("en");
+  auto provider = CreateProvider("en", false);
 
   // Grab the manufacturer list, but don't bother to save it, we know what
   // should be in it and we check that elsewhere.  We just need to run the
   // resolve to populate the internal PpdProvider structures.
-  provider->ResolveManufacturers(base::Bind(&ResolveManufacturersNop));
+  provider->ResolveManufacturers(base::BindOnce(&ResolveManufacturersNop));
   scoped_task_environment_.RunUntilIdle();
 
-  provider->ResolvePrinters("manufacturer_a_en",
-                            base::Bind(&PpdProviderTest::CaptureResolvePrinters,
-                                       base::Unretained(this)));
-  provider->ResolvePrinters("manufacturer_b_en",
-                            base::Bind(&PpdProviderTest::CaptureResolvePrinters,
-                                       base::Unretained(this)));
+  provider->ResolvePrinters(
+      "manufacturer_a_en",
+      base::BindOnce(&PpdProviderTest::CaptureResolvePrinters,
+                     base::Unretained(this)));
+  provider->ResolvePrinters(
+      "manufacturer_b_en",
+      base::BindOnce(&PpdProviderTest::CaptureResolvePrinters,
+                     base::Unretained(this)));
 
   scoped_task_environment_.RunUntilIdle();
   ASSERT_EQ(2UL, captured_resolve_printers_.size());
@@ -502,13 +519,14 @@ TEST_F(PpdProviderTest, ResolvePrinters) {
 // INTERNAL_ERROR.
 TEST_F(PpdProviderTest, ResolvePrintersBadReference) {
   StartFakePpdServer();
-  auto provider = CreateProvider("en");
-  provider->ResolveManufacturers(base::Bind(&ResolveManufacturersNop));
+  auto provider = CreateProvider("en", false);
+  provider->ResolveManufacturers(base::BindOnce(&ResolveManufacturersNop));
   scoped_task_environment_.RunUntilIdle();
 
-  provider->ResolvePrinters("bogus_doesnt_exist",
-                            base::Bind(&PpdProviderTest::CaptureResolvePrinters,
-                                       base::Unretained(this)));
+  provider->ResolvePrinters(
+      "bogus_doesnt_exist",
+      base::BindOnce(&PpdProviderTest::CaptureResolvePrinters,
+                     base::Unretained(this)));
   scoped_task_environment_.RunUntilIdle();
   ASSERT_EQ(1UL, captured_resolve_printers_.size());
   EXPECT_EQ(PpdProvider::INTERNAL_ERROR, captured_resolve_printers_[0].first);
@@ -517,18 +535,20 @@ TEST_F(PpdProviderTest, ResolvePrintersBadReference) {
 // Test that if the server is unavailable, we get SERVER_ERRORs back out.
 TEST_F(PpdProviderTest, ResolvePrintersNoServer) {
   StartFakePpdServer();
-  auto provider = CreateProvider("en");
-  provider->ResolveManufacturers(base::Bind(&ResolveManufacturersNop));
+  auto provider = CreateProvider("en", false);
+  provider->ResolveManufacturers(base::BindOnce(&ResolveManufacturersNop));
   scoped_task_environment_.RunUntilIdle();
 
   StopFakePpdServer();
 
-  provider->ResolvePrinters("manufacturer_a_en",
-                            base::Bind(&PpdProviderTest::CaptureResolvePrinters,
-                                       base::Unretained(this)));
-  provider->ResolvePrinters("manufacturer_b_en",
-                            base::Bind(&PpdProviderTest::CaptureResolvePrinters,
-                                       base::Unretained(this)));
+  provider->ResolvePrinters(
+      "manufacturer_a_en",
+      base::BindOnce(&PpdProviderTest::CaptureResolvePrinters,
+                     base::Unretained(this)));
+  provider->ResolvePrinters(
+      "manufacturer_b_en",
+      base::BindOnce(&PpdProviderTest::CaptureResolvePrinters,
+                     base::Unretained(this)));
   scoped_task_environment_.RunUntilIdle();
   ASSERT_EQ(2UL, captured_resolve_printers_.size());
   EXPECT_EQ(PpdProvider::SERVER_ERROR, captured_resolve_printers_[0].first);
@@ -538,14 +558,14 @@ TEST_F(PpdProviderTest, ResolvePrintersNoServer) {
 // Test a successful ppd resolution from an effective_make_and_model reference.
 TEST_F(PpdProviderTest, ResolveServerKeyPpd) {
   StartFakePpdServer();
-  auto provider = CreateProvider("en");
+  auto provider = CreateProvider("en", false);
   Printer::PpdReference ref;
   ref.effective_make_and_model = "printer_b_ref";
-  provider->ResolvePpd(ref, base::Bind(&PpdProviderTest::CaptureResolvePpd,
-                                       base::Unretained(this)));
+  provider->ResolvePpd(ref, base::BindOnce(&PpdProviderTest::CaptureResolvePpd,
+                                           base::Unretained(this)));
   ref.effective_make_and_model = "printer_c_ref";
-  provider->ResolvePpd(ref, base::Bind(&PpdProviderTest::CaptureResolvePpd,
-                                       base::Unretained(this)));
+  provider->ResolvePpd(ref, base::BindOnce(&PpdProviderTest::CaptureResolvePpd,
+                                           base::Unretained(this)));
   scoped_task_environment_.RunUntilIdle();
 
   ASSERT_EQ(2UL, captured_resolve_ppd_.size());
@@ -561,13 +581,13 @@ TEST_F(PpdProviderTest, ResolveServerKeyPpd) {
 // implications.
 TEST_F(PpdProviderTest, ResolveUserSuppliedUrlPpdFromNetworkFails) {
   StartFakePpdServer();
-  auto provider = CreateProvider("en");
+  auto provider = CreateProvider("en", false);
 
   Printer::PpdReference ref;
   ref.user_supplied_ppd_url = base::StringPrintf(
       "https://%s/user_supplied_ppd_directory/user_supplied.ppd", kPpdServer);
-  provider->ResolvePpd(ref, base::Bind(&PpdProviderTest::CaptureResolvePpd,
-                                       base::Unretained(this)));
+  provider->ResolvePpd(ref, base::BindOnce(&PpdProviderTest::CaptureResolvePpd,
+                                           base::Unretained(this)));
   scoped_task_environment_.RunUntilIdle();
 
   ASSERT_EQ(1UL, captured_resolve_ppd_.size());
@@ -579,7 +599,7 @@ TEST_F(PpdProviderTest, ResolveUserSuppliedUrlPpdFromNetworkFails) {
 // reading from a file.  Note we shouldn't need the server to be up
 // to do this successfully, as we should be able to do this offline.
 TEST_F(PpdProviderTest, ResolveUserSuppliedUrlPpdFromFile) {
-  auto provider = CreateProvider("en");
+  auto provider = CreateProvider("en", false);
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   base::FilePath filename = temp_dir.GetPath().Append("my_spiffy.ppd");
@@ -593,8 +613,8 @@ TEST_F(PpdProviderTest, ResolveUserSuppliedUrlPpdFromFile) {
   Printer::PpdReference ref;
   ref.user_supplied_ppd_url =
       base::StringPrintf("file://%s", filename.MaybeAsASCII().c_str());
-  provider->ResolvePpd(ref, base::Bind(&PpdProviderTest::CaptureResolvePpd,
-                                       base::Unretained(this)));
+  provider->ResolvePpd(ref, base::BindOnce(&PpdProviderTest::CaptureResolvePpd,
+                                           base::Unretained(this)));
   scoped_task_environment_.RunUntilIdle();
 
   ASSERT_EQ(1UL, captured_resolve_ppd_.size());
@@ -605,7 +625,7 @@ TEST_F(PpdProviderTest, ResolveUserSuppliedUrlPpdFromFile) {
 // Test that we cache ppd resolutions when we fetch them and that we can resolve
 // from the cache without the server available.
 TEST_F(PpdProviderTest, ResolvedPpdsGetCached) {
-  auto provider = CreateProvider("en");
+  auto provider = CreateProvider("en", false);
   std::string user_ppd_contents = "Woohoo";
   Printer::PpdReference ref;
   {
@@ -619,8 +639,9 @@ TEST_F(PpdProviderTest, ResolvedPpdsGetCached) {
 
     ref.user_supplied_ppd_url =
         base::StringPrintf("file://%s", filename.MaybeAsASCII().c_str());
-    provider->ResolvePpd(ref, base::Bind(&PpdProviderTest::CaptureResolvePpd,
-                                         base::Unretained(this)));
+    provider->ResolvePpd(ref,
+                         base::BindOnce(&PpdProviderTest::CaptureResolvePpd,
+                                        base::Unretained(this)));
     scoped_task_environment_.RunUntilIdle();
 
     ASSERT_EQ(1UL, captured_resolve_ppd_.size());
@@ -635,11 +656,11 @@ TEST_F(PpdProviderTest, ResolvedPpdsGetCached) {
 
   // Recreate the provider to make sure we don't have any memory caches which
   // would mask problems with disk persistence.
-  provider = CreateProvider("en");
+  provider = CreateProvider("en", false);
 
   // Re-resolve.
-  provider->ResolvePpd(ref, base::Bind(&PpdProviderTest::CaptureResolvePpd,
-                                       base::Unretained(this)));
+  provider->ResolvePpd(ref, base::BindOnce(&PpdProviderTest::CaptureResolvePpd,
+                                           base::Unretained(this)));
   scoped_task_environment_.RunUntilIdle();
 
   ASSERT_EQ(1UL, captured_resolve_ppd_.size());
@@ -651,14 +672,14 @@ TEST_F(PpdProviderTest, ResolvedPpdsGetCached) {
 // from the ppds resolved.
 TEST_F(PpdProviderTest, ExtractPpdFilters) {
   StartFakePpdServer();
-  auto provider = CreateProvider("en");
+  auto provider = CreateProvider("en", false);
   Printer::PpdReference ref;
   ref.effective_make_and_model = "printer_a_ref";
-  provider->ResolvePpd(ref, base::Bind(&PpdProviderTest::CaptureResolvePpd,
-                                       base::Unretained(this)));
+  provider->ResolvePpd(ref, base::BindOnce(&PpdProviderTest::CaptureResolvePpd,
+                                           base::Unretained(this)));
   ref.effective_make_and_model = "printer_b_ref";
-  provider->ResolvePpd(ref, base::Bind(&PpdProviderTest::CaptureResolvePpd,
-                                       base::Unretained(this)));
+  provider->ResolvePpd(ref, base::BindOnce(&PpdProviderTest::CaptureResolvePpd,
+                                           base::Unretained(this)));
   scoped_task_environment_.RunUntilIdle();
 
   ASSERT_EQ(2UL, captured_resolve_ppd_.size());
@@ -685,19 +706,19 @@ TEST_F(PpdProviderTest, ExtractPpdFilters) {
 // given effective make and model.
 TEST_F(PpdProviderTest, ReverseLookup) {
   StartFakePpdServer();
-  auto provider = CreateProvider("en");
+  auto provider = CreateProvider("en", false);
   std::string ref = "printer_a_ref";
   provider->ReverseLookup(ref,
-                          base::Bind(&PpdProviderTest::CaptureReverseLookup,
-                                     base::Unretained(this)));
+                          base::BindOnce(&PpdProviderTest::CaptureReverseLookup,
+                                         base::Unretained(this)));
   // TODO(skau): PpdProvider has a race condition that prevents running these
   // requests in parallel.
   scoped_task_environment_.RunUntilIdle();
 
   std::string ref_fail = "printer_does_not_exist";
   provider->ReverseLookup(ref_fail,
-                          base::Bind(&PpdProviderTest::CaptureReverseLookup,
-                                     base::Unretained(this)));
+                          base::BindOnce(&PpdProviderTest::CaptureReverseLookup,
+                                         base::Unretained(this)));
   scoped_task_environment_.RunUntilIdle();
 
   ASSERT_EQ(2U, captured_reverse_lookup_.size());
@@ -708,6 +729,163 @@ TEST_F(PpdProviderTest, ReverseLookup) {
 
   CapturedReverseLookup failed_capture = captured_reverse_lookup_[1];
   EXPECT_EQ(PpdProvider::NOT_FOUND, failed_capture.code);
+}
+
+// If we have a fresh entry in the cache, we shouldn't need to go out to the
+// network at all to successfully resolve a ppd.
+TEST_F(PpdProviderTest, FreshCacheHitNoNetworkTraffic) {
+  // Explicitly *not* starting a fake server.
+  std::string cached_ppd_contents =
+      "These cached contents are different from what's being served";
+  auto provider = CreateProvider("en", true);
+  Printer::PpdReference ref;
+  ref.effective_make_and_model = "printer_a_ref";
+  std::string cache_key = PpdProvider::PpdReferenceToCacheKey(ref);
+  // Cache exists, and is just created, so should be fresh.
+  ppd_cache_->StoreForTesting(PpdProvider::PpdReferenceToCacheKey(ref),
+                              cached_ppd_contents, base::TimeDelta());
+  scoped_task_environment_.RunUntilIdle();
+  provider->ResolvePpd(ref, base::Bind(&PpdProviderTest::CaptureResolvePpd,
+                                       base::Unretained(this)));
+  scoped_task_environment_.RunUntilIdle();
+  ASSERT_EQ(1UL, captured_resolve_ppd_.size());
+
+  // Should get the cached (not served) results back, and not have hit the
+  // network.
+  EXPECT_EQ(PpdProvider::SUCCESS, captured_resolve_ppd_[0].code);
+  EXPECT_EQ(cached_ppd_contents, captured_resolve_ppd_[0].ppd_contents);
+}
+
+// If we have a stale cache entry and a good network connection, does the cache
+// get refreshed during a resolution?
+TEST_F(PpdProviderTest, StaleCacheGetsRefreshed) {
+  StartFakePpdServer();
+  std::string cached_ppd_contents =
+      "These cached contents are different from what's being served";
+  auto provider = CreateProvider("en", true);
+  // printer_ref_a resolves to kCupsFilterPpdContents on the server.
+  std::string expected_ppd = kCupsFilterPpdContents;
+  Printer::PpdReference ref;
+  ref.effective_make_and_model = "printer_a_ref";
+  std::string cache_key = PpdProvider::PpdReferenceToCacheKey(ref);
+  // Cache exists, and is 6 months old, so really stale.
+  ppd_cache_->StoreForTesting(PpdProvider::PpdReferenceToCacheKey(ref),
+                              cached_ppd_contents,
+                              base::TimeDelta::FromDays(180));
+  scoped_task_environment_.RunUntilIdle();
+  provider->ResolvePpd(ref, base::Bind(&PpdProviderTest::CaptureResolvePpd,
+                                       base::Unretained(this)));
+  scoped_task_environment_.RunUntilIdle();
+  ASSERT_EQ(1UL, captured_resolve_ppd_.size());
+
+  // Should get the served results back, not the stale cached ones.
+  EXPECT_EQ(PpdProvider::SUCCESS, captured_resolve_ppd_[0].code);
+  EXPECT_EQ(captured_resolve_ppd_[0].ppd_contents, expected_ppd);
+  EXPECT_GT(interceptor_->GetHitCount(), 0);
+
+  // Check that the cache was also updated.
+  PpdCache::FindResult captured_find_result;
+  // This is just a complicated syntax around the idea "use the Find callback to
+  // save the result in captured_find_result.
+  ppd_cache_->Find(PpdProvider::PpdReferenceToCacheKey(ref),
+                   base::BindOnce(
+                       [](PpdCache::FindResult* captured_find_result,
+                          const PpdCache::FindResult& find_result) {
+                         *captured_find_result = find_result;
+                       },
+                       &captured_find_result));
+  scoped_task_environment_.RunUntilIdle();
+  EXPECT_EQ(captured_find_result.success, true);
+  EXPECT_EQ(captured_find_result.contents, expected_ppd);
+  EXPECT_LT(captured_find_result.age, base::TimeDelta::FromDays(1));
+}
+
+// Test that, if we have an old entry in the cache that needs to be refreshed,
+// and we fail to contact the server, we still use the cached version.
+TEST_F(PpdProviderTest, StaleCacheGetsUsedIfNetworkFails) {
+  // Note that we're explicitly *not* starting the Fake ppd server in this test.
+  std::string cached_ppd_contents =
+      "These cached contents are different from what's being served";
+  auto provider = CreateProvider("en", true);
+  Printer::PpdReference ref;
+  ref.effective_make_and_model = "printer_a_ref";
+  std::string cache_key = PpdProvider::PpdReferenceToCacheKey(ref);
+  // Cache exists, and is 6 months old, so really stale.
+  ppd_cache_->StoreForTesting(PpdProvider::PpdReferenceToCacheKey(ref),
+                              cached_ppd_contents,
+                              base::TimeDelta::FromDays(180));
+  scoped_task_environment_.RunUntilIdle();
+  provider->ResolvePpd(ref, base::Bind(&PpdProviderTest::CaptureResolvePpd,
+                                       base::Unretained(this)));
+  scoped_task_environment_.RunUntilIdle();
+  ASSERT_EQ(1UL, captured_resolve_ppd_.size());
+
+  // Should successfully resolve from the cache, even though it's stale.
+  EXPECT_EQ(PpdProvider::SUCCESS, captured_resolve_ppd_[0].code);
+  EXPECT_EQ(cached_ppd_contents, captured_resolve_ppd_[0].ppd_contents);
+
+  // Check that the cache is *not* updated; it should remain stale.
+  PpdCache::FindResult captured_find_result;
+  // This is just a complicated syntax around the idea "use the Find callback to
+  // save the result in captured_find_result.
+  ppd_cache_->Find(PpdProvider::PpdReferenceToCacheKey(ref),
+                   base::BindOnce(
+                       [](PpdCache::FindResult* captured_find_result,
+                          const PpdCache::FindResult& find_result) {
+                         *captured_find_result = find_result;
+                       },
+                       &captured_find_result));
+  scoped_task_environment_.RunUntilIdle();
+  EXPECT_EQ(captured_find_result.success, true);
+  EXPECT_EQ(captured_find_result.contents, cached_ppd_contents);
+  EXPECT_GT(captured_find_result.age, base::TimeDelta::FromDays(179));
+}
+
+// For user-provided ppds, we should always use the latest version on
+// disk if it still exists there.
+TEST_F(PpdProviderTest, UserPpdAlwaysRefreshedIfAvailable) {
+  base::ScopedTempDir temp_dir;
+  StartFakePpdServer();
+  std::string cached_ppd_contents = "Cached Ppd Contents";
+  std::string disk_ppd_contents = "Updated Ppd Contents";
+  auto provider = CreateProvider("en", true);
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+  base::FilePath filename = temp_dir.GetPath().Append("my_spiffy.ppd");
+
+  Printer::PpdReference ref;
+  ref.user_supplied_ppd_url =
+      base::StringPrintf("file://%s", filename.MaybeAsASCII().c_str());
+
+  // Put cached_ppd_contents into the cache.
+  ppd_cache_->StoreForTesting(PpdProvider::PpdReferenceToCacheKey(ref),
+                              cached_ppd_contents, base::TimeDelta());
+  scoped_task_environment_.RunUntilIdle();
+
+  // Write different contents to disk, so that the cached contents are
+  // now stale.
+  ASSERT_EQ(base::WriteFile(filename, disk_ppd_contents.data(),
+                            disk_ppd_contents.size()),
+            static_cast<int>(disk_ppd_contents.size()));
+
+  provider->ResolvePpd(ref, base::Bind(&PpdProviderTest::CaptureResolvePpd,
+                                       base::Unretained(this)));
+  scoped_task_environment_.RunUntilIdle();
+  ASSERT_EQ(1UL, captured_resolve_ppd_.size());
+  EXPECT_EQ(PpdProvider::SUCCESS, captured_resolve_ppd_[0].code);
+  EXPECT_EQ(disk_ppd_contents, captured_resolve_ppd_[0].ppd_contents);
+
+  // Check that the cache was also updated with the new contents.
+  PpdCache::FindResult captured_find_result;
+  ppd_cache_->Find(PpdProvider::PpdReferenceToCacheKey(ref),
+                   base::BindOnce(
+                       [](PpdCache::FindResult* captured_find_result,
+                          const PpdCache::FindResult& find_result) {
+                         *captured_find_result = find_result;
+                       },
+                       &captured_find_result));
+  scoped_task_environment_.RunUntilIdle();
+  EXPECT_EQ(captured_find_result.success, true);
+  EXPECT_EQ(captured_find_result.contents, disk_ppd_contents);
 }
 
 }  // namespace

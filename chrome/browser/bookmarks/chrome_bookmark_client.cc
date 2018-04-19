@@ -18,7 +18,7 @@
 #include "components/favicon/core/favicon_util.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/url_database.h"
-#include "components/offline_pages/features/features.h"
+#include "components/offline_pages/buildflags/buildflags.h"
 
 #if BUILDFLAG(ENABLE_OFFLINE_PAGES)
 #include "chrome/browser/offline_pages/offline_page_bookmark_observer.h"
@@ -38,7 +38,7 @@ void ChromeBookmarkClient::Init(bookmarks::BookmarkModel* model) {
 
 #if BUILDFLAG(ENABLE_OFFLINE_PAGES)
   offline_page_observer_ =
-      base::MakeUnique<offline_pages::OfflinePageBookmarkObserver>(profile_);
+      std::make_unique<offline_pages::OfflinePageBookmarkObserver>(profile_);
   model->AddObserver(offline_page_observer_.get());
 #endif
 }

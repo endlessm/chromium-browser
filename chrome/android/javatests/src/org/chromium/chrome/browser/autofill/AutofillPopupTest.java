@@ -25,13 +25,13 @@ import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.components.autofill.AutofillPopup;
-import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content.browser.input.ChromiumBaseInputConnection;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.DOMUtils;
 import org.chromium.content.browser.test.util.TestInputMethodManagerWrapper;
 import org.chromium.content.browser.test.util.TouchCommon;
+import org.chromium.content_public.browser.ContentViewCore;
 import org.chromium.content_public.browser.ImeAdapter;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.R;
@@ -158,7 +158,7 @@ public class AutofillPopupTest {
         final ViewGroup view = viewCore.getContainerView();
         final ImeAdapter imeAdapter = ImeAdapter.fromWebContents(webContents);
         TestInputMethodManagerWrapper immw = TestInputMethodManagerWrapper.create(imeAdapter);
-        imeAdapter.setInputMethodManagerWrapperForTest(immw);
+        imeAdapter.setInputMethodManagerWrapper(immw);
 
         // Add an Autofill profile.
         AutofillProfile profile = new AutofillProfile(

@@ -8,7 +8,7 @@
 #include <deque>
 
 #include "platform/WebFrameScheduler.h"
-#include "platform/WebTaskRunner.h"
+#include "platform/scheduler/child/worker_scheduler_proxy.h"
 #include "platform/scheduler/renderer/main_thread_task_queue.h"
 
 namespace blink {
@@ -102,8 +102,11 @@ class FakeWebFrameScheduler : public WebFrameScheduler {
   };
 
   // WebFrameScheduler implementation:
-  void AddThrottlingObserver(ObserverType, Observer*) override {}
-  void RemoveThrottlingObserver(ObserverType, Observer*) override {}
+  std::unique_ptr<ThrottlingObserverHandle> AddThrottlingObserver(
+      ObserverType,
+      Observer*) override {
+    return nullptr;
+  }
   void SetFrameVisible(bool) override {}
   bool IsFrameVisible() const override { return is_frame_visible_; }
   void SetPageVisible(bool) override {}
@@ -114,13 +117,14 @@ class FakeWebFrameScheduler : public WebFrameScheduler {
   WebFrameScheduler::FrameType GetFrameType() const override {
     return frame_type_;
   }
-  scoped_refptr<WebTaskRunner> GetTaskRunner(TaskType) override {
+  scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner(TaskType) override {
     return nullptr;
   }
   WebViewScheduler* GetWebViewScheduler() const override {
     return web_view_scheduler_;
   }
-  WebScopedVirtualTimePauser CreateWebScopedVirtualTimePauser() {
+  WebScopedVirtualTimePauser CreateWebScopedVirtualTimePauser(
+      WebScopedVirtualTimePauser::VirtualTaskDuration duration) {
     return WebScopedVirtualTimePauser();
   }
   void DidStartProvisionalLoad(bool is_main_frame) override {}
@@ -133,6 +137,9 @@ class FakeWebFrameScheduler : public WebFrameScheduler {
   }
   bool IsExemptFromBudgetBasedThrottling() const override {
     return is_exempt_from_throttling_;
+  }
+  std::unique_ptr<WorkerSchedulerProxy> CreateWorkerSchedulerProxy() {
+    return nullptr;
   }
 
  private:

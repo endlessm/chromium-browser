@@ -25,6 +25,7 @@
 #include "content/public/browser/notification_registrar.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_system.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
 
 class Browser;
@@ -38,7 +39,6 @@ class Rect;
 namespace chromeos {
 
 class AccessibilityExtensionLoader;
-class AccessibilityHighlightManager;
 class SwitchAccessEventHandler;
 
 enum AccessibilityNotificationType {
@@ -48,13 +48,13 @@ enum AccessibilityNotificationType {
   ACCESSIBILITY_TOGGLE_STICKY_KEYS,
   ACCESSIBILITY_TOGGLE_SCREEN_MAGNIFIER,
   ACCESSIBILITY_TOGGLE_SPOKEN_FEEDBACK,
+  ACCESSIBILITY_TOGGLE_SELECT_TO_SPEAK,
   ACCESSIBILITY_TOGGLE_VIRTUAL_KEYBOARD,
   ACCESSIBILITY_TOGGLE_MONO_AUDIO,
   ACCESSIBILITY_TOGGLE_CARET_HIGHLIGHT,
   ACCESSIBILITY_TOGGLE_CURSOR_HIGHLIGHT,
   ACCESSIBILITY_TOGGLE_FOCUS_HIGHLIGHT,
   ACCESSIBILITY_TOGGLE_TAP_DRAGGING,
-  ACCESSIBILITY_BRAILLE_DISPLAY_CONNECTION_STATE_CHANGED
 };
 
 struct AccessibilityStatusEventDetails {
@@ -83,8 +83,8 @@ enum class PlaySoundOption {
   // The sound is always played.
   ALWAYS = 0,
 
-  // The sound is played only if spoken feedback is enabled, or
-  // --ash-enable-system-sounds flag is used.
+  // The sound is played only if spoken feedback is enabled, and
+  // --ash-disable-system-sounds is not set.
   ONLY_IF_SPOKEN_FEEDBACK_ENABLED,
 };
 
@@ -164,12 +164,6 @@ class AccessibilityManager
   // Returns true if autoclick is enabled.
   bool IsAutoclickEnabled() const;
 
-  // Set the delay for autoclicking after stopping the cursor in milliseconds.
-  void SetAutoclickDelay(int delay_ms);
-
-  // Returns the autoclick delay in milliseconds.
-  int GetAutoclickDelay() const;
-
   // Enables or disables the virtual keyboard.
   void EnableVirtualKeyboard(bool enabled);
   // Returns true if the virtual keyboard is enabled, otherwise false.
@@ -226,11 +220,6 @@ class AccessibilityManager
   // user_manager::UserManager::UserSessionStateObserver overrides:
   void ActiveUserChanged(const user_manager::User* active_user) override;
 
-  void SetProfileForTest(Profile* profile);
-
-  static void SetBrailleControllerForTest(
-      extensions::api::braille_display_private::BrailleController* controller);
-
   // Initiates play of shutdown sound and returns it's duration.
   base::TimeDelta PlayShutdownSound();
 
@@ -271,8 +260,7 @@ class AccessibilityManager
 
   // Forward an accessibility gesture from the touch exploration controller
   // to ChromeVox.
-  // TODO(warx): |gesture| comes from ui::ToString() on a ui::AXGesture.
-  void HandleAccessibilityGesture(const std::string& gesture);
+  void HandleAccessibilityGesture(ax::mojom::Gesture gesture);
 
   // Update the touch exploration controller so that synthesized
   // touch events are anchored at this point.
@@ -304,6 +292,12 @@ class AccessibilityManager
   // Starts or stops dictation (type what you speak).
   void ToggleDictation();
 
+  // Test helpers:
+  void SetProfileForTest(Profile* profile);
+  static void SetBrailleControllerForTest(
+      extensions::api::braille_display_private::BrailleController* controller);
+  void FlushForTesting();
+
  protected:
   AccessibilityManager();
   ~AccessibilityManager() override;
@@ -314,22 +308,20 @@ class AccessibilityManager
   void PostSwitchChromeVoxProfile();
   void ReloadChromeVoxPanel();
 
+  void PostUnloadSelectToSpeak();
   void UpdateAlwaysShowMenuFromPref();
   void OnLargeCursorChanged();
-  void UpdateStickyKeysFromPref();
+  void OnStickyKeysChanged();
   void OnSpokenFeedbackChanged();
   void OnHighContrastChanged();
-  void OnAutoclickChanged();
-  void UpdateAutoclickDelayFromPref();
-  void UpdateVirtualKeyboardFromPref();
+  void OnVirtualKeyboardChanged();
   void OnMonoAudioChanged();
-  void UpdateCaretHighlightFromPref();
-  void UpdateCursorHighlightFromPref();
-  void UpdateFocusHighlightFromPref();
+  void OnCaretHighlightChanged();
+  void OnCursorHighlightChanged();
+  void OnFocusHighlightChanged();
   void UpdateTapDraggingFromPref();
-  void UpdateSelectToSpeakFromPref();
+  void OnSelectToSpeakChanged();
   void UpdateSwitchAccessFromPref();
-  void UpdateAccessibilityHighlightingFromPrefs();
 
   void CheckBrailleState();
   void ReceiveBrailleDisplayState(
@@ -392,13 +384,7 @@ class AccessibilityManager
   PrefHandler select_to_speak_pref_handler_;
   PrefHandler switch_access_pref_handler_;
 
-  bool sticky_keys_enabled_;
   bool spoken_feedback_enabled_;
-  base::TimeDelta autoclick_delay_ms_;
-  bool virtual_keyboard_enabled_;
-  bool caret_highlight_enabled_;
-  bool cursor_highlight_enabled_;
-  bool focus_highlight_enabled_;
   bool tap_dragging_enabled_;
   bool select_to_speak_enabled_;
   bool switch_access_enabled_;
@@ -426,9 +412,6 @@ class AccessibilityManager
                  extensions::ExtensionRegistryObserver>
       extension_registry_observer_;
 
-  std::unique_ptr<AccessibilityHighlightManager>
-      accessibility_highlight_manager_;
-
   std::unique_ptr<AccessibilityExtensionLoader> chromevox_loader_;
 
   std::unique_ptr<AccessibilityExtensionLoader> select_to_speak_loader_;
@@ -438,7 +421,7 @@ class AccessibilityManager
   std::unique_ptr<chromeos::SwitchAccessEventHandler>
       switch_access_event_handler_;
 
-  // Ash's mojom::AccessibilityController used to SetDarkenScreen.
+  // Ash's mojom::AccessibilityController used to request Ash's a11y feature.
   ash::mojom::AccessibilityControllerPtr accessibility_controller_;
 
   bool app_terminating_ = false;

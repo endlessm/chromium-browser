@@ -66,7 +66,7 @@
 #include "content/shell/common/shell_messages.h"
 #include "content/shell/renderer/layout_test/blink_test_helpers.h"
 #include "content/shell/test_runner/test_common.h"
-#include "third_party/WebKit/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
 #include "ui/gfx/codec/png_codec.h"
 
 #if defined(OS_MACOSX)
@@ -775,7 +775,8 @@ void BlinkTestController::OnTestFinished() {
   test_phase_ = CLEAN_UP;
   if (!printer_->output_finished())
     printer_->PrintImageFooter();
-  main_window_->web_contents()->ExitFullscreen(/*will_cause_resize=*/false);
+  if (main_window_)
+    main_window_->web_contents()->ExitFullscreen(/*will_cause_resize=*/false);
   devtools_bindings_.reset();
   devtools_protocol_test_bindings_.reset();
 
@@ -822,18 +823,29 @@ void BlinkTestController::OnImageDump(const std::string& actual_pixel_hash,
 
     bool discard_transparency = true;
     if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kForceOverlayFullscreenVideo))
+            switches::kForceOverlayFullscreenVideo)) {
       discard_transparency = false;
+    }
+
+    gfx::PNGCodec::ColorFormat pixel_format;
+    switch (image.info().colorType()) {
+      case kBGRA_8888_SkColorType:
+        pixel_format = gfx::PNGCodec::FORMAT_BGRA;
+        break;
+      case kRGBA_8888_SkColorType:
+        pixel_format = gfx::PNGCodec::FORMAT_RGBA;
+        break;
+      default:
+        NOTREACHED();
+        return;
+    }
 
     std::vector<gfx::PNGCodec::Comment> comments;
     comments.push_back(gfx::PNGCodec::Comment("checksum", actual_pixel_hash));
     bool success = gfx::PNGCodec::Encode(
-        static_cast<const unsigned char*>(image.getPixels()),
-        gfx::PNGCodec::FORMAT_BGRA,
+        static_cast<const unsigned char*>(image.getPixels()), pixel_format,
         gfx::Size(image.width(), image.height()),
-        static_cast<int>(image.rowBytes()),
-        discard_transparency,
-        comments,
+        static_cast<int>(image.rowBytes()), discard_transparency, comments,
         &png);
     if (success)
       printer_->PrintImageBlock(png);
@@ -925,6 +937,13 @@ void BlinkTestController::OnDumpFrameLayoutResponse(int frame_tree_node_id,
   DCHECK_LE(0, pending_layout_dumps_);
   if (pending_layout_dumps_ > 0)
     return;
+
+  // If the main test window was destroyed while waiting for the responses, then
+  // there is nobody to receive the |stitched_layout_dump| and finish the test.
+  if (!web_contents()) {
+    OnTestFinished();
+    return;
+  }
 
   // Stitch the frame-specific results in the right order.
   std::string stitched_layout_dump;

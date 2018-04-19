@@ -95,14 +95,14 @@ void StopServiceWorkerForPattern(ServiceWorkerContext* context,
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE,
         base::BindOnce(&StopServiceWorkerForPattern, context, pattern,
-                       base::Passed(&completion_callback_ui)));
+                       std::move(completion_callback_ui)));
     return;
   }
   auto* context_wrapper = static_cast<ServiceWorkerContextWrapper*>(context);
   context_wrapper->FindReadyRegistrationForPattern(
-      pattern,
-      base::Bind(&FoundReadyRegistration, base::RetainedRef(context_wrapper),
-                 base::Passed(&completion_callback_ui)));
+      pattern, base::BindOnce(&FoundReadyRegistration,
+                              base::RetainedRef(context_wrapper),
+                              base::Passed(&completion_callback_ui)));
 }
 
 }  // namespace content

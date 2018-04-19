@@ -20,6 +20,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
+#include "base/synchronization/waitable_event.h"
 #include "base/task_scheduler/task_scheduler.h"
 #include "components/cronet/android/cronet_jni_registration.h"
 #include "components/cronet/cronet_global_state.h"
@@ -27,8 +28,8 @@
 #include "jni/CronetLibraryLoader_jni.h"
 #include "net/android/network_change_notifier_factory_android.h"
 #include "net/base/network_change_notifier.h"
-#include "net/proxy/proxy_config_service_android.h"
-#include "net/proxy/proxy_service.h"
+#include "net/proxy_resolution/proxy_config_service_android.h"
+#include "net/proxy_resolution/proxy_service.h"
 #include "url/url_features.h"
 #include "url/url_util.h"
 
@@ -48,14 +49,14 @@ base::MessageLoop* g_init_message_loop = nullptr;
 
 net::NetworkChangeNotifier* g_network_change_notifier = nullptr;
 
-bool NativeInit() {
-  if (!base::android::OnJNIOnLoadInit())
-    return false;
+base::WaitableEvent g_init_thread_init_done(
+    base::WaitableEvent::ResetPolicy::MANUAL,
+    base::WaitableEvent::InitialState::NOT_SIGNALED);
+
+void NativeInit() {
   if (!base::TaskScheduler::GetInstance())
     base::TaskScheduler::CreateAndStartWithDefaultParams("Cronet");
-
   url::Initialize();
-  return true;
 }
 
 }  // namespace
@@ -72,9 +73,9 @@ jint CronetOnLoad(JavaVM* vm, void* reserved) {
   if (!RegisterMainDexNatives(env) || !RegisterNonMainDexNatives(env)) {
     return -1;
   }
-  if (!NativeInit()) {
+  if (!base::android::OnJNIOnLoadInit())
     return -1;
-  }
+  NativeInit();
   return JNI_VERSION_1_6;
 }
 
@@ -105,6 +106,7 @@ void JNI_CronetLibraryLoader_CronetInitOnInitThread(
         new net::NetworkChangeNotifierFactoryAndroid());
   }
   g_network_change_notifier = net::NetworkChangeNotifier::Create();
+  g_init_thread_init_done.Signal();
 }
 
 ScopedJavaLocalRef<jstring> JNI_CronetLibraryLoader_GetCronetVersion(
@@ -113,10 +115,36 @@ ScopedJavaLocalRef<jstring> JNI_CronetLibraryLoader_GetCronetVersion(
   return base::android::ConvertUTF8ToJavaString(env, CRONET_VERSION);
 }
 
+void PostTaskToInitThread(const base::Location& posted_from,
+                          base::OnceClosure task) {
+  g_init_thread_init_done.Wait();
+  g_init_message_loop->task_runner()->PostTask(posted_from, std::move(task));
+}
+
+void EnsureInitialized() {
+  if (g_init_message_loop) {
+    // Ensure that init is done on the init thread.
+    g_init_thread_init_done.Wait();
+    return;
+  }
+
+  // The initialization can only be done once, so static |s_run_once| variable
+  // is used to do it in the constructor.
+  static class RunOnce {
+   public:
+    RunOnce() {
+      NativeInit();
+      JNIEnv* env = base::android::AttachCurrentThread();
+      // Ensure initialized from Java side to properly create Init thread.
+      cronet::Java_CronetLibraryLoader_ensureInitializedFromNative(env);
+    }
+  } s_run_once;
+}
+
 std::unique_ptr<net::ProxyConfigService> CreateProxyConfigService(
     const scoped_refptr<base::SequencedTaskRunner>& io_task_runner) {
   std::unique_ptr<net::ProxyConfigService> service =
-      net::ProxyService::CreateSystemProxyConfigService(io_task_runner);
+      net::ProxyResolutionService::CreateSystemProxyConfigService(io_task_runner);
   // If a PAC URL is present, ignore it and use the address and port of
   // Android system's local HTTP proxy server. See: crbug.com/432539.
   // TODO(csharrison) Architect the wrapper better so we don't need to cast for
@@ -128,14 +156,29 @@ std::unique_ptr<net::ProxyConfigService> CreateProxyConfigService(
 }
 
 // Creates a proxy service appropriate for this platform.
-std::unique_ptr<net::ProxyService> CreateProxyService(
+std::unique_ptr<net::ProxyResolutionService> CreateProxyService(
     std::unique_ptr<net::ProxyConfigService> proxy_config_service,
     net::NetLog* net_log) {
   // Android provides a local HTTP proxy server that handles proxying when a PAC
   // URL is present. Create a proxy service without a resolver and rely on this
   // local HTTP proxy. See: crbug.com/432539.
-  return net::ProxyService::CreateWithoutProxyResolver(
+  return net::ProxyResolutionService::CreateWithoutProxyResolver(
       std::move(proxy_config_service), net_log);
+}
+
+// Creates default User-Agent request value, combining optional
+// |partial_user_agent| with system-dependent values.
+std::string CreateDefaultUserAgent(const std::string& partial_user_agent) {
+  // Cronet global state must be initialized to include application info
+  // into default user agent
+  cronet::EnsureInitialized();
+
+  JNIEnv* env = base::android::AttachCurrentThread();
+  std::string user_agent = base::android::ConvertJavaStringToUTF8(
+      cronet::Java_CronetLibraryLoader_getDefaultUserAgent(env));
+  if (!partial_user_agent.empty())
+    user_agent.insert(user_agent.size() - 1, "; " + partial_user_agent);
+  return user_agent;
 }
 
 }  // namespace cronet

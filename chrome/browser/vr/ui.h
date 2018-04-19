@@ -40,7 +40,9 @@ struct UiInitialState {
   bool browsing_disabled = false;
   bool has_or_can_request_audio_permission = true;
   bool skips_redraw_when_not_dirty = false;
-  bool assets_available = false;
+  bool assets_supported = false;
+  bool supports_selection = true;
+  bool needs_keyboard_update = false;
 };
 
 // This class manages all GLThread owned objects and GL rendering for VrShell.
@@ -84,29 +86,45 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
   void SetScreenCaptureEnabled(bool enabled) override;
   void SetAudioCaptureEnabled(bool enabled) override;
   void SetBluetoothConnected(bool enabled) override;
-  void SetLocationAccess(bool enabled) override;
-  void SetExitVrPromptEnabled(bool enabled, UiUnsupportedMode reason) override;
+  void SetLocationAccessEnabled(bool enabled) override;
+  void ShowExitVrPrompt(UiUnsupportedMode reason) override;
   void SetSpeechRecognitionEnabled(bool enabled) override;
   void SetRecognitionResult(const base::string16& result) override;
   void OnSpeechRecognitionStateChanged(int new_state) override;
   void SetOmniboxSuggestions(
       std::unique_ptr<OmniboxSuggestions> suggestions) override;
-  void OnAssetsComponentReady() override;
   void OnAssetsLoaded(AssetsLoadStatus status,
                       std::unique_ptr<Assets> assets,
-                      const base::Version& component_version);
+                      const base::Version& component_version) override;
+  void OnAssetsUnavailable() override;
 
-  void OnAssetsLoading();
   // TODO(ymalik): We expose this to stop sending VSync to the WebVR page until
   // the splash screen has been visible for its minimum duration. The visibility
   // logic currently lives in the UI, and it'd be much cleaner if the UI didn't
   // have to worry about this, and if it were told to hide the splash screen
   // like other WebVR phases (e.g. OnWebVrFrameAvailable below).
   bool CanSendWebVrVSync();
+
+  void ShowSoftInput(bool show) override;
+  void UpdateWebInputIndices(int selection_start,
+                             int selection_end,
+                             int composition_start,
+                             int composition_end) override;
+
+  void SetAlertDialogEnabled(bool enabled,
+                             ContentInputDelegate* delegate,
+                             int width,
+                             int height);
+  void SetAlertDialogSize(int width, int height);
   bool ShouldRenderWebVr();
-  void OnGlInitialized(unsigned int content_texture_id,
-                       UiElementRenderer::TextureLocation content_location,
-                       bool use_ganesh);
+
+  void OnGlInitialized(
+      unsigned int content_texture_id,
+      UiElementRenderer::TextureLocation content_location,
+      unsigned int content_overlay_texture_id,
+      UiElementRenderer::TextureLocation content_overlay_location,
+      unsigned int ui_texture_id,
+      bool use_ganesh);
 
   void OnAppButtonClicked();
   void OnAppButtonGesturePerformed(
@@ -127,15 +145,20 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
   Model* model_for_test() { return model_.get(); }
 
   void ReinitializeForTest(const UiInitialState& ui_initial_state);
+  ContentInputDelegate* GetContentInputDelegateForTest() {
+    return content_input_delegate_.get();
+  }
 
   void Dump(bool include_bindings);
 
   // Keyboard input related.
   void RequestFocus(int element_id);
   void RequestUnfocus(int element_id);
-  void OnInputEdited(const TextInputInfo& info) override;
-  void OnInputCommitted(const TextInputInfo& info) override;
+  void OnInputEdited(const EditedText& info) override;
+  void OnInputCommitted(const EditedText& info) override;
   void OnKeyboardHidden() override;
+
+  void AcceptDoffPromptForTesting();
 
  private:
   void InitializeModel(const UiInitialState& ui_initial_state);

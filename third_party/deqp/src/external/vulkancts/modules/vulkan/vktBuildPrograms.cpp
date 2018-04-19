@@ -240,7 +240,7 @@ class BuildGlslTask : public Task
 {
 public:
 
-	BuildGlslTask (const glu::ProgramSources& source, Program* program)
+	BuildGlslTask (const vk::GlslSource& source, Program* program)
 		: m_source	(source)
 		, m_program	(program)
 	{}
@@ -253,7 +253,7 @@ public:
 
 		try
 		{
-			m_program->binary		= ProgramBinarySp(vk::buildProgram(m_source, vk::PROGRAM_FORMAT_SPIRV, &buildInfo));
+			m_program->binary		= ProgramBinarySp(vk::buildProgram(m_source, &buildInfo));
 			m_program->buildStatus	= Program::STATUS_PASSED;
 		}
 		catch (const tcu::Exception&)
@@ -269,8 +269,8 @@ public:
 	}
 
 private:
-	glu::ProgramSources	m_source;
-	Program*			m_program;
+	vk::GlslSource	m_source;
+	Program*		m_program;
 };
 
 void writeBuildLogs (const vk::SpirVProgramInfo& buildInfo, std::ostream& dst)
@@ -377,9 +377,10 @@ BuildStats buildPrograms (tcu::TestContext& testCtx, const std::string& dstPath,
 
 		// Collect build tasks
 		{
-			const UniquePtr<tcu::TestPackageRoot>	root		(createRoot(testCtx));
-			tcu::DefaultHierarchyInflater			inflater	(testCtx);
-			tcu::TestHierarchyIterator				iterator	(*root, inflater, testCtx.getCommandLine());
+			const UniquePtr<tcu::TestPackageRoot>	root			(createRoot(testCtx));
+			tcu::DefaultHierarchyInflater			inflater		(testCtx);
+			de::MovePtr<tcu::CaseListFilter>		caseListFilter	(testCtx.getCommandLine().createCaseListFilter(testCtx.getArchive()));
+			tcu::TestHierarchyIterator				iterator		(*root, inflater, *caseListFilter);
 
 			while (iterator.getState() != tcu::TestHierarchyIterator::STATE_FINISHED)
 			{

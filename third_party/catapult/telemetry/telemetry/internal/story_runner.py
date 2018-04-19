@@ -24,8 +24,6 @@ from telemetry import page
 from telemetry.page import legacy_page_test
 from telemetry import story as story_module
 from telemetry.util import wpr_modes
-from telemetry.value import failure
-from telemetry.value import skip
 from telemetry.value import scalar
 from telemetry.web_perf import story_test
 from tracing.value import histogram
@@ -97,7 +95,7 @@ def CaptureLogsAsArtifacts(results, test_name):
 
 
 def _RunStoryAndProcessErrorIfNeeded(story, results, state, test):
-  def ProcessError(exc=None, description=None):
+  def ProcessError(exc=None):
     state.DumpStateUponFailure(story, results)
 
     # Dump app crash, if present
@@ -107,9 +105,9 @@ def _RunStoryAndProcessErrorIfNeeded(story, results, state, test):
         if minidump_path:
           results.AddArtifact(story.name, 'minidump', minidump_path)
 
-    # Note: adding the FailureValue to the results object also normally
-    # cause the progress_reporter to log it in the output.
-    results.AddValue(failure.FailureValue(story, sys.exc_info(), description))
+    # Note: calling Fail on the results object also normally causes the
+    # progress_reporter to log it in the output.
+    results.Fail(sys.exc_info())
 
   with CaptureLogsAsArtifacts(results, story.name):
     try:
@@ -118,10 +116,9 @@ def _RunStoryAndProcessErrorIfNeeded(story, results, state, test):
       state.WillRunStory(story)
 
       if not state.CanRunStory(story):
-        results.AddValue(skip.SkipValue(
-            story,
+        results.Skip(
             'Skipped because story is not supported '
-            '(SharedState.CanRunStory() returns False).'))
+            '(SharedState.CanRunStory() returns False).')
         return
       state.RunStory(results)
       if isinstance(test, story_test.StoryTest):
@@ -134,10 +131,9 @@ def _RunStoryAndProcessErrorIfNeeded(story, results, state, test):
       ProcessError(exc)
       raise
     except page_action.PageActionNotSupported as exc:
-      results.AddValue(
-          skip.SkipValue(story, 'Unsupported page action: %s' % exc))
+      results.Skip('Unsupported page action: %s' % exc)
     except Exception:
-      ProcessError(description='Unhandlable exception raised.')
+      ProcessError()
       raise
     finally:
       has_existing_exception = (sys.exc_info() != (None, None, None))
@@ -214,7 +210,7 @@ def Run(test, story_set, finder_options, results, max_failures=None,
           disabled = expectations.IsStoryDisabled(
               story, state.platform, finder_options)
           if disabled and not finder_options.run_disabled_tests:
-            results.AddValue(skip.SkipValue(story, disabled))
+            results.Skip(disabled)
             results.DidRunPage(story)
             continue
 
@@ -224,9 +220,10 @@ def Run(test, story_set, finder_options, results, max_failures=None,
           _RunStoryAndProcessErrorIfNeeded(story, results, state, test)
 
           num_values = len(results.all_page_specific_values)
+          # TODO(#4259): Convert this to an exception-based failure
           if num_values > max_num_values:
             msg = 'Too many values: %d > %d' % (num_values, max_num_values)
-            results.AddValue(failure.FailureValue.FromMessage(None, msg))
+            results.Fail(msg)
 
           device_info_diags = _MakeDeviceInfoDiagnostics(state)
         except exceptions.Error:
@@ -253,18 +250,18 @@ def Run(test, story_set, finder_options, results, max_failures=None,
             exception_formatter.PrintFormattedException(
                 msg='Exception from result processing:')
         if (effective_max_failures is not None and
-            len(results.failures) > effective_max_failures):
+            results.num_failed > effective_max_failures):
           logging.error('Too many failures. Aborting.')
           return
   finally:
     results.PopulateHistogramSet(metadata)
 
     for name, diag in device_info_diags.iteritems():
-      results.histograms.AddSharedDiagnostic(name, diag)
+      results.AddSharedDiagnostic(name, diag)
 
     tagmap = _GenerateTagMapFromStorySet(stories)
     if tagmap.tags_to_story_names:
-      results.histograms.AddSharedDiagnostic(
+      results.AddSharedDiagnostic(
           reserved_infos.TAG_MAP.name, tagmap)
 
     if state:
@@ -324,7 +321,8 @@ def RunBenchmark(benchmark, finder_options):
       # benchmark name and disabled state.
       with results_options.CreateResults(
           benchmark_metadata, finder_options,
-          benchmark.ValueCanBeAddedPredicate, benchmark_enabled=False
+          should_add_value=benchmark.ShouldAddValue,
+          benchmark_enabled=False
           ) as results:
         results.PrintSummary()
       # When a disabled benchmark is run we now want to return success since
@@ -351,16 +349,19 @@ def RunBenchmark(benchmark, finder_options):
 
   with results_options.CreateResults(
       benchmark_metadata, finder_options,
-      benchmark.ValueCanBeAddedPredicate, benchmark_enabled=True) as results:
+      should_add_value=benchmark.ShouldAddValue,
+      benchmark_enabled=True) as results:
     try:
       Run(pt, stories, finder_options, results, benchmark.max_failures,
           expectations=expectations, metadata=benchmark.GetMetadata(),
           max_num_values=benchmark.MAX_NUM_VALUES)
-      return_code = 1 if results.failures else 0
+      return_code = 1 if results.had_failures else 0
       # We want to make sure that all expectations are linked to real stories,
       # this will log error messages if names do not match what is in the set.
       benchmark.GetBrokenExpectations(stories)
     except Exception: # pylint: disable=broad-except
+      logging.fatal(
+          'Benchmark execution interrupted by a fatal exception.')
       results.telemetry_info.InterruptBenchmark()
       exception_formatter.PrintFormattedException()
       return_code = 2
@@ -369,11 +370,11 @@ def RunBenchmark(benchmark, finder_options):
     benchmark_component = benchmark.GetBugComponents()
 
     if benchmark_owners:
-      results.histograms.AddSharedDiagnostic(
+      results.AddSharedDiagnostic(
           reserved_infos.OWNERS.name, benchmark_owners)
 
     if benchmark_component:
-      results.histograms.AddSharedDiagnostic(
+      results.AddSharedDiagnostic(
           reserved_infos.BUG_COMPONENTS.name, benchmark_component)
 
     try:
@@ -385,10 +386,7 @@ def RunBenchmark(benchmark, finder_options):
       duration = time.time() - start
       results.AddSummaryValue(scalar.ScalarValue(
           None, 'benchmark_duration', 'minutes', duration / 60.0))
-      hist = histogram.Histogram(
-          'benchmark_total_duration', 'ms_smallerIsBetter')
-      hist.AddSample(duration * 1000.0)
-      results.histograms.AddHistogram(hist)
+      results.AddDurationHistogram(duration * 1000.0)
       memory_debug.LogHostMemoryUsage()
       results.PrintSummary()
   return return_code

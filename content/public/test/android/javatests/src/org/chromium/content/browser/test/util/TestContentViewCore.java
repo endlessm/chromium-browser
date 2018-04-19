@@ -6,21 +6,12 @@ package org.chromium.content.browser.test.util;
 
 import android.content.Context;
 import android.content.res.Configuration;
-import android.os.Bundle;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.ViewGroup;
-import android.view.ViewStructure;
-import android.view.accessibility.AccessibilityNodeProvider;
 
-import org.chromium.base.VisibleForTesting;
-import org.chromium.content.browser.ContentViewCore;
-import org.chromium.content.browser.ContentViewCore.InternalAccessDelegate;
-import org.chromium.content.browser.PopupZoomer;
-import org.chromium.content.browser.WindowAndroidChangedObserver;
-import org.chromium.content.browser.accessibility.WebContentsAccessibility;
-import org.chromium.content.browser.input.SelectPopup;
-import org.chromium.content.browser.input.TextSuggestionHost;
+import org.chromium.content_public.browser.ContentViewCore;
+import org.chromium.content_public.browser.ContentViewCore.InternalAccessDelegate;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.ViewAndroidDelegate;
 import org.chromium.ui.base.WindowAndroid;
@@ -53,20 +44,6 @@ public class TestContentViewCore implements ContentViewCore {
     }
 
     @Override
-    public TextSuggestionHost getTextSuggestionHostForTesting() {
-        return null;
-    }
-
-    @Override
-    public void setTextSuggestionHostForTesting(TextSuggestionHost textSuggestionHost) {}
-
-    @Override
-    public void addWindowAndroidChangedObserver(WindowAndroidChangedObserver observer) {}
-
-    @Override
-    public void removeWindowAndroidChangedObserver(WindowAndroidChangedObserver observer) {}
-
-    @Override
     public void initialize(ViewAndroidDelegate viewDelegate,
             InternalAccessDelegate internalDispatcher, WebContents webContents,
             WindowAndroid windowAndroid) {}
@@ -79,10 +56,6 @@ public class TestContentViewCore implements ContentViewCore {
 
     @Override
     public void setContainerViewInternals(InternalAccessDelegate internalDispatcher) {}
-
-    @VisibleForTesting
-    @Override
-    public void setPopupZoomerForTest(PopupZoomer popupZoomer) {}
 
     @Override
     public void destroy() {}
@@ -111,18 +84,7 @@ public class TestContentViewCore implements ContentViewCore {
     public void sendDoubleTapForTest(long timeMs, int x, int y) {}
 
     @Override
-    public void flingViewport(long timeMs, float velocityX, float velocityY, boolean fromGamepad) {}
-
-    @Override
-    public void cancelFling(long timeMs) {}
-
-    @Override
     public void onShow() {}
-
-    @Override
-    public int getCurrentRenderProcessId() {
-        return 0;
-    }
 
     @Override
     public void onHide() {}
@@ -175,9 +137,6 @@ public class TestContentViewCore implements ContentViewCore {
     public void onFocusChanged(boolean gainFocus, boolean hideKeyboardOnBlur) {}
 
     @Override
-    public void setCurrentTouchEventOffsets(float dx, float dy) {}
-
-    @Override
     public void scrollBy(float dxPix, float dyPix) {}
 
     @Override
@@ -228,57 +187,14 @@ public class TestContentViewCore implements ContentViewCore {
     public void preserveSelectionOnNextLossOfFocus() {}
 
     @Override
-    public SelectPopup getSelectPopupForTest() {
-        return null;
-    }
-
-    @Override
-    public boolean supportsAccessibilityAction(int action) {
+    public boolean isSelectPopupVisibleForTest() {
         return false;
     }
-
-    @Override
-    public boolean performAccessibilityAction(int action, Bundle arguments) {
-        return false;
-    }
-
-    @Override
-    public WebContentsAccessibility getWebContentsAccessibility() {
-        return null;
-    }
-
-    @Override
-    public AccessibilityNodeProvider getAccessibilityNodeProvider() {
-        return null;
-    }
-
-    @Override
-    public void onProvideVirtualStructure(ViewStructure structure, boolean ignoreScrollOffset) {}
-
-    @Override
-    public void setObscuredByAnotherView(boolean isObscured) {}
-
-    @Override
-    public boolean isTouchExplorationEnabled() {
-        return false;
-    }
-
-    @Override
-    public void setAccessibilityState(boolean state) {}
-
-    @Override
-    public void setShouldSetAccessibilityFocusOnPageLoad(boolean on) {}
 
     @Override
     public boolean getIsMobileOptimizedHint() {
         return false;
     }
-
-    @Override
-    public void setBackgroundOpaque(boolean opaque) {}
-
-    @Override
-    public void setFullscreenRequiredForOrientationLock(boolean value) {}
 
     @Override
     public int getTopControlsShrinkBlinkHeightForTesting() {

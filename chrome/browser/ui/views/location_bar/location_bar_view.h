@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "chrome/browser/extensions/extension_context_menu_model.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
@@ -30,6 +31,7 @@
 #include "ui/views/controls/button/button.h"
 #include "ui/views/drag_controller.h"
 
+class BubbleIconView;
 class CommandUpdater;
 class ContentSettingBubbleModelDelegate;
 class FindBarIcon;
@@ -95,14 +97,6 @@ class LocationBarView : public LocationBar,
     DEEMPHASIZED_TEXT,
     SECURITY_CHIP_TEXT,
   };
-
-  // Visual width (and height) of icons in location bar.
-  static constexpr int kIconWidth = 16;
-
-  // The amount of padding between the visual edge of an icon and the edge of
-  // its click target, for all all sides of the icon. The total edge length of
-  // each icon view should be kIconWidth + 2 * kIconInteriorPadding.
-  static constexpr int kIconInteriorPadding = 4;
 
   // The location bar view's class name.
   static const char kViewClassName[];
@@ -205,23 +199,16 @@ class LocationBarView : public LocationBar,
   OmniboxViewViews* omnibox_view() { return omnibox_view_; }
   const OmniboxViewViews* omnibox_view() const { return omnibox_view_; }
 
-  // Returns the position and width that the popup should be, and also the left
-  // edge that the results should align themselves to (which will leave some
-  // border on the left of the popup). |top_edge_overlap| specifies the number
-  // of pixels the top edge of the popup should overlap the bottom edge of
-  // the toolbar.
-  void GetOmniboxPopupPositioningInfo(gfx::Point* top_left_screen_coord,
-                                      int* popup_width,
-                                      int* left_margin,
-                                      int* right_margin,
-                                      int top_edge_overlap);
-
   // Updates the controller, and, if |contents| is non-null, restores saved
   // state that the tab holds.
   void Update(const content::WebContents* contents);
 
   // Clears the location bar's state for |contents|.
   void ResetTabState(content::WebContents* contents);
+
+  // Activates the first visible but inactive LocationBarBubbleDelegateView for
+  // accessibility.
+  bool ActivateFirstInactiveBubbleForAccessibility();
 
   // LocationBar:
   void FocusLocation(bool select_all) override;
@@ -255,6 +242,7 @@ class LocationBarView : public LocationBar,
   static bool IsVirtualKeyboardVisible();
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(SecurityIndicatorTest, CheckIndicatorText);
   using ContentSettingViews = std::vector<ContentSettingImageView*>;
 
   // Helper for GetMinimumWidth().  Calculates the incremental minimum width
@@ -335,6 +323,7 @@ class LocationBarView : public LocationBar,
   // LocationBarTesting:
   bool GetBookmarkStarVisibility() override;
   bool TestContentSettingImagePressed(size_t index) override;
+  bool IsContentSettingBubbleShowing(size_t index) override;
 
   // views::View:
   const char* GetClassName() const override;
@@ -440,10 +429,15 @@ class LocationBarView : public LocationBar,
   // Tracks this preference to determine whether bookmark editing is allowed.
   BooleanPrefMember edit_bookmarks_enabled_;
 
+  // A list of all bubble descendants ordered by focus.
+  std::vector<BubbleIconView*> bubble_icons_;
+
   // The security level when the location bar was last updated. Used to decide
   // whether to animate security level transitions.
   security_state::SecurityLevel last_update_security_level_ =
       security_state::NONE;
+
+  DISALLOW_COPY_AND_ASSIGN(LocationBarView);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_LOCATION_BAR_LOCATION_BAR_VIEW_H_

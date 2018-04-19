@@ -76,7 +76,7 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/favicon/content/content_favicon_driver.h"
 #include "components/favicon/core/favicon_driver_observer.h"
-#include "components/nacl/common/features.h"
+#include "components/nacl/common/buildflags.h"
 #include "components/omnibox/browser/omnibox_edit_model.h"
 #include "components/omnibox/browser/omnibox_popup_model.h"
 #include "components/omnibox/browser/omnibox_view.h"
@@ -100,7 +100,6 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/browser_side_navigation_policy.h"
-#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test_utils.h"
@@ -131,6 +130,7 @@
 #include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_filter.h"
 #include "net/url_request/url_request_job.h"
+#include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/resource_request_body.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -226,61 +226,6 @@ class MockNetworkChangeNotifier4G : public NetworkChangeNotifier {
   ConnectionType GetCurrentConnectionType() const override {
     return NetworkChangeNotifier::CONNECTION_4G;
   }
-};
-
-// Wait for PageLoadMetrics parse start metrics to be flushed out.
-class ParseStartMetricsWaiter
-    : public page_load_metrics::MetricsWebContentsObserver::TestingObserver {
- public:
-  explicit ParseStartMetricsWaiter(content::WebContents* web_contents)
-      : TestingObserver(web_contents), weak_factory_(this) {}
-
-  ~ParseStartMetricsWaiter() override { CHECK_EQ(nullptr, run_loop_.get()); }
-
-  // MetricsWebContentsObserver::TestingObserver implementation.
-  void OnTrackerCreated(page_load_metrics::PageLoadTracker* tracker) override {
-    tracker->AddObserver(
-        base::MakeUnique<WaiterObserver>(weak_factory_.GetWeakPtr()));
-  }
-
-  void Wait() {
-    if (saw_metrics_)
-      return;
-
-    run_loop_ = base::MakeUnique<base::RunLoop>();
-    run_loop_->Run();
-    run_loop_ = nullptr;
-    EXPECT_TRUE(saw_metrics_);
-  }
-
-  void MarkMetricsSeen() {
-    saw_metrics_ = true;
-    if (run_loop_)
-      run_loop_->Quit();
-  }
-
- private:
-  class WaiterObserver : public page_load_metrics::PageLoadMetricsObserver {
-   public:
-    explicit WaiterObserver(base::WeakPtr<ParseStartMetricsWaiter> waiter)
-        : waiter_(waiter) {}
-
-    void OnTimingUpdate(
-        bool is_subframe,
-        const page_load_metrics::mojom::PageLoadTiming& timing,
-        const page_load_metrics::PageLoadExtraInfo& extra_info) override {
-      if (timing.parse_timing->parse_start && waiter_) {
-        waiter_->MarkMetricsSeen();
-      }
-    }
-
-   private:
-    const base::WeakPtr<ParseStartMetricsWaiter> waiter_;
-  };
-
-  bool saw_metrics_ = false;
-  std::unique_ptr<base::RunLoop> run_loop_;
-  base::WeakPtrFactory<ParseStartMetricsWaiter> weak_factory_;
 };
 
 // Constants used in the test HTML files.
@@ -948,7 +893,7 @@ class PrerenderBrowserTest : public test_utils::PrerenderInProcessBrowserTest {
   }
 
   base::SimpleTestTickClock* OverridePrerenderManagerTimeTicks() {
-    auto clock = base::MakeUnique<base::SimpleTestTickClock>();
+    auto clock = std::make_unique<base::SimpleTestTickClock>();
     auto* clock_ptr = clock.get();
     // The default zero time causes the prerender manager to do strange things.
     clock->Advance(base::TimeDelta::FromSeconds(1));
@@ -975,7 +920,7 @@ class PrerenderBrowserTest : public test_utils::PrerenderInProcessBrowserTest {
                                             base::Closure closure) {
     // TODO(jam): use the URLLoaderInterceptor for the non-network service path
     // once http://crbug.com/740130 is fixed.
-    if (base::FeatureList::IsEnabled(features::kNetworkService)) {
+    if (base::FeatureList::IsEnabled(network::features::kNetworkService)) {
       DCHECK(!interceptor_);
       interceptor_ = std::make_unique<content::URLLoaderInterceptor>(
           base::BindLambdaForTesting(
@@ -1167,8 +1112,6 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PageLoadMetricsSimple) {
       "Prerender.none_PrefetchTTFCP.Reference.Cacheable.Visible", 1);
   histogram_tester().ExpectTotalCount(
       "PageLoad.DocumentTiming.NavigationToFirstLayout", 1);
-  histogram_tester().ExpectTotalCount(
-      "PageLoad.ParseTiming.NavigationToParseStart", 1);
 
   // Histogram only emitted during a prerender, which should not happen here.
   histogram_tester().ExpectTotalCount(
@@ -1181,21 +1124,12 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PageLoadMetricsPrerender) {
   test_utils::FirstContentfulPaintManagerWaiter* prerender_fcp_waiter =
       test_utils::FirstContentfulPaintManagerWaiter::Create(
           GetPrerenderManager());
-  std::unique_ptr<ParseStartMetricsWaiter> metrics_waiter =
-      std::make_unique<ParseStartMetricsWaiter>(
-          browser()->tab_strip_model()->GetActiveWebContents());
   PrerenderTestURL("/prerender/prerender_page.html", FINAL_STATUS_USED, 1);
   NavigateToDestURL();
   prerender_fcp_waiter->Wait();
-  metrics_waiter->Wait();
 
   histogram_tester().ExpectTotalCount(
       "Prerender.websame_PrefetchTTFCP.Warm.Cacheable.Visible", 1);
-
-  // Histogram logged during the prerender_loader.html load, but not during the
-  // prerender.
-  histogram_tester().ExpectTotalCount(
-      "PageLoad.ParseTiming.NavigationToParseStart", 1);
 
   // Histograms only emitted during the simple load which does not happen here
   // (as prefetch_loader.html has an empty body, it does not generate a FCP).
@@ -1391,15 +1325,9 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderVisibility) {
   NavigateToDestURL();
 }
 
-// crbug.com/708158
-#if defined(OS_MACOSX) && defined(ADDRESS_SANITIZER)
-#define MAYBE_PrerenderNoCommitNoSwap DISABLED_PrerenderNoCommitNoSwap
-#else
-#define MAYBE_PrerenderNoCommitNoSwap PrerenderNoCommitNoSwap
-#endif
 // Checks that the prerendering of a page is canceled correctly if we try to
 // swap it in before it commits.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, MAYBE_PrerenderNoCommitNoSwap) {
+IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderNoCommitNoSwap) {
   // Navigate to a page that triggers a prerender for a URL that never commits.
   const GURL kNoCommitUrl("http://never-respond.example.com");
   base::FilePath file(GetTestPath("prerender_page.html"));
@@ -1418,14 +1346,8 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, MAYBE_PrerenderNoCommitNoSwap) {
   NavigateToDestURLWithDisposition(WindowOpenDisposition::CURRENT_TAB, false);
 }
 
-// crbug.com/708158
-#if defined(OS_MACOSX) && defined(ADDRESS_SANITIZER)
-#define MAYBE_PrerenderNoCommitNoSwap2 DISABLED_PrerenderNoCommitNoSwap2
-#else
-#define MAYBE_PrerenderNoCommitNoSwap2 PrerenderNoCommitNoSwap2
-#endif
 // Checks that client redirects don't add alias URLs until after they commit.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, MAYBE_PrerenderNoCommitNoSwap2) {
+IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderNoCommitNoSwap2) {
   // Navigate to a page that then navigates to a URL that never commits.
   const GURL kNoCommitUrl("http://never-respond.example.com");
   base::FilePath file(GetTestPath("prerender_page.html"));
@@ -2045,7 +1967,13 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderHTML5VideoNetwork) {
 }
 
 // Checks that scripts can retrieve the correct window size while prerendering.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderWindowSize) {
+// Disabled on ChromeOS. See https://crbug.com/807821.
+#if defined(OS_CHROMEOS)
+#define MAYBE_PrerenderWindowSize DISABLED_PrerenderWindowSize
+#else
+#define MAYBE_PrerenderWindowSize PrerenderWindowSize
+#endif
+IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, MAYBE_PrerenderWindowSize) {
   PrerenderTestURL("/prerender/prerender_size.html", FINAL_STATUS_USED, 1);
   NavigateToDestURL();
 }
@@ -3243,16 +3171,14 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, ResourcePriority) {
   net::RequestPriority before_swap_priority = net::THROTTLED;
   net::RequestPriority after_swap_priority = net::THROTTLED;
 
-  content::URLLoaderInterceptor interceptor(
-      base::BindLambdaForTesting(
-          [&](content::URLLoaderInterceptor::RequestParams* params) {
-            if (params->url_request.url == before_swap_url)
-              before_swap_priority = params->url_request.priority;
-            else if (params->url_request.url == after_swap_url)
-              after_swap_priority = params->url_request.priority;
-            return false;
-          }),
-      false, true);
+  content::URLLoaderInterceptor interceptor(base::BindLambdaForTesting(
+      [&](content::URLLoaderInterceptor::RequestParams* params) {
+        if (params->url_request.url == before_swap_url)
+          before_swap_priority = params->url_request.priority;
+        else if (params->url_request.url == after_swap_url)
+          after_swap_priority = params->url_request.priority;
+        return false;
+      }));
 
   // Start the prerender.
   PrerenderTestURL(main_page_url, FINAL_STATUS_USED, 1);
@@ -3336,8 +3262,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, ResourcePriorityOverlappingSwap) {
               return true;
             }
             return false;
-          }),
-      false, true);
+          }));
 
   // The prerender will hang on the image resource, can't run the usual checks.
   DisableLoadEventCheck();
@@ -3530,8 +3455,16 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
       "Prerender.none_PerceivedTTFCPRecorded.Visible", 0, 1);
 }
 
+// Disabled on ChromeOS due to flakiness. See https://crbug.com/808578.
+#if defined(OS_CHROMEOS)
+#define MAYBE_FirstContentfulPaintTimingTwoPages \
+  DISABLED_FirstContentfulPaintTimingTwoPages
+#else
+#define MAYBE_FirstContentfulPaintTimingTwoPages \
+  FirstContentfulPaintTimingTwoPages
+#endif
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
-                       FirstContentfulPaintTimingTwoPages) {
+                       MAYBE_FirstContentfulPaintTimingTwoPages) {
   GetPrerenderManager()->DisablePageLoadMetricsObserverForTesting();
   base::SimpleTestTickClock* clock = OverridePrerenderManagerTimeTicks();
 

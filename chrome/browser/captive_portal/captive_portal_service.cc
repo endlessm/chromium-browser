@@ -18,6 +18,7 @@
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/browser/storage_partition.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 
 #if defined(OS_WIN)
@@ -169,20 +170,29 @@ CaptivePortalService::RecheckPolicy::RecheckPolicy()
   backoff_policy.always_use_initial_delay = true;
 }
 
-CaptivePortalService::CaptivePortalService(Profile* profile)
-    : CaptivePortalService(profile, nullptr) {
-}
-
-CaptivePortalService::CaptivePortalService(Profile* profile,
-                                           base::TickClock* clock_for_testing)
+CaptivePortalService::CaptivePortalService(
+    Profile* profile,
+    base::TickClock* clock_for_testing,
+    network::mojom::URLLoaderFactory* loader_factory_for_testing)
     : profile_(profile),
       state_(STATE_IDLE),
-      captive_portal_detector_(profile->GetRequestContext()),
       enabled_(false),
       last_detection_result_(captive_portal::RESULT_INTERNET_CONNECTED),
       num_checks_with_same_result_(0),
       test_url_(captive_portal::CaptivePortalDetector::kDefaultURL),
       tick_clock_for_testing_(clock_for_testing) {
+  network::mojom::URLLoaderFactory* loader_factory;
+  if (loader_factory_for_testing) {
+    loader_factory = loader_factory_for_testing;
+  } else {
+    shared_url_loader_factory_ =
+        content::BrowserContext::GetDefaultStoragePartition(profile)
+            ->GetURLLoaderFactoryForBrowserProcess();
+    loader_factory = shared_url_loader_factory_.get();
+  }
+  captive_portal_detector_ =
+      std::make_unique<captive_portal::CaptivePortalDetector>(loader_factory);
+
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   // The order matters here:
   // |resolve_errors_with_web_service_| must be initialized and |backoff_entry_|
@@ -267,7 +277,7 @@ void CaptivePortalService::DetectCaptivePortalInternal() {
             }
           }
         })");
-  captive_portal_detector_.DetectCaptivePortal(
+  captive_portal_detector_->DetectCaptivePortal(
       test_url_,
       base::Bind(&CaptivePortalService::OnPortalDetectionCompleted,
                  base::Unretained(this)),
@@ -401,7 +411,7 @@ void CaptivePortalService::UpdateEnabledState() {
     // If a captive portal check was running or pending, cancel check
     // and the timer.
     check_captive_portal_timer_.Stop();
-    captive_portal_detector_.Cancel();
+    captive_portal_detector_->Cancel();
     state_ = STATE_IDLE;
 
     // Since a captive portal request was queued or running, something may be

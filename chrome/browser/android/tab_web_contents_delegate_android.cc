@@ -273,11 +273,14 @@ void TabWebContentsDelegateAndroid::FindMatchRectsReply(
 content::JavaScriptDialogManager*
 TabWebContentsDelegateAndroid::GetJavaScriptDialogManager(
     WebContents* source) {
-  if (vr::VrTabHelper::IsInVr(source)) {
+  if (vr::VrTabHelper::IsInVr(source) &&
+      !base::FeatureList::IsEnabled(
+          chrome::android::kVrBrowsingNativeAndroidUi)) {
     vr::VrTabHelper::UISuppressed(vr::UiSuppressedElement::kJavascriptDialog);
     return nullptr;
   }
-  if (base::FeatureList::IsEnabled(chrome::android::kTabModalJsDialog)) {
+  if (base::FeatureList::IsEnabled(chrome::android::kTabModalJsDialog) ||
+      vr::VrTabHelper::IsInVr(source)) {
     return JavaScriptDialogTabHelper::FromWebContents(source);
   }
   return app_modal::JavaScriptDialogManager::GetInstance();
@@ -287,7 +290,9 @@ void TabWebContentsDelegateAndroid::RequestMediaAccessPermission(
     content::WebContents* web_contents,
     const content::MediaStreamRequest& request,
     const content::MediaResponseCallback& callback) {
-  if (vr::VrTabHelper::IsInVr(web_contents)) {
+  if (vr::VrTabHelper::IsInVr(web_contents) &&
+      !base::FeatureList::IsEnabled(
+          chrome::android::kVrBrowsingNativeAndroidUi)) {
     callback.Run(content::MediaStreamDevices(),
                  content::MEDIA_DEVICE_NOT_SUPPORTED, nullptr);
     vr::VrTabHelper::UISuppressed(vr::UiSuppressedElement::kMediaPermission);

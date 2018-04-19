@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/command_line.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/views/chrome_constrained_window_views_client.h"
 #include "chrome/browser/ui/views/chrome_views_delegate.h"
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
@@ -47,11 +48,12 @@
 #endif  // defined(OS_LINUX) && !defined(OS_CHROMEOS)
 
 #if defined(OS_CHROMEOS)
+#include "ash/public/interfaces/constants.mojom.h"
 #include "chrome/browser/chromeos/ash_config.h"
 #include "content/public/common/content_switches.h"
-#include "mash/common/config.h"                                   // nogncheck
-#include "mash/quick_launch/public/interfaces/constants.mojom.h"  // nogncheck
-#endif
+#else  // defined(OS_CHROMEOS)
+#include "chrome/browser/ui/views/relaunch_notification/relaunch_notification_controller.h"
+#endif  // defined(OS_CHROMEOS)
 
 namespace {
 
@@ -169,18 +171,12 @@ void ChromeBrowserMainExtraPartsViews::ServiceManagerConnectionStarted(
     return;
 
 #if defined(OS_CHROMEOS)
+  // Start up the window service and the ash system UI service.
   if (chromeos::GetAshConfig() == ash::Config::MASH) {
     connection->GetConnector()->StartService(
         service_manager::Identity(ui::mojom::kServiceName));
     connection->GetConnector()->StartService(
-        service_manager::Identity(mash::common::GetWindowManagerServiceName()));
-    // Don't start QuickLaunch in tests because it changes the startup shelf
-    // state vs. classic ash.
-    if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kTestType)) {
-      connection->GetConnector()->StartService(
-          service_manager::Identity(mash::quick_launch::mojom::kServiceName));
-    }
+        service_manager::Identity(ash::mojom::kServiceName));
   }
 #endif
 
@@ -202,4 +198,21 @@ void ChromeBrowserMainExtraPartsViews::ServiceManagerConnectionStarted(
           content::BrowserThread::IO),
       create_wm_state);
 #endif  // defined(USE_AURA)
+}
+
+void ChromeBrowserMainExtraPartsViews::PostBrowserStart() {
+#if !defined(OS_CHROMEOS)
+  relaunch_notification_controller_ =
+      std::make_unique<RelaunchNotificationController>(
+          UpgradeDetector::GetInstance());
+#endif
+}
+
+void ChromeBrowserMainExtraPartsViews::PostMainMessageLoopRun() {
+#if !defined(OS_CHROMEOS)
+  // The relaunch notification controller acts on timer-based events. Tear it
+  // down explicitly here to avoid a case where such an event arrives during
+  // shutdown.
+  relaunch_notification_controller_.reset();
+#endif
 }

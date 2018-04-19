@@ -9,8 +9,8 @@
 #include "ash/session/test_session_controller_client.h"
 #include "ash/shell.h"
 #include "ash/shell_test_api.h"
-#include "ash/system/power/convertible_power_button_controller_test_api.h"
 #include "ash/system/power/power_button_controller.h"
+#include "ash/system/power/tablet_power_button_controller_test_api.h"
 #include "ash/wm/lock_state_controller.h"
 #include "ash/wm/lock_state_controller_test_api.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
@@ -24,12 +24,6 @@
 #include "ui/events/test/event_generator.h"
 
 namespace ash {
-
-constexpr gfx::Vector3dF PowerButtonTestBase::kUpVector;
-
-constexpr gfx::Vector3dF PowerButtonTestBase::kDownVector;
-
-constexpr gfx::Vector3dF PowerButtonTestBase::kSidewaysVector;
 
 PowerButtonTestBase::PowerButtonTestBase() = default;
 
@@ -48,6 +42,10 @@ void PowerButtonTestBase::SetUp() {
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kAshEnableTabletMode);
   }
+  if (show_power_button_menu_) {
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        switches::kShowPowerButtonMenu);
+  }
   AshTestBase::SetUp();
 
   lock_state_controller_ = Shell::Get()->lock_state_controller();
@@ -55,48 +53,47 @@ void PowerButtonTestBase::SetUp() {
       std::make_unique<LockStateControllerTestApi>(lock_state_controller_);
 }
 
+void PowerButtonTestBase::TearDown() {
+  AshTestBase::TearDown();
+  chromeos::DBusThreadManager::Shutdown();
+}
+
 void PowerButtonTestBase::ResetPowerButtonController() {
   ShellTestApi().ResetPowerButtonControllerForTest();
-  InitPowerButtonControllerMembers(false /* send_accelerometer_update */);
+  InitPowerButtonControllerMembers(
+      chromeos::PowerManagerClient::TabletMode::UNSUPPORTED);
 }
 
 void PowerButtonTestBase::InitPowerButtonControllerMembers(
-    bool send_accelerometer_update) {
+    chromeos::PowerManagerClient::TabletMode initial_tablet_mode_switch_state) {
   power_button_controller_ = Shell::Get()->power_button_controller();
-  tick_clock_ = new base::SimpleTestTickClock;
-  power_button_controller_->SetTickClockForTesting(
-      base::WrapUnique(tick_clock_));
+  power_button_controller_->SetTickClockForTesting(&tick_clock_);
 
-  if (send_accelerometer_update) {
-    SendAccelerometerUpdate(kSidewaysVector, kUpVector);
-    convertible_controller_ =
-        power_button_controller_
-            ->convertible_power_button_controller_for_test();
-    convertible_test_api_ =
-        std::make_unique<ConvertiblePowerButtonControllerTestApi>(
-            convertible_controller_);
+  if (initial_tablet_mode_switch_state !=
+      chromeos::PowerManagerClient::TabletMode::UNSUPPORTED) {
+    SetTabletModeSwitchState(initial_tablet_mode_switch_state);
+    tablet_controller_ =
+        power_button_controller_->tablet_power_button_controller_for_test();
+    tablet_test_api_ = std::make_unique<TabletPowerButtonControllerTestApi>(
+        tablet_controller_);
     screenshot_controller_ =
         power_button_controller_->screenshot_controller_for_test();
   } else {
-    convertible_test_api_ = nullptr;
-    convertible_controller_ = nullptr;
+    tablet_test_api_ = nullptr;
+    tablet_controller_ = nullptr;
     screenshot_controller_ = nullptr;
   }
 }
 
-void PowerButtonTestBase::SendAccelerometerUpdate(
-    const gfx::Vector3dF& screen,
-    const gfx::Vector3dF& keyboard) {
-  scoped_refptr<chromeos::AccelerometerUpdate> update(
-      new chromeos::AccelerometerUpdate());
-  update->Set(chromeos::ACCELEROMETER_SOURCE_SCREEN, screen.x(), screen.y(),
-              screen.z());
-  update->Set(chromeos::ACCELEROMETER_SOURCE_ATTACHED_KEYBOARD, keyboard.x(),
-              keyboard.y(), keyboard.z());
+void PowerButtonTestBase::SetTabletModeSwitchState(
+    chromeos::PowerManagerClient::TabletMode tablet_mode_switch_state) {
+  power_button_controller_->OnGetSwitchStates(
+      chromeos::PowerManagerClient::SwitchStates{
+          chromeos::PowerManagerClient::LidState::OPEN,
+          tablet_mode_switch_state});
 
-  power_button_controller_->OnAccelerometerUpdated(update);
-  convertible_controller_ =
-      power_button_controller_->convertible_power_button_controller_for_test();
+  tablet_controller_ =
+      power_button_controller_->tablet_power_button_controller_for_test();
   screenshot_controller_ =
       power_button_controller_->screenshot_controller_for_test();
 }
@@ -109,12 +106,12 @@ void PowerButtonTestBase::ForceClamshellPowerButton() {
 
 void PowerButtonTestBase::PressPowerButton() {
   power_button_controller_->PowerButtonEventReceived(true,
-                                                     tick_clock_->NowTicks());
+                                                     tick_clock_.NowTicks());
 }
 
 void PowerButtonTestBase::ReleasePowerButton() {
   power_button_controller_->PowerButtonEventReceived(false,
-                                                     tick_clock_->NowTicks());
+                                                     tick_clock_.NowTicks());
 }
 
 void PowerButtonTestBase::PressKey(ui::KeyboardCode key_code) {
@@ -154,6 +151,12 @@ void PowerButtonTestBase::UnlockScreen() {
 
 void PowerButtonTestBase::EnableTabletMode(bool enable) {
   Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(enable);
+}
+
+void PowerButtonTestBase::AdvanceClockToAvoidIgnoring() {
+  tick_clock_.Advance(
+      TabletPowerButtonController::kIgnoreRepeatedButtonUpDelay +
+      base::TimeDelta::FromMilliseconds(1));
 }
 
 }  // namespace ash

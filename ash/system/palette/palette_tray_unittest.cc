@@ -13,6 +13,7 @@
 #include "ash/public/cpp/config.h"
 #include "ash/public/cpp/stylus_utils.h"
 #include "ash/public/interfaces/voice_interaction_controller.mojom.h"
+#include "ash/root_window_controller.h"
 #include "ash/session/session_controller.h"
 #include "ash/session/test_session_controller_client.h"
 #include "ash/shell.h"
@@ -32,6 +33,7 @@
 #include "chromeos/chromeos_switches.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/session_manager_types.h"
+#include "ui/display/test/display_manager_test_api.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/devices/stylus_state.h"
 #include "ui/events/event.h"
@@ -245,11 +247,9 @@ class PaletteTrayTestWithVoiceInteraction : public PaletteTrayTest {
     // the simulated clock that is being installed below.
     GetEventGenerator();
 
-    simulated_clock_ = new base::SimpleTestTickClock();
     // Tests fail if event time is ever 0.
-    simulated_clock_->Advance(base::TimeDelta::FromMilliseconds(10));
-    // ui takes ownership of the tick clock.
-    ui::SetEventTickClockForTesting(base::WrapUnique(simulated_clock_));
+    simulated_clock_.Advance(base::TimeDelta::FromMilliseconds(10));
+    ui::SetEventTickClockForTesting(&simulated_clock_);
 
     highlighter_test_api_ = std::make_unique<HighlighterControllerTestApi>(
         Shell::Get()->highlighter_controller());
@@ -310,7 +310,7 @@ class PaletteTrayTestWithVoiceInteraction : public PaletteTrayTest {
                                   bool expected,
                                   bool expected_on_press) {
     const int kStrokeGap = 1000;
-    simulated_clock_->Advance(base::TimeDelta::FromMilliseconds(kStrokeGap));
+    simulated_clock_.Advance(base::TimeDelta::FromMilliseconds(kStrokeGap));
     DragAndAssertMetalayer(context, origin, event_flags, expected,
                            expected_on_press);
   }
@@ -318,8 +318,7 @@ class PaletteTrayTestWithVoiceInteraction : public PaletteTrayTest {
   std::unique_ptr<HighlighterControllerTestApi> highlighter_test_api_;
 
  private:
-  // Owned by |ui|.
-  base::SimpleTestTickClock* simulated_clock_ = nullptr;
+  base::SimpleTestTickClock simulated_clock_;
 
   DISALLOW_COPY_AND_ASSIGN(PaletteTrayTestWithVoiceInteraction);
 };
@@ -680,6 +679,66 @@ TEST_F(PaletteTrayTestWithInternalStylus, PaletteBubbleShownOnEject) {
   InsertStylus();
   EXPECT_FALSE(test_api_->palette_tool_manager()->IsToolActive(
       PaletteToolId::LASER_POINTER));
+}
+
+// Base class for tests that need to simulate an internal stylus, and need to
+// start without an active session.
+class PaletteTrayNoSessionTestWithInternalStylus : public NoSessionAshTestBase {
+ public:
+  PaletteTrayNoSessionTestWithInternalStylus() {
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        switches::kHasInternalStylus);
+    stylus_utils::SetHasStylusInputForTesting();
+  }
+  ~PaletteTrayNoSessionTestWithInternalStylus() override = default;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(PaletteTrayNoSessionTestWithInternalStylus);
+};
+
+// Verify that the palette tray is created on an external display, but it is not
+// shown, and the palette tray bubble does not appear when the stylus is
+// ejected.
+TEST_F(PaletteTrayNoSessionTestWithInternalStylus,
+       ExternalMonitorBubbleNotShownOnEject) {
+  // Fakes a stylus event with state |state| on all palette trays.
+  auto fake_stylus_event_on_all_trays = [](ui::StylusState state) {
+    Shell::RootWindowControllerList controllers =
+        Shell::GetAllRootWindowControllers();
+    for (size_t i = 0; i < controllers.size(); ++i) {
+      PaletteTray* tray = controllers[i]->GetStatusAreaWidget()->palette_tray();
+      PaletteTrayTestApi api(tray);
+      api.OnStylusStateChanged(state);
+    }
+  };
+
+  // Add a external display, then sign in.
+  UpdateDisplay("200x200,200x200");
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetFirstDisplayAsInternalDisplay();
+  Shell::RootWindowControllerList controllers =
+      Shell::GetAllRootWindowControllers();
+  ASSERT_EQ(2u, controllers.size());
+  SimulateUserLogin("test@test.com");
+
+  PaletteTray* main_tray =
+      controllers[0]->GetStatusAreaWidget()->palette_tray();
+  PaletteTray* external_tray =
+      controllers[1]->GetStatusAreaWidget()->palette_tray();
+
+  // The palette tray on the external monitor is not visible.
+  EXPECT_TRUE(main_tray->visible());
+  EXPECT_FALSE(external_tray->visible());
+
+  // Removing the stylus shows the bubble only on the main palette tray.
+  fake_stylus_event_on_all_trays(ui::StylusState::REMOVED);
+  EXPECT_TRUE(main_tray->GetBubbleView());
+  EXPECT_FALSE(external_tray->GetBubbleView());
+
+  // Inserting the stylus hides the bubble on both palette trays.
+  fake_stylus_event_on_all_trays(ui::StylusState::INSERTED);
+  EXPECT_FALSE(main_tray->GetBubbleView());
+  EXPECT_FALSE(external_tray->GetBubbleView());
 }
 
 }  // namespace ash

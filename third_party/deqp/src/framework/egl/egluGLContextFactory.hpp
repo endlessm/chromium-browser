@@ -41,13 +41,15 @@ class GLRenderContext : public glu::RenderContext
 public:
 	virtual eglw::EGLDisplay				getEGLDisplay		(void) const = 0;
 	virtual eglw::EGLContext				getEGLContext		(void) const = 0;
+	virtual eglw::EGLConfig					getEGLConfig		(void) const = 0;
+	virtual const eglw::Library&			getLibrary			(void) const = 0;
 };
 
 class GLContextFactory : public glu::ContextFactory
 {
 public:
 											GLContextFactory	(const NativeDisplayFactoryRegistry& displayFactoryRegistry);
-	virtual glu::RenderContext*				createContext		(const glu::RenderConfig& config, const tcu::CommandLine& cmdLine) const;
+	virtual glu::RenderContext*				createContext		(const glu::RenderConfig& config, const tcu::CommandLine& cmdLine, const glu::RenderContext *sharedContext) const;
 
 private:
 	const NativeDisplayFactoryRegistry&		m_displayFactoryRegistry;

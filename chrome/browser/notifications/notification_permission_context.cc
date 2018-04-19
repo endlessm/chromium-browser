@@ -21,7 +21,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
-#include "third_party/WebKit/common/page/page_visibility_state.mojom.h"
+#include "third_party/WebKit/public/mojom/page/page_visibility_state.mojom.h"
 #include "url/gurl.h"
 
 namespace {
@@ -46,8 +46,7 @@ class VisibilityTimerTabHelper
   void CancelTask(const PermissionRequestID& id);
 
   // WebContentsObserver:
-  void WasShown() override;
-  void WasHidden() override;
+  void OnVisibilityChanged(content::Visibility visibility) override;
   void WebContentsDestroyed() override;
 
  private:
@@ -129,16 +128,17 @@ void VisibilityTimerTabHelper::CancelTask(const PermissionRequestID& id) {
     task_queue_.front().timer->Reset();
 }
 
-void VisibilityTimerTabHelper::WasShown() {
-  if (!is_visible_ && !task_queue_.empty())
-    task_queue_.front().timer->Reset();
-  is_visible_ = true;
-}
-
-void VisibilityTimerTabHelper::WasHidden() {
-  if (is_visible_ && !task_queue_.empty())
-    task_queue_.front().timer->Stop();
-  is_visible_ = false;
+void VisibilityTimerTabHelper::OnVisibilityChanged(
+    content::Visibility visibility) {
+  if (visibility == content::Visibility::VISIBLE) {
+    if (!is_visible_ && !task_queue_.empty())
+      task_queue_.front().timer->Reset();
+    is_visible_ = true;
+  } else {
+    if (is_visible_ && !task_queue_.empty())
+      task_queue_.front().timer->Stop();
+    is_visible_ = false;
+  }
 }
 
 void VisibilityTimerTabHelper::WebContentsDestroyed() {
@@ -160,7 +160,7 @@ DEFINE_WEB_CONTENTS_USER_DATA_KEY(VisibilityTimerTabHelper);
 NotificationPermissionContext::NotificationPermissionContext(Profile* profile)
     : PermissionContextBase(profile,
                             CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
-                            blink::FeaturePolicyFeature::kNotFound),
+                            blink::mojom::FeaturePolicyFeature::kNotFound),
       weak_factory_ui_thread_(this) {}
 
 NotificationPermissionContext::~NotificationPermissionContext() {}
@@ -182,16 +182,6 @@ void NotificationPermissionContext::ResetPermission(
     const GURL& requesting_origin,
     const GURL& embedder_origin) {
   DesktopNotificationProfileUtil::ClearSetting(profile(), requesting_origin);
-}
-
-void NotificationPermissionContext::CancelPermissionRequest(
-    content::WebContents* web_contents,
-    const PermissionRequestID& id) {
-  if (profile()->IsOffTheRecord()) {
-    VisibilityTimerTabHelper::FromWebContents(web_contents)->CancelTask(id);
-  } else {
-    PermissionContextBase::CancelPermissionRequest(web_contents, id);
-  }
 }
 
 void NotificationPermissionContext::DecidePermission(

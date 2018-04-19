@@ -90,13 +90,6 @@ void FakeCryptohomeClient::Unmount(DBusMethodCallback<bool> callback) {
       FROM_HERE, base::BindOnce(std::move(callback), unmount_result_));
 }
 
-void FakeCryptohomeClient::AsyncCheckKey(
-    const cryptohome::Identification& cryptohome_id,
-    const std::string& key,
-    AsyncMethodCallback callback) {
-  ReturnAsyncMethodResult(std::move(callback));
-}
-
 void FakeCryptohomeClient::AsyncMigrateKey(
     const cryptohome::Identification& cryptohome_id,
     const std::string& from_key,
@@ -151,22 +144,6 @@ std::string FakeCryptohomeClient::BlockingGetSanitizedUsername(
     const cryptohome::Identification& cryptohome_id) {
   return service_is_available_ ? GetStubSanitizedUsername(cryptohome_id)
                                : std::string();
-}
-
-void FakeCryptohomeClient::AsyncMount(
-    const cryptohome::Identification& cryptohome_id,
-    const std::string& key,
-    int flags,
-    AsyncMethodCallback callback) {
-  ReturnAsyncMethodResult(std::move(callback));
-}
-
-void FakeCryptohomeClient::AsyncAddKey(
-    const cryptohome::Identification& cryptohome_id,
-    const std::string& key,
-    const std::string& new_key,
-    AsyncMethodCallback callback) {
-  ReturnAsyncMethodResult(std::move(callback));
 }
 
 void FakeCryptohomeClient::AsyncMountGuest(AsyncMethodCallback callback) {
@@ -556,6 +533,7 @@ void FakeCryptohomeClient::MountEx(
     DBusMethodCallback<cryptohome::BaseReply> callback) {
   cryptohome::CryptohomeErrorCode error = cryptohome_error_;
   last_mount_request_ = request;
+  last_mount_auth_request_ = auth;
   cryptohome::BaseReply reply;
   cryptohome::MountReply* mount =
       reply.MutableExtension(cryptohome::MountReply::reply);

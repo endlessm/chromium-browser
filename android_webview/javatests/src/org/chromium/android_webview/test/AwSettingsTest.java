@@ -1784,7 +1784,7 @@ public class AwSettingsTest {
         EmbeddedTestServer testServer = EmbeddedTestServer.createAndStartServer(
                 InstrumentationRegistry.getInstrumentation().getContext());
 
-        mActivityTestRule.enableJavaScriptOnUiThread(awContents);
+        AwActivityTestRule.enableJavaScriptOnUiThread(awContents);
 
         try {
             // Create url with echoheader echoing the User-Agent header in the the html body.
@@ -2634,6 +2634,7 @@ public class AwSettingsTest {
     @Test
     @SmallTest
     @Feature({"AndroidWebView", "Preferences"})
+    @DisabledTest(message = "crbug.com/746264")
     public void testUseWideViewportLayoutWidth() throws Throwable {
         TestAwContentsClient contentClient = new TestAwContentsClient();
         AwTestContainerView testContainerView =
@@ -2646,6 +2647,7 @@ public class AwSettingsTest {
     @Test
     @SmallTest
     @Feature({"AndroidWebView", "Preferences"})
+    @DisabledTest(message = "crbug.com/746264")
     public void testUseWideViewportLayoutWidthNoQuirks() throws Throwable {
         TestAwContentsClient contentClient = new TestAwContentsClient();
         AwTestContainerView testContainerView =
@@ -2721,6 +2723,7 @@ public class AwSettingsTest {
     @Test
     @SmallTest
     @Feature({"AndroidWebView", "Preferences"})
+    @DisabledTest(message = "crbug.com/746264")
     public void testZeroLayoutHeightDisablesViewportQuirkWithTwoViews() throws Throwable {
         ViewPair views = createViews();
         runPerViewSettingsTest(
@@ -2873,7 +2876,7 @@ public class AwSettingsTest {
         CallbackHelper onPageFinishedHelper = client.getOnPageFinishedHelper();
         InstrumentationRegistry.getInstrumentation().runOnMainSync(
                 () -> awContents.getSettings().setScrollTopLeftInteropEnabled(state));
-        mActivityTestRule.enableJavaScriptOnUiThread(awContents);
+        AwActivityTestRule.enableJavaScriptOnUiThread(awContents);
         final String page = "<!doctype html>"
                 + "<script>"
                 + "window.onload = function() {"
@@ -3031,7 +3034,7 @@ public class AwSettingsTest {
         final AwTestContainerView mContainerView =
                 mActivityTestRule.createAwTestContainerViewOnMainSync(client);
         final AwContents awContents = mContainerView.getAwContents();
-        mActivityTestRule.enableJavaScriptOnUiThread(awContents);
+        AwActivityTestRule.enableJavaScriptOnUiThread(awContents);
         JSUtils.executeJavaScriptAndWaitForResult(InstrumentationRegistry.getInstrumentation(),
                 awContents, client.getOnEvaluateJavaScriptResultHelper(),
                 "window.emptyDocumentPersistenceTest = true;");
@@ -3067,7 +3070,7 @@ public class AwSettingsTest {
                 mActivityTestRule.createAwTestContainerViewOnMainSync(client);
         final AwContents awContents = view.getAwContents();
         CallbackHelper onPageFinishedHelper = client.getOnPageFinishedHelper();
-        mActivityTestRule.enableJavaScriptOnUiThread(awContents);
+        AwActivityTestRule.enableJavaScriptOnUiThread(awContents);
         final String expectedTitle = "false"; // https://crbug.com/618472
         final String page = "<!doctype html>"
                 + "<script>"
@@ -3102,7 +3105,7 @@ public class AwSettingsTest {
         final AwTestContainerView mContainerView =
                 mActivityTestRule.createAwTestContainerViewOnMainSync(client);
         final AwContents awContents = mContainerView.getAwContents();
-        mActivityTestRule.enableJavaScriptOnUiThread(awContents);
+        AwActivityTestRule.enableJavaScriptOnUiThread(awContents);
         final String testPageHtml =
                 "<html><head></head><body><div id='a' contenteditable></div><script>"
                 + "var cnt = 0;"

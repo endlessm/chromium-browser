@@ -15,7 +15,7 @@
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
-#include "ui/accessibility/ax_enums.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 
 class PrefChangeRegistrar;
 class PrefRegistrySimple;
@@ -27,6 +27,7 @@ class Connector;
 
 namespace ash {
 
+class AccessibilityHighlightController;
 class ScopedBacklightsForcedOff;
 
 // The controller for accessibility features in ash. Features can be enabled
@@ -48,6 +49,15 @@ class ASH_EXPORT AccessibilityController
   void SetAutoclickEnabled(bool enabled);
   bool IsAutoclickEnabled() const;
 
+  void SetCaretHighlightEnabled(bool enabled);
+  bool IsCaretHighlightEnabled() const;
+
+  void SetCursorHighlightEnabled(bool enabled);
+  bool IsCursorHighlightEnabled() const;
+
+  void SetFocusHighlightEnabled(bool enabled);
+  bool IsFocusHighlightEnabled() const;
+
   void SetHighContrastEnabled(bool enabled);
   bool IsHighContrastEnabled() const;
 
@@ -60,6 +70,17 @@ class ASH_EXPORT AccessibilityController
   void SetSpokenFeedbackEnabled(bool enabled,
                                 AccessibilityNotificationVisibility notify);
   bool IsSpokenFeedbackEnabled() const;
+
+  void SetSelectToSpeakEnabled(bool enabled);
+  bool IsSelectToSpeakEnabled() const;
+
+  void SetStickyKeysEnabled(bool enabled);
+  bool IsStickyKeysEnabled() const;
+
+  void SetVirtualKeyboardEnabled(bool enabled);
+  bool IsVirtualKeyboardEnabled() const;
+
+  bool braille_display_connected() const { return braille_display_connected_; }
 
   // Triggers an accessibility alert to give the user feedback.
   void TriggerAccessibilityAlert(mojom::AccessibilityAlert alert);
@@ -75,22 +96,40 @@ class ASH_EXPORT AccessibilityController
 
   // Forwards an accessibility gesture from the touch exploration controller to
   // ChromeVox.
-  void HandleAccessibilityGesture(ui::AXGesture gesture);
+  void HandleAccessibilityGesture(ax::mojom::Gesture gesture);
 
   // Toggle dictation.
   void ToggleDictation();
 
+  // Cancels all current and queued speech immediately.
+  void SilenceSpokenFeedback();
+
+  // Called when we first detect two fingers are held down, which can be used to
+  // toggle spoken feedback on some touch-only devices.
+  void OnTwoFingerTouchStart();
+
+  // Called when the user is no longer holding down two fingers (including
+  // releasing one, holding down three, or moving them).
+  void OnTwoFingerTouchStop();
+
+  // Whether or not to enable toggling spoken feedback via holding down two
+  // fingers on the screen.
+  void ShouldToggleSpokenFeedbackViaTouch(
+      base::OnceCallback<void(bool)> callback);
+
+  // Plays tick sound indicating spoken feedback will be toggled after
+  // countdown.
+  void PlaySpokenFeedbackToggleCountdown(int tick_count);
+
   // mojom::AccessibilityController:
   void SetClient(mojom::AccessibilityControllerClientPtr client) override;
   void SetDarkenScreen(bool darken) override;
+  void BrailleDisplayStateChanged(bool connected) override;
+  void SetFocusHighlightRect(const gfx::Rect& bounds_in_screen) override;
 
   // SessionObserver:
   void OnSigninScreenPrefServiceInitialized(PrefService* prefs) override;
   void OnActiveUserPrefServiceChanged(PrefService* prefs) override;
-
-  // TODO(warx): remove this method for browser tests
-  // (https://crbug.com/789285).
-  void SetPrefServiceForTest(PrefService* prefs);
 
   // Test helpers:
   void FlushMojoForTest();
@@ -100,15 +139,19 @@ class ASH_EXPORT AccessibilityController
   // initial settings.
   void ObservePrefs(PrefService* prefs);
 
-  // Returns |pref_service_for_test_| if not null, otherwise return
-  // SessionController::GetActivePrefService().
-  PrefService* GetActivePrefService() const;
-
   void UpdateAutoclickFromPref();
+  void UpdateAutoclickDelayFromPref();
+  void UpdateCaretHighlightFromPref();
+  void UpdateCursorHighlightFromPref();
+  void UpdateFocusHighlightFromPref();
   void UpdateHighContrastFromPref();
   void UpdateLargeCursorFromPref();
   void UpdateMonoAudioFromPref();
   void UpdateSpokenFeedbackFromPref();
+  void UpdateSelectToSpeakFromPref();
+  void UpdateStickyKeysFromPref();
+  void UpdateVirtualKeyboardFromPref();
+  void UpdateAccessibilityHighlightingFromPrefs();
 
   service_manager::Connector* connector_ = nullptr;
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
@@ -120,18 +163,28 @@ class ASH_EXPORT AccessibilityController
   mojom::AccessibilityControllerClientPtr client_;
 
   bool autoclick_enabled_ = false;
+  base::TimeDelta autoclick_delay_;
+  bool caret_highlight_enabled_ = false;
+  bool cursor_highlight_enabled_ = false;
+  bool focus_highlight_enabled_ = false;
   bool high_contrast_enabled_ = false;
   bool large_cursor_enabled_ = false;
   int large_cursor_size_in_dip_ = kDefaultLargeCursorSize;
   bool mono_audio_enabled_ = false;
   bool spoken_feedback_enabled_ = false;
+  bool select_to_speak_enabled_ = false;
+  bool sticky_keys_enabled_ = false;
+  bool virtual_keyboard_enabled_ = false;
+  bool braille_display_connected_ = false;
 
   // TODO(warx): consider removing this and replacing it with a more reliable
   // way (https://crbug.com/800270).
   AccessibilityNotificationVisibility spoken_feedback_notification_ =
       A11Y_NOTIFICATION_NONE;
 
-  PrefService* pref_service_for_test_ = nullptr;
+  // Used to control the highlights of caret, cursor and focus.
+  std::unique_ptr<AccessibilityHighlightController>
+      accessibility_highlight_controller_;
 
   // Used to force the backlights off to darken the screen.
   std::unique_ptr<ScopedBacklightsForcedOff> scoped_backlights_forced_off_;

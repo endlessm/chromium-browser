@@ -34,7 +34,7 @@
 #include "chrome/browser/ui/views/load_complete_listener.h"
 #include "chrome/browser/ui/views/tabs/tab.h"
 #include "chrome/browser/ui/views/tabs/tab_renderer_data.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "components/omnibox/browser/omnibox_popup_model_observer.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/models/simple_menu_model.h"
@@ -53,6 +53,7 @@
 // view: http://dev.chromium.org/developers/design-documents/browser-window
 
 class BookmarkBarView;
+class BrowserViewButtonProvider;
 class Browser;
 class BrowserViewLayout;
 class ContentsLayoutManager;
@@ -71,6 +72,10 @@ namespace extensions {
 class ActiveTabPermissionGranter;
 class Command;
 class Extension;
+}
+
+namespace version_info {
+enum class Channel;
 }
 
 namespace views {
@@ -194,6 +199,9 @@ class BrowserView : public BrowserWindow,
     return exclusive_access_bubble_.get();
   }
 
+  // Accessor for the contents WebView.
+  views::WebView* contents_web_view() { return contents_web_view_; }
+
   // Returns true if various window components are visible.
   bool IsTabStripVisible() const;
 
@@ -253,6 +261,11 @@ class BrowserView : public BrowserWindow,
   // Only exiting fullscreen in this way is currently supported.
   void FullscreenStateChanged();
 
+  // Sets the button provider for this BrowserView. Must be called before
+  // InitViews() which sets the ToolbarView as the default button provider.
+  void SetButtonProvider(BrowserViewButtonProvider* provider);
+  BrowserViewButtonProvider* button_provider() { return button_provider_; }
+
   // Overridden from BrowserWindow:
   void Show() override;
   void ShowInactive() override;
@@ -309,7 +322,7 @@ class BrowserView : public BrowserWindow,
   void ToolbarSizeChanged(bool is_animating) override;
   void FocusAppMenu() override;
   void FocusBookmarksToolbar() override;
-  void FocusInfobars() override;
+  void FocusInactivePopupForAccessibility() override;
   void RotatePaneFocus(bool forwards) override;
   void DestroyBrowser() override;
   bool IsBookmarkBarVisible() const override;
@@ -378,7 +391,6 @@ class BrowserView : public BrowserWindow,
 
   BookmarkBarView* GetBookmarkBarView() const;
   LocationBarView* GetLocationBarView() const;
-  views::View* GetTabContentsContainerView() const;
 
   // Overridden from TabStripModelObserver:
   void TabInsertedAt(TabStripModel* tab_strip_model,
@@ -482,7 +494,6 @@ class BrowserView : public BrowserWindow,
 
   // Testing interface:
   views::View* GetContentsContainerForTest() { return contents_container_; }
-  views::WebView* GetContentsWebViewForTest() { return contents_web_view_; }
   views::WebView* GetDevToolsWebViewForTest() { return devtools_web_view_; }
 
   // Called by BrowserFrame during theme changes.
@@ -497,6 +508,7 @@ class BrowserView : public BrowserWindow,
   // interface to keep these two classes decoupled and testable.
   friend class BrowserViewLayoutDelegateImpl;
   FRIEND_TEST_ALL_PREFIXES(BrowserViewTest, BrowserView);
+  FRIEND_TEST_ALL_PREFIXES(BrowserViewTest, AccessibleWindowTitle);
 
   // If the browser is in immersive full screen mode, it will reveal the
   // tabstrip for a short duration. This is useful for shortcuts that perform
@@ -607,6 +619,11 @@ class BrowserView : public BrowserWindow,
   bool FindCommandIdForAccelerator(const ui::Accelerator& accelerator,
                                    int* command_id) const;
 
+  // Called by GetAccessibleWindowTitle, split out to make it testable.
+  base::string16 GetAccessibleWindowTitleForChannelAndProfile(
+      version_info::Channel,
+      Profile* profile) const;
+
   // The BrowserFrame that hosts this view.
   BrowserFrame* frame_ = nullptr;
 
@@ -678,6 +695,10 @@ class BrowserView : public BrowserWindow,
   // The view managing the devtools and contents positions.
   // Handled by ContentsLayoutManager.
   views::View* contents_container_ = nullptr;
+
+  // Provides access to the buttons this browser view uses. Buttons may appear
+  // in the frame or in the toolbar.
+  BrowserViewButtonProvider* button_provider_ = nullptr;
 
   // Tracks and stores the last focused view which is not the
   // devtools_web_view_ or any of its children. Used to restore focus once

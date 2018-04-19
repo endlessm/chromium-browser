@@ -6,13 +6,9 @@
 
 #include <windows.h>
 
-#include <softpub.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <tlhelp32.h>
-#include <wincrypt.h>
-#include <wintrust.h>
-#include <mscat.h>  // NOLINT: This must be after wincrypt and wintrust.
 
 #include <algorithm>
 #include <set>
@@ -584,12 +580,12 @@ std::unique_ptr<base::ListValue> EnumerateModulesModel::GetModuleList() {
   if (enumerated_modules_.empty())
     return nullptr;
 
-  auto list = base::MakeUnique<base::ListValue>();
+  auto list = std::make_unique<base::ListValue>();
 
   for (ModuleEnumerator::ModulesVector::const_iterator module =
            enumerated_modules_.begin();
        module != enumerated_modules_.end(); ++module) {
-    auto data = base::MakeUnique<base::DictionaryValue>();
+    auto data = std::make_unique<base::DictionaryValue>();
     data->SetInteger("type", module->type);
     base::string16 type_string;
     if ((module->type & ModuleEnumerator::LOADED_MODULE) == 0) {

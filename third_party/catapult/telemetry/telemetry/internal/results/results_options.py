@@ -137,7 +137,7 @@ def _GetProgressReporter(output_skipped_tests_summary, suppress_gtest_report):
 
 
 def CreateResults(benchmark_metadata, options,
-                  value_can_be_added_predicate=lambda v, is_first: True,
+                  should_add_value=lambda name, is_first: True,
                   benchmark_enabled=True):
   """
   Args:
@@ -198,12 +198,13 @@ def CreateResults(benchmark_metadata, options,
   results = page_test_results.PageTestResults(
       output_formatters=output_formatters, progress_reporter=reporter,
       output_dir=options.output_dir,
-      value_can_be_added_predicate=value_can_be_added_predicate,
+      should_add_value=should_add_value,
       benchmark_enabled=benchmark_enabled,
       upload_bucket=upload_bucket,
       artifact_results=artifacts)
 
   results.telemetry_info.benchmark_name = benchmark_metadata.name
+  results.telemetry_info.benchmark_descriptions = benchmark_metadata.description
   results.telemetry_info.benchmark_start_epoch = time.time()
   if options.results_label:
     results.telemetry_info.label = options.results_label

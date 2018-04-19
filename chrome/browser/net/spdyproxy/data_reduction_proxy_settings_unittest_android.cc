@@ -32,7 +32,7 @@
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/proxy_config/proxy_prefs.h"
-#include "net/proxy/proxy_server.h"
+#include "net/base/proxy_server.h"
 #include "net/socket/socket_test_util.h"
 #include "net/url_request/url_request_context_storage.h"
 #include "net/url_request/url_request_test_util.h"
@@ -266,8 +266,23 @@ TEST_F(DataReductionProxySettingsAndroidTest,
 TEST_F(DataReductionProxySettingsAndroidTest,
        MaybeRewriteWebliteUrlWithWebliteDisabled) {
   base::test::ScopedFeatureList scoped_list;
-  scoped_list.InitAndDisableFeature(
-      data_reduction_proxy::features::kDataReductionProxyDecidesTransform);
+  scoped_list.InitFromCommandLine(
+      "Previews" /* enable_features */,
+      "DataReductionProxyDecidesTransform" /* disable_features */);
+  Init();
+  drp_test_context()->EnableDataReductionProxyWithSecureProxyCheckSuccess();
+
+  EXPECT_EQ("http://googleweblight.com/i?u=http://example.com/",
+            MaybeRewriteWebliteUrlAsUTF8(
+                "http://googleweblight.com/i?u=http://example.com/"));
+}
+
+TEST_F(DataReductionProxySettingsAndroidTest,
+       MaybeRewriteWebliteUrlWithPreviewsDisabled) {
+  base::test::ScopedFeatureList scoped_list;
+  scoped_list.InitFromCommandLine(
+      "DataReductionProxyDecidesTransform" /* enable_features */,
+      "Previews" /* disable_features */);
   Init();
   drp_test_context()->EnableDataReductionProxyWithSecureProxyCheckSuccess();
 

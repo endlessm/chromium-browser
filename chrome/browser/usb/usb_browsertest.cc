@@ -21,7 +21,7 @@
 #include "device/base/mock_device_client.h"
 #include "device/usb/mock_usb_device.h"
 #include "device/usb/mock_usb_service.h"
-#include "device/usb/public/interfaces/chooser_service.mojom.h"
+#include "device/usb/public/mojom/chooser_service.mojom.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 
@@ -71,7 +71,7 @@ class FakeChooserService : public device::mojom::UsbChooserService {
   void GetPermission(
       std::vector<device::mojom::UsbDeviceFilterPtr> device_filters,
       GetPermissionCallback callback) override {
-    auto chooser_controller = base::MakeUnique<UsbChooserController>(
+    auto chooser_controller = std::make_unique<UsbChooserController>(
         render_frame_host_, std::move(device_filters), std::move(callback));
     new FakeChooserView(std::move(chooser_controller));
   }

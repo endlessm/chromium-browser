@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_BANNERS_APP_BANNER_MANAGER_ANDROID_H_
 #define CHROME_BROWSER_BANNERS_APP_BANNER_MANAGER_ANDROID_H_
 
+#include <memory>
 #include <string>
 
 #include "base/android/scoped_java_ref.h"
@@ -16,6 +17,8 @@
 #include "url/gurl.h"
 
 namespace banners {
+
+class AppBannerUiDelegateAndroid;
 
 // Extends the AppBannerManager to support native Android apps. This class owns
 // a Java-side AppBannerManager which interfaces with the Java runtime to fetch
@@ -68,11 +71,16 @@ class AppBannerManagerAndroid
 
   // AppBannerManager overrides.
   void RequestAppBanner(const GURL& validated_url, bool is_debug_mode) override;
+  void SendBannerDismissed() override;
+
+  // InstallableAmbientBadgeInfoBarAndroid::Client overrides.
+  void AddToHomescreenFromBadge() override;
 
  protected:
   // AppBannerManager overrides.
   std::string GetAppIdentifier() override;
   std::string GetBannerType() override;
+  bool CheckIfInstalled() override;
   bool IsWebAppConsideredInstalled(content::WebContents* web_contents,
                                    const GURL& validated_url,
                                    const GURL& start_url,
@@ -103,6 +111,15 @@ class AppBannerManagerAndroid
   InstallableStatusCode QueryNativeApp(const std::string& platform,
                                        const GURL& url,
                                        const std::string& id);
+
+  // Shows the ambient badge if the current page advertises a native app or is
+  // a PWA.
+  void ShowAmbientBadge(bool is_installed);
+
+  // Hides the ambient badge if it is showing.
+  void HideAmbientBadge();
+
+  std::unique_ptr<AppBannerUiDelegateAndroid> ui_delegate_;
 
   // The URL of the badge icon.
   GURL badge_icon_url_;

@@ -23,8 +23,10 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" /> (HDMI/DP)</translation>
 <translation id="1510238584712386396">लाँचर</translation>
 <translation id="1525508553941733066">डिसमिस करा</translation>
+<translation id="1537254971476575106">पूर्णस्क्रीन भिंग</translation>
 <translation id="15373452373711364">मोठा माउस कर्सर</translation>
 <translation id="1550523713251050646">अधिक पर्यायांसाठी क्लिक करा</translation>
+<translation id="1608626060424371292">हा वापरकर्ता काढा</translation>
 <translation id="1621499497873603021">बॅटरी रिक्त होईपर्यंत शिल्लक वेळ, <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">सॉरी, तुमच्या पासवर्डची पडताळणी अजूनही झालेली नाही. टीप: तुम्ही तुमचा पासवर्ड अलीकडेच बदलला असल्यास, तुम्ही साइन आउट केल्यानंतर तुमचा नवीन पासवर्ड लागू केला जाईल, कृपया येथे जुना पासवर्ड वापरा.</translation>
 <translation id="1677472565718498478"><ph name="TIME" /> शिल्लक</translation>
@@ -43,12 +45,15 @@
 <translation id="1951012854035635156">साहाय्यक</translation>
 <translation id="1957803754585243749">0°</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
+<translation id="1995660704900986789">बंद करा</translation>
 <translation id="2012624427112548395">Ctrl+Search+H</translation>
 <translation id="2049639323467105390"><ph name="DOMAIN" /> याद्वारे हे डिव्हाइस व्यवस्‍थापित केले जाते.</translation>
 <translation id="2050339315714019657">पोर्ट्रेट</translation>
 <translation id="2067602449040652523">कीबोर्डची चमक</translation>
+<translation id="2081529251031312395">$1 नंतरही साइन इन करू शकतो.</translation>
 <translation id="2122028596993374965"><ph name="RECEIVER_NAME" /> वर <ph name="TAB_NAME" /> कास्ट करणे थांबवा</translation>
 <translation id="2127372758936585790">निम्न-उर्जेचे चार्जर</translation>
+<translation id="2135456203358955318">डॉक केलेले भिंग</translation>
 <translation id="2144487987174258011">Adobe Flash Player अपडेट करण्यासाठी पुन्हा सुरू करा</translation>
 <translation id="2208323208084708176">एकीकृत डेस्कटॉप मोड</translation>
 <translation id="2220572644011485463">पिन किंवा पासवर्ड</translation>
@@ -73,7 +78,6 @@
 <translation id="2653659639078652383">सबमिट करा</translation>
 <translation id="2675319268637823299">अॅडमिनिस्ट्रेटरने <ph name="USER_EMAIL" /> साठी एकाधिक साइन इनची अनुमती दिली नाही.
 सुरू ठेवण्यासाठी सर्व वापरकर्त्यांनी साइन आउट करणे आवश्यक आहे.</translation>
-<translation id="2700058918926273959"><ph name="SESSION_TIME_REMAINING" /> मध्ये सत्र समाप्त होते. आपल्याला साइन आउट केले जाईल.</translation>
 <translation id="2727977024730340865">एका निम्न-उर्जेच्या चार्जरवर प्लग इन केले. बॅटरी चार्जिंग विश्वसनीय असू शकत नाही.</translation>
 <translation id="2761704814324807722">स्थिती ट्रे, वेळ <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581"><ph name="NAME" /> शी पुन्हा कनेक्ट करीत आहे</translation>
@@ -83,6 +87,7 @@
 <translation id="2844169650293029770">USB-C डिव्‍हाइस (डाव्‍या बाजूचे पुढील पोर्ट)</translation>
 <translation id="2865888419503095837">नेटवर्क माहिती</translation>
 <translation id="2872961005593481000">बंद करा</translation>
+<translation id="2878884018241093801">अलीकडील कोणतेही आयटम नाहीत</translation>
 <translation id="2903844815300039659"><ph name="NAME" />, <ph name="STRENGTH" /> शी कनेक्ट केलेले</translation>
 <translation id="2911940648265863620">तुम्ही तुमची स्क्रीन शेअर करत आहात</translation>
 <translation id="2942516765047364088">शेल्फ स्थिती</translation>
@@ -109,7 +114,6 @@
 <translation id="3413817803639110246">आत्ताच पाहण्यासाठी काहीही नाही</translation>
 <translation id="3445925074670675829">USB-C डिव्‍हाइस</translation>
 <translation id="3465566417615315331">आपला फोटो क्लिक करा</translation>
-<translation id="3473479545200714844">स्क्रीन भिंग</translation>
 <translation id="3477079411857374384">Control-Shift-Space</translation>
 <translation id="3510164367642747937">माउसचा कर्सर हायलाइट करा</translation>
 <translation id="3513798432020909783">खाते <ph name="MANAGER_EMAIL" /> ने व्‍यवस्‍थापित केले आहे</translation>
@@ -131,6 +135,7 @@
 <translation id="3891340733213178823">साइन आउट करण्यासाठी Ctrl+Shift+Q दोनदा दाबा.</translation>
 <translation id="3893630138897523026">ChromeVox (बोललेला अभिप्राय)</translation>
 <translation id="3899995891769452915">व्हॉइस इनपुट</translation>
+<translation id="3900355044994618856"><ph name="SESSION_TIME_REMAINING" /> मध्ये तुमचे सेशन समाप्त होईल</translation>
 <translation id="3901991538546252627"><ph name="NAME" /> वर कनेक्ट करीत आहे</translation>
 <translation id="394485226368336402">ऑडिओ सेटिंग्ज</translation>
 <translation id="397105322502079400">गणना करत आहे...</translation>
@@ -139,6 +144,7 @@
 <translation id="4072264167173457037">मध्यम सिग्नल</translation>
 <translation id="4279490309300973883">मिररिंग</translation>
 <translation id="4321179778687042513">ctrl</translation>
+<translation id="4331809312908958774">Chrome OS</translation>
 <translation id="4338109981321384717">भिंग</translation>
 <translation id="4351433414020964307">साहाय्यक लोड होत आहे...</translation>
 <translation id="4378551569595875038">कनेक्ट करीत आहे...</translation>
@@ -183,6 +189,7 @@
 <translation id="5744083938413354016">टॅप ड्रॅगिंग</translation>
 <translation id="5777841717266010279">स्क्रीन सामायिकरण थांबवायचे?</translation>
 <translation id="57838592816432529">निःशब्द करा</translation>
+<translation id="5820394555380036790">Chromium OS</translation>
 <translation id="5832805196449965646">व्यक्ती जोडा</translation>
 <translation id="5860033963881614850">बंद</translation>
 <translation id="5895138241574237353">रीस्टार्ट करा</translation>
@@ -206,6 +213,7 @@
 <translation id="607652042414456612">आपला कॉंप्युटर जवळपासच्या Bluetooth डिव्हाइसेसवर शोधण्यायोग्य आहे आणि <ph name="ADDRESS" /> पत्त्यासह "<ph name="NAME" />" म्हणून दिसेल</translation>
 <translation id="6106745654298855237"><ph name="POWER_SOURCE" /> चार्ज करीत आहे</translation>
 <translation id="615957422585914272">ऑन-स्‍क्रीन कीबोर्ड दर्शवा</translation>
+<translation id="6164005077879661055">एकदा हा पर्यवेक्षी वापरकर्ता काढल्यानंतर पर्यवेक्षी वापरकर्त्याशी संबद्ध सर्व फायली आणि स्थानिक डेटा कायमचा हटविला जाईल. या पर्यवेक्षी वापरकर्त्यासाठी भेट दिलेल्या वेबसाइट आणि सेटिंग्ज तरीही <ph name="MANAGEMENT_URL" /> वर व्यवस्थापकाद्वारे दृश्यमान असू शकतात.</translation>
 <translation id="6165508094623778733">अधिक जाणून घ्या</translation>
 <translation id="6267036997247669271"><ph name="NAME" />: सक्रिय करत आहे...</translation>
 <translation id="6284232397434400372">रीझोल्युशन बदलले</translation>
@@ -240,6 +248,7 @@
 <translation id="6857811139397017780">सक्रिय करा<ph name="NETWORKSERVICE" /></translation>
 <translation id="6911468394164995108">दुसरीकडे सामील व्हा...</translation>
 <translation id="6981982820502123353">प्रवेशयोग्यता</translation>
+<translation id="698231206551913481">एकदा हा वापरकर्ता काढल्यानंतर या वापरकर्त्याशी संबद्ध सर्व फायली आणि स्थानिक डेटा कायमचा हटविला जाईल.</translation>
 <translation id="7029814467594812963">सत्र निर्गमन करा</translation>
 <translation id="7034339000180558234"><ph name="RECEIVER_NAME" /> वर <ph name="TAB_NAME" /> कास्ट करीत आहे</translation>
 <translation id="7052914147756339792">वॉलपेपर सेट करा...</translation>
@@ -247,6 +256,7 @@
 <translation id="7066646422045619941">हे नेटवर्क आपल्या प्रशासकाने अक्षम केले आहे.</translation>
 <translation id="7067196344162293536">स्वयं फिरवा</translation>
 <translation id="7098389117866926363">USB-C डिव्‍हाइस (मागील बाजूचे डावे पोर्ट)</translation>
+<translation id="7131634465328662194">तुम्हाला आपोआप साइन आउट केले जाईल.</translation>
 <translation id="7165278925115064263">Alt+Shift+K</translation>
 <translation id="7168224885072002358"><ph name="TIMEOUT_SECONDS" /> मध्ये जुन्या रिजोल्यूशनवर परत करत आहे</translation>
 <translation id="7256634071279256947">मागील मायक्रोफोन</translation>
@@ -303,6 +313,7 @@
 <translation id="8484916590211895857"><ph name="NAME" />: पुन्हा कनेक्ट करीत आहे...</translation>
 <translation id="8517041960877371778">आपले <ph name="DEVICE_TYPE" /> चालू केले असताना कदाचित चार्ज होणार नाही.</translation>
 <translation id="8639760480004882931"><ph name="PERCENTAGE" /> शिल्लक</translation>
+<translation id="8649101189709089199">बोलण्यासाठी निवडा</translation>
 <translation id="8652175077544655965">सेटिंग्ज बंद करा</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">निम्न-उर्जेचे चार्जर कनेक्ट केले</translation>
@@ -312,6 +323,7 @@
 नंतरच्या सूचना, विंडो आणि संवाद हे डेस्कटॉपच्या दरम्यान विभाजित केले जाऊ शकतात.</translation>
 <translation id="8825534185036233643">दोन पेक्षा जास्त प्रदर्शनासाठी मि‍ररिंग समर्थित नाही.</translation>
 <translation id="8828714802988429505">90°</translation>
+<translation id="8841375032071747811">मागे जा बटण</translation>
 <translation id="8850991929411075241">Search+Esc</translation>
 <translation id="8870509716567206129">अॅप विभाजित-स्क्रीनला सपोर्ट करत नाही.</translation>
 <translation id="8878886163241303700">स्क्रीन विस्तृत करत आहे</translation>

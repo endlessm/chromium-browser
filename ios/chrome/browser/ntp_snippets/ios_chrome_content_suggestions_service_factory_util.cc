@@ -9,7 +9,6 @@
 #include "base/json/json_reader.h"
 #include "base/memory/singleton.h"
 #include "base/task_scheduler/post_task.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/default_clock.h"
 #include "base/values.h"
@@ -36,7 +35,6 @@
 #include "components/ntp_snippets/remote/remote_suggestions_status_service_impl.h"
 #include "components/ntp_snippets/user_classifier.h"
 #include "components/reading_list/core/reading_list_model.h"
-#include "components/signin/core/browser/signin_manager.h"
 #include "components/version_info/version_info.h"
 #include "google_apis/google_api_keys.h"
 #include "ios/chrome/browser/application_context.h"
@@ -45,8 +43,7 @@
 #include "ios/chrome/browser/history/history_service_factory.h"
 #include "ios/chrome/browser/pref_names.h"
 #include "ios/chrome/browser/reading_list/reading_list_model_factory.h"
-#include "ios/chrome/browser/signin/oauth2_token_service_factory.h"
-#include "ios/chrome/browser/signin/signin_manager_factory.h"
+#include "ios/chrome/browser/signin/identity_manager_factory.h"
 #include "ios/chrome/common/channel_info.h"
 #include "ios/web/public/browser_state.h"
 #include "net/url_request/url_request_context_getter.h"
@@ -122,8 +119,8 @@ std::unique_ptr<KeyedService> CreateChromeContentSuggestionsService(
       base::DefaultClock::GetInstance(), debug_logger.get());
 
   // Create the ContentSuggestionsService.
-  SigninManager* signin_manager =
-      ios::SigninManagerFactory::GetForBrowserState(chrome_browser_state);
+  identity::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForBrowserState(chrome_browser_state);
   HistoryService* history_service =
       ios::HistoryServiceFactory::GetForBrowserState(
           chrome_browser_state, ServiceAccessType::EXPLICIT_ACCESS);
@@ -135,7 +132,7 @@ std::unique_ptr<KeyedService> CreateChromeContentSuggestionsService(
           prefs, base::DefaultClock::GetInstance(),
           /*is_chrome_home_enabled=*/false);
   return std::make_unique<ContentSuggestionsService>(
-      State::ENABLED, signin_manager, history_service, large_icon_service,
+      State::ENABLED, identity_manager, history_service, large_icon_service,
       prefs, std::move(category_ranker), std::move(user_classifier),
       std::move(scheduler), std::move(debug_logger));
 }
@@ -159,11 +156,8 @@ void RegisterRemoteSuggestionsProvider(ContentSuggestionsService* service,
   ios::ChromeBrowserState* chrome_browser_state =
       ios::ChromeBrowserState::FromBrowserState(browser_state);
   PrefService* prefs = chrome_browser_state->GetPrefs();
-  SigninManager* signin_manager =
-      ios::SigninManagerFactory::GetForBrowserState(chrome_browser_state);
-
-  OAuth2TokenService* token_service =
-      OAuth2TokenServiceFactory::GetForBrowserState(chrome_browser_state);
+  identity::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForBrowserState(chrome_browser_state);
   scoped_refptr<net::URLRequestContextGetter> request_context =
       browser_state->GetRequestContext();
   base::FilePath database_dir(
@@ -178,7 +172,7 @@ void RegisterRemoteSuggestionsProvider(ContentSuggestionsService* service,
                                 : google_apis::GetNonStableAPIKey();
   }
   auto suggestions_fetcher = std::make_unique<RemoteSuggestionsFetcherImpl>(
-      signin_manager, token_service, request_context, prefs, nullptr,
+      identity_manager, request_context, prefs, nullptr,
       base::BindRepeating(&ParseJson), GetFetchEndpoint(GetChannel()), api_key,
       service->user_classifier());
 
@@ -193,7 +187,7 @@ void RegisterRemoteSuggestionsProvider(ContentSuggestionsService* service,
                                          request_context.get()),
       std::make_unique<RemoteSuggestionsDatabase>(database_dir),
       std::make_unique<RemoteSuggestionsStatusServiceImpl>(
-          signin_manager->IsAuthenticated(), prefs, pref_name),
+          identity_manager->HasPrimaryAccount(), prefs, pref_name),
       /*prefetched_pages_tracker=*/nullptr,
       /*breaking_news_raw_data_provider*/ nullptr, service->debug_logger(),
       std::make_unique<base::OneShotTimer>());

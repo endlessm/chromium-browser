@@ -4,7 +4,6 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "chrome/browser/chromeos/login/test/oobe_base_test.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
@@ -19,8 +18,8 @@
 #include "device/bluetooth/dbus/fake_bluetooth_adapter_client.h"
 #include "device/bluetooth/dbus/fake_bluetooth_device_client.h"
 #include "services/device/public/cpp/hid/fake_input_service_linux.h"
-#include "services/device/public/interfaces/constants.mojom.h"
-#include "services/device/public/interfaces/input_service.mojom.h"
+#include "services/device/public/mojom/constants.mojom.h"
+#include "services/device/public/mojom/input_service.mojom.h"
 #include "services/service_manager/public/cpp/service_context.h"
 
 namespace chromeos {
@@ -166,7 +165,6 @@ class BluetoothHostPairingNoInputTest : public OobeBaseTest {
   pairing_chromeos::BluetoothHostPairingController* controller_ = nullptr;
 
   bluez::FakeBluetoothDeviceClient* fake_bluetooth_device_client_ = nullptr;
-  base::MessageLoopForUI message_loop_;
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothHostPairingNoInputTest);
 };

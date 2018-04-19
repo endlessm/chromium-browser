@@ -41,6 +41,7 @@
 #include "third_party/WebKit/public/web/WebKit.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebPagePopup.h"
+#include "third_party/WebKit/public/web/WebUserGestureIndicator.h"
 #include "third_party/WebKit/public/web/WebView.h"
 #include "ui/events/blink/blink_event_util.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
@@ -61,6 +62,7 @@ using blink::WebMouseEvent;
 using blink::WebMouseWheelEvent;
 using blink::WebPagePopup;
 using blink::WebPoint;
+using blink::WebPointerEvent;
 using blink::WebPointerProperties;
 using blink::WebString;
 using blink::WebTouchEvent;
@@ -113,6 +115,24 @@ bool GetPointerType(gin::Arguments* args,
     return false;
   }
   return true;
+}
+
+WebInputEvent::Type PointerEventTypeForTouchPointState(
+    WebTouchPoint::State state) {
+  switch (state) {
+    case WebTouchPoint::kStateReleased:
+      return WebInputEvent::Type::kPointerUp;
+    case WebTouchPoint::kStateCancelled:
+      return WebInputEvent::Type::kPointerCancel;
+    case WebTouchPoint::kStatePressed:
+      return WebInputEvent::Type::kPointerDown;
+    case WebTouchPoint::kStateMoved:
+      return WebInputEvent::Type::kPointerMove;
+    case WebTouchPoint::kStateStationary:
+    default:
+      NOTREACHED();
+      return WebInputEvent::Type::kUndefined;
+  }
 }
 
 // Parses |pointerType|, |rawPointerId|, |pressure|, |tiltX| and |tiltY| from
@@ -619,6 +639,7 @@ class EventSenderBindings : public gin::Wrappable<EventSenderBindings> {
   void MouseScrollBy(gin::Arguments* args);
   void ScheduleAsynchronousClick(gin::Arguments* args);
   void ScheduleAsynchronousKeyDown(gin::Arguments* args);
+  void ConsumeUserActivation();
   void MouseDown(gin::Arguments* args);
   void MouseUp(gin::Arguments* args);
   void SetMouseButtonState(gin::Arguments* args);
@@ -753,6 +774,8 @@ gin::ObjectTemplateBuilder EventSenderBindings::GetObjectTemplateBuilder(
                  &EventSenderBindings::ScheduleAsynchronousClick)
       .SetMethod("scheduleAsynchronousKeyDown",
                  &EventSenderBindings::ScheduleAsynchronousKeyDown)
+      .SetMethod("consumeUserActivation",
+                 &EventSenderBindings::ConsumeUserActivation)
       .SetProperty("forceLayoutOnEvents",
                    &EventSenderBindings::ForceLayoutOnEvents,
                    &EventSenderBindings::SetForceLayoutOnEvents)
@@ -1070,6 +1093,11 @@ void EventSenderBindings::ScheduleAsynchronousKeyDown(gin::Arguments* args) {
   }
   sender_->ScheduleAsynchronousKeyDown(code_str, modifiers,
                                        static_cast<KeyLocationCode>(location));
+}
+
+void EventSenderBindings::ConsumeUserActivation() {
+  if (sender_)
+    sender_->ConsumeUserActivation();
 }
 
 void EventSenderBindings::MouseDown(gin::Arguments* args) {
@@ -2011,8 +2039,8 @@ void EventSender::TouchEnd(gin::Arguments* args) {
 }
 
 void EventSender::NotifyStartOfTouchScroll() {
-  WebTouchEvent event(WebInputEvent::kTouchScrollStarted,
-                      WebInputEvent::kNoModifiers, GetCurrentEventTimeSec());
+  WebPointerEvent event = WebPointerEvent::CreatePointerCausesUaActionEvent(
+      WebPointerProperties::PointerType::kUnknown, GetCurrentEventTimeSec());
   HandleInputEventOnViewOrPopup(event);
 }
 
@@ -2258,6 +2286,11 @@ void EventSender::ScheduleAsynchronousKeyDown(const std::string& code_str,
                                   modifiers, location));
 }
 
+void EventSender::ConsumeUserActivation() {
+  blink::WebUserGestureIndicator::ConsumeUserGesture(
+      view()->MainFrame()->ToWebLocalFrame());
+}
+
 double EventSender::GetCurrentEventTimeSec() {
   return (base::TimeTicks::Now() - base::TimeTicks()).InSecondsF() +
          time_offset_ms_ / 1000.0;
@@ -2284,16 +2317,32 @@ void EventSender::SendCurrentTouchEvent(WebInputEvent::Type type,
   if (force_layout_on_events_)
     widget()->UpdateAllLifecyclePhases();
 
-  WebTouchEvent touch_event(type, touch_modifiers_, GetCurrentEventTimeSec());
-  touch_event.dispatch_type = touch_cancelable_
-                                  ? WebInputEvent::kBlocking
-                                  : WebInputEvent::kEventNonBlocking;
-  touch_event.moved_beyond_slop_region = true;
-  touch_event.unique_touch_event_id = unique_touch_event_id;
-  touch_event.touches_length = touch_points_.size();
-  for (size_t i = 0; i < touch_points_.size(); ++i)
-    touch_event.touches[i] = touch_points_[i];
-  HandleInputEventOnViewOrPopup(touch_event);
+  double time_stamp = GetCurrentEventTimeSec();
+  blink::WebInputEvent::DispatchType dispatch_type =
+      touch_cancelable_ ? WebInputEvent::kBlocking
+                        : WebInputEvent::kEventNonBlocking;
+
+  for (unsigned i = 0; i < touch_points_.size(); ++i) {
+    const WebTouchPoint& touch_point = touch_points_[i];
+    if (touch_point.state != blink::WebTouchPoint::kStateStationary) {
+      WebPointerEvent pointer_event = WebPointerEvent(
+          PointerEventTypeForTouchPointState(touch_point.state), touch_point,
+          touch_point.radius_x * 2, touch_point.radius_y * 2);
+      pointer_event.hovering = false;
+      pointer_event.dispatch_type = dispatch_type;
+      pointer_event.moved_beyond_slop_region = true;
+      pointer_event.unique_touch_event_id = unique_touch_event_id;
+      pointer_event.SetTimeStampSeconds(time_stamp);
+      pointer_event.SetModifiers(touch_modifiers_);
+
+      HandleInputEventOnViewOrPopup(pointer_event);
+    }
+  }
+  WebPagePopup* popup = widget()->GetPagePopup();
+  if (popup)
+    popup->DispatchBufferedTouchEvents();
+  else
+    widget()->DispatchBufferedTouchEvents();
 
   for (size_t i = 0; i < touch_points_.size(); ++i) {
     WebTouchPoint* touch_point = &touch_points_[i];

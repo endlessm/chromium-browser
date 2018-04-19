@@ -63,18 +63,29 @@ enum CullMode
 	CULLMODE_LAST
 };
 
+//! Viewport Orientation of renderer this will be compared against
+enum ViewportOrientation
+{
+	VIEWPORTORIENTATION_LOWER_LEFT = 0,	//<! Corresponds to GL
+	VIEWPORTORIENTATION_UPPER_LEFT,		//<! Corresponds to Vulkan
+
+	VIEWPORTORIENTATION_LAST
+};
+
 struct RasterizationState
 {
 	RasterizationState (void)
-		: winding			(WINDING_CCW)
-		, horizontalFill	(FILL_LEFT)
-		, verticalFill		(FILL_BOTTOM)
+		: winding				(WINDING_CCW)
+		, horizontalFill		(FILL_LEFT)
+		, verticalFill			(FILL_BOTTOM)
+		, viewportOrientation	(VIEWPORTORIENTATION_LAST)
 	{
 	}
 
-	Winding			winding;
-	HorizontalFill	horizontalFill;
-	VerticalFill	verticalFill;
+	Winding					winding;
+	HorizontalFill			horizontalFill;
+	VerticalFill			verticalFill;
+	ViewportOrientation		viewportOrientation;
 };
 
 enum TestFunc
@@ -237,6 +248,10 @@ struct FragmentOperationState
 	TestFunc					depthFunc;
 	bool						depthMask;
 
+	bool						depthBoundsTestEnabled;
+	float						minDepthBound;
+	float						maxDepthBound;
+
 	BlendMode					blendMode;
 
 	// Standard blending state
@@ -270,6 +285,10 @@ struct FragmentOperationState
 		, depthTestEnabled		(false)
 		, depthFunc				(TESTFUNC_LESS)
 		, depthMask				(true)
+
+		, depthBoundsTestEnabled(false)
+		, minDepthBound			(0.0f)
+		, maxDepthBound			(1.0f)
 
 		, blendMode				(BLENDMODE_NONE)
 		, blendRGBState			()
@@ -348,11 +367,13 @@ struct RestartState
 
 struct RenderState
 {
-	explicit RenderState (const ViewportState& viewport_)
+	explicit RenderState (const ViewportState& viewport_, ViewportOrientation viewportOrientation_ = VIEWPORTORIENTATION_LOWER_LEFT)
 		: cullMode					(CULLMODE_NONE)
 		, provokingVertexConvention	(PROVOKINGVERTEX_LAST)
 		, viewport					(viewport_)
+		, viewportOrientation		(viewportOrientation_)
 	{
+		rasterization.viewportOrientation = viewportOrientation;
 	}
 
 	CullMode					cullMode;
@@ -363,6 +384,7 @@ struct RenderState
 	ViewportState				viewport;
 	LineState					line;
 	RestartState				restart;
+	ViewportOrientation			viewportOrientation;
 };
 
 } // rr

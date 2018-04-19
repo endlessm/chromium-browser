@@ -24,6 +24,7 @@
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "content/public/browser/render_frame_metadata_provider.h"
 #include "content/public/browser/render_process_host_observer.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents_delegate.h"
@@ -31,7 +32,7 @@
 #include "content/public/common/context_menu_params.h"
 #include "content/public/common/page_type.h"
 #include "ipc/message_filter.h"
-#include "services/network/public/interfaces/network_service.mojom.h"
+#include "services/network/public/mojom/network_service.mojom.h"
 #include "storage/common/fileapi/file_system_types.h"
 #include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "third_party/WebKit/public/platform/WebMouseEvent.h"
@@ -76,7 +77,6 @@ class NavigationHandle;
 class RenderViewHost;
 class RenderWidgetHost;
 class RenderWidgetHostView;
-class UtilityProcessHost;
 class WebContents;
 
 // Navigate a frame with ID |iframe_id| to |url|, blocking until the navigation
@@ -682,37 +682,57 @@ class WebContentsDestroyedObserver : public WebContentsObserver {
 // Request a new frame be drawn, returns false if request fails.
 bool RequestFrame(WebContents* web_contents);
 
-// Watches compositor frame changes, blocking until a frame has been
-// composited. This class must run on the UI thread.
-class FrameWatcher : public WebContentsObserver {
+// This class is intended to synchronize upon the submission of compositor
+// frames from the renderer to the display compositor.
+//
+// This class enables observation of the provided
+// RenderFrameMetadataProvider. Which notifies this of every
+// subsequent frame submission. Observation ends upon the destruction of this
+// class.
+//
+// Calling Wait will block the browser ui thread until the next time the
+// renderer submits a frame.
+//
+// Tests interested in the associated RenderFrameMetadata will find it cached
+// in the RenderFrameMetadataProvider.
+class RenderFrameSubmissionObserver
+    : public RenderFrameMetadataProvider::Observer {
  public:
-  // Don't observe any WebContents at construction. Observe() must be called
-  // later on.
-  FrameWatcher();
+  explicit RenderFrameSubmissionObserver(
+      RenderFrameMetadataProvider* render_frame_metadata_provider);
+  explicit RenderFrameSubmissionObserver(WebContents* web_contents);
+  ~RenderFrameSubmissionObserver() override;
 
-  // Listen for new frames from the |web_contents| renderer process. The
-  // WebContents that we observe can be changed by calling Observe().
-  explicit FrameWatcher(WebContents* web_contents);
+  // Blocks the browser ui thread until the next OnRenderFrameSubmission.
+  void WaitForAnyFrameSubmission();
 
-  ~FrameWatcher() override;
+  // Blocks the browser ui thread until the next OnRenderFrameMetadataChanged.
+  void WaitForMetadataChange();
 
-  // Wait for |frames_to_wait| swap mesages from the compositor.
-  void WaitFrames(int frames_to_wait);
+  const cc::RenderFrameMetadata& LastRenderFrameMetadata() const;
 
-  // Return the last received CompositorFrame's metadata.
-  const viz::CompositorFrameMetadata& LastMetadata();
-
-  // Call this method to start observing a WebContents for CompositorFrames.
-  using WebContentsObserver::Observe;
+  // Returns the number of frames submitted since the observer's creation.
+  int render_frame_count() const { return render_frame_count_; }
 
  private:
-  // WebContentsObserver implementation.
-  void DidReceiveCompositorFrame() override;
+  // Exits |run_loop_| unblocking the UI thread. Execution will resume in Wait.
+  void Quit();
 
-  int frames_to_wait_ = 0;
-  base::Closure quit_;
+  // Blocks the browser ui thread.
+  void Wait();
 
-  DISALLOW_COPY_AND_ASSIGN(FrameWatcher);
+  // RenderFrameMetadataProvider::Observer
+  void OnRenderFrameMetadataChanged() override;
+  void OnRenderFrameSubmission() override;
+
+  // If true then the next OnRenderFrameSubmission will cancel the blocking
+  // |run_loop_| otherwise the blocking will continue until the next
+  // OnRenderFrameMetadataChanged.
+  bool break_on_any_frame_ = false;
+
+  RenderFrameMetadataProvider* render_frame_metadata_provider_ = nullptr;
+  std::unique_ptr<base::RunLoop> run_loop_;
+  int render_frame_count_ = 0;
 };
 
 // This class is intended to synchronize the renderer main thread, renderer impl
@@ -895,6 +915,9 @@ class TestNavigationManager : public WebContentsObserver {
   // only in between DidStartNavigation(...) and DidFinishNavigation(...).
   NavigationHandle* GetNavigationHandle();
 
+  // Whether the navigation successfully committed.
+  bool was_successful() const { return was_successful_; }
+
  protected:
   // Derived classes can override if they want to filter out navigations. This
   // is called from DidStartNavigation.
@@ -935,6 +958,7 @@ class TestNavigationManager : public WebContentsObserver {
   NavigationState current_state_;
   NavigationState desired_state_;
   scoped_refptr<MessageLoopRunner> loop_runner_;
+  bool was_successful_ = false;
 
   base::WeakPtrFactory<TestNavigationManager> weak_factory_;
 
@@ -1085,8 +1109,9 @@ int LoadBasicRequest(network::mojom::NetworkContext* network_context,
                      int process_id = 0,
                      int render_frame_id = 0);
 
-std::map<std::string, base::WeakPtr<UtilityProcessHost>>*
-GetServiceManagerProcessGroups();
+// Returns true if there is a valid process for |process_group_name|. Must be
+// called on the IO thread.
+bool HasValidProcessForProcessGroup(const std::string& process_group_name);
 
 }  // namespace content
 

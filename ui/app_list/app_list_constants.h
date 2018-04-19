@@ -17,16 +17,12 @@
 namespace app_list {
 
 APP_LIST_EXPORT extern const SkColor kContentsBackgroundColor;
-APP_LIST_EXPORT extern const SkColor kSearchBoxBackgroundDefault;
-
-APP_LIST_EXPORT extern const SkColor kSearchTextColor;
 
 APP_LIST_EXPORT extern const SkColor kLabelBackgroundColor;
 APP_LIST_EXPORT extern const SkColor kBottomSeparatorColor;
 APP_LIST_EXPORT extern const SkColor kDialogSeparatorColor;
 
 APP_LIST_EXPORT extern const SkColor kHighlightedColor;
-APP_LIST_EXPORT extern const SkColor kSelectedColor;
 APP_LIST_EXPORT extern const SkColor kGridSelectedColor;
 APP_LIST_EXPORT extern const SkColor kAnswerCardSelectedColor;
 
@@ -54,8 +50,6 @@ APP_LIST_EXPORT extern const SkColor kFolderTitleColor;
 APP_LIST_EXPORT extern const SkColor kFolderTitleHintTextColor;
 APP_LIST_EXPORT extern const SkColor kFolderShadowColor;
 APP_LIST_EXPORT extern const float kFolderBubbleOpacity;
-
-APP_LIST_EXPORT extern const int kFolderBackgroundBubbleRadius;
 
 APP_LIST_EXPORT extern const SkColor kCardBackgroundColor;
 
@@ -101,17 +95,18 @@ APP_LIST_EXPORT extern const int kSearchBoxPadding;
 APP_LIST_EXPORT extern const int kSearchBoxTopPadding;
 APP_LIST_EXPORT extern const int kSearchBoxPeekingBottomPadding;
 APP_LIST_EXPORT extern const int kSearchBoxBottomPadding;
-APP_LIST_EXPORT extern const int kSearchBoxBorderCornerRadius;
-APP_LIST_EXPORT extern const int kSearchBoxPreferredHeight;
 
 APP_LIST_EXPORT extern const int kPeekingAppListHeight;
 APP_LIST_EXPORT extern const int kShelfSize;
 
-APP_LIST_EXPORT extern const size_t kMaxFolderItems;
-APP_LIST_EXPORT extern const size_t kMaxFolderItems;
+APP_LIST_EXPORT extern const size_t kMaxFolderPages;
+APP_LIST_EXPORT extern const size_t kMaxFolderItemsPerPage;
 APP_LIST_EXPORT extern const size_t kMaxFolderNameChars;
 
 APP_LIST_EXPORT extern const ui::ResourceBundle::FontStyle kItemTextFontStyle;
+
+APP_LIST_EXPORT extern const float kAllAppsOpacityStartPx;
+APP_LIST_EXPORT extern const float kAllAppsOpacityEndPx;
 
 // The different ways that the app list can transition from PEEKING to
 // FULLSCREEN_ALL_APPS. These values are written to logs.  New enum
@@ -194,9 +189,6 @@ APP_LIST_EXPORT extern const char kSearchQueryLength[];
 APP_LIST_EXPORT extern const char kSearchResultDistanceFromOrigin[];
 
 APP_LIST_EXPORT extern const int kSearchTileHeight;
-
-APP_LIST_EXPORT extern const int kSearchIconSize;
-APP_LIST_EXPORT extern const SkColor kDefaultSearchboxColor;
 
 // Returns the shadow values for a view at |z_height|.
 APP_LIST_EXPORT gfx::ShadowValue GetShadowForZHeight(int z_height);

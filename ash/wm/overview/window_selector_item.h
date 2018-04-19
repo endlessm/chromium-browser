@@ -26,6 +26,10 @@ namespace views {
 class ImageButton;
 }
 
+namespace wm {
+class Shadow;
+}
+
 namespace ash {
 
 class WindowSelector;
@@ -64,6 +68,11 @@ class ASH_EXPORT WindowSelectorItem : public views::ButtonListener,
 
   aura::Window* GetWindow();
 
+  // Returns the native window of the |transformed_window_|'s minimized widget
+  // if the original window is in minimized state, or the original window
+  // otherwise.
+  aura::Window* GetWindowForStacking();
+
   // Returns the root window on which this item is shown.
   aura::Window* root_window() { return root_window_; }
 
@@ -71,7 +80,15 @@ class ASH_EXPORT WindowSelectorItem : public views::ButtonListener,
   bool Contains(const aura::Window* target) const;
 
   // Restores and animates the managed window to its non overview mode state.
-  void RestoreWindow();
+  // If |reset_transform| equals false, the window's transform will not be
+  // reset to identity transform when exiting overview mode. It's needed when
+  // dragging an Arc app window in overview mode to put it in split screen. In
+  // this case the restore of its transform needs to be deferred until the Arc
+  // app window is snapped successfully, otherwise the animation will look very
+  // ugly (the Arc app window enlarges itself to maximized window bounds and
+  // then shrinks to its snapped window bounds). Note if the window's transform
+  // is not reset here, it must be reset by someone else at some point.
+  void RestoreWindow(bool reset_transform);
 
   // Ensures that a possibly minimized window becomes visible after restore.
   void EnsureVisible();
@@ -122,6 +139,25 @@ class ASH_EXPORT WindowSelectorItem : public views::ButtonListener,
   // window cannot be snapped.
   void UpdateCannotSnapWarningVisibility();
 
+  // Called when a WindowSelectorItem on any grid is dragged. Hides the close
+  // button when a drag is started, and reshows it when a drag is finished.
+  // Additionally hides the title and window icon if |item| is this.
+  void OnSelectorItemDragStarted(WindowSelectorItem* item);
+  void OnSelectorItemDragEnded();
+
+  ScopedTransformOverviewWindow::GridWindowFillMode GetWindowDimensionsType()
+      const;
+
+  // Recalculates the window dimensions type of |transform_window_|. Called when
+  // |window_|'s bounds change.
+  void UpdateWindowDimensionsType();
+
+  // Enable or disable the backdrop. If the window is not letter or pillar
+  // boxed, nothing will happen.
+  void EnableBackdropIfNeeded();
+  void DisableBackdrop();
+  void UpdateBackdropBounds();
+
   // Sets if the item is dimmed in the overview. Changing the value will also
   // change the visibility of the transform windows.
   void SetDimmed(bool dimmed);
@@ -140,8 +176,37 @@ class ASH_EXPORT WindowSelectorItem : public views::ButtonListener,
   void HandlePressEvent(const gfx::Point& location_in_screen);
   void HandleReleaseEvent(const gfx::Point& location_in_screen);
   void HandleDragEvent(const gfx::Point& location_in_screen);
-  void ActivateDraggedWindow();
+  void ActivateDraggedWindow(const gfx::Point& location_in_screen);
   void ResetDraggedWindowGesture();
+
+  // Sets the bounds of the window shadow. If |bounds_in_screen| is nullopt,
+  // the shadow is hidden.
+  void SetShadowBounds(base::Optional<gfx::Rect> bounds_in_screen);
+
+  void set_should_animate_when_entering(bool should_animate) {
+    should_animate_when_entering_ = should_animate;
+  }
+  bool ShouldAnimateWhenEntering() const;
+
+  void set_should_animate_when_exiting(bool should_animate) {
+    should_animate_when_exiting_ = should_animate;
+  }
+  bool ShouldAnimateWhenExiting() const;
+
+  void set_should_be_observed_when_exiting(bool should_be_observed) {
+    should_be_observed_when_exiting_ = should_be_observed;
+  }
+  bool ShouldBeObservedWhenExiting() const;
+
+  void ResetAnimationStates();
+
+  OverviewAnimationType GetExitOverviewAnimationType();
+  OverviewAnimationType GetExitTransformAnimationType();
+
+  WindowGrid* window_grid() { return window_grid_; }
+
+  float GetCloseButtonOpacityForTesting();
+  float GetTitlebarOpacityForTesting();
 
  private:
   class CaptionContainerView;
@@ -186,6 +251,11 @@ class ASH_EXPORT WindowSelectorItem : public views::ButtonListener,
   // Fades out a window caption when exiting overview mode.
   void FadeOut(std::unique_ptr<views::Widget> widget);
 
+  // Select this window if |event_location| is less than the drag threshold for
+  // clicks. This should only be called if the original event was on the title
+  // bar (|tap_down_event_on_title_| has a value).
+  void SelectWindowIfBelowDistanceThreshold(const gfx::Point& event_location);
+
   // Allows a test to directly set animation state.
   gfx::SlideAnimation* GetBackgroundViewAnimation();
 
@@ -222,10 +292,20 @@ class ASH_EXPORT WindowSelectorItem : public views::ButtonListener,
   // when the item is selected.
   bool selected_;
 
+  // Has a value if last seen tap down event was on the title bar. Behavior of
+  // subsequent drags/tap up differ if the original event was on the overview
+  // title.
+  base::Optional<gfx::Point> tap_down_event_on_title_;
+
   // A widget that covers the |transform_window_|. The widget has
   // |caption_container_view_| as its contents view. The widget is backed by a
   // NOT_DRAWN layer since most of its surface is transparent.
   std::unique_ptr<views::Widget> item_widget_;
+
+  // A widget that is available if the window is letter or pillar boxed. It is
+  // stacked below |transform_window_|'s window. This is nullptr when the window
+  // is normal boxed.
+  std::unique_ptr<views::Widget> backdrop_widget_;
 
   // Container view that owns a Button view covering the |transform_window_|.
   // That button serves as an event shield to receive all events such as clicks
@@ -257,6 +337,27 @@ class ASH_EXPORT WindowSelectorItem : public views::ButtonListener,
   // Pointer to the WindowGrid that contains |this|. Guaranteed to be non-null
   // for the lifetime of |this|.
   WindowGrid* window_grid_;
+
+  // True if the contained window should animate during the entering animation.
+  bool should_animate_when_entering_ = true;
+
+  // True if the contained window should animate during the exiting animation.
+  bool should_animate_when_exiting_ = true;
+
+  // True if the contained window is the first window that covers the available
+  // workspace in the MRU list during the exiting animation. It will create an
+  // OverviewWindowAnimationObserver for |window_grid_| and any other windows
+  // which should not animate will defer SetTranfrom by adding the their
+  // layer-transform pairs to the observer until this contained window completes
+  // its exiting animation.
+  bool should_be_observed_when_exiting_ = false;
+
+  // The shadow around the overview window. Shadows the original window, not
+  // |item_widget_|. Done here instead of on the original window because of the
+  // rounded edges mask applied on entering overview window.
+  std::unique_ptr<::wm::Shadow> shadow_;
+
+  bool event_on_title_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(WindowSelectorItem);
 };

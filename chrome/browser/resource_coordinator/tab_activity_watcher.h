@@ -8,7 +8,7 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "base/time/time.h"
+#include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/browser/ui/browser_tab_strip_tracker.h"
 #include "chrome/browser/ui/browser_tab_strip_tracker_delegate.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
@@ -20,7 +20,8 @@ namespace resource_coordinator {
 // Observes background tab activity in order to log UKMs for tabs. Metrics will
 // be compared against tab reactivation/close events to determine the end state
 // of each background tab.
-class TabActivityWatcher : public TabStripModelObserver,
+class TabActivityWatcher : public BrowserListObserver,
+                           public TabStripModelObserver,
                            public BrowserTabStripTrackerDelegate {
  public:
   // Helper class to observe WebContents.
@@ -30,37 +31,31 @@ class TabActivityWatcher : public TabStripModelObserver,
   TabActivityWatcher();
   ~TabActivityWatcher() override;
 
-  // TODO(michaelpg): Track more events.
-
   // Returns the single instance, creating it if necessary.
   static TabActivityWatcher* GetInstance();
-
-  // Begins watching the |web_contents|. The watching will stop automatically
-  // when the WebContents is destroyed.
-  static void WatchWebContents(content::WebContents* web_contents);
 
  private:
   friend class TabActivityWatcherTest;
 
+  // BrowserListObserver:
+  void OnBrowserSetLastActive(Browser* browser) override;
+
   // TabStripModelObserver:
+  void TabInsertedAt(TabStripModel* tab_strip_model,
+                     content::WebContents* contents,
+                     int index,
+                     bool foreground) override;
+  void TabDetachedAt(content::WebContents* contents, int index) override;
+  void TabReplacedAt(TabStripModel* tab_strip_model,
+                     content::WebContents* old_contents,
+                     content::WebContents* new_contents,
+                     int index) override;
   void TabPinnedStateChanged(TabStripModel* tab_strip_model,
                              content::WebContents* contents,
                              int index) override;
+
   // BrowserTabStripTrackerDelegate:
   bool ShouldTrackBrowser(Browser* browser) override;
-
-  // Called from WebContentsData when a tab is being hidden.
-  void OnWasHidden(content::WebContents* web_contents);
-
-  // Called from WebContentsData when a tab has stopped loading.
-  void OnDidStopLoading(content::WebContents* web_contents);
-
-  // Logs the tab with |web_contents| if the tab hasn't been logged for the same
-  // source ID within a timeout window.
-  void MaybeLogTab(content::WebContents* web_contents);
-
-  // Forces logging even when a timeout would have prevented it.
-  void DisableLogTimeoutForTesting();
 
   // Resets internal state.
   void ResetForTesting();
@@ -70,9 +65,6 @@ class TabActivityWatcher : public TabStripModelObserver,
   // Manages registration of this class as an observer of all TabStripModels as
   // browsers are created and destroyed.
   BrowserTabStripTracker browser_tab_strip_tracker_;
-
-  // Time before a tab with the same SourceId can be logged again.
-  base::TimeDelta per_source_log_timeout_;
 
   DISALLOW_COPY_AND_ASSIGN(TabActivityWatcher);
 };

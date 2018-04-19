@@ -74,7 +74,7 @@ class PermissionsBubbleDialogDelegateView
   void CloseBubble();
 
   // BubbleDialogDelegateView:
-  ui::AXRole GetAccessibleWindowRole() const override;
+  ax::mojom::Role GetAccessibleWindowRole() const override;
   base::string16 GetAccessibleWindowTitle() const override;
   bool ShouldShowCloseButton() const override;
   base::string16 GetWindowTitle() const override;
@@ -178,9 +178,9 @@ void PermissionsBubbleDialogDelegateView::AddedToWidget() {
   GetBubbleFrameView()->SetTitleView(std::move(title));
 }
 
-ui::AXRole PermissionsBubbleDialogDelegateView::GetAccessibleWindowRole()
+ax::mojom::Role PermissionsBubbleDialogDelegateView::GetAccessibleWindowRole()
     const {
-  return ui::AX_ROLE_ALERT_DIALOG;
+  return ax::mojom::Role::kAlertDialog;
 }
 
 base::string16 PermissionsBubbleDialogDelegateView::GetAccessibleWindowTitle()
@@ -268,10 +268,6 @@ PermissionPromptImpl::PermissionPromptImpl(Browser* browser, Delegate* delegate)
 PermissionPromptImpl::~PermissionPromptImpl() {
   if (bubble_delegate_)
     bubble_delegate_->CloseBubble();
-}
-
-bool PermissionPromptImpl::CanAcceptRequestUpdate() {
-  return !(bubble_delegate_ && bubble_delegate_->IsMouseHovered());
 }
 
 void PermissionPromptImpl::UpdateAnchorPosition() {

@@ -9,6 +9,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "chrome/browser/vr/elements/omnibox_formatting.h"
 #include "chrome/browser/vr/elements/render_text_wrapper.h"
 #include "chrome/browser/vr/model/color_scheme.h"
 #include "chrome/browser/vr/model/toolbar_state.h"
@@ -73,8 +74,8 @@ class TestUrlBarTexture : public UrlBarTexture {
   size_t GetNumberOfFontFallbacksForURL(const GURL& gurl) {
     url::Parsed parsed;
     const base::string16 text = url_formatter::FormatUrl(
-        gurl, url_formatter::kFormatUrlOmitDefaults, net::UnescapeRule::NORMAL,
-        &parsed, nullptr, nullptr);
+        gurl, GetVrFormatUrlTypes(), net::UnescapeRule::NORMAL, &parsed,
+        nullptr, nullptr);
 
     gfx::Size texture_size = GetPreferredTextureSize(kUrlWidthPixels);
     gfx::FontList font_list;
@@ -88,13 +89,10 @@ class TestUrlBarTexture : public UrlBarTexture {
   // no unsupported mode was encountered.
   UiUnsupportedMode unsupported_mode() const { return unsupported_mode_; }
 
-  gfx::RenderText* url_render_text() { return url_render_text_.get(); }
-
   const base::string16& url_text() { return rendered_url_text_; }
   const base::string16& security_text() { return rendered_security_text_; }
   const gfx::Rect url_rect() { return rendered_url_text_rect_; }
   const gfx::Rect security_rect() { return rendered_security_text_rect_; }
-  bool url_dirty() const { return UrlBarTexture::url_dirty(); }
 
  private:
   void OnUnsupportedFeature(UiUnsupportedMode mode) {
@@ -105,8 +103,9 @@ class TestUrlBarTexture : public UrlBarTexture {
 };
 
 TestUrlBarTexture::TestUrlBarTexture()
-    : UrlBarTexture(base::Bind(&TestUrlBarTexture::OnUnsupportedFeature,
-                               base::Unretained(this))) {
+    : UrlBarTexture(
+          base::BindRepeating(&TestUrlBarTexture::OnUnsupportedFeature,
+                              base::Unretained(this))) {
   gfx::FontList::SetDefaultFontDescription("Arial, Times New Roman, 15px");
   SetColors(ColorScheme::GetColorScheme(ColorScheme::kModeNormal).url_bar);
   SetBackgroundColor(SK_ColorBLACK);
@@ -121,11 +120,8 @@ class UrlEmphasisTest : public testing::Test {
     GURL url(base::UTF8ToUTF16(url_string));
     url::Parsed parsed;
     const base::string16 formatted_url = url_formatter::FormatUrl(
-        url,
-        url_formatter::kFormatUrlOmitDefaults |
-            url_formatter::kFormatUrlOmitHTTPS |
-            url_formatter::kFormatUrlOmitTrivialSubdomains,
-        net::UnescapeRule::NORMAL, &parsed, nullptr, nullptr);
+        url, GetVrFormatUrlTypes(), net::UnescapeRule::NORMAL, &parsed, nullptr,
+        nullptr);
     EXPECT_EQ(formatted_url, base::UTF8ToUTF16(expected_string));
     TestUrlBarTexture::TestUrlStyling(
         formatted_url, parsed, level, &mock_,
@@ -196,46 +192,6 @@ TEST(UrlBarTextureTest, WillFailOnUnhandledCodePoint) {
   EXPECT_EQ(UiUnsupportedMode::kCount, texture.unsupported_mode());
 }
 
-TEST(UrlBarTextureTest, MaliciousRTLIsRenderedLTR) {
-  TestUrlBarTexture texture;
-
-  // Construct a malicious URL that attempts to spoof the hostname.
-  const std::string real_host("127.0.0.1");
-  const std::string spoofed_host("attack.com");
-  const std::string url =
-      "http://" + real_host + "/ا/http://" + spoofed_host + "‬";
-
-  texture.DrawURL(GURL(base::UTF8ToUTF16(url)));
-
-  // Determine the logical character ranges of the legitimate and spoofed
-  // hostnames in the processed URL text.
-  base::string16 text = texture.url_text();
-  base::string16 real_16 = base::UTF8ToUTF16(real_host);
-  base::string16 spoofed_16 = base::UTF8ToUTF16(spoofed_host);
-  size_t position = text.find(real_16);
-  ASSERT_NE(position, base::string16::npos);
-  gfx::Range real_range(position, position + real_16.size());
-  position = text.find(spoofed_16);
-  ASSERT_NE(position, base::string16::npos);
-  gfx::Range spoofed_range(position, position + spoofed_16.size());
-
-  // Extract the pixel locations at which hostnames were actually rendered.
-  auto real_bounds =
-      texture.url_render_text()->GetSubstringBoundsForTesting(real_range);
-  auto spoofed_bounds =
-      texture.url_render_text()->GetSubstringBoundsForTesting(spoofed_range);
-  EXPECT_EQ(real_bounds.size(), 1u);
-  EXPECT_GE(spoofed_bounds.size(), 1u);
-
-  // Verify that any spoofed portion of the hostname has remained to the right
-  // of the legitimate hostname. This will fail if LTR directionality is not
-  // specified during URL rendering.
-  auto minimum_position = real_bounds[0].x() + real_bounds[0].width();
-  for (const auto& region : spoofed_bounds) {
-    EXPECT_GT(region.x(), minimum_position);
-  }
-}
-
 TEST(UrlBarTexture, ShortURLAreIndeedSupported) {
   TestUrlBarTexture texture;
   texture.DrawURL(GURL("https://short.com/"));
@@ -284,16 +240,6 @@ TEST(UrlBarTexture, OfflinePage) {
   EXPECT_EQ(texture.url_rect(), online_url_rect);
   EXPECT_TRUE(texture.security_text().empty());
   EXPECT_EQ(texture.url_text(), base::UTF8ToUTF16("host.com/page"));
-}
-
-TEST(UrlBarTexture, ColorChange) {
-  TestUrlBarTexture texture;
-  texture.DrawURL(GURL("https://short.com/"));
-  EXPECT_FALSE(texture.url_dirty());
-  UrlBarColors colors;
-  colors.dangerous_icon = SK_ColorRED;
-  texture.SetColors(colors);
-  EXPECT_TRUE(texture.url_dirty());
 }
 
 }  // namespace vr

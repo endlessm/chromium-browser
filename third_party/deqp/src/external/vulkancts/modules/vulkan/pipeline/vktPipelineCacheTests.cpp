@@ -155,15 +155,16 @@ const std::string CacheTestParam::generateTestDescription (void) const
 class SimpleGraphicsPipelineBuilder
 {
 public:
-					 SimpleGraphicsPipelineBuilder  (Context&              context);
-					 ~SimpleGraphicsPipelineBuilder (void) { }
-	void             bindShaderStage                (VkShaderStageFlagBits stage,
-													 const char*           sourceName,
-													 const char*           entryName);
-	void             enableTessellationStage        (deUint32              patchControlPoints);
-	Move<VkPipeline> buildPipeline                  (tcu::UVec2            renderSize,
-													 VkRenderPass          renderPass,
-													 VkPipelineCache       cache);
+							SimpleGraphicsPipelineBuilder	(Context&				context);
+							~SimpleGraphicsPipelineBuilder	(void) { }
+	void					bindShaderStage					(VkShaderStageFlagBits	stage,
+															 const char*			sourceName,
+															 const char*			entryName);
+	void					enableTessellationStage			(deUint32				patchControlPoints);
+	Move<VkPipeline>		buildPipeline					(tcu::UVec2				renderSize,
+															 VkRenderPass			renderPass,
+															 VkPipelineCache		cache,
+															 VkPipelineLayout		pipelineLayout);
 protected:
 	Context&                            m_context;
 
@@ -172,10 +173,6 @@ protected:
 	VkPipelineShaderStageCreateInfo     m_shaderStageInfo[VK_MAX_SHADER_STAGES];
 
 	deUint32                            m_patchControlPoints;
-
-	Move<VkPipelineLayout>              m_pipelineLayout;
-	Move<VkPipeline>                    m_graphicsPipelines;
-
 };
 
 SimpleGraphicsPipelineBuilder::SimpleGraphicsPipelineBuilder (Context& context)
@@ -219,26 +216,10 @@ void SimpleGraphicsPipelineBuilder::bindShaderStage (VkShaderStageFlagBits stage
 	m_shaderStageCount++;
 }
 
-Move<VkPipeline> SimpleGraphicsPipelineBuilder::buildPipeline (tcu::UVec2 renderSize, VkRenderPass renderPass, VkPipelineCache cache)
+Move<VkPipeline> SimpleGraphicsPipelineBuilder::buildPipeline (tcu::UVec2 renderSize, VkRenderPass renderPass, VkPipelineCache cache, VkPipelineLayout pipelineLayout)
 {
 	const DeviceInterface&      vk                  = m_context.getDeviceInterface();
 	const VkDevice              vkDevice            = m_context.getDevice();
-
-	// Create pipeline layout
-	{
-		const VkPipelineLayoutCreateInfo pipelineLayoutParams =
-		{
-			VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,      // VkStructureType                  sType;
-			DE_NULL,                                            // const void*                      pNext;
-			0u,                                                 // VkPipelineLayoutCreateFlags      flags;
-			0u,                                                 // deUint32                         setLayoutCount;
-			DE_NULL,                                            // const VkDescriptorSetLayout*     pSetLayouts;
-			0u,                                                 // deUint32                         pushConstantRangeCount;
-			DE_NULL                                             // const VkPushConstantRange*       pPushConstantRanges;
-		};
-
-		m_pipelineLayout = createPipelineLayout(vk, vkDevice, &pipelineLayoutParams);
-	}
 
 	// Create pipeline
 	const VkVertexInputBindingDescription vertexInputBindingDescription =
@@ -428,7 +409,7 @@ Move<VkPipeline> SimpleGraphicsPipelineBuilder::buildPipeline (tcu::UVec2 render
 		&depthStencilStateParams,                           // const VkPipelineDepthStencilStateCreateInfo*     pDepthStencilState;
 		&colorBlendStateParams,                             // const VkPipelineColorBlendStateCreateInfo*       pColorBlendState;
 		(const VkPipelineDynamicStateCreateInfo*)DE_NULL,   // const VkPipelineDynamicStateCreateInfo*          pDynamicState;
-		*m_pipelineLayout,                                  // VkPipelineLayout                                 layout;
+		pipelineLayout,                                     // VkPipelineLayout                                 layout;
 		renderPass,                                         // VkRenderPass                                     renderPass;
 		0u,                                                 // deUint32                                         subpass;
 		0u,                                                 // VkPipeline                                       basePipelineHandle;
@@ -569,43 +550,13 @@ CacheTestInstance::CacheTestInstance (Context&                 context,
 	const deUint32          queueFamilyIndex = context.getUniversalQueueFamilyIndex();
 
 	// Create command pool
-	{
-		const VkCommandPoolCreateInfo cmdPoolParams =
-		{
-			VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,   // VkStructureType      sType;
-			DE_NULL,                                      // const void*          pNext;
-			VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,         // VkCmdPoolCreateFlags flags;
-			queueFamilyIndex,                             // deUint32             queueFamilyIndex;
-		};
-
-		m_cmdPool = createCommandPool(vk, vkDevice, &cmdPoolParams);
-	}
+	m_cmdPool = createCommandPool(vk, vkDevice, VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, queueFamilyIndex);
 
 	// Create command buffer
-	{
-		const VkCommandBufferAllocateInfo cmdAllocateParams =
-		{
-			VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, // VkStructureType         sType;
-			DE_NULL,                                        // const void*             pNext;
-			*m_cmdPool,                                     // VkCommandPool           cmdPool;
-			VK_COMMAND_BUFFER_LEVEL_PRIMARY,                // VkCommandBufferLevel    level;
-			1u,                                             // deUint32                bufferCount;
-		};
-
-		m_cmdBuffer = allocateCommandBuffer(vk, vkDevice, &cmdAllocateParams);
-	}
+	m_cmdBuffer = allocateCommandBuffer(vk, vkDevice, *m_cmdPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
 	// Create fence
-	{
-		const VkFenceCreateInfo fenceParams =
-		{
-			VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,        // VkStructureType      sType;
-			DE_NULL,                                    // const void*          pNext;
-			0u,                                         // VkFenceCreateFlags   flags;
-		};
-
-		m_fence = createFence(vk, vkDevice, &fenceParams);
-	}
+	m_fence = createFence(vk, vkDevice);
 
 	// Create the Pipeline Cache
 	{
@@ -684,6 +635,7 @@ protected:
 	const tcu::UVec2                    m_renderSize;
 	const VkFormat                      m_colorFormat;
 	const VkFormat                      m_depthFormat;
+	Move<VkPipelineLayout>              m_pipelineLayout;
 
 	Move<VkImage>                       m_depthImage;
 	de::MovePtr<Allocation>             m_depthImageAlloc;
@@ -1092,8 +1044,24 @@ GraphicsCacheTestInstance::GraphicsCacheTestInstance (Context&              cont
 		};
 	}
 
-	m_pipeline[PIPELINE_CACHE_NDX_NO_CACHE] = m_pipelineBuilder.buildPipeline(m_renderSize, *m_renderPass, *m_cache);
-	m_pipeline[PIPELINE_CACHE_NDX_CACHED]   = m_pipelineBuilder.buildPipeline(m_renderSize, *m_renderPass, *m_cache);
+	// Create pipeline layout
+	{
+		const VkPipelineLayoutCreateInfo pipelineLayoutParams =
+		{
+			VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,		// VkStructureType					sType;
+			DE_NULL,											// const void*						pNext;
+			0u,													// VkPipelineLayoutCreateFlags		flags;
+			0u,													// deUint32							setLayoutCount;
+			DE_NULL,											// const VkDescriptorSetLayout*		pSetLayouts;
+			0u,													// deUint32							pushConstantRangeCount;
+			DE_NULL												// const VkPushConstantRange*		pPushConstantRanges;
+		};
+
+		m_pipelineLayout = createPipelineLayout(vk, vkDevice, &pipelineLayoutParams);
+	}
+
+	m_pipeline[PIPELINE_CACHE_NDX_NO_CACHE]	= m_pipelineBuilder.buildPipeline(m_renderSize, *m_renderPass, *m_cache, *m_pipelineLayout);
+	m_pipeline[PIPELINE_CACHE_NDX_CACHED]	= m_pipelineBuilder.buildPipeline(m_renderSize, *m_renderPass, *m_cache, *m_pipelineLayout);
 }
 
 GraphicsCacheTestInstance::~GraphicsCacheTestInstance (void)
@@ -1530,7 +1498,7 @@ PipelineFromCacheTestInstance::PipelineFromCacheTestInstance (Context& context, 
 		};
 		m_newCache = createPipelineCache(vk, vkDevice, &pipelineCacheCreateInfo);
 	}
-	m_pipeline[PIPELINE_CACHE_NDX_CACHED] = m_pipelineBuilder.buildPipeline(m_renderSize, *m_renderPass, *m_newCache);
+	m_pipeline[PIPELINE_CACHE_NDX_CACHED] = m_pipelineBuilder.buildPipeline(m_renderSize, *m_renderPass, *m_newCache, *m_pipelineLayout);
 }
 
 PipelineFromCacheTestInstance::~PipelineFromCacheTestInstance (void)
@@ -1599,7 +1567,7 @@ PipelineFromIncompleteCacheTestInstance::PipelineFromIncompleteCacheTestInstance
 		};
 		m_newCache = createPipelineCache(vk, vkDevice, &pipelineCacheCreateInfo);
 	}
-	m_pipeline[PIPELINE_CACHE_NDX_CACHED] = m_pipelineBuilder.buildPipeline(m_renderSize, *m_renderPass, *m_newCache);
+	m_pipeline[PIPELINE_CACHE_NDX_CACHED] = m_pipelineBuilder.buildPipeline(m_renderSize, *m_renderPass, *m_newCache, *m_pipelineLayout);
 }
 
 PipelineFromIncompleteCacheTestInstance::~PipelineFromIncompleteCacheTestInstance (void)
@@ -1683,7 +1651,7 @@ MergeCacheTestInstance::MergeCacheTestInstance (Context& context, const CacheTes
 	VK_CHECK(vk.mergePipelineCaches(vkDevice, *m_cacheMerged, 2u, sourceCaches));
 
 	// Create pipeline from merged cache
-	m_pipeline[PIPELINE_CACHE_NDX_CACHED] = m_pipelineBuilder.buildPipeline(m_renderSize, *m_renderPass, *m_cacheMerged);
+	m_pipeline[PIPELINE_CACHE_NDX_CACHED] = m_pipelineBuilder.buildPipeline(m_renderSize, *m_renderPass, *m_cacheMerged, *m_pipelineLayout);
 }
 
 MergeCacheTestInstance::~MergeCacheTestInstance (void)

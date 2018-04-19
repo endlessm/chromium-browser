@@ -5,7 +5,6 @@
 #include "content/test/test_blink_web_unit_test_support.h"
 
 #include "base/callback.h"
-#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
@@ -18,8 +17,8 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "cc/blink/web_layer_impl.h"
-#include "cc/test/test_shared_bitmap_manager.h"
 #include "cc/trees/layer_tree_settings.h"
+#include "components/viz/test/test_shared_bitmap_manager.h"
 #include "content/app/mojo/mojo_init.h"
 #include "content/renderer/loader/web_data_consumer_handle_impl.h"
 #include "content/renderer/loader/web_url_loader_impl.h"
@@ -54,7 +53,7 @@
 #endif
 
 #if BUILDFLAG(ENABLE_WEBRTC)
-#include "content/renderer/media/rtc_certificate.h"
+#include "content/renderer/media/webrtc/rtc_certificate.h"
 #include "third_party/webrtc/rtc_base/rtccertificate.h"  // nogncheck
 #endif
 
@@ -117,6 +116,16 @@ class WebURLLoaderFactoryWithMock : public blink::WebURLLoaderFactory {
   DISALLOW_COPY_AND_ASSIGN(WebURLLoaderFactoryWithMock);
 };
 
+#if defined(V8_USE_EXTERNAL_STARTUP_DATA)
+#if defined(USE_V8_CONTEXT_SNAPSHOT)
+constexpr gin::V8Initializer::V8SnapshotFileType kSnapshotType =
+    gin::V8Initializer::V8SnapshotFileType::kWithAdditionalContext;
+#else
+constexpr gin::V8Initializer::V8SnapshotFileType kSnapshotType =
+    gin::V8Initializer::V8SnapshotFileType::kDefault;
+#endif
+#endif
+
 }  // namespace
 
 namespace content {
@@ -131,13 +140,10 @@ TestBlinkWebUnitTestSupport::TestBlinkWebUnitTestSupport()
   mock_clipboard_.reset(new MockWebClipboardImpl());
 
 #if defined(V8_USE_EXTERNAL_STARTUP_DATA)
-  gin::V8Initializer::LoadV8Snapshot();
+  gin::V8Initializer::LoadV8Snapshot(kSnapshotType);
   gin::V8Initializer::LoadV8Natives();
 #endif
 
-#if defined(USE_V8_CONTEXT_SNAPSHOT)
-  gin::V8Initializer::LoadV8ContextSnapshot();
-#endif
 
   scoped_refptr<base::SingleThreadTaskRunner> dummy_task_runner;
   std::unique_ptr<base::ThreadTaskRunnerHandle> dummy_task_runner_handle;
@@ -155,11 +161,7 @@ TestBlinkWebUnitTestSupport::TestBlinkWebUnitTestSupport()
   }
   renderer_scheduler_ = blink::scheduler::CreateRendererSchedulerForTests();
   web_thread_ = renderer_scheduler_->CreateMainThread();
-  shared_bitmap_manager_.reset(new cc::TestSharedBitmapManager);
-
-  // Set up a FeatureList instance, so that code using that API will not hit a
-  // an error that it's not set. Cleared by ClearInstanceForTesting() below.
-  base::FeatureList::SetInstance(base::WrapUnique(new base::FeatureList));
+  shared_bitmap_manager_ = std::make_unique<viz::TestSharedBitmapManager>();
 
   // Initialize mojo firstly to enable Blink initialization to use it.
   InitializeMojo();
@@ -197,9 +199,6 @@ TestBlinkWebUnitTestSupport::~TestBlinkWebUnitTestSupport() {
   mock_clipboard_.reset();
   if (renderer_scheduler_)
     renderer_scheduler_->Shutdown();
-
-  // Clear the FeatureList that was registered in the constructor.
-  base::FeatureList::ClearInstanceForTesting();
 }
 
 blink::WebBlobRegistry* TestBlinkWebUnitTestSupport::GetBlobRegistry() {

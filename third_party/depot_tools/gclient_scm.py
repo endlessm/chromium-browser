@@ -6,13 +6,17 @@
 
 from __future__ import print_function
 
+import collections
+import contextlib
 import errno
+import json
 import logging
 import os
 import posixpath
 import re
 import sys
 import tempfile
+import threading
 import traceback
 import urlparse
 
@@ -81,37 +85,6 @@ class GitDiffFilterer(DiffFiltererWrapper):
     return re.sub("[a|b]/" + self._current_file, self._replacement_file, line)
 
 
-### SCM abstraction layer
-
-# Factory Method for SCM wrapper creation
-
-def GetScmName(url):
-  if not url:
-    return None
-  url, _ = gclient_utils.SplitUrlRevision(url)
-  if url.endswith('.git'):
-    return 'git'
-  protocol = url.split('://')[0]
-  if protocol in (
-      'file', 'git', 'git+http', 'git+https', 'http', 'https', 'ssh', 'sso'):
-    return 'git'
-  return None
-
-
-def CreateSCM(url, root_dir=None, relpath=None, out_fh=None, out_cb=None):
-  SCM_MAP = {
-    'git' : GitWrapper,
-  }
-
-  scm_name = GetScmName(url)
-  if not scm_name in SCM_MAP:
-    raise gclient_utils.Error('No SCM found for url %s' % url)
-  scm_class = SCM_MAP[scm_name]
-  if not scm_class.BinaryExists():
-    raise gclient_utils.Error('%s command not found' % scm_name)
-  return scm_class(url, root_dir, relpath, out_fh, out_cb)
-
-
 # SCMWrapper base class
 
 class SCMWrapper(object):
@@ -121,7 +94,7 @@ class SCMWrapper(object):
   """
 
   def __init__(self, url=None, root_dir=None, relpath=None, out_fh=None,
-               out_cb=None):
+               out_cb=None, print_outbuf=False):
     self.url = url
     self._root_dir = root_dir
     if self._root_dir:
@@ -135,6 +108,7 @@ class SCMWrapper(object):
       out_fh = sys.stdout
     self.out_fh = out_fh
     self.out_cb = out_cb
+    self.print_outbuf = print_outbuf
 
   def Print(self, *args, **kwargs):
     kwargs.setdefault('file', self.out_fh)
@@ -238,11 +212,11 @@ class GitWrapper(SCMWrapper):
 
   cache_dir = None
 
-  def __init__(self, url=None, *args):
+  def __init__(self, url=None, *args, **kwargs):
     """Removes 'git+' fake prefix from git URL."""
     if url.startswith('git+http://') or url.startswith('git+https://'):
       url = url[4:]
-    SCMWrapper.__init__(self, url, *args)
+    SCMWrapper.__init__(self, url, *args, **kwargs)
     filter_kwargs = { 'time_throttle': 1, 'out_fh': self.out_fh }
     if self.out_cb:
       filter_kwargs['predicate'] = self.out_cb
@@ -278,11 +252,10 @@ class GitWrapper(SCMWrapper):
     ).split()
 
   def diff(self, options, _args, _file_list):
-    try:
-      merge_base = [self._Capture(['merge-base', 'HEAD', self.remote])]
-    except subprocess2.CalledProcessError:
-      merge_base = []
-    self._Run(['-c', 'core.quotePath=false', 'diff'] + merge_base, options)
+    _, revision = gclient_utils.SplitUrlRevision(self.url)
+    if not revision:
+      revision = 'refs/remotes/%s/master' % self.remote
+    self._Run(['-c', 'core.quotePath=false', 'diff', revision], options)
 
   def pack(self, _options, _args, _file_list):
     """Generates a patch file which can be applied to the root of the
@@ -923,7 +896,14 @@ class GitWrapper(SCMWrapper):
         dir=parent_dir)
     try:
       clone_cmd.append(tmp_dir)
-      self._Run(clone_cmd, options, cwd=self._root_dir, retry=True)
+      if self.print_outbuf:
+        print_stdout = True
+        stdout = gclient_utils.WriteToStdout(self.out_fh)
+      else:
+        print_stdout = False
+        stdout = self.out_fh
+      self._Run(clone_cmd, options, cwd=self._root_dir, retry=True,
+                print_stdout=print_stdout, stdout=stdout)
       gclient_utils.safe_makedirs(self.checkout_path)
       gclient_utils.safe_rename(os.path.join(tmp_dir, '.git'),
                                 os.path.join(self.checkout_path, '.git'))
@@ -1230,3 +1210,218 @@ class GitWrapper(SCMWrapper):
       gclient_utils.CheckCallAndFilterAndHeader(cmd, env=env, **kwargs)
     else:
       gclient_utils.CheckCallAndFilter(cmd, env=env, **kwargs)
+
+
+class CipdPackage(object):
+  """A representation of a single CIPD package."""
+
+  def __init__(self, name, version, authority_for_root, authority_for_subdir):
+    self._authority_for_root = authority_for_root
+    self._authority_for_subdir = authority_for_subdir
+    self._name = name
+    self._version = version
+
+  @property
+  def authority_for_root(self):
+    """Whether this package has authority to act on behalf of its root.
+
+    Some operations should only be performed once per cipd root. A package
+    that has authority for its cipd root is the only package that should
+    perform such operations.
+
+    Returns:
+      bool; whether this package has root authority.
+    """
+    return self._authority_for_root
+
+  @property
+  def authority_for_subdir(self):
+    """Whether this package has authority to act on behalf of its subdir.
+
+    Some operations should only be performed once per subdirectory. A package
+    that has authority for its subdirectory is the only package that should
+    perform such operations.
+
+    Returns:
+      bool; whether this package has subdir authority.
+    """
+    return self._authority_for_subdir
+
+  @property
+  def name(self):
+    return self._name
+
+  @property
+  def version(self):
+    return self._version
+
+
+class CipdRoot(object):
+  """A representation of a single CIPD root."""
+  def __init__(self, root_dir, service_url):
+    self._all_packages = set()
+    self._mutator_lock = threading.Lock()
+    self._packages_by_subdir = collections.defaultdict(list)
+    self._root_dir = root_dir
+    self._service_url = service_url
+
+  def add_package(self, subdir, package, version):
+    """Adds a package to this CIPD root.
+
+    As far as clients are concerned, this grants both root and subdir authority
+    to packages arbitrarily. (The implementation grants root authority to the
+    first package added and subdir authority to the first package added for that
+    subdir, but clients should not depend on or expect that behavior.)
+
+    Args:
+      subdir: str; relative path to where the package should be installed from
+        the cipd root directory.
+      package: str; the cipd package name.
+      version: str; the cipd package version.
+    Returns:
+      CipdPackage; the package that was created and added to this root.
+    """
+    with self._mutator_lock:
+      cipd_package = CipdPackage(
+          package, version,
+          not self._packages_by_subdir,
+          not self._packages_by_subdir[subdir])
+      self._all_packages.add(cipd_package)
+      self._packages_by_subdir[subdir].append(cipd_package)
+      return cipd_package
+
+  def packages(self, subdir):
+    """Get the list of configured packages for the given subdir."""
+    return list(self._packages_by_subdir[subdir])
+
+  def clobber(self):
+    """Remove the .cipd directory.
+
+    This is useful for forcing ensure to redownload and reinitialize all
+    packages.
+    """
+    with self._mutator_lock:
+      cipd_cache_dir = os.path.join(self._cipd_root, '.cipd')
+      try:
+        gclient_utils.rmtree(os.path.join(cipd_cache_dir))
+      except OSError:
+        if os.path.exists(cipd_cache_dir):
+          raise
+
+  @contextlib.contextmanager
+  def _create_ensure_file(self):
+    try:
+      ensure_file = None
+      with tempfile.NamedTemporaryFile(
+          suffix='.ensure', delete=False) as ensure_file:
+        for subdir, packages in sorted(self._packages_by_subdir.iteritems()):
+          ensure_file.write('@Subdir %s\n' % subdir)
+          for package in packages:
+            ensure_file.write('%s %s\n' % (package.name, package.version))
+          ensure_file.write('\n')
+      yield ensure_file.name
+    finally:
+      if ensure_file is not None and os.path.exists(ensure_file.name):
+        os.remove(ensure_file.name)
+
+  def ensure(self):
+    """Run `cipd ensure`."""
+    with self._mutator_lock:
+      with self._create_ensure_file() as ensure_file:
+        cmd = [
+            'cipd', 'ensure',
+            '-log-level', 'error',
+            '-root', self.root_dir,
+            '-ensure-file', ensure_file,
+        ]
+        gclient_utils.CheckCallAndFilterAndHeader(cmd)
+
+  def created_package(self, package):
+    """Checks whether this root created the given package.
+
+    Args:
+      package: CipdPackage; the package to check.
+    Returns:
+      bool; whether this root created the given package.
+    """
+    return package in self._all_packages
+
+  @property
+  def root_dir(self):
+    return self._root_dir
+
+  @property
+  def service_url(self):
+    return self._service_url
+
+
+class CipdWrapper(SCMWrapper):
+  """Wrapper for CIPD.
+
+  Currently only supports chrome-infra-packages.appspot.com.
+  """
+  name = 'cipd'
+
+  def __init__(self, url=None, root_dir=None, relpath=None, out_fh=None,
+               out_cb=None, root=None, package=None):
+    super(CipdWrapper, self).__init__(
+        url=url, root_dir=root_dir, relpath=relpath, out_fh=out_fh,
+        out_cb=out_cb)
+    assert root.created_package(package)
+    self._package = package
+    self._root = root
+
+  #override
+  def GetCacheMirror(self):
+    return None
+
+  #override
+  def GetActualRemoteURL(self, options):
+    return self._root.service_url
+
+  #override
+  def DoesRemoteURLMatch(self, options):
+    del options
+    return True
+
+  def revert(self, options, args, file_list):
+    """Deletes .cipd and reruns ensure."""
+    if self._package.authority_for_root:
+      self._root.clobber()
+      self._root.ensure()
+
+  def diff(self, options, args, file_list):
+    """CIPD has no notion of diffing."""
+    pass
+
+  def pack(self, options, args, file_list):
+    """CIPD has no notion of diffing."""
+    pass
+
+  def revinfo(self, options, args, file_list):
+    """Grab the instance ID."""
+    try:
+      tmpdir = tempfile.mkdtemp()
+      describe_json_path = os.path.join(tmpdir, 'describe.json')
+      cmd = [
+          'cipd', 'describe',
+          self._package.name,
+          '-log-level', 'error',
+          '-version', self._package.version,
+          '-json-output', describe_json_path
+      ]
+      gclient_utils.CheckCallAndFilter(
+          cmd, filter_fn=lambda _line: None, print_stdout=False)
+      with open(describe_json_path) as f:
+        describe_json = json.load(f)
+      return describe_json.get('result', {}).get('pin', {}).get('instance_id')
+    finally:
+      gclient_utils.rmtree(tmpdir)
+
+  def status(self, options, args, file_list):
+    pass
+
+  def update(self, options, args, file_list):
+    """Runs ensure."""
+    if self._package.authority_for_root:
+      self._root.ensure()

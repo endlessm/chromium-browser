@@ -11,6 +11,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/test/scoped_mock_time_message_loop_task_runner.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/notifications/desktop_notification_profile_util.h"
 #include "chrome/browser/permissions/permission_manager.h"
@@ -29,9 +30,11 @@
 #include "third_party/WebKit/public/platform/modules/permissions/permission_status.mojom.h"
 #include "url/gurl.h"
 
-namespace {
+#if defined(OS_ANDROID)
+#include "base/android/build_info.h"
+#endif  // defined(OS_ANDROID)
 
-void DoNothing(ContentSetting content_setting) {}
+namespace {
 
 void StoreContentSetting(ContentSetting* out_content_setting,
                          ContentSetting content_setting) {
@@ -97,7 +100,7 @@ class NotificationPermissionContextTest
   base::TestMockTimeTaskRunner* SwitchToMockTime() {
     EXPECT_FALSE(mock_time_task_runner_);
     mock_time_task_runner_ =
-        base::MakeUnique<base::ScopedMockTimeMessageLoopTaskRunner>();
+        std::make_unique<base::ScopedMockTimeMessageLoopTaskRunner>();
     return mock_time_task_runner_->task_runner();
   }
 
@@ -151,6 +154,21 @@ TEST_F(NotificationPermissionContextTest, CrossOriginPermissionChecks) {
                 .GetPermissionStatus(nullptr /* render_frame_host */,
                                      requesting_origin, embedding_origin)
                 .content_setting);
+
+// Now block permission for |requesting_origin|.
+
+#if defined(OS_ANDROID)
+  // On Android O+, permission must be reset before it can be blocked. This is
+  // because granting a permission on O+ creates a system-managed notification
+  // channel which determines the value of the content setting, so it is not
+  // allowed to then toggle the value from ALLOW->BLOCK directly. However,
+  // Chrome may reset the permission (which deletes the channel), and *then*
+  // grant/block it (creating a new channel).
+  if (base::android::BuildInfo::GetInstance()->sdk_int() >=
+      base::android::SDK_VERSION_OREO) {
+    context.ResetPermission(requesting_origin, requesting_origin);
+  }
+#endif  // defined(OS_ANDROID)
 
   UpdateContentSetting(&context, requesting_origin, requesting_origin,
                        CONTENT_SETTING_BLOCK);
@@ -279,7 +297,7 @@ TEST_F(NotificationPermissionContextTest, TestDenyInIncognitoAfterDelay) {
             permission_context.last_permission_set_setting());
 
   permission_context.RequestPermission(
-      web_contents(), id, url, true /* user_gesture */, base::Bind(&DoNothing));
+      web_contents(), id, url, true /* user_gesture */, base::DoNothing());
 
   // Should be blocked after 1-2 seconds, but the timer is reset whenever the
   // tab is not visible, so these 500ms never add up to >= 1 second.
@@ -326,39 +344,6 @@ TEST_F(NotificationPermissionContextTest, TestDenyInIncognitoAfterDelay) {
             permission_context.GetContentSettingFromMap(url, url));
 }
 
-// Tests that navigating cancels incognito permission requests without crashing.
-TEST_F(NotificationPermissionContextTest, TestCancelledIncognitoRequest) {
-  TestNotificationPermissionContext permission_context(
-      profile()->GetOffTheRecordProfile());
-  GURL url("https://www.example.com");
-  NavigateAndCommit(url);
-
-  const PermissionRequestID id(
-      web_contents()->GetMainFrame()->GetProcess()->GetID(),
-      web_contents()->GetMainFrame()->GetRoutingID(), -1);
-
-  base::TestMockTimeTaskRunner* task_runner = SwitchToMockTime();
-
-  PermissionManager* permission_manager =
-      PermissionManagerFactory::GetForProfile(
-          profile()->GetOffTheRecordProfile());
-
-  // Request and cancel the permission via PermissionManager. That way if
-  // https://crbug.com/586944 regresses, then as well as the EXPECT_EQs below
-  // failing, PermissionManager::OnPermissionsRequestResponseStatus will crash.
-  int request_id = permission_manager->RequestPermission(
-      CONTENT_SETTINGS_TYPE_NOTIFICATIONS, web_contents()->GetMainFrame(),
-      url.GetOrigin(), true /* user_gesture */, base::Bind(&DoNothing));
-
-  permission_manager->CancelPermissionRequest(request_id);
-
-  task_runner->FastForwardBy(base::TimeDelta::FromDays(1));
-
-  EXPECT_EQ(0, permission_context.permission_set_count());
-  EXPECT_EQ(CONTENT_SETTING_ASK,
-            permission_context.GetContentSettingFromMap(url, url));
-}
-
 // Tests how multiple parallel permission requests get auto-denied in incognito.
 TEST_F(NotificationPermissionContextTest, TestParallelDenyInIncognito) {
   TestNotificationPermissionContext permission_context(
@@ -381,12 +366,10 @@ TEST_F(NotificationPermissionContextTest, TestParallelDenyInIncognito) {
   ASSERT_EQ(CONTENT_SETTING_DEFAULT,
             permission_context.last_permission_set_setting());
 
-  permission_context.RequestPermission(web_contents(), id0, url,
-                                       true /* user_gesture */,
-                                       base::Bind(&DoNothing));
-  permission_context.RequestPermission(web_contents(), id1, url,
-                                       true /* user_gesture */,
-                                       base::Bind(&DoNothing));
+  permission_context.RequestPermission(
+      web_contents(), id0, url, true /* user_gesture */, base::DoNothing());
+  permission_context.RequestPermission(
+      web_contents(), id1, url, true /* user_gesture */, base::DoNothing());
 
   EXPECT_EQ(0, permission_context.permission_set_count());
   EXPECT_EQ(CONTENT_SETTING_ASK,

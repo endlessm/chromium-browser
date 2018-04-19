@@ -344,7 +344,7 @@ void TetherConnectorImpl::OnWifiConnection(
     // connected to the Wi-Fi hotspot despite there being no active host. See
     // crbug.com/761171.
     wifi_hotspot_disconnector_->DisconnectFromWifiHotspot(
-        wifi_network_guid, base::Bind(&base::DoNothing),
+        wifi_network_guid, base::DoNothing(),
         base::Bind(&OnDisconnectFromWifiFailure, device_id));
     return;
   }
@@ -403,6 +403,20 @@ TetherConnectorImpl::GetConnectionToHostResultFromErrorCode(
                         ConnectTetheringResponse_ResponseCode_NO_CELL_DATA) {
     return HostConnectionMetricsLogger::ConnectionToHostResult::
         CONNECTION_RESULT_FAILURE_NO_CELL_DATA;
+  }
+
+  if (error_code ==
+      ConnectTetheringResponse_ResponseCode::
+          ConnectTetheringResponse_ResponseCode_ENABLING_HOTSPOT_FAILED) {
+    return HostConnectionMetricsLogger::ConnectionToHostResult::
+        CONNECTION_RESULT_FAILURE_ENABLING_HOTSPOT_FAILED;
+  }
+
+  if (error_code ==
+      ConnectTetheringResponse_ResponseCode::
+          ConnectTetheringResponse_ResponseCode_ENABLING_HOTSPOT_TIMEOUT) {
+    return HostConnectionMetricsLogger::ConnectionToHostResult::
+        CONNECTION_RESULT_FAILURE_ENABLING_HOTSPOT_TIMEOUT;
   }
 
   return HostConnectionMetricsLogger::ConnectionToHostResult::

@@ -49,14 +49,8 @@ tcu::TestStatus basicOneQueueCase (Context& context)
 	const VkDevice					device				= context.getDevice();
 	const VkQueue					queue				= context.getUniversalQueue();
 	const deUint32					queueFamilyIndex	= context.getUniversalQueueFamilyIndex();
-	const VkSemaphoreCreateInfo		semaphoreInfo		=
-														{
-															VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,	//VkStructureType			sType;
-															DE_NULL,									//const void*				pNext;
-															0u											//VkSemaphoreCreateFlags	flags;
-														};
-	const Unique<VkSemaphore>		semaphore			(createSemaphore (vk, device, &semaphoreInfo, DE_NULL));
-	const Unique<VkCommandPool>		cmdPool				(makeCommandPool(vk, device, queueFamilyIndex));
+	const Unique<VkSemaphore>		semaphore			(createSemaphore (vk, device));
+	const Unique<VkCommandPool>		cmdPool				(createCommandPool(vk, device, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, queueFamilyIndex));
 	const Unique<VkCommandBuffer>	cmdBuffer			(makeCommandBuffer(vk, device, *cmdPool));
 	const VkCommandBufferBeginInfo	info				=
 														{
@@ -91,13 +85,7 @@ tcu::TestStatus basicOneQueueCase (Context& context)
 																DE_NULL,							// const VkSemaphore*			pSignalSemaphores;
 															}
 														};
-	const VkFenceCreateInfo			fenceInfo			=
-														{
-															VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, // VkStructureType		sType;
-															DE_NULL,							 // const void*			pNext;
-															0u,									 // VkFenceCreateFlags	flags;
-														};
-	const Unique<VkFence>			fence				(createFence(vk, device, &fenceInfo));
+	const Unique<VkFence>			fence				(createFence(vk, device));
 
 	VK_CHECK(vk.beginCommandBuffer(*cmdBuffer, &info));
 	endCommandBuffer(vk, *cmdBuffer);
@@ -107,6 +95,58 @@ tcu::TestStatus basicOneQueueCase (Context& context)
 		return tcu::TestStatus::fail("Basic semaphore tests with one queue failed");
 
 	return tcu::TestStatus::pass("Basic semaphore tests with one queue passed");
+}
+
+tcu::TestStatus basicChainCase (Context& context)
+{
+	VkResult					err			= VK_SUCCESS;
+	const DeviceInterface&		vk			= context.getDeviceInterface();
+	const VkDevice&				device		= context.getDevice();
+	const VkQueue				queue		= context.getUniversalQueue();
+	const int					chainLength = 32768;
+	VkPipelineStageFlags		flags		= VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+	VkSemaphoreCreateInfo		sci			= { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, DE_NULL, 0 };
+	VkFenceCreateInfo			fci			= { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, DE_NULL, 0 };
+	std::vector<VkSemaphore>	semaphores;
+	VkFence						fence;
+
+	for (int i = 0; err == VK_SUCCESS && i < chainLength; i++)
+	{
+		VkSemaphore				semaphore;
+		err = vk.createSemaphore(device, &sci, DE_NULL, &semaphore);
+		if (err == VK_SUCCESS)
+		{
+			semaphores.push_back(semaphore);
+
+			VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO,
+				DE_NULL,
+				semaphores.size() > 1 ? 1u : 0u,
+				semaphores.size() > 1 ? &semaphores[semaphores.size() - 2] : DE_NULL,
+				&flags,
+				0,
+				DE_NULL,
+				1,
+				&semaphores[semaphores.size() - 1] };
+			err = vk.queueSubmit(queue, 1, &si, 0);
+		}
+	}
+
+	VK_CHECK(vk.createFence(device, &fci, DE_NULL, &fence));
+
+	VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO, DE_NULL, 1, &semaphores.back(), &flags, 0, DE_NULL, 0, DE_NULL };
+	VK_CHECK(vk.queueSubmit(queue, 1, &si, fence));
+
+	vk.waitForFences(device, 1, &fence, VK_TRUE, ~(0ull));
+
+	vk.destroyFence(device, fence, DE_NULL);
+
+	for (unsigned int i = 0; i < semaphores.size(); i++)
+		vk.destroySemaphore(device, semaphores[i], DE_NULL);
+
+	if (err == VK_SUCCESS)
+		return tcu::TestStatus::pass("Basic semaphore chain test passed");
+
+	return tcu::TestStatus::fail("Basic semaphore chain test failed");
 }
 
 tcu::TestStatus basicMultiQueueCase (Context& context)
@@ -142,23 +182,11 @@ tcu::TestStatus basicMultiQueueCase (Context& context)
 																			VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,	// VkCommandBufferUsageFlags                flags;
 																			DE_NULL,										// const VkCommandBufferInheritanceInfo*    pInheritanceInfo;
 																		};
-	const VkSemaphoreCreateInfo				semaphoreInfo				=
-																		{
-																			VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,	//VkStructureType			sType;
-																			DE_NULL,									//const void*				pNext;
-																			0u											//VkSemaphoreCreateFlags	flags;
-																		};
 	Move<VkSemaphore>						semaphore;
 	Move<VkCommandPool>						cmdPool[COUNT];
 	Move<VkCommandBuffer>					cmdBuffer[COUNT];
 	const VkPipelineStageFlags				stageBits[]					= { VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT };
 	VkSubmitInfo							submitInfo[COUNT];
-	const VkFenceCreateInfo					fenceInfo					=
-																		{
-																			VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, // VkStructureType		sType;
-																			DE_NULL,							 // const void*			pNext;
-																			0u,									 // VkFenceCreateFlags	flags;
-																		};
 	Move<VkFence>							fence[COUNT];
 
 	queueFamilyProperties = getPhysicalDeviceQueueFamilyProperties(instance, physicalDevice);
@@ -219,9 +247,9 @@ tcu::TestStatus basicMultiQueueCase (Context& context)
 			vk.getDeviceQueue(*logicalDevice, queues[queueReqNdx].queueFamilyIndex, 0u, &queues[queueReqNdx].queue);
 	}
 
-	semaphore			= (createSemaphore (vk,*logicalDevice, &semaphoreInfo, DE_NULL));
-	cmdPool[FIRST]		= (makeCommandPool(vk, *logicalDevice, queues[FIRST].queueFamilyIndex));
-	cmdPool[SECOND]		= (makeCommandPool(vk, *logicalDevice, queues[SECOND].queueFamilyIndex));
+	semaphore			= (createSemaphore (vk, *logicalDevice));
+	cmdPool[FIRST]		= (createCommandPool(vk, *logicalDevice, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, queues[FIRST].queueFamilyIndex));
+	cmdPool[SECOND]		= (createCommandPool(vk, *logicalDevice, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, queues[SECOND].queueFamilyIndex));
 	cmdBuffer[FIRST]	= (makeCommandBuffer(vk, *logicalDevice, *cmdPool[FIRST]));
 	cmdBuffer[SECOND]	= (makeCommandBuffer(vk, *logicalDevice, *cmdPool[SECOND]));
 
@@ -250,8 +278,8 @@ tcu::TestStatus basicMultiQueueCase (Context& context)
 	VK_CHECK(vk.beginCommandBuffer(*cmdBuffer[SECOND], &info));
 	endCommandBuffer(vk, *cmdBuffer[SECOND]);
 
-	fence[FIRST]  = (createFence(vk, *logicalDevice, &fenceInfo));
-	fence[SECOND] = (createFence(vk, *logicalDevice, &fenceInfo));
+	fence[FIRST]  = (createFence(vk, *logicalDevice));
+	fence[SECOND] = (createFence(vk, *logicalDevice));
 
 	VK_CHECK(vk.queueSubmit(queues[FIRST].queue, 1u, &submitInfo[FIRST], *fence[FIRST]));
 	VK_CHECK(vk.queueSubmit(queues[SECOND].queue, 1u, &submitInfo[SECOND], *fence[SECOND]));
@@ -292,6 +320,7 @@ tcu::TestCaseGroup* createBasicSemaphoreTests (tcu::TestContext& testCtx)
 	de::MovePtr<tcu::TestCaseGroup> basicTests(new tcu::TestCaseGroup(testCtx, "semaphore", "Basic semaphore tests"));
 	addFunctionCase(basicTests.get(), "one_queue",   "Basic semaphore tests with one queue",   basicOneQueueCase);
 	addFunctionCase(basicTests.get(), "multi_queue", "Basic semaphore tests with multi queue", basicMultiQueueCase);
+	addFunctionCase(basicTests.get(), "chain", "Semaphore chain test", basicChainCase);
 
 	return basicTests.release();
 }

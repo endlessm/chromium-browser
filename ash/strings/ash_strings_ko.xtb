@@ -23,8 +23,10 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" />(HDMI/DP)</translation>
 <translation id="1510238584712386396">런처</translation>
 <translation id="1525508553941733066">닫기</translation>
+<translation id="1537254971476575106">전체화면 돋보기</translation>
 <translation id="15373452373711364">큰 마우스 커서</translation>
 <translation id="1550523713251050646">더 많은 옵션을 확인하려면 클릭하세요.</translation>
+<translation id="1608626060424371292">이 사용자 삭제</translation>
 <translation id="1621499497873603021">남은 배터리 사용 시간은 <ph name="TIME_LEFT" />입니다.</translation>
 <translation id="1658406695958299976">비밀번호를 여전히 확인할 수 없습니다. 참고: 최근에 비밀번호를 변경한 경우 로그아웃해야 새로운 비밀번호가 적용됩니다. 이전 비밀번호를 사용해 보세요.</translation>
 <translation id="1677472565718498478"><ph name="TIME" /> 남음</translation>
@@ -43,12 +45,15 @@
 <translation id="1951012854035635156">어시스턴트</translation>
 <translation id="1957803754585243749">0°</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" />(USB)</translation>
+<translation id="1995660704900986789">끄기</translation>
 <translation id="2012624427112548395">Ctrl+Search+H</translation>
 <translation id="2049639323467105390">기기는 <ph name="DOMAIN" />에서 관리합니다.</translation>
 <translation id="2050339315714019657">세로 방향</translation>
 <translation id="2067602449040652523">키보드 밝기</translation>
+<translation id="2081529251031312395">$1님이 나중에 로그인할 수 있습니다.</translation>
 <translation id="2122028596993374965"><ph name="RECEIVER_NAME" />에 <ph name="TAB_NAME" /> 전송 중지</translation>
 <translation id="2127372758936585790">저출력 충전기</translation>
+<translation id="2135456203358955318">고정 돋보기</translation>
 <translation id="2144487987174258011">Adobe Flash Player를 업데이트하려면 다시 시작하세요.</translation>
 <translation id="2208323208084708176">통합 바탕화면 모드</translation>
 <translation id="2220572644011485463">PIN 또는 비밀번호</translation>
@@ -73,7 +78,6 @@
 <translation id="2653659639078652383">제출</translation>
 <translation id="2675319268637823299">관리자가 <ph name="USER_EMAIL" />의 멀티 로그인을 허용하지 않았습니다.
     계속하려면 모든 사용자가 로그아웃해야 합니다.</translation>
-<translation id="2700058918926273959">세션이 <ph name="SESSION_TIME_REMAINING" /> 후에 종료되어 로그아웃됩니다.</translation>
 <translation id="2727977024730340865">저출력 충전기에 연결되었습니다. 배터리 충전 상태가 불안정합니다.</translation>
 <translation id="2761704814324807722">상태 표시줄, 시간 <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581"><ph name="NAME" />에 다시 연결</translation>
@@ -83,6 +87,7 @@
 <translation id="2844169650293029770">USB-C 기기(좌측 전면 포트)</translation>
 <translation id="2865888419503095837">네트워크 정보</translation>
 <translation id="2872961005593481000">종료</translation>
+<translation id="2878884018241093801">최근 항목이 없습니다.</translation>
 <translation id="2903844815300039659"><ph name="NAME" />에 연결됨, <ph name="STRENGTH" /></translation>
 <translation id="2911940648265863620">화면 공유 중</translation>
 <translation id="2942516765047364088">실행기 위치</translation>
@@ -109,7 +114,6 @@
 <translation id="3413817803639110246">표시할 내용 없음</translation>
 <translation id="3445925074670675829">USB-C 기기</translation>
 <translation id="3465566417615315331">사진을 클릭하세요.</translation>
-<translation id="3473479545200714844">화면 돋보기</translation>
 <translation id="3477079411857374384">Control-Shift-Space</translation>
 <translation id="3510164367642747937">마우스 커서 강조표시</translation>
 <translation id="3513798432020909783">계정 관리자: <ph name="MANAGER_EMAIL" /></translation>
@@ -131,6 +135,7 @@
 <translation id="3891340733213178823">로그아웃하려면 Ctrl+Shift+Q를 두 번 누릅니다.</translation>
 <translation id="3893630138897523026">ChromeVox(음성 피드백)</translation>
 <translation id="3899995891769452915">음성 입력</translation>
+<translation id="3900355044994618856"><ph name="SESSION_TIME_REMAINING" /> 후 세션 종료</translation>
 <translation id="3901991538546252627"><ph name="NAME" />에 연결 중</translation>
 <translation id="394485226368336402">오디오 설정</translation>
 <translation id="397105322502079400">계산 중...</translation>
@@ -139,6 +144,7 @@
 <translation id="4072264167173457037">신호 보통</translation>
 <translation id="4279490309300973883">미러링</translation>
 <translation id="4321179778687042513">ctrl</translation>
+<translation id="4331809312908958774">Chrome OS</translation>
 <translation id="4338109981321384717">돋보기</translation>
 <translation id="4351433414020964307">어시스턴트 로드 중...</translation>
 <translation id="4378551569595875038">연결 중...</translation>
@@ -183,6 +189,7 @@
 <translation id="5744083938413354016">탭 드래그</translation>
 <translation id="5777841717266010279">화면 공유를 중단하시겠습니까?</translation>
 <translation id="57838592816432529">음소거</translation>
+<translation id="5820394555380036790">Chromium OS</translation>
 <translation id="5832805196449965646">사용자 추가</translation>
 <translation id="5860033963881614850">사용 안함</translation>
 <translation id="5895138241574237353">다시 시작</translation>
@@ -206,6 +213,7 @@
 <translation id="607652042414456612">내 컴퓨터가 근처 블루투스 기기에서 검색할 수 있도록 설정되어 있으며 주소(<ph name="ADDRESS" />)와 함께 '<ph name="NAME" />'(으)로 표시됩니다.</translation>
 <translation id="6106745654298855237"><ph name="POWER_SOURCE" /> 충전 중</translation>
 <translation id="615957422585914272">터치 키보드 표시</translation>
+<translation id="6164005077879661055">관리 대상 사용자를 제거하면 해당 관리 대상 사용자와 연결되어 있는 모든 파일 및 로컬 데이터가 영구적으로 삭제됩니다. 하지만 관리자는 관리 대상 사용자의 방문한 웹사이트 및 설정을 <ph name="MANAGEMENT_URL" /> 페이지에서 계속 볼 수 있습니다.</translation>
 <translation id="6165508094623778733">자세히 알아보기</translation>
 <translation id="6267036997247669271"><ph name="NAME" />: 활성화 중...</translation>
 <translation id="6284232397434400372">해상도가 변경됨</translation>
@@ -240,6 +248,7 @@
 <translation id="6857811139397017780"><ph name="NETWORKSERVICE" /> 활성화</translation>
 <translation id="6911468394164995108">다른 네트워크에 연결</translation>
 <translation id="6981982820502123353">접근성</translation>
+<translation id="698231206551913481">이 사용자를 제거하면 해당 사용자와 연결되어 있는 모든 파일 및 로컬 데이터가 영구적으로 삭제됩니다.</translation>
 <translation id="7029814467594812963">세션 종료</translation>
 <translation id="7034339000180558234"><ph name="TAB_NAME" />을(를) <ph name="RECEIVER_NAME" />(으)로 전송 중</translation>
 <translation id="7052914147756339792">배경화면 설정...</translation>
@@ -247,6 +256,7 @@
 <translation id="7066646422045619941">관리자가 사용 중지한 네트워크입니다.</translation>
 <translation id="7067196344162293536">자동 회전</translation>
 <translation id="7098389117866926363">USB-C 기기(좌측 후면 포트)</translation>
+<translation id="7131634465328662194">자동으로 로그아웃됩니다.</translation>
 <translation id="7165278925115064263">Alt+Shift+K</translation>
 <translation id="7168224885072002358"><ph name="TIMEOUT_SECONDS" />초 후 기존 해상도로 돌아갑니다.</translation>
 <translation id="7256634071279256947">후면 마이크</translation>
@@ -303,6 +313,7 @@
 <translation id="8484916590211895857"><ph name="NAME" />: 다시 연결하는 중...</translation>
 <translation id="8517041960877371778"><ph name="DEVICE_TYPE" />이(가) 켜져 있는 동안에는 충전되지 않을 수 있습니다.</translation>
 <translation id="8639760480004882931"><ph name="PERCENTAGE" /> 남음</translation>
+<translation id="8649101189709089199">텍스트 읽어주기</translation>
 <translation id="8652175077544655965">설정 닫기</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">저출력 충전기 연결됨</translation>
@@ -312,6 +323,7 @@
 이후의 알림, 창, 대화상자가 데스크톱 간에 분할될 수 있습니다.</translation>
 <translation id="8825534185036233643">3개 이상의 디스플레이 미러링은 지원되지 않습니다.</translation>
 <translation id="8828714802988429505">90°</translation>
+<translation id="8841375032071747811">뒤로 버튼</translation>
 <translation id="8850991929411075241">Search+Esc</translation>
 <translation id="8870509716567206129">앱이 화면 분할을 지원하지 않습니다.</translation>
 <translation id="8878886163241303700">화면 확대</translation>

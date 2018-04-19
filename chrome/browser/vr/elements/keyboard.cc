@@ -4,8 +4,6 @@
 
 #include "chrome/browser/vr/elements/keyboard.h"
 
-#include "chrome/browser/vr/controller_mesh.h"
-#include "chrome/browser/vr/model/controller_model.h"
 #include "chrome/browser/vr/ui_element_renderer.h"
 
 namespace vr {
@@ -13,6 +11,7 @@ namespace vr {
 Keyboard::Keyboard() {
   SetName(kKeyboard);
   set_focusable(false);
+  set_hit_testable(true);
   SetVisibleImmediately(false);
 }
 
@@ -21,6 +20,14 @@ Keyboard::~Keyboard() = default;
 void Keyboard::SetKeyboardDelegate(KeyboardDelegate* keyboard_delegate) {
   delegate_ = keyboard_delegate;
   UpdateDelegateVisibility();
+}
+
+void Keyboard::OnTouchStateUpdated(bool is_touching,
+                                   const gfx::PointF& touch_position) {
+  if (!delegate_)
+    return;
+
+  delegate_->OnTouchStateUpdated(is_touching, touch_position);
 }
 
 void Keyboard::HitTest(const HitTestRequest& request,
@@ -49,7 +56,7 @@ void Keyboard::HitTest(const HitTestRequest& request,
 
 void Keyboard::NotifyClientFloatAnimated(float value,
                                          int target_property_id,
-                                         cc::Animation* animation) {
+                                         cc::KeyframeModel* animation) {
   DCHECK(target_property_id == OPACITY);
   UiElement::NotifyClientFloatAnimated(value, target_property_id, animation);
   UpdateDelegateVisibility();
@@ -114,7 +121,7 @@ void Keyboard::Render(UiElementRenderer* renderer,
   if (!delegate_)
     return;
 
-  delegate_->Draw(camera_model);
+  renderer->DrawKeyboard(camera_model, delegate_);
 }
 
 void Keyboard::OnSetFocusable() {
@@ -129,6 +136,15 @@ void Keyboard::UpdateDelegateVisibility() {
     delegate_->ShowKeyboard();
   else
     delegate_->HideKeyboard();
+}
+
+Keyboard::Renderer::Renderer() {}
+
+Keyboard::Renderer::~Renderer() {}
+
+void Keyboard::Renderer::Draw(const CameraModel& camera_model,
+                              KeyboardDelegate* delegate) {
+  delegate->Draw(camera_model);
 }
 
 }  // namespace vr

@@ -16,6 +16,7 @@
 #include "components/ntp_snippets/category_rankers/fake_category_ranker.h"
 #include "components/ntp_snippets/content_suggestions_service.h"
 #include "components/ntp_snippets/logger.h"
+#include "components/ntp_snippets/pref_names.h"
 #include "components/ntp_snippets/remote/remote_suggestion_builder.h"
 #include "components/ntp_snippets/user_classifier.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
@@ -55,6 +56,8 @@ RegisteredPrefs() {
   ContentSuggestionsService::RegisterProfilePrefs(prefs->registry());
   UserClassifier::RegisterProfilePrefs(prefs->registry());
   ContentSuggestionsNotifierService::RegisterProfilePrefs(prefs->registry());
+  prefs->registry()->RegisterBooleanPref(
+      ntp_snippets::prefs::kArticlesListVisible, true);
   return prefs;
 }
 
@@ -63,7 +66,7 @@ class FakeContentSuggestionsService : public ContentSuggestionsService {
   FakeContentSuggestionsService(PrefService* prefs, base::Clock* clock)
       : ContentSuggestionsService(
             ContentSuggestionsService::ENABLED,
-            /*signin_manager=*/nullptr,
+            /*identity_manager=*/nullptr,
             /*history_service=*/nullptr,
             /*large_icon_cache=*/nullptr,
             prefs,

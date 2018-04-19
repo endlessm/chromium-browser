@@ -228,9 +228,20 @@ static const FormatExtEntry s_esExtFormats[] =
 		GLS_ARRAY_RANGE(s_oesPackedDepthStencilSizedFormats)
 	},
 	{
-		"GL_OES_packed_depth_stencil",
+		"GL_OES_packed_depth_stencil GL_OES_depth_texture",
 		(deUint32)(DEPTH_RENDERABLE | STENCIL_RENDERABLE | TEXTURE_VALID),
 		GLS_ARRAY_RANGE(s_oesPackedDepthStencilTexFormats)
+	},
+	// The ANGLE extension incorporates GL_OES_depth_texture/GL_OES_packed_depth_stencil.
+	{
+		"GL_ANGLE_depth_texture",
+		(deUint32)(REQUIRED_RENDERABLE | DEPTH_RENDERABLE | TEXTURE_VALID),
+		GLS_ARRAY_RANGE(s_oesDepthTextureFormats),
+	},
+	{
+		"GL_OES_packed_depth_stencil GL_ANGLE_depth_texture",
+		(deUint32)(DEPTH_RENDERABLE | STENCIL_RENDERABLE | TEXTURE_VALID),
+		GLS_ARRAY_RANGE(s_oesPackedDepthStencilTexFormats),
 	},
 	// \todo [2013-12-10 lauri] Find out if OES_texture_half_float is really a
 	// requirement on ES3 also. Or is color_buffer_half_float applicatble at

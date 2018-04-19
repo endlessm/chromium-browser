@@ -13,8 +13,8 @@
 #include "chrome/browser/download/download_service_factory.h"
 #include "chrome/browser/offline_items_collection/offline_content_aggregator_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/download/public/download_params.h"
-#include "components/download/public/download_service.h"
+#include "components/download/public/background_service/download_params.h"
+#include "components/download/public/background_service/download_service.h"
 #include "components/offline_items_collection/core/offline_content_aggregator.h"
 #include "components/offline_items_collection/core/offline_item.h"
 #include "content/public/browser/background_fetch_response.h"
@@ -306,9 +306,11 @@ void BackgroundFetchDelegateImpl::OnDownloadReceived(
       // This really should never happen since we're supplying the
       // DownloadClient.
       NOTREACHED();
+      break;
     case StartResult::UNEXPECTED_GUID:
       // TODO(delphick): try again with a different GUID.
       NOTREACHED();
+      break;
     case StartResult::CLIENT_CANCELLED:
       // TODO(delphick): do we need to do anything here, since we will have
       // cancelled it?
@@ -316,8 +318,10 @@ void BackgroundFetchDelegateImpl::OnDownloadReceived(
     case StartResult::INTERNAL_ERROR:
       // TODO(delphick): We need to handle this gracefully.
       NOTREACHED();
+      break;
     case StartResult::COUNT:
       NOTREACHED();
+      break;
   }
 }
 
@@ -329,10 +333,6 @@ void BackgroundFetchDelegateImpl::UpdateOfflineItemAndUpdateObservers(
 
   for (auto* observer : observers_)
     observer->OnItemUpdated(job_details->offline_item);
-}
-
-bool BackgroundFetchDelegateImpl::AreItemsAvailable() {
-  return true;
 }
 
 void BackgroundFetchDelegateImpl::OpenItem(
@@ -429,16 +429,6 @@ void BackgroundFetchDelegateImpl::AddObserver(Observer* observer) {
   DCHECK(!observers_.count(observer));
 
   observers_.insert(observer);
-  // OnItemsAvailable mustn't be called directly since offline_items_collection
-  // is not re-entrant.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(
-                     [](Observer* observer,
-                        base::WeakPtr<BackgroundFetchDelegateImpl> provider) {
-                       if (provider)
-                         observer->OnItemsAvailable(provider.get());
-                     },
-                     observer, weak_ptr_factory_.GetWeakPtr()));
 }
 
 void BackgroundFetchDelegateImpl::RemoveObserver(Observer* observer) {

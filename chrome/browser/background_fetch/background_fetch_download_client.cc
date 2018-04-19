@@ -9,8 +9,8 @@
 
 #include "chrome/browser/background_fetch/background_fetch_delegate_impl.h"
 #include "chrome/browser/download/download_service_factory.h"
-#include "components/download/public/download_metadata.h"
-#include "components/download/public/download_service.h"
+#include "components/download/public/background_service/download_metadata.h"
+#include "components/download/public/background_service/download_service.h"
 #include "content/public/browser/background_fetch_response.h"
 #include "content/public/browser/browser_context.h"
 #include "url/origin.h"
@@ -24,6 +24,15 @@ BackgroundFetchDownloadClient::~BackgroundFetchDownloadClient() = default;
 void BackgroundFetchDownloadClient::OnServiceInitialized(
     bool state_lost,
     const std::vector<download::DownloadMetaData>& downloads) {
+  content::BackgroundFetchDelegate* delegate =
+      browser_context_->GetBackgroundFetchDelegate();
+
+  // TODO(crbug.com/766082): Support incognito mode in
+  // BackgroundFetchDelegateFactory, currently |delegate| will be nullptr in
+  // incognito mode.
+  if (!delegate)
+    return;
+
   delegate_ = static_cast<BackgroundFetchDelegateImpl*>(
                   browser_context_->GetBackgroundFetchDelegate())
                   ->GetWeakPtr();

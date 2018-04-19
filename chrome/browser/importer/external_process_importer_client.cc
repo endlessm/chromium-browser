@@ -16,7 +16,6 @@
 #include "chrome/common/importer/imported_bookmark_entry.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/strings/grit/components_strings.h"
-#include "content/public/browser/utility_process_host.h"
 #include "content/public/common/service_manager_connection.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -51,7 +50,7 @@ void ExternalProcessImporterClient::Start() {
 
   // Dictionary of all localized strings that could be needed by the importer
   // in the external process.
-  auto localized_strings = base::MakeUnique<base::DictionaryValue>();
+  auto localized_strings = std::make_unique<base::DictionaryValue>();
   localized_strings->SetString(base::IntToString(IDS_BOOKMARK_GROUP),
                                l10n_util::GetStringUTF8(IDS_BOOKMARK_GROUP));
   localized_strings->SetString(

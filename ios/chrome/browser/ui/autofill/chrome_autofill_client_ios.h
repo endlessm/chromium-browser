@@ -21,9 +21,10 @@
 #include "components/password_manager/core/browser/password_generation_manager.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync/driver/sync_service.h"
-#include "google_apis/gaia/identity_provider.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #import "ios/web/public/web_state/web_state.h"
+
+@class UIViewController;
 
 namespace autofill {
 
@@ -35,15 +36,17 @@ class ChromeAutofillClientIOS : public AutofillClient {
       web::WebState* web_state,
       infobars::InfoBarManager* infobar_manager,
       id<AutofillClientIOSBridge> bridge,
-      password_manager::PasswordGenerationManager* password_generation_manager,
-      std::unique_ptr<IdentityProvider> identity_provider);
+      password_manager::PasswordGenerationManager* password_generation_manager);
   ~ChromeAutofillClientIOS() override;
+
+  // Sets a weak reference to the view controller used to present UI.
+  void SetBaseViewController(UIViewController* base_view_controller);
 
   // AutofillClientIOS implementation.
   PersonalDataManager* GetPersonalDataManager() override;
   PrefService* GetPrefs() override;
   syncer::SyncService* GetSyncService() override;
-  IdentityProvider* GetIdentityProvider() override;
+  identity::IdentityManager* GetIdentityManager() override;
   ukm::UkmRecorder* GetUkmRecorder() override;
   AddressNormalizer* GetAddressNormalizer() override;
   SaveCardBubbleController* GetSaveCardBubbleController() override;
@@ -92,11 +95,14 @@ class ChromeAutofillClientIOS : public AutofillClient {
   PersonalDataManager* personal_data_manager_;
   web::WebState* web_state_;
   __weak id<AutofillClientIOSBridge> bridge_;
-  std::unique_ptr<IdentityProvider> identity_provider_;
+  identity::IdentityManager* identity_manager_;
   scoped_refptr<AutofillWebDataService> autofill_web_data_service_;
   infobars::InfoBarManager* infobar_manager_;
   password_manager::PasswordGenerationManager* password_generation_manager_;
   CardUnmaskPromptControllerImpl unmask_controller_;
+
+  // A weak reference to the view controller used to present UI.
+  __weak UIViewController* base_view_controller_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeAutofillClientIOS);
 };

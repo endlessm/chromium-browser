@@ -241,7 +241,6 @@ to the classpath for downstream development. See "additional_entries" below.
     <classpathentry kind="lib" path="third_party/android_tools/sdk/extras/android/support/v7/appcompat/libs/android-support-v7-appcompat.jar" sourcepath="third_party/android_tools/sdk/sources"/>
     <classpathentry kind="lib" path="third_party/bouncycastle/lib/bcprov-jdk16-1.46.jar"/>
     <classpathentry kind="lib" path="third_party/byte_buddy/lib/byte-buddy-1.4.17.jar"/>
-    <classpathentry kind="lib" path="third_party/findbugs/lib/findbugs.jar"/>
     <classpathentry kind="lib" path="third_party/hamcrest/lib/hamcrest-library-1.3.jar"/>
     <classpathentry kind="lib" path="third_party/intellij/lib/annotations-12.0.jar"/>
     <classpathentry kind="lib" path="third_party/junit/src/lib/hamcrest-core-1.3.jar" sourcepath="third_party/junit/src/lib/hamcrest-core-1.3-sources.jar"/>
@@ -290,7 +289,7 @@ to the classpath for downstream development. See "additional_entries" below.
     <classpathentry kind="lib" path="out/Debug/lib.java/net/android/net_java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/printing/printing_java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/services/data_decoder/public/android/safe_json_java.jar"/>
-    <classpathentry kind="lib" path="out/Debug/lib.java/services/service_manager/public/interfaces/interfaces_java.jar"/>
+    <classpathentry kind="lib" path="out/Debug/lib.java/services/service_manager/public/mojom/mojom_java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/sync/android/sync_java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/sync/test_support_proto_java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/third_party/android_data_chart/android_data_chart_java.jar"/>

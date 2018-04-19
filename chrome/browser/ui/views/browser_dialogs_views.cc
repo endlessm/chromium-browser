@@ -13,11 +13,10 @@
 #include "chrome/browser/extensions/extension_install_prompt.h"
 #include "chrome/browser/ui/login/login_handler.h"
 #include "chrome/browser/ui/views/task_manager_view.h"
+#include "chrome/browser/ui/views_mode_controller.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/ui/views/intent_picker_bubble_view.h"
-#else
-#include "chrome/browser/ui/views/first_run_bubble.h"
 #endif  // OS_CHROMEOS
 
 // This file provides definitions of desktop browser dialog-creation methods for
@@ -26,11 +25,14 @@
 // excluded in a Mac Cocoa build: definitions under chrome/browser/ui/cocoa may
 // select at runtime whether to show a Cocoa dialog, or the toolkit-views dialog
 // provided by browser_dialogs.h.
-
 // static
-LoginHandler* LoginHandler::Create(net::AuthChallengeInfo* auth_info,
-                                   net::URLRequest* request) {
-  return chrome::CreateLoginHandlerViews(auth_info, request);
+LoginHandler* LoginHandler::Create(
+    net::AuthChallengeInfo* auth_info,
+    content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
+    const base::Callback<void(const base::Optional<net::AuthCredentials>&)>&
+        auth_required_callback) {
+  return chrome::CreateLoginHandlerViews(auth_info, web_contents_getter,
+                                         auth_required_callback);
 }
 
 // static
@@ -45,6 +47,10 @@ void BookmarkEditor::Show(gfx::NativeWindow parent_window,
 // static
 ExtensionInstallPrompt::ShowDialogCallback
 ExtensionInstallPrompt::GetDefaultShowDialogCallback() {
+#if defined(OS_MACOSX)
+  if (views_mode_controller::IsViewsBrowserCocoa())
+    return GetDefaultShowDialogCallbackCocoa();
+#endif
   return ExtensionInstallPrompt::GetViewsShowDialogCallback();
 }
 
@@ -68,12 +74,6 @@ void HideTaskManager() {
   task_manager::TaskManagerView::Hide();
 }
 #endif
-
-void ShowFirstRunBubble(Browser* browser) {
-#if !defined(OS_CHROMEOS)
-  FirstRunBubble::Show(browser);
-#endif  // OS_CHROMEOS
-}
 
 }  // namespace chrome
 

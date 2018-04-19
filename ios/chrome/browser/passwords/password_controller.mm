@@ -45,10 +45,12 @@
 #include "ios/chrome/browser/sync/ios_chrome_profile_sync_service_factory.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #include "ios/chrome/browser/web/tab_id_tab_helper.h"
+#include "ios/chrome/grit/ios_strings.h"
 #import "ios/web/public/origin_util.h"
 #include "ios/web/public/url_scheme_util.h"
 #import "ios/web/public/web_state/js/crw_js_injection_receiver.h"
 #import "ios/web/public/web_state/web_state.h"
+#include "ui/base/l10n/l10n_util_mac.h"
 #include "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -61,6 +63,9 @@ using password_manager::PasswordFormManager;
 using password_manager::PasswordManager;
 using password_manager::PasswordManagerClient;
 using password_manager::PasswordManagerDriver;
+
+typedef void (^PasswordSuggestionsAvailableCompletion)(
+    const AccountSelectFillData*);
 
 namespace {
 // Types of password infobars to display.
@@ -162,7 +167,7 @@ namespace {
 
 // Constructs an array of FormSuggestions, each corresponding to a username/
 // password pair in |AccountSelectFillData|, such that |typedValue| is a prefix
-// of the username of each suggestion.
+// of the username of each suggestion. "Show all" item is appended.
 NSArray* BuildSuggestions(const AccountSelectFillData& fillData,
                           NSString* formName,
                           NSString* fieldName,
@@ -172,24 +177,34 @@ NSArray* BuildSuggestions(const AccountSelectFillData& fillData,
   base::string16 typed_value = base::SysNSStringToUTF16(typedValue);
 
   NSMutableArray* suggestions = [NSMutableArray array];
-  std::vector<password_manager::UsernameAndRealm> username_and_realms_ =
-      fillData.RetrieveSuggestions(form_name, field_name, typed_value);
-  if (username_and_realms_.empty())
-    return suggestions;
+  if (fillData.IsSuggestionsAvailable(form_name, field_name)) {
+    std::vector<password_manager::UsernameAndRealm> username_and_realms_ =
+        fillData.RetrieveSuggestions(form_name, field_name, typed_value);
 
-  for (const auto& username_and_realm : username_and_realms_) {
-    NSString* username = base::SysUTF16ToNSString(username_and_realm.username);
-    NSString* origin = username_and_realm.realm.empty()
-                           ? nil
-                           : base::SysUTF8ToNSString(username_and_realm.realm);
+    // Add credentials.
+    for (const auto& username_and_realm : username_and_realms_) {
+      NSString* username =
+          base::SysUTF16ToNSString(username_and_realm.username);
+      NSString* origin =
+          username_and_realm.realm.empty()
+              ? nil
+              : base::SysUTF8ToNSString(username_and_realm.realm);
 
-    [suggestions addObject:[FormSuggestion suggestionWithValue:username
-                                            displayDescription:origin
-                                                          icon:nil
-                                                    identifier:0]];
+      [suggestions addObject:[FormSuggestion suggestionWithValue:username
+                                              displayDescription:origin
+                                                            icon:nil
+                                                      identifier:0]];
+    }
   }
 
-  return suggestions;
+  // Add "Show all".
+  NSString* showAll = l10n_util::GetNSString(IDS_IOS_SHOW_ALL_PASSWORDS);
+  [suggestions addObject:[FormSuggestion suggestionWithValue:showAll
+                                          displayDescription:nil
+                                                        icon:nil
+                                                  identifier:1]];
+
+  return [suggestions copy];
 }
 
 // Removes URL components not essential for matching the URL to
@@ -288,6 +303,10 @@ bool GetPageURLAndCheckTrustLevel(web::WebState* web_state, GURL* page_url) {
   // store.
   BOOL sentRequestToStore_;
 
+  // The completion to inform FormSuggestionController that suggestions are
+  // available for a given form and field.
+  PasswordSuggestionsAvailableCompletion suggestionsAvailableCompletion_;
+
   // User credential waiting to be displayed in autosign-in snackbar, once tab
   // becomes active.
   std::unique_ptr<autofill::PasswordForm> pendingAutoSigninPasswordForm_;
@@ -346,11 +365,6 @@ bool GetPageURLAndCheckTrustLevel(web::WebState* web_state, GURL* page_url) {
     webState_->AddScriptCommandCallback(callback, kCommandPrefix);
   }
   return self;
-}
-
-- (instancetype)init {
-  NOTREACHED();
-  return nil;
 }
 
 - (void)dealloc {
@@ -443,6 +457,7 @@ bool GetPageURLAndCheckTrustLevel(web::WebState* web_state, GURL* page_url) {
   // Clear per-page state.
   fillData_.Reset();
   sentRequestToStore_ = NO;
+  suggestionsAvailableCompletion_ = nil;
 
   // Retrieve the identity of the page. In case the page might be malicous,
   // returns early.
@@ -652,6 +667,8 @@ bool GetPageURLAndCheckTrustLevel(web::WebState* web_state, GURL* page_url) {
     // on the loaded page.
     passwordManager_->OnPasswordFormsParsed(passwordManagerDriver_.get(),
                                             forms);
+  } else {
+    [self onNoSavedCredentials];
   }
   // Invoke the password manager callback to check if password was
   // accepted or rejected. If accepted, infobar is presented. If
@@ -679,19 +696,41 @@ bool GetPageURLAndCheckTrustLevel(web::WebState* web_state, GURL* page_url) {
                                   webState:(web::WebState*)webState
                          completionHandler:
                              (SuggestionsAvailableCompletion)completion {
-  if (!sentRequestToStore_ && [type isEqual:@"focus"]) {
-    [self findPasswordFormsAndSendThemToPasswordStore];
-    completion(NO);
-    return;
-  }
-  if (fillData_.Empty() || !GetPageURLAndCheckTrustLevel(webState, nullptr)) {
+  if (!GetPageURLAndCheckTrustLevel(webState, nullptr)) {
     completion(NO);
     return;
   }
 
-  // Suggestions are available for the username field of the password form.
-  completion(fillData_.IsSuggestionsAvailable(
-      base::SysNSStringToUTF16(formName), base::SysNSStringToUTF16(fieldName)));
+  bool should_send_request_to_store =
+      !sentRequestToStore_ && [type isEqual:@"focus"];
+
+  if ([fieldType isEqual:@"password"]) {
+    if (should_send_request_to_store)
+      [self findPasswordFormsAndSendThemToPasswordStore];
+    // Always display "Show all" on the password field.
+    completion(YES);
+    return;
+  }
+
+  if (should_send_request_to_store) {
+    // Save the completion and go look for suggestions.
+    suggestionsAvailableCompletion_ =
+        [^(const AccountSelectFillData* fill_data) {
+          if (!fill_data)
+            completion(NO);
+          else {
+            completion(fill_data->IsSuggestionsAvailable(
+                base::SysNSStringToUTF16(formName),
+                base::SysNSStringToUTF16(fieldName)));
+          }
+        } copy];
+    [self findPasswordFormsAndSendThemToPasswordStore];
+    return;
+  }
+
+  completion(!fillData_.Empty() && fillData_.IsSuggestionsAvailable(
+                                       base::SysNSStringToUTF16(formName),
+                                       base::SysNSStringToUTF16(fieldName)));
 }
 
 - (void)retrieveSuggestionsForForm:(NSString*)formName
@@ -702,10 +741,7 @@ bool GetPageURLAndCheckTrustLevel(web::WebState* web_state, GURL* page_url) {
                           webState:(web::WebState*)webState
                  completionHandler:(SuggestionsReadyCompletion)completion {
   DCHECK(GetPageURLAndCheckTrustLevel(webState, nullptr));
-  if (fillData_.Empty()) {
-    completion(@[], nil);
-    return;
-  }
+
   completion(BuildSuggestions(fillData_, formName, fieldName, typedValue),
              self);
 }
@@ -714,6 +750,12 @@ bool GetPageURLAndCheckTrustLevel(web::WebState* web_state, GURL* page_url) {
                    forField:(NSString*)fieldName
                        form:(NSString*)formName
           completionHandler:(SuggestionHandledCompletion)completion {
+  if (suggestion.identifier == 1) {
+    // Navigate to the settings list.
+    [self.delegate displaySavedPasswordList];
+    completion();
+    return;
+  }
   const base::string16 username = base::SysNSStringToUTF16(suggestion.value);
   std::unique_ptr<FillData> fillData = fillData_.GetFillData(username);
 
@@ -929,6 +971,11 @@ bool GetPageURLAndCheckTrustLevel(web::WebState* web_state, GURL* page_url) {
        completionHandler:(void (^)(BOOL))completionHandler {
   fillData_.Add(formData);
 
+  if (suggestionsAvailableCompletion_) {
+    suggestionsAvailableCompletion_(&fillData_);
+    suggestionsAvailableCompletion_ = nil;
+  }
+
   // Don't fill immediately if waiting for the user to type a username.
   if (formData.wait_for_username) {
     if (completionHandler)
@@ -940,6 +987,12 @@ bool GetPageURLAndCheckTrustLevel(web::WebState* web_state, GURL* page_url) {
             withUsername:formData.username_field.value
                 password:formData.password_field.value
        completionHandler:completionHandler];
+}
+
+- (void)onNoSavedCredentials {
+  if (suggestionsAvailableCompletion_)
+    suggestionsAvailableCompletion_(nullptr);
+  suggestionsAvailableCompletion_ = nil;
 }
 
 - (void)fillPasswordFormWithFillData:(const password_manager::FillData&)fillData

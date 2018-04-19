@@ -83,7 +83,8 @@ namespace
 enum
 {
 	MAX_UNIFORM_BUFFER_SIZE = 1024,
-	MAX_STORAGE_BUFFER_SIZE = (1<<28)
+	MAX_STORAGE_BUFFER_SIZE = (1<<28),
+	MAX_SIZE = (128 * 1024)
 };
 
 // \todo [mika] Add to utilities
@@ -486,24 +487,6 @@ struct TestConfig
 	vk::VkSharingMode	sharing;
 };
 
-vk::Move<vk::VkCommandBuffer> createCommandBuffer (const vk::DeviceInterface&	vkd,
-												   vk::VkDevice					device,
-												   vk::VkCommandPool			pool,
-												   vk::VkCommandBufferLevel		level)
-{
-	const vk::VkCommandBufferAllocateInfo bufferInfo =
-	{
-		vk::VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-		DE_NULL,
-
-		pool,
-		level,
-		1u
-	};
-
-	return vk::allocateCommandBuffer(vkd, device, &bufferInfo);
-}
-
 vk::Move<vk::VkCommandBuffer> createBeginCommandBuffer (const vk::DeviceInterface&	vkd,
 														vk::VkDevice				device,
 														vk::VkCommandPool			pool,
@@ -528,27 +511,11 @@ vk::Move<vk::VkCommandBuffer> createBeginCommandBuffer (const vk::DeviceInterfac
 		(level == vk::VK_COMMAND_BUFFER_LEVEL_SECONDARY ? &inheritInfo : (const vk::VkCommandBufferInheritanceInfo*)DE_NULL),
 	};
 
-	vk::Move<vk::VkCommandBuffer> commandBuffer (createCommandBuffer(vkd, device, pool, level));
+	vk::Move<vk::VkCommandBuffer> commandBuffer (allocateCommandBuffer(vkd, device, pool, level));
 
 	vkd.beginCommandBuffer(*commandBuffer, &beginInfo);
 
 	return commandBuffer;
-}
-
-vk::Move<vk::VkCommandPool> createCommandPool (const vk::DeviceInterface&	vkd,
-											   vk::VkDevice					device,
-											   deUint32						queueFamilyIndex)
-{
-	const vk::VkCommandPoolCreateInfo poolInfo =
-	{
-		vk::VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-		DE_NULL,
-
-		vk::VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-		queueFamilyIndex,
-	};
-
-	return vk::createCommandPool(vkd, device, &poolInfo);
 }
 
 vk::Move<vk::VkBuffer> createBuffer (const vk::DeviceInterface&	vkd,
@@ -1034,7 +1001,7 @@ public:
 		, m_queue				(queue)
 		, m_queueFamilyIndex	(queueFamilyIndex)
 		, m_queues				(queues)
-		, m_commandPool			(createCommandPool(vkd, device, queueFamilyIndex))
+		, m_commandPool			(createCommandPool(vkd, device, vk::VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, queueFamilyIndex))
 		, m_binaryCollection	(binaryCollection)
 	{
 		for (size_t queueNdx = 0; queueNdx < m_queues.size(); queueNdx++)
@@ -3913,7 +3880,7 @@ void ImageBlitFromImage::verify (VerifyContext& context, size_t)
 
 			for (deInt32 y = 0; y < m_imageHeight; y++)
 			for (deInt32 x = 0; x < m_imageWidth; x++)
-				refAccess.setPixel(source.getAccess().getPixelUint(int(float(x) * xscale), int(float(y) * yscale)), x, y);
+				refAccess.setPixel(source.getAccess().getPixelUint(int((float(x) + 0.5f) * xscale), int((float(y) + 0.5f) * yscale)), x, y);
 		}
 		else
 			DE_FATAL("Unsupported scale");
@@ -6163,7 +6130,7 @@ void RenderFragmentUniformBuffer::prepare (PrepareRenderPassContext& context)
 	const vk::Unique<vk::VkShaderModule>		fragmentShaderModule	(vk::createShaderModule(vkd, device, context.getBinaryCollection().get("uniform-buffer.frag"), 0));
 	vector<vk::VkDescriptorSetLayoutBinding>	bindings;
 
-	m_bufferSize	= context.getBufferSize();
+	m_bufferSize	= de::min(context.getBufferSize(), (vk::VkDeviceSize)MAX_SIZE);
 	m_targetWidth	= context.getTargetWidth();
 	m_targetHeight	= context.getTargetHeight();
 
@@ -8379,6 +8346,71 @@ void getAvailableOps (const State& state, bool supportsBuffers, bool supportsIma
 		DE_FATAL("Unknown stage");
 }
 
+void removeIllegalAccessFlags (vk::VkAccessFlags& accessflags, vk::VkPipelineStageFlags stageflags)
+{
+	if (!(stageflags & vk::VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT))
+		accessflags &= ~vk::VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+
+	if (!(stageflags & vk::VK_PIPELINE_STAGE_VERTEX_INPUT_BIT))
+		accessflags &= ~vk::VK_ACCESS_INDEX_READ_BIT;
+
+	if (!(stageflags & vk::VK_PIPELINE_STAGE_VERTEX_INPUT_BIT))
+		accessflags &= ~vk::VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+
+	if (!(stageflags & (vk::VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+						vk::VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT |
+						vk::VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
+						vk::VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT |
+						vk::VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+						vk::VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)))
+		accessflags &= ~vk::VK_ACCESS_UNIFORM_READ_BIT;
+
+	if (!(stageflags & vk::VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT))
+		accessflags &= ~vk::VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
+
+	if (!(stageflags & (vk::VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+						vk::VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT |
+						vk::VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
+						vk::VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT |
+						vk::VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+						vk::VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)))
+		accessflags &= ~vk::VK_ACCESS_SHADER_READ_BIT;
+
+	if (!(stageflags & (vk::VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+						vk::VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT |
+						vk::VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
+						vk::VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT |
+						vk::VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+						vk::VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)))
+		accessflags &= ~vk::VK_ACCESS_SHADER_WRITE_BIT;
+
+	if (!(stageflags & vk::VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT))
+		accessflags &= ~vk::VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+
+	if (!(stageflags & vk::VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT))
+		accessflags &= ~vk::VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+	if (!(stageflags & (vk::VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+						vk::VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT)))
+		accessflags &= ~vk::VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+
+	if (!(stageflags & (vk::VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+						vk::VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT)))
+		accessflags &= ~vk::VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+	if (!(stageflags & vk::VK_PIPELINE_STAGE_TRANSFER_BIT))
+		accessflags &= ~vk::VK_ACCESS_TRANSFER_READ_BIT;
+
+	if (!(stageflags & vk::VK_PIPELINE_STAGE_TRANSFER_BIT))
+		accessflags &= ~vk::VK_ACCESS_TRANSFER_WRITE_BIT;
+
+	if (!(stageflags & vk::VK_PIPELINE_STAGE_HOST_BIT))
+		accessflags &= ~vk::VK_ACCESS_HOST_READ_BIT;
+
+	if (!(stageflags & vk::VK_PIPELINE_STAGE_HOST_BIT))
+		accessflags &= ~vk::VK_ACCESS_HOST_WRITE_BIT;
+}
+
 void applyOp (State& state, const Memory& memory, Op op, Usage usage)
 {
 	switch (op)
@@ -8520,6 +8552,9 @@ void applyOp (State& state, const Memory& memory, Op op, Usage usage)
 			if (!srcStages)
 				srcStages = dstStages;
 
+			removeIllegalAccessFlags(dstAccesses, dstStages);
+			removeIllegalAccessFlags(srcAccesses, srcStages);
+
 			if (srcLayout == vk::VK_IMAGE_LAYOUT_UNDEFINED)
 				state.imageDefined = false;
 
@@ -8648,6 +8683,9 @@ void applyOp (State& state, const Memory& memory, Op op, Usage usage)
 
 			if (!srcStages)
 				srcStages = dstStages;
+
+			removeIllegalAccessFlags(dstAccesses, dstStages);
+			removeIllegalAccessFlags(srcAccesses, srcStages);
 
 			state.commandBufferIsEmpty = false;
 			state.cache.barrier(srcStages, srcAccesses, dstStages, dstAccesses);
@@ -8838,6 +8876,9 @@ de::MovePtr<CmdCommand> createCmdCommand (de::Random&	rng,
 			if (!srcStages)
 				srcStages = dstStages;
 
+			removeIllegalAccessFlags(dstAccesses, dstStages);
+			removeIllegalAccessFlags(srcAccesses, srcStages);
+
 			return de::MovePtr<CmdCommand>(new ImageTransition(srcStages, srcAccesses, dstStages, dstAccesses, srcLayout, dstLayout));
 		}
 
@@ -8886,6 +8927,9 @@ de::MovePtr<CmdCommand> createCmdCommand (de::Random&	rng,
 
 			if (!srcStages)
 				srcStages = dstStages;
+
+			removeIllegalAccessFlags(dstAccesses, dstStages);
+			removeIllegalAccessFlags(srcAccesses, srcStages);
 
 			PipelineBarrier::Type type;
 
@@ -9508,6 +9552,7 @@ struct AddPrograms
 				fragmentShader <<
 					"#version 310 es\n"
 					"precision highp float;\n"
+					"precision highp int;\n"
 					"layout(location = 0) out highp vec4 o_color;\n"
 					"layout(set=0, binding=0) uniform Block\n"
 					"{\n"
@@ -9647,6 +9692,7 @@ struct AddPrograms
 					"#version 310 es\n"
 					"#extension GL_EXT_texture_buffer : require\n"
 					"precision highp float;\n"
+					"precision highp int;\n"
 					"layout(set=0, binding=0) uniform highp usamplerBuffer u_sampler;\n"
 					"layout(location = 0) out highp vec4 o_color;\n"
 					"layout(push_constant) uniform PushC\n"
@@ -9706,6 +9752,7 @@ struct AddPrograms
 					"#version 310 es\n"
 					"#extension GL_EXT_texture_buffer : require\n"
 					"precision highp float;\n"
+					"precision highp int;\n"
 					"layout(set=0, binding=0, r32ui) uniform readonly highp uimageBuffer u_sampler;\n"
 					"layout(location = 0) out highp vec4 o_color;\n"
 					"layout(push_constant) uniform PushC\n"

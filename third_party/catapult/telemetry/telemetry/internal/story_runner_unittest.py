@@ -29,11 +29,9 @@ from telemetry.testing import fakes
 from telemetry.testing import options_for_unittests
 from telemetry.testing import system_stub
 import mock
-from telemetry.value import failure
 from telemetry.value import improvement_direction
 from telemetry.value import list_of_scalar_values
 from telemetry.value import scalar
-from telemetry.value import skip
 from telemetry.value import summary as summary_module
 from telemetry.web_perf import story_test
 from telemetry.web_perf import timeline_based_measurement
@@ -235,18 +233,12 @@ class TestOnlyException(Exception):
   pass
 
 
-class FailureValueMatcher(object):
-  def __init__(self, expected_exception_message):
-    self._expected_exception_message = expected_exception_message
+class ExcInfoMatcher(object):
+  def __init__(self, message):
+    self.message = message
 
   def __eq__(self, other):
-    return (isinstance(other, failure.FailureValue) and
-            other.exc_info[1].message == self._expected_exception_message)
-
-
-class SkipValueMatcher(object):
-  def __eq__(self, other):
-    return isinstance(other, skip.SkipValue)
+    return isinstance(other[1], Exception) and self.message == other[1].message
 
 
 class _Measurement(legacy_page_test.LegacyPageTest):
@@ -305,7 +297,7 @@ class StoryRunnerTest(unittest.TestCase):
     story_runner.Run(
         test, story_set, self.options, self.results,
         metadata=EmptyMetadataForTest())
-    self.assertEquals(0, len(self.results.failures))
+    self.assertFalse(self.results.had_failures)
     self.assertEquals(number_stories,
                       GetNumberOfSuccessfulPageRuns(self.results))
 
@@ -370,7 +362,7 @@ class StoryRunnerTest(unittest.TestCase):
     story_runner.Run(
         test, story_set, self.options, self.results,
         metadata=EmptyMetadataForTest())
-    self.assertEquals(0, len(self.results.failures))
+    self.assertFalse(self.results.had_failures)
     self.assertEquals(3, GetNumberOfSuccessfulPageRuns(self.results))
 
     self.assertEquals(3*EXPECTED_CALLS_IN_ORDER,
@@ -434,7 +426,7 @@ class StoryRunnerTest(unittest.TestCase):
     calls_in_order = GetCallsInOrder() # pylint: disable=no-value-for-parameter
     self.assertEquals(EXPECTED_CALLS_IN_ORDER, calls_in_order)
 
-  def testAppCrashExceptionCausesFailureValue(self):
+  def testAppCrashExceptionCausesFailure(self):
     self.SuppressExceptionFormatting()
     story_set = story_module.StorySet()
     class SharedStoryThatCausesAppCrash(TestSharedPageState):
@@ -446,7 +438,7 @@ class StoryRunnerTest(unittest.TestCase):
     story_runner.Run(
         DummyTest(), story_set, self.options, self.results,
         metadata=EmptyMetadataForTest())
-    self.assertEquals(1, len(self.results.failures))
+    self.assertTrue(self.results.had_failures)
     self.assertEquals(0, GetNumberOfSuccessfulPageRuns(self.results))
     self.assertIn('App Foo crashes', self.fake_stdout.getvalue())
 
@@ -526,7 +518,7 @@ class StoryRunnerTest(unittest.TestCase):
         test, story_set, self.options, self.results,
         metadata=EmptyMetadataForTest())
     self.assertEquals(2, test.run_count)
-    self.assertEquals(1, len(self.results.failures))
+    self.assertTrue(self.results.had_failures)
     self.assertEquals(1, GetNumberOfSuccessfulPageRuns(self.results))
 
   def testAppCrashThenRaiseInTearDownFatal(self):
@@ -572,7 +564,7 @@ class StoryRunnerTest(unittest.TestCase):
     self.assertEqual(['app-crash', 'dump-state', 'tear-down-state'],
                      unit_test_events)
     # The AppCrashException gets added as a failure.
-    self.assertEquals(1, len(self.results.failures))
+    self.assertTrue(self.results.had_failures)
 
   def testPagesetRepeat(self):
     story_set = story_module.StorySet()
@@ -590,7 +582,7 @@ class StoryRunnerTest(unittest.TestCase):
     story_runner.Run(
         _Measurement(), story_set, self.options, results,
         metadata=EmptyMetadataForTest())
-    summary = summary_module.Summary(results.all_page_specific_values)
+    summary = summary_module.Summary(results)
     values = summary.interleaved_computed_per_page_values_and_summaries
 
     blank_value = list_of_scalar_values.ListOfScalarValues(
@@ -605,7 +597,7 @@ class StoryRunnerTest(unittest.TestCase):
         improvement_direction=improvement_direction.UP)
 
     self.assertEquals(4, GetNumberOfSuccessfulPageRuns(results))
-    self.assertEquals(0, len(results.failures))
+    self.assertFalse(results.had_failures)
     self.assertEquals(3, len(values))
     self.assertIn(blank_value, values)
     self.assertIn(green_value, values)
@@ -621,12 +613,12 @@ class StoryRunnerTest(unittest.TestCase):
     story_runner.Run(_Measurement(), story_set, self.options, results,
                      expectations=_DisableStoryExpectations(),
                      metadata=EmptyMetadataForTest())
-    summary = summary_module.Summary(results.all_page_specific_values)
+    summary = summary_module.Summary(results)
     values = summary.interleaved_computed_per_page_values_and_summaries
 
     self.assertEquals(1, GetNumberOfSuccessfulPageRuns(results))
     self.assertEquals(1, GetNumberOfSkippedPageRuns(results))
-    self.assertEquals(0, len(results.failures))
+    self.assertFalse(results.had_failures)
     self.assertEquals(0, len(values))
 
   def testRunStoryOneDisabledOneNot(self):
@@ -641,12 +633,12 @@ class StoryRunnerTest(unittest.TestCase):
     story_runner.Run(_Measurement(), story_set, self.options, results,
                      expectations=_DisableStoryExpectations(),
                      metadata=EmptyMetadataForTest())
-    summary = summary_module.Summary(results.all_page_specific_values)
+    summary = summary_module.Summary(results)
     values = summary.interleaved_computed_per_page_values_and_summaries
 
     self.assertEquals(2, GetNumberOfSuccessfulPageRuns(results))
     self.assertEquals(1, GetNumberOfSkippedPageRuns(results))
-    self.assertEquals(0, len(results.failures))
+    self.assertFalse(results.had_failures)
     self.assertEquals(2, len(values))
 
   def testRunStoryDisabledOverriddenByFlag(self):
@@ -660,12 +652,12 @@ class StoryRunnerTest(unittest.TestCase):
     story_runner.Run(_Measurement(), story_set, self.options, results,
                      expectations=_DisableStoryExpectations(),
                      metadata=EmptyMetadataForTest())
-    summary = summary_module.Summary(results.all_page_specific_values)
+    summary = summary_module.Summary(results)
     values = summary.interleaved_computed_per_page_values_and_summaries
 
     self.assertEquals(1, GetNumberOfSuccessfulPageRuns(results))
     self.assertEquals(0, GetNumberOfSkippedPageRuns(results))
-    self.assertEquals(0, len(results.failures))
+    self.assertFalse(results.had_failures)
     self.assertEquals(2, len(values))
 
   def testRunStoryPopulatesHistograms(self):
@@ -678,8 +670,8 @@ class StoryRunnerTest(unittest.TestCase):
 
       # pylint: disable=unused-argument
       def RunPage(self, _, _2, results):
-        results.histograms.ImportDicts([
-            histogram_module.Histogram('hist', 'count').AsDict()])
+        results.AddHistogram(
+            histogram_module.Histogram('hist', 'count'))
 
       def ValidateAndMeasurePage(self, page, tab, results):
         pass
@@ -691,13 +683,12 @@ class StoryRunnerTest(unittest.TestCase):
         test, story_set, self.options, self.results,
         metadata=EmptyMetadataForTest())
 
-    hs = self.results.histograms
+    dicts = self.results.AsHistogramDicts()
+    hs = histogram_set.HistogramSet()
+    hs.ImportDicts(dicts)
 
     self.assertEqual(1, len(hs))
-
-    h = hs.GetFirstHistogram()
-
-    self.assertEqual('hist', h.name)
+    self.assertEqual('hist', hs.GetFirstHistogram().name)
 
   def testRunStoryAddsDeviceInfo(self):
     story_set = story_module.StorySet()
@@ -705,7 +696,8 @@ class StoryRunnerTest(unittest.TestCase):
     story_runner.Run(DummyTest(), story_set, self.options, self.results,
                      metadata=EmptyMetadataForTest())
 
-    hs = self.results.histograms
+    hs = histogram_set.HistogramSet()
+    hs.ImportDicts(self.results.AsHistogramDicts())
 
     generic_diagnostics = hs.GetSharedDiagnosticsOfType(
         generic_set.GenericSet)
@@ -744,7 +736,8 @@ class StoryRunnerTest(unittest.TestCase):
     story_runner.Run(DummyTest(), story_set, self.options, self.results,
                      metadata=EmptyMetadataForTest())
 
-    hs = self.results.histograms
+    hs = histogram_set.HistogramSet()
+    hs.ImportDicts(self.results.AsHistogramDicts())
 
     generic_diagnostics = hs.GetSharedDiagnosticsOfType(
         generic_set.GenericSet)
@@ -765,8 +758,8 @@ class StoryRunnerTest(unittest.TestCase):
 
       # pylint: disable=unused-argument
       def RunPage(self, _, _2, results):
-        results.histograms.ImportDicts([
-            histogram_module.Histogram('hist', 'count').AsDict()])
+        results.AddHistogram(
+            histogram_module.Histogram('hist', 'count'))
 
       def ValidateAndMeasurePage(self, page, tab, results):
         pass
@@ -777,7 +770,8 @@ class StoryRunnerTest(unittest.TestCase):
     story_runner.Run(Test(), story_set, self.options, self.results,
                      metadata=EmptyMetadataForTest())
 
-    hs = self.results.histograms
+    hs = histogram_set.HistogramSet()
+    hs.ImportDicts(self.results.AsHistogramDicts())
 
     generic_diagnostics = hs.GetSharedDiagnosticsOfType(
         generic_set.GenericSet)
@@ -806,7 +800,8 @@ class StoryRunnerTest(unittest.TestCase):
     story_runner.Run(DummyTest(), story_set, self.options, self.results,
                      metadata=EmptyMetadataForTest())
 
-    hs = self.results.histograms
+    hs = histogram_set.HistogramSet()
+    hs.ImportDicts(self.results.AsHistogramDicts())
     tagmap = None
     for diagnostic in hs.shared_diagnostics:
       if type(diagnostic) == histogram_module.TagMap:
@@ -845,7 +840,8 @@ class StoryRunnerTest(unittest.TestCase):
           metadata=EmptyMetadataForTest())
     self.assertIn('FooBarzException', self.fake_stdout.getvalue())
 
-    hs = self.results.histograms
+    hs = histogram_set.HistogramSet()
+    hs.ImportDicts(self.results.AsHistogramDicts())
     tagmap = None
     for diagnostic in hs.shared_diagnostics:
       if type(diagnostic) == histogram_module.TagMap:
@@ -998,7 +994,7 @@ class StoryRunnerTest(unittest.TestCase):
         results, max_failures=runner_max_failures,
         metadata=EmptyMetadataForTest())
     self.assertEquals(0, GetNumberOfSuccessfulPageRuns(results))
-    self.assertEquals(expected_num_failures, len(results.failures))
+    self.assertTrue(results.had_failures)
     for ii, story in enumerate(story_set.stories):
       self.assertEqual(story.was_run, ii < expected_num_failures)
 
@@ -1091,7 +1087,7 @@ class StoryRunnerTest(unittest.TestCase):
         mock.call.state.WillRunStory(root_mock.story),
         mock.call.state.DumpStateUponFailure(
             root_mock.story, root_mock.results),
-        mock.call.results.AddValue(FailureValueMatcher('foo')),
+        mock.call.results.Fail(ExcInfoMatcher('foo')),
         mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
         mock.call.state.DidRunStory(root_mock.results),
     ])
@@ -1125,7 +1121,7 @@ class StoryRunnerTest(unittest.TestCase):
               root_mock.story, root_mock.results),
           mock.call.results.AddArtifact(
               root_mock.story.name, 'minidump', temp_file_path),
-          mock.call.results.AddValue(FailureValueMatcher('foo')),
+          mock.call.results.Fail(ExcInfoMatcher('foo')),
           mock.call.test.DidRunStory(
               root_mock.state.platform, root_mock.results),
           mock.call.state.DidRunStory(root_mock.results),
@@ -1149,7 +1145,7 @@ class StoryRunnerTest(unittest.TestCase):
         mock.call.state.CanRunStory(root_mock.story),
         mock.call.state.DumpStateUponFailure(
             root_mock.story, root_mock.results),
-        mock.call.results.AddValue(FailureValueMatcher('foo')),
+        mock.call.results.Fail(ExcInfoMatcher('foo')),
         mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
         mock.call.state.DidRunStory(root_mock.results),
     ])
@@ -1167,7 +1163,7 @@ class StoryRunnerTest(unittest.TestCase):
         mock.call.state.WillRunStory(root_mock.story),
         mock.call.state.CanRunStory(root_mock.story),
         mock.call.state.RunStory(root_mock.results),
-        mock.call.results.AddValue(SkipValueMatcher()),
+        mock.call.results.Skip('Unsupported page action: foo'),
         mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
         mock.call.state.DidRunStory(root_mock.results),
     ])
@@ -1186,7 +1182,7 @@ class StoryRunnerTest(unittest.TestCase):
         mock.call.test.WillRunStory(root_mock.state.platform),
         mock.call.state.DumpStateUponFailure(
             root_mock.story, root_mock.results),
-        mock.call.results.AddValue(FailureValueMatcher('foo')),
+        mock.call.results.Fail(ExcInfoMatcher('foo')),
         mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
         mock.call.state.DidRunStory(root_mock.results),
     ])
@@ -1231,7 +1227,7 @@ class StoryRunnerTest(unittest.TestCase):
         mock.call.state.RunStory(root_mock.results),
         mock.call.state.DumpStateUponFailure(
             root_mock.story, root_mock.results),
-        mock.call.results.AddValue(FailureValueMatcher('foo')),
+        mock.call.results.Fail(ExcInfoMatcher('foo')),
         mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
         mock.call.state.DidRunStory(root_mock.results),
     ])
@@ -1252,7 +1248,7 @@ class StoryRunnerTest(unittest.TestCase):
         mock.call.state.WillRunStory(root_mock.story),
         mock.call.state.DumpStateUponFailure(
             root_mock.story, root_mock.results),
-        mock.call.results.AddValue(FailureValueMatcher('foo')),
+        mock.call.results.Fail(ExcInfoMatcher('foo')),
         mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
     ])
 
@@ -1269,7 +1265,7 @@ class StoryRunnerTest(unittest.TestCase):
     self.assertEquals(root_mock.method_calls, [
         mock.call.results.CreateArtifact(root_mock.story.name, 'logs'),
         mock.call.test.WillRunStory(root_mock.state.platform),
-        mock.call.results.AddValue(SkipValueMatcher()),
+        mock.call.results.Skip('Unsupported page action: foo'),
         mock.call.test.DidRunStory(
             root_mock.state.platform, root_mock.results),
         mock.call.state.DidRunStory(root_mock.results),
@@ -1294,7 +1290,7 @@ class StoryRunnerTest(unittest.TestCase):
         mock.call.test.Measure(root_mock.state.platform, root_mock.results),
         mock.call.state.DumpStateUponFailure(
             root_mock.story, root_mock.results),
-        mock.call.results.AddValue(FailureValueMatcher('foo')),
+        mock.call.results.Fail(ExcInfoMatcher('foo')),
         mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
     ])
 
@@ -1489,7 +1485,7 @@ class StoryRunnerTest(unittest.TestCase):
         _Measurement(), story_set, self.options, self.results,
         metadata=EmptyMetadataForTest(),
         max_num_values=0)
-    self.assertEquals(1, len(self.results.failures))
+    self.assertTrue(self.results.had_failures)
     self.assertEquals(0, GetNumberOfSuccessfulPageRuns(self.results))
     self.assertIn('Too many values: 1 > 0', self.fake_stdout.getvalue())
 

@@ -14,6 +14,7 @@
 #include "chrome/browser/vr/elements/disc_button.h"
 #include "chrome/browser/vr/elements/exit_prompt.h"
 #include "chrome/browser/vr/elements/rect.h"
+#include "chrome/browser/vr/elements/repositioner.h"
 #include "chrome/browser/vr/elements/ui_element.h"
 #include "chrome/browser/vr/elements/ui_element_name.h"
 #include "chrome/browser/vr/elements/vector_icon.h"
@@ -56,22 +57,30 @@ const std::set<UiElementName> kElementsVisibleInBrowsing = {
     kUrlBarSeparator,
     kUrlBarOriginRegion,
     kUrlBarOriginContent,
-    kUnderDevelopmentNotice,
     kController,
     kReticle,
     kLaser,
-    kVoiceSearchButton,
+    kControllerTouchpadButton,
+    kControllerAppButton,
+    kControllerHomeButton,
 };
 const std::set<UiElementName> kElementsVisibleWithExitPrompt = {
-    kBackgroundFront, kBackgroundLeft,      kBackgroundBack, kBackgroundRight,
-    kBackgroundTop,   kBackgroundBottom,    kCeiling,        kFloor,
-    kExitPrompt,      kExitPromptBackplane, kController,     kReticle,
+    kBackgroundFront,
+    kBackgroundLeft,
+    kBackgroundBack,
+    kBackgroundRight,
+    kBackgroundTop,
+    kBackgroundBottom,
+    kCeiling,
+    kFloor,
+    kExitPrompt,
+    kExitPromptBackplane,
+    kController,
+    kReticle,
     kLaser,
-};
-const std::set<UiElementType> kHitTestableElementTypes = {
-    kTypeButtonHitTarget,         kTypeTextInputText,
-    kTypeOmniboxSuggestionSpacer, kTypeSnackbarButton,
-    kTypeSnackbarDescription,
+    kControllerTouchpadButton,
+    kControllerAppButton,
+    kControllerHomeButton,
 };
 const std::set<UiElementName> kElementsVisibleWithExitWarning = {
     kScreenDimmer, kExitWarningBackground, kExitWarningText};
@@ -243,6 +252,7 @@ TEST_F(UiTest, UiUpdatesForIncognito) {
 TEST_F(UiTest, VoiceSearchHiddenInIncognito) {
   CreateScene(kNotInCct, kNotInWebVr);
 
+  model_->push_mode(kModeEditingOmnibox);
   EXPECT_TRUE(OnBeginFrame());
   EXPECT_TRUE(IsVisible(kVoiceSearchButton));
 
@@ -254,11 +264,26 @@ TEST_F(UiTest, VoiceSearchHiddenInIncognito) {
 TEST_F(UiTest, VoiceSearchHiddenWhenCantAskForPermission) {
   CreateScene(kNotInCct, kNotInWebVr);
 
+  model_->push_mode(kModeEditingOmnibox);
   model_->speech.has_or_can_request_audio_permission = true;
   EXPECT_TRUE(OnBeginFrame());
   EXPECT_TRUE(IsVisible(kVoiceSearchButton));
 
   model_->speech.has_or_can_request_audio_permission = false;
+  EXPECT_TRUE(OnBeginFrame());
+  EXPECT_FALSE(IsVisible(kVoiceSearchButton));
+}
+
+TEST_F(UiTest, VoiceSearchHiddenWhenContentCapturingAudio) {
+  CreateScene(kNotInCct, kNotInWebVr);
+
+  model_->push_mode(kModeEditingOmnibox);
+  model_->speech.has_or_can_request_audio_permission = true;
+  model_->capturing_state.audio_capture_enabled = false;
+  EXPECT_TRUE(OnBeginFrame());
+  EXPECT_TRUE(IsVisible(kVoiceSearchButton));
+
+  model_->capturing_state.audio_capture_enabled = true;
   EXPECT_TRUE(OnBeginFrame());
   EXPECT_FALSE(IsVisible(kVoiceSearchButton));
 }
@@ -299,7 +324,8 @@ TEST_F(UiTest, UiModeVoiceSearch) {
   ui_->SetSpeechRecognitionEnabled(false);
   EXPECT_EQ(model_->ui_modes.size(), 1u);
   EXPECT_EQ(model_->ui_modes.back(), kModeBrowsing);
-  EXPECT_TRUE(RunFor(MsToDelta(10)));
+  OnBeginFrame();
+  OnBeginFrame();
   VerifyOnlyElementsVisible("Browsing", kElementsVisibleInBrowsing);
 }
 
@@ -312,14 +338,14 @@ TEST_F(UiTest, UiModeOmniboxEditing) {
   VerifyOnlyElementsVisible("Initial", kElementsVisibleInBrowsing);
 
   model_->push_mode(kModeEditingOmnibox);
-  EXPECT_TRUE(RunFor(MsToDelta(1000)));
+  OnBeginFrame();
   EXPECT_EQ(model_->ui_modes.size(), 2u);
   EXPECT_EQ(model_->ui_modes[1], kModeEditingOmnibox);
   EXPECT_EQ(model_->ui_modes[0], kModeBrowsing);
   EXPECT_GT(NumVisibleInTree(kOmniboxRoot), 0);
 
   model_->pop_mode(kModeEditingOmnibox);
-  EXPECT_TRUE(RunFor(MsToDelta(1000)));
+  OnBeginFrame();
   EXPECT_EQ(model_->ui_modes.size(), 1u);
   EXPECT_EQ(model_->ui_modes.back(), kModeBrowsing);
   VerifyOnlyElementsVisible("Browsing", kElementsVisibleInBrowsing);
@@ -334,7 +360,7 @@ TEST_F(UiTest, UiModeVoiceSearchFromOmnibox) {
   VerifyOnlyElementsVisible("Initial", kElementsVisibleInBrowsing);
 
   model_->push_mode(kModeEditingOmnibox);
-  EXPECT_TRUE(RunFor(MsToDelta(1000)));
+  OnBeginFrame();
   EXPECT_EQ(model_->ui_modes.size(), 2u);
   EXPECT_EQ(model_->ui_modes[1], kModeEditingOmnibox);
   EXPECT_EQ(model_->ui_modes[0], kModeBrowsing);
@@ -345,7 +371,7 @@ TEST_F(UiTest, UiModeVoiceSearchFromOmnibox) {
   EXPECT_EQ(model_->ui_modes[2], kModeVoiceSearch);
   EXPECT_EQ(model_->ui_modes[1], kModeEditingOmnibox);
   EXPECT_EQ(model_->ui_modes[0], kModeBrowsing);
-  EXPECT_TRUE(RunFor(MsToDelta(10)));
+  OnBeginFrame();
   EXPECT_EQ(NumVisibleInTree(kOmniboxRoot), 0);
   VerifyVisibility(kElementsVisibleWithVoiceSearch, true);
 
@@ -353,13 +379,14 @@ TEST_F(UiTest, UiModeVoiceSearchFromOmnibox) {
   EXPECT_EQ(model_->ui_modes.size(), 2u);
   EXPECT_EQ(model_->ui_modes[1], kModeEditingOmnibox);
   EXPECT_EQ(model_->ui_modes[0], kModeBrowsing);
-  EXPECT_TRUE(RunFor(MsToDelta(1000)));
+  OnBeginFrame();
+  OnBeginFrame();
   EXPECT_GT(NumVisibleInTree(kOmniboxRoot), 0);
 
   model_->pop_mode(kModeEditingOmnibox);
   EXPECT_EQ(model_->ui_modes.size(), 1u);
   EXPECT_EQ(model_->ui_modes.back(), kModeBrowsing);
-  EXPECT_TRUE(RunFor(MsToDelta(10)));
+  OnBeginFrame();
   VerifyOnlyElementsVisible("Browsing", kElementsVisibleInBrowsing);
 }
 
@@ -424,6 +451,9 @@ TEST_F(UiTest, UiUpdatesForFullscreenChanges) {
   visible_in_fullscreen.insert(kCloseButton);
   visible_in_fullscreen.insert(kExclusiveScreenToast);
   visible_in_fullscreen.insert(kController);
+  visible_in_fullscreen.insert(kControllerTouchpadButton);
+  visible_in_fullscreen.insert(kControllerAppButton);
+  visible_in_fullscreen.insert(kControllerHomeButton);
   visible_in_fullscreen.insert(kLaser);
   visible_in_fullscreen.insert(kReticle);
 
@@ -491,6 +521,53 @@ TEST_F(UiTest, SecurityIconClickTriggersUnsupportedMode) {
   VerifyOnlyElementsVisible("Prompt invisible", kElementsVisibleInBrowsing);
 }
 
+TEST_F(UiTest, ClickingOmniboxTriggersUnsupportedMode) {
+  UiInitialState state;
+  state.needs_keyboard_update = true;
+  CreateScene(state);
+  VerifyOnlyElementsVisible("Initial", kElementsVisibleInBrowsing);
+
+  // Clicking the omnibox should show the update prompt.
+  auto* omnibox = scene_->GetUiElementByName(kUrlBarOriginContent);
+  EXPECT_CALL(*browser_,
+              OnUnsupportedMode(UiUnsupportedMode::kNeedsKeyboardUpdate));
+  omnibox->OnButtonUp({0, 10});
+  ui_->ShowExitVrPrompt(UiUnsupportedMode::kNeedsKeyboardUpdate);
+  OnBeginFrame();
+  EXPECT_EQ(model_->active_modal_prompt_type,
+            ModalPromptType::kModalPromptTypeUpdateKeyboard);
+  EXPECT_TRUE(scene_->GetUiElementByName(kUpdateKeyboardPrompt)->IsVisible());
+}
+
+TEST_F(UiTest, WebInputEditingTriggersUnsupportedMode) {
+  UiInitialState state;
+  state.needs_keyboard_update = true;
+  CreateScene(state);
+  VerifyOnlyElementsVisible("Initial", kElementsVisibleInBrowsing);
+
+  // A call to show the keyboard should show the update prompt.
+  EXPECT_CALL(*browser_,
+              OnUnsupportedMode(UiUnsupportedMode::kNeedsKeyboardUpdate));
+  ui_->ShowSoftInput(true);
+  ui_->ShowExitVrPrompt(UiUnsupportedMode::kNeedsKeyboardUpdate);
+  OnBeginFrame();
+  EXPECT_EQ(model_->active_modal_prompt_type,
+            ModalPromptType::kModalPromptTypeUpdateKeyboard);
+  EXPECT_TRUE(scene_->GetUiElementByName(kUpdateKeyboardPrompt)->IsVisible());
+}
+
+TEST_F(UiTest, ExitWebInputEditingOnAppButtonClick) {
+  CreateScene(kNotInCct, kNotInWebVr);
+  EXPECT_FALSE(scene_->GetUiElementByName(kKeyboard)->IsVisible());
+  ui_->ShowSoftInput(true);
+  OnBeginFrame();
+  EXPECT_TRUE(scene_->GetUiElementByName(kKeyboard)->IsVisible());
+  ui_->OnAppButtonClicked();
+  OnBeginFrame();
+  // Clicking app button should hide the keyboard.
+  EXPECT_FALSE(scene_->GetUiElementByName(kKeyboard)->IsVisible());
+}
+
 TEST_F(UiTest, UiUpdatesForShowingExitPrompt) {
   CreateScene(kNotInCct, kNotInWebVr);
 
@@ -520,7 +597,7 @@ TEST_F(UiTest, BackplaneClickTriggersOnExitPrompt) {
 
   // Initial state.
   VerifyOnlyElementsVisible("Initial", kElementsVisibleInBrowsing);
-  ui_->SetExitVrPromptEnabled(true, UiUnsupportedMode::kUnhandledPageInfo);
+  ui_->ShowExitVrPrompt(UiUnsupportedMode::kUnhandledPageInfo);
 
   VerifyOnlyElementsVisible("Prompt visible", kElementsVisibleWithExitPrompt);
 
@@ -531,10 +608,6 @@ TEST_F(UiTest, BackplaneClickTriggersOnExitPrompt) {
                                    UiUnsupportedMode::kUnhandledPageInfo));
   scene_->GetUiElementByName(kExitPromptBackplane)->OnButtonUp(gfx::PointF());
 
-  // This would usually get called by the browser, but since it is mocked we
-  // will call it explicitly here and check that the UI responds as we would
-  // expect.
-  ui_->SetExitVrPromptEnabled(false, UiUnsupportedMode::kCount);
   VerifyOnlyElementsVisible("Prompt cleared", kElementsVisibleInBrowsing);
 }
 
@@ -546,14 +619,13 @@ TEST_F(UiTest, PrimaryButtonClickTriggersOnExitPrompt) {
   model_->active_modal_prompt_type = kModalPromptTypeExitVRForSiteInfo;
   OnBeginFrame();
 
-  // Click on 'OK' should trigger UI browser interface but not close prompt.
+  // Click on 'OK' should trigger UI browser interface and close prompt.
   EXPECT_CALL(*browser_,
               OnExitVrPromptResult(ExitVrPromptChoice::CHOICE_STAY,
                                    UiUnsupportedMode::kUnhandledPageInfo));
   static_cast<ExitPrompt*>(scene_->GetUiElementByName(kExitPrompt))
       ->ClickPrimaryButtonForTesting();
-  VerifyOnlyElementsVisible("Prompt still visible",
-                            kElementsVisibleWithExitPrompt);
+  VerifyOnlyElementsVisible("Prompt cleared", kElementsVisibleInBrowsing);
 }
 
 TEST_F(UiTest, SecondaryButtonClickTriggersOnExitPrompt) {
@@ -564,26 +636,24 @@ TEST_F(UiTest, SecondaryButtonClickTriggersOnExitPrompt) {
   model_->active_modal_prompt_type = kModalPromptTypeExitVRForSiteInfo;
   OnBeginFrame();
 
-  // Click on 'Exit VR' should trigger UI browser interface but not close
-  // prompt.
+  // Click on 'Exit VR' should trigger UI browser interface and close prompt.
   EXPECT_CALL(*browser_,
               OnExitVrPromptResult(ExitVrPromptChoice::CHOICE_EXIT,
                                    UiUnsupportedMode::kUnhandledPageInfo));
 
   static_cast<ExitPrompt*>(scene_->GetUiElementByName(kExitPrompt))
       ->ClickSecondaryButtonForTesting();
-  VerifyOnlyElementsVisible("Prompt still visible",
-                            kElementsVisibleWithExitPrompt);
+  VerifyOnlyElementsVisible("Prompt cleared", kElementsVisibleInBrowsing);
 }
 
 TEST_F(UiTest, UiUpdatesForWebVR) {
   CreateScene(kNotInCct, kInWebVr);
 
-  model_->permissions.audio_capture_enabled = true;
-  model_->permissions.video_capture_enabled = true;
-  model_->permissions.screen_capture_enabled = true;
-  model_->permissions.location_access = true;
-  model_->permissions.bluetooth_connected = true;
+  model_->capturing_state.audio_capture_enabled = true;
+  model_->capturing_state.video_capture_enabled = true;
+  model_->capturing_state.screen_capture_enabled = true;
+  model_->capturing_state.location_access_enabled = true;
+  model_->capturing_state.bluetooth_connected = true;
 
   VerifyOnlyElementsVisible("Elements hidden",
                             std::set<UiElementName>{kWebVrBackground});
@@ -608,11 +678,11 @@ TEST_F(UiTest, WebVrFramesIgnoredWhenUnexpected) {
 
 TEST_F(UiTest, UiUpdateTransitionToWebVR) {
   CreateScene(kNotInCct, kNotInWebVr);
-  model_->permissions.audio_capture_enabled = true;
-  model_->permissions.video_capture_enabled = true;
-  model_->permissions.screen_capture_enabled = true;
-  model_->permissions.location_access = true;
-  model_->permissions.bluetooth_connected = true;
+  model_->capturing_state.audio_capture_enabled = true;
+  model_->capturing_state.video_capture_enabled = true;
+  model_->capturing_state.screen_capture_enabled = true;
+  model_->capturing_state.location_access_enabled = true;
+  model_->capturing_state.bluetooth_connected = true;
 
   // Transition to WebVR mode
   ui_->SetWebVrMode(true, false);
@@ -633,11 +703,11 @@ TEST_F(UiTest, CaptureIndicatorsVisibility) {
   EXPECT_TRUE(VerifyVisibility(indicators, false));
   EXPECT_TRUE(VerifyRequiresLayout(indicators, false));
 
-  model_->permissions.audio_capture_enabled = true;
-  model_->permissions.video_capture_enabled = true;
-  model_->permissions.screen_capture_enabled = true;
-  model_->permissions.location_access = true;
-  model_->permissions.bluetooth_connected = true;
+  model_->capturing_state.audio_capture_enabled = true;
+  model_->capturing_state.video_capture_enabled = true;
+  model_->capturing_state.screen_capture_enabled = true;
+  model_->capturing_state.location_access_enabled = true;
+  model_->capturing_state.bluetooth_connected = true;
   EXPECT_TRUE(VerifyVisibility(indicators, true));
   EXPECT_TRUE(VerifyRequiresLayout(indicators, true));
 
@@ -654,11 +724,11 @@ TEST_F(UiTest, CaptureIndicatorsVisibility) {
   EXPECT_TRUE(VerifyRequiresLayout(indicators, true));
 
   // Ensure they can be turned off.
-  model_->permissions.audio_capture_enabled = false;
-  model_->permissions.video_capture_enabled = false;
-  model_->permissions.screen_capture_enabled = false;
-  model_->permissions.location_access = false;
-  model_->permissions.bluetooth_connected = false;
+  model_->capturing_state.audio_capture_enabled = false;
+  model_->capturing_state.video_capture_enabled = false;
+  model_->capturing_state.screen_capture_enabled = false;
+  model_->capturing_state.location_access_enabled = false;
+  model_->capturing_state.bluetooth_connected = false;
   EXPECT_TRUE(VerifyRequiresLayout(indicators, false));
 }
 
@@ -899,10 +969,10 @@ TEST_F(UiTest, OmniboxSuggestionBindings) {
   EXPECT_EQ(container->children().size(), 0u);
   EXPECT_EQ(NumVisibleInTree(kOmniboxSuggestions), 1);
 
-  model_->omnibox_suggestions.emplace_back(
-      OmniboxSuggestion(base::string16(), base::string16(),
-                        ACMatchClassifications(), ACMatchClassifications(),
-                        AutocompleteMatch::Type::VOICE_SUGGEST, GURL()));
+  model_->omnibox_suggestions.emplace_back(OmniboxSuggestion(
+      base::string16(), base::string16(), ACMatchClassifications(),
+      ACMatchClassifications(), AutocompleteMatch::Type::VOICE_SUGGEST, GURL(),
+      base::string16(), base::string16()));
   OnBeginFrame();
   EXPECT_EQ(container->children().size(), 1u);
   EXPECT_GT(NumVisibleInTree(kOmniboxSuggestions), 1);
@@ -918,7 +988,8 @@ TEST_F(UiTest, OmniboxSuggestionNavigates) {
   GURL gurl("http://test.com/");
   model_->omnibox_suggestions.emplace_back(OmniboxSuggestion(
       base::string16(), base::string16(), ACMatchClassifications(),
-      ACMatchClassifications(), AutocompleteMatch::Type::VOICE_SUGGEST, gurl));
+      ACMatchClassifications(), AutocompleteMatch::Type::VOICE_SUGGEST, gurl,
+      base::string16(), base::string16()));
   OnBeginFrame();
 
   UiElement* suggestions = scene_->GetUiElementByName(kOmniboxSuggestions);
@@ -993,18 +1064,6 @@ TEST_F(UiTest, CloseButtonColorBindings) {
   }
 }
 
-TEST_F(UiTest, SecondExitPromptTriggersOnExitPrompt) {
-  CreateScene(kNotInCct, kNotInWebVr);
-  ui_->SetExitVrPromptEnabled(true, UiUnsupportedMode::kUnhandledPageInfo);
-  // Initiating another exit VR prompt while a previous one was in flight should
-  // result in a call to the UiBrowserInterface.
-  EXPECT_CALL(*browser_,
-              OnExitVrPromptResult(ExitVrPromptChoice::CHOICE_NONE,
-                                   UiUnsupportedMode::kUnhandledPageInfo));
-  ui_->SetExitVrPromptEnabled(
-      true, UiUnsupportedMode::kVoiceSearchNeedsRecordAudioOsPermission);
-}
-
 TEST_F(UiTest, ExitPresentAndFullscreenOnAppButtonClick) {
   CreateScene(kNotInCct, kNotInWebVr);
   ui_->SetWebVrMode(true, false);
@@ -1044,7 +1103,7 @@ TEST_F(UiTest, TransientToastsWithDelayedFirstFrame) {
 
 TEST_F(UiTest, DefaultBackgroundWhenNoAssetAvailable) {
   UiInitialState state;
-  state.assets_available = false;
+  state.assets_supported = false;
   CreateScene(state);
 
   EXPECT_FALSE(IsVisible(k2dBrowsingTexturedBackground));
@@ -1054,7 +1113,7 @@ TEST_F(UiTest, DefaultBackgroundWhenNoAssetAvailable) {
 
 TEST_F(UiTest, TextureBackgroundAfterAssetLoaded) {
   UiInitialState state;
-  state.assets_available = true;
+  state.assets_supported = true;
   CreateScene(state);
 
   EXPECT_FALSE(IsVisible(k2dBrowsingTexturedBackground));
@@ -1068,6 +1127,123 @@ TEST_F(UiTest, TextureBackgroundAfterAssetLoaded) {
   EXPECT_TRUE(IsVisible(k2dBrowsingTexturedBackground));
   EXPECT_TRUE(IsVisible(kContentQuad));
   EXPECT_FALSE(IsVisible(k2dBrowsingDefaultBackground));
+}
+
+TEST_F(UiTest, ControllerLabels) {
+  CreateScene(kNotInCct, kNotInWebVr);
+
+  EXPECT_FALSE(IsVisible(kControllerTrackpadLabel));
+  EXPECT_FALSE(IsVisible(kControllerTrackpadRepositionLabel));
+  EXPECT_FALSE(IsVisible(kControllerExitButtonLabel));
+  EXPECT_FALSE(IsVisible(kControllerBackButtonLabel));
+
+  model_->controller.resting_in_viewport = true;
+  EXPECT_TRUE(IsVisible(kControllerTrackpadLabel));
+  EXPECT_FALSE(IsVisible(kControllerTrackpadRepositionLabel));
+  EXPECT_FALSE(IsVisible(kControllerExitButtonLabel));
+  EXPECT_FALSE(IsVisible(kControllerBackButtonLabel));
+
+  model_->push_mode(kModeFullscreen);
+  EXPECT_TRUE(IsVisible(kControllerTrackpadLabel));
+  EXPECT_FALSE(IsVisible(kControllerTrackpadRepositionLabel));
+  EXPECT_TRUE(IsVisible(kControllerExitButtonLabel));
+  EXPECT_FALSE(IsVisible(kControllerBackButtonLabel));
+
+  model_->pop_mode(kModeFullscreen);
+  EXPECT_TRUE(IsVisible(kControllerTrackpadLabel));
+  EXPECT_FALSE(IsVisible(kControllerTrackpadRepositionLabel));
+  EXPECT_FALSE(IsVisible(kControllerExitButtonLabel));
+  EXPECT_FALSE(IsVisible(kControllerBackButtonLabel));
+
+  model_->push_mode(kModeEditingOmnibox);
+  EXPECT_TRUE(IsVisible(kControllerTrackpadLabel));
+  EXPECT_FALSE(IsVisible(kControllerTrackpadRepositionLabel));
+  EXPECT_FALSE(IsVisible(kControllerExitButtonLabel));
+  EXPECT_TRUE(IsVisible(kControllerBackButtonLabel));
+
+  model_->pop_mode(kModeEditingOmnibox);
+  EXPECT_TRUE(IsVisible(kControllerTrackpadLabel));
+  EXPECT_FALSE(IsVisible(kControllerTrackpadRepositionLabel));
+  EXPECT_FALSE(IsVisible(kControllerExitButtonLabel));
+  EXPECT_FALSE(IsVisible(kControllerBackButtonLabel));
+
+  model_->push_mode(kModeVoiceSearch);
+  EXPECT_TRUE(IsVisible(kControllerTrackpadLabel));
+  EXPECT_FALSE(IsVisible(kControllerTrackpadRepositionLabel));
+  EXPECT_FALSE(IsVisible(kControllerExitButtonLabel));
+  EXPECT_TRUE(IsVisible(kControllerBackButtonLabel));
+
+  model_->pop_mode(kModeVoiceSearch);
+  EXPECT_TRUE(IsVisible(kControllerTrackpadLabel));
+  EXPECT_FALSE(IsVisible(kControllerTrackpadRepositionLabel));
+  EXPECT_FALSE(IsVisible(kControllerExitButtonLabel));
+  EXPECT_FALSE(IsVisible(kControllerBackButtonLabel));
+
+  model_->push_mode(kModeRepositionWindow);
+  model_->controller.laser_direction = kForwardVector;
+  EXPECT_FALSE(IsVisible(kControllerTrackpadLabel));
+  EXPECT_TRUE(IsVisible(kControllerTrackpadRepositionLabel));
+  EXPECT_FALSE(IsVisible(kControllerExitButtonLabel));
+  EXPECT_TRUE(IsVisible(kControllerBackButtonLabel));
+
+  model_->controller.resting_in_viewport = false;
+  EXPECT_FALSE(IsVisible(kControllerTrackpadRepositionLabel));
+  EXPECT_FALSE(IsVisible(kControllerTrackpadLabel));
+  EXPECT_FALSE(IsVisible(kControllerExitButtonLabel));
+  EXPECT_FALSE(IsVisible(kControllerBackButtonLabel));
+}
+
+TEST_F(UiTest, RepositionButton) {
+  CreateScene(kNotInCct, kNotInWebVr);
+  DiscButton* button = static_cast<DiscButton*>(
+      scene_->GetUiElementByName(kContentQuadRepositionButton));
+  EXPECT_FALSE(IsVisible(button->name()));
+
+  model_->experimental_features_enabled = true;
+  model_->controller.quiescent = true;
+  OnBeginFrame();
+  EXPECT_EQ(kRepositionButtonMinOpacity, button->GetTargetOpacity());
+
+  model_->controller.quiescent = false;
+  OnBeginFrame();
+  EXPECT_EQ(kRepositionButtonMidOpacity, button->GetTargetOpacity());
+
+  button->OnHoverEnter({0, 0});
+  OnBeginFrame();
+  EXPECT_EQ(kRepositionButtonMaxOpacity, button->GetTargetOpacity());
+
+  // If hovered, the button should remain visible, even the controller is
+  // quiescent.
+  model_->controller.quiescent = true;
+  OnBeginFrame();
+  EXPECT_EQ(kRepositionButtonMaxOpacity, button->GetTargetOpacity());
+
+  button->OnHoverLeave();
+  OnBeginFrame();
+  EXPECT_EQ(kRepositionButtonMinOpacity, button->GetTargetOpacity());
+}
+
+TEST_F(UiTest, ResetRepositioner) {
+  CreateScene(kNotInCct, kNotInWebVr);
+  Repositioner* repositioner = static_cast<Repositioner*>(
+      scene_->GetUiElementByName(k2dBrowsingRepositioner));
+  repositioner->set_laser_direction(kForwardVector);
+  repositioner->SetEnabled(true);
+  repositioner->set_laser_direction({0, 1, 0});
+  OnBeginFrame();
+  EXPECT_FALSE(repositioner->world_space_transform().IsIdentity());
+  repositioner->SetEnabled(false);
+  model_->controller.recentered = true;
+  OnBeginFrame();
+  EXPECT_TRUE(repositioner->world_space_transform().IsIdentity());
+}
+
+// No element in the controller root's subtree should be hit testable.
+TEST_F(UiTest, ControllerHitTest) {
+  CreateScene(kNotInCct, kNotInWebVr);
+  auto* controller = scene_->GetUiElementByName(kControllerRoot);
+  for (auto& child : *controller)
+    EXPECT_FALSE(child.IsHitTestable());
 }
 
 }  // namespace vr

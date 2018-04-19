@@ -13,6 +13,7 @@ import static org.chromium.chrome.browser.notifications.NotificationConstants.DE
 
 import android.app.Notification;
 import android.content.Context;
+import android.os.Looper;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
 
@@ -51,8 +52,7 @@ public final class DownloadForegroundServiceManagerTest {
             extends DownloadForegroundServiceManager {
         private boolean mIsServiceBound;
         private int mUpdatedNotificationId = DEFAULT_NOTIFICATION_ID;
-        private boolean mIsNotificationKilled;
-        private boolean mIsNotificationDetached;
+        private int mStopForegroundNotificationFlag = -1;
 
         public MockDownloadForegroundServiceManager() {}
 
@@ -72,9 +72,10 @@ public final class DownloadForegroundServiceManagerTest {
         }
 
         @Override
-        boolean stopAndUnbindServiceInternal(boolean detachNotification, boolean killNotification) {
-            mIsNotificationKilled = killNotification;
-            mIsNotificationDetached = detachNotification;
+        boolean stopAndUnbindServiceInternal(@DownloadForegroundService.StopForegroundNotification
+                                             int stopForegroundNotification,
+                int pinnedNotificationId, Notification pinnedNotification) {
+            mStopForegroundNotificationFlag = stopForegroundNotification;
             return true;
         }
 
@@ -83,6 +84,10 @@ public final class DownloadForegroundServiceManagerTest {
             mUpdatedNotificationId = notificationId;
             super.startOrUpdateForegroundService(notificationId, notification);
         }
+
+        // Skip waiting for delayed runnable in tests.
+        @Override
+        void postMaybeStopServiceRunnable() {}
 
         /**
          * Call for testing that mimics the onServiceConnected call in mConnection that ensures the
@@ -100,11 +105,15 @@ public final class DownloadForegroundServiceManagerTest {
      */
     public static class MockDownloadForegroundService extends DownloadForegroundService {
         @Override
-        public void startOrUpdateForegroundService(int notificationId, Notification notification) {}
+        public void startOrUpdateForegroundService(int newNotificationId,
+                Notification newNotification, int oldNotificationId, Notification oldNotification) {
+        }
     }
 
     @Before
     public void setUp() throws Exception {
+        Looper.prepare();
+
         mContext = new AdvancedMockContext(InstrumentationRegistry.getTargetContext());
         mDownloadServiceManager = new MockDownloadForegroundServiceManager();
 
@@ -211,10 +220,8 @@ public final class DownloadForegroundServiceManagerTest {
         mDownloadServiceManager.updateDownloadStatus(
                 mContext, DownloadStatus.PAUSE, FAKE_DOWNLOAD_1, mNotification);
         assertFalse(mDownloadServiceManager.mIsServiceBound);
-
-        assertEquals(mDownloadServiceManager.isPreLollipop(),
-                mDownloadServiceManager.mIsNotificationKilled);
-        assertTrue(mDownloadServiceManager.mIsNotificationDetached);
+        assertEquals(DownloadForegroundService.StopForegroundNotification.DETACH_OR_PERSIST,
+                mDownloadServiceManager.mStopForegroundNotificationFlag);
 
         // Service restarts and then is cancelled, so notification is killed.
         mDownloadServiceManager.updateDownloadStatus(
@@ -225,8 +232,8 @@ public final class DownloadForegroundServiceManagerTest {
         mDownloadServiceManager.updateDownloadStatus(
                 mContext, DownloadStatus.CANCEL, FAKE_DOWNLOAD_1, mNotification);
         assertFalse(mDownloadServiceManager.mIsServiceBound);
-        assertTrue(mDownloadServiceManager.mIsNotificationKilled);
-        assertFalse(mDownloadServiceManager.mIsNotificationDetached);
+        assertEquals(DownloadForegroundService.StopForegroundNotification.KILL,
+                mDownloadServiceManager.mStopForegroundNotificationFlag);
 
         // Download starts and completes, notification is either detached or killed.
         mDownloadServiceManager.updateDownloadStatus(
@@ -237,8 +244,8 @@ public final class DownloadForegroundServiceManagerTest {
         mDownloadServiceManager.updateDownloadStatus(
                 mContext, DownloadStatus.COMPLETE, FAKE_DOWNLOAD_2, mNotification);
         assertFalse(mDownloadServiceManager.mIsServiceBound);
-        assertTrue(mDownloadServiceManager.mIsNotificationKilled);
-        assertTrue(mDownloadServiceManager.mIsNotificationDetached);
+        assertEquals(DownloadForegroundService.StopForegroundNotification.DETACH_OR_ADJUST,
+                mDownloadServiceManager.mStopForegroundNotificationFlag);
     }
 
     @Test

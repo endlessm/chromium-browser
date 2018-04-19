@@ -23,17 +23,17 @@
 #include "build/build_config.h"
 #include "chrome/browser/net/chrome_network_delegate.h"
 #include "chrome/browser/net/system_network_context_manager.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "components/metrics/data_use_tracker.h"
 #include "components/prefs/pref_member.h"
 #include "components/ssl_config/ssl_config_service_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/browser_thread_delegate.h"
-#include "content/public/network/url_request_context_owner.h"
 #include "extensions/features/features.h"
 #include "net/base/network_change_notifier.h"
 #include "net/nqe/network_quality_estimator.h"
-#include "services/network/public/interfaces/network_service.mojom.h"
+#include "services/network/public/mojom/network_service.mojom.h"
+#include "services/network/url_request_context_owner.h"
 
 class PrefRegistrySimple;
 class PrefService;
@@ -51,10 +51,6 @@ class TreeStateTracker;
 
 namespace chrome_browser_net {
 class DnsProbeService;
-}
-
-namespace content {
-class URLRequestContextBuilderMojo;
 }
 
 namespace data_usage {
@@ -88,6 +84,10 @@ class STHObserver;
 
 namespace net_log {
 class ChromeNetLog;
+}
+
+namespace network {
+class URLRequestContextBuilderMojo;
 }
 
 namespace policy {
@@ -130,21 +130,21 @@ class IOThread : public content::BrowserThreadDelegate {
 #endif  // defined(OS_ANDROID)
     std::vector<scoped_refptr<const net::CTLogVerifier>> ct_logs;
     std::unique_ptr<net::HttpAuthPreferences> http_auth_preferences;
-    // When the network service is enabled, this holds on to a
-    // content::NetworkContext class that owns |system_request_context|.
-    std::unique_ptr<network::mojom::NetworkContext> system_network_context;
-    // When the network service is disabled, this owns |system_request_context|.
-    content::URLRequestContextOwner system_request_context_owner;
-    net::URLRequestContext* system_request_context;
-    SystemRequestContextLeakChecker system_request_context_leak_checker;
-#if BUILDFLAG(ENABLE_EXTENSIONS)
-    scoped_refptr<extensions::EventRouterForwarder>
-        extension_event_router_forwarder;
-#endif
+
     std::unique_ptr<net::NetworkQualityEstimator> network_quality_estimator;
     std::unique_ptr<net::RTTAndThroughputEstimatesObserver>
         network_quality_observer;
 
+    // When the network service is enabled, this holds on to a
+    // content::NetworkContext class that owns |system_request_context|.
+    std::unique_ptr<network::mojom::NetworkContext> system_network_context;
+    // When the network service is disabled, this owns |system_request_context|.
+    network::URLRequestContextOwner system_request_context_owner;
+    net::URLRequestContext* system_request_context;
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    scoped_refptr<extensions::EventRouterForwarder>
+        extension_event_router_forwarder;
+#endif
     // NetErrorTabHelper uses |dns_probe_service| to send DNS probes when a
     // main frame load fails with a DNS error in order to provide more useful
     // information to the renderer so it can show a more specific error page.
@@ -211,15 +211,8 @@ class IOThread : public content::BrowserThreadDelegate {
   bool WpadQuickCheckEnabled() const;
   bool PacHttpsUrlStrippingEnabled() const;
 
-  // Configures |builder|'s ProxyService based on prefs and policies.
-  void SetUpProxyService(content::URLRequestContextBuilderMojo* builder) const;
-
-  // Gets a pointer to the NetworkService. Can only be called on the UI thread.
-  // When out-of-process NetworkService is enabled, this is a reference to the
-  // NetworkService created through ServiceManager; when out-of-process
-  // NetworkService is not enabld, this is a Mojo interface to the IOThread's
-  // in-process NetworkService that lives on the IO thread.
-  network::mojom::NetworkService* GetNetworkServiceOnUIThread();
+  // Configures |builder|'s ProxyResolutionService based on prefs and policies.
+  void SetUpProxyService(network::URLRequestContextBuilderMojo* builder) const;
 
   certificate_transparency::TreeStateTracker* ct_tree_tracker() const;
 
@@ -286,6 +279,10 @@ class IOThread : public content::BrowserThreadDelegate {
   BooleanPrefMember quick_check_enabled_;
 
   BooleanPrefMember pac_https_url_stripping_enabled_;
+
+  StringListPrefMember dns_over_https_servers_;
+
+  StringListPrefMember dns_over_https_server_methods_;
 
   // Store HTTP Auth-related policies in this thread.
   // TODO(aberent) Make the list of auth schemes a PrefMember, so that the

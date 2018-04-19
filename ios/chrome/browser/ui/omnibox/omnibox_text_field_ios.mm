@@ -18,13 +18,11 @@
 #include "ios/chrome/browser/autocomplete/autocomplete_scheme_classifier_impl.h"
 #include "ios/chrome/browser/experimental_flags.h"
 #import "ios/chrome/browser/ui/animation_util.h"
-#import "ios/chrome/browser/ui/omnibox/omnibox_clipping_feature.h"
 #include "ios/chrome/browser/ui/omnibox/omnibox_util.h"
 #import "ios/chrome/browser/ui/reversed_animation.h"
 #include "ios/chrome/browser/ui/rtl_geometry.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_constants.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_constants.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
-#import "ios/chrome/browser/ui/toolbar/public/web_toolbar_controller_constants.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/common/material_timing.h"
@@ -47,9 +45,7 @@ namespace {
 const CGFloat kFontSize = 16;
 const CGFloat kEditingRectWidthInset = 12;
 const CGFloat kClearButtonRightMarginIphone = 7;
-const CGFloat kClearButtonRightMarginIpad = 12;
 
-const CGFloat kStarButtonWidth = 36;
 const CGFloat kVoiceSearchButtonWidth = 36.0;
 
 // The default omnibox text color (used while editing).
@@ -301,27 +297,29 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
                 completionAnimator:(UIViewPropertyAnimator*)completionAnimator {
   // Hide the rightView button so its not visibile on its initial layout
   // while the expan animation is happening.
-  self.rightView.hidden = YES;
-  self.rightView.alpha = 0;
-  self.rightView.frame = CGRectLayoutOffset(
-      [self rightViewRectForBounds:self.bounds], kToolbarButtonAnimationOffset);
+  self.clearButton.hidden = YES;
+  self.clearButton.alpha = 0;
+  self.clearButton.frame =
+      CGRectLayoutOffset([self rightViewRectForBounds:self.bounds],
+                         [self clearButtonAnimationOffset]);
 
   [completionAnimator addAnimations:^{
-    self.rightView.hidden = NO;
-    self.rightView.alpha = 1.0;
-    self.rightView.frame = CGRectLayoutOffset(self.rightView.frame,
-                                              -kToolbarButtonAnimationOffset);
+    self.clearButton.hidden = NO;
+    self.clearButton.alpha = 1.0;
+
+    self.clearButton.frame = CGRectLayoutOffset(
+        self.clearButton.frame, -[self clearButtonAnimationOffset]);
   }];
 }
 
 - (void)addContractOmniboxAnimations:(UIViewPropertyAnimator*)animator {
   [animator addAnimations:^{
-    self.rightView.alpha = 0;
-    self.rightView.frame =
-        CGRectLayoutOffset(self.rightView.frame, kToolbarButtonAnimationOffset);
+    self.clearButton.alpha = 0;
+    self.clearButton.frame = CGRectLayoutOffset(self.clearButton.frame,
+                                                kToolbarButtonAnimationOffset);
   }];
   [animator addCompletion:^(UIViewAnimatingPosition finalPosition) {
-    self.rightView = nil;
+    [self resetClearButton];
   }];
 }
 
@@ -475,15 +473,6 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
   LayoutRect textRectLayout =
       LayoutRectForRectInBoundingRect(newBounds, bounds);
 
-  if (IsIPadIdiom() && !base::FeatureList::IsEnabled(kCleanToolbar)) {
-    if (!IsCompactTablet()) {
-      // Adjust the width so that the text doesn't overlap with the bookmark and
-      // voice search buttons which are displayed inside the omnibox.
-      textRectLayout.size.width += self.rightView.bounds.size.width -
-                                   kVoiceSearchButtonWidth - kStarButtonWidth;
-    }
-  }
-
   return LayoutRectGetRect(textRectLayout);
 }
 
@@ -518,27 +507,6 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
   [_selection setFrame:newBounds];
 
   return newBounds;
-}
-
-// Enumerate url components (host, path) and draw each one in different rect.
-- (void)drawTextInRect:(CGRect)rect {
-  if (base::FeatureList::IsEnabled(kClippingTextfield)) {
-    // With the new clipping logic, this override is unnecessary.
-    [super drawTextInRect:rect];
-    return;
-  }
-
-  if (base::ios::IsRunningOnOrLater(11, 1, 0)) {
-    // -[UITextField drawTextInRect:] ignores the argument, so we can't do
-    // anything on 11.1 and up.
-    [super drawTextInRect:rect];
-    return;
-  }
-
-  // Save and restore the graphics state because rectForDrawTextInRect may
-  // apply an image mask to fade out beginning and/or end of the URL.
-  gfx::ScopedCGContextSaveGState saver(UIGraphicsGetCurrentContext());
-  [super drawTextInRect:[self rectForDrawTextInRect:rect]];
 }
 
 // Overriding this method to offset the rightView property
@@ -833,74 +801,6 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
   [self setTextColor:[UIColor clearColor]];
 }
 
-- (CGRect)rectForDrawTextInRect:(CGRect)rect {
-  if (base::FeatureList::IsEnabled(kClippingTextfield)) {
-    // With the new clipping logic, this override is unnecessary.
-    return rect;
-  }
-
-  // The goal is to always show the most significant part of the hostname
-  // (i.e. the end of the TLD).
-  //
-  //                     --------------------
-  // www.somereallyreally|longdomainname.com|/path/gets/clipped
-  //                     --------------------
-  // {  clipped prefix  } {  visible text  } { clipped suffix }
-
-  // First find how much (if any) of the scheme/host needs to be clipped so that
-  // the end of the TLD fits in |rect|. Note that if the omnibox is currently
-  // displaying a search query the prefix is not clipped.
-
-  CGFloat widthOfClippedPrefix = 0;
-  url::Component scheme, host;
-  AutocompleteInput::ParseForEmphasizeComponents(
-      base::SysNSStringToUTF16(self.text), AutocompleteSchemeClassifierImpl(),
-      &scheme, &host);
-  if (host.len < 0) {
-    return rect;
-  }
-  NSRange hostRange = NSMakeRange(0, host.begin + host.len);
-  NSAttributedString* hostString =
-      [self.attributedText attributedSubstringFromRange:hostRange];
-  CGFloat widthOfHost = ceil([hostString size].width);
-  widthOfClippedPrefix = MAX(widthOfHost - rect.size.width, 0);
-
-  // Now determine if there is any text that will need to be truncated because
-  // there's not enough room.
-  int textWidth = ceil([self.attributedText size].width);
-  CGFloat widthOfClippedSuffix =
-      MAX(textWidth - rect.size.width - widthOfClippedPrefix, 0);
-  BOOL suffixClipped = widthOfClippedSuffix > 0;
-
-  // Fade the beginning and/or end of the visible string to indicate to the user
-  // that the URL has been clipped.
-  BOOL prefixClipped = widthOfClippedPrefix > 0;
-  if (prefixClipped || suffixClipped) {
-    UIImage* fade = nil;
-    if ([self textAlignment] == NSTextAlignmentRight) {
-      // Swap prefix and suffix for RTL.
-      fade = [GTMFadeTruncatingLabel getLinearGradient:rect
-                                              fadeHead:suffixClipped
-                                              fadeTail:prefixClipped];
-    } else {
-      fade = [GTMFadeTruncatingLabel getLinearGradient:rect
-                                              fadeHead:prefixClipped
-                                              fadeTail:suffixClipped];
-    }
-    CGContextClipToMask(UIGraphicsGetCurrentContext(), rect, fade.CGImage);
-  }
-
-  // If necessary, expand the rect so the entire string fits and shift it to the
-  // left (right for RTL) so the clipped prefix is not shown.
-  if ([self textAlignment] == NSTextAlignmentRight) {
-    rect.origin.x -= widthOfClippedSuffix;
-  } else {
-    rect.origin.x -= widthOfClippedPrefix;
-  }
-  rect.size.width = MAX(rect.size.width, textWidth);
-  return rect;
-}
-
 - (NSArray*)fadeAnimationLayers {
   NSMutableArray* layers = [NSMutableArray array];
   for (UIView* subview in self.subviews)
@@ -918,14 +818,8 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
   if ([self rightView]) {
     CGSize rightViewSize = self.rightView.bounds.size;
     CGFloat leadingOffset = 0;
-    if (IsIPadIdiom() && !IsCompactTablet() &&
-        !base::FeatureList::IsEnabled(kCleanToolbar)) {
-      leadingOffset = bounds.size.width - kVoiceSearchButtonWidth -
-                      rightViewSize.width - kClearButtonRightMarginIpad;
-    } else {
-      leadingOffset = bounds.size.width - rightViewSize.width -
-                      kClearButtonRightMarginIphone;
-    }
+    leadingOffset =
+        bounds.size.width - rightViewSize.width - kClearButtonRightMarginIphone;
     LayoutRect rightViewLayout;
     rightViewLayout.position.leading = leadingOffset;
     rightViewLayout.boundingWidth = CGRectGetWidth(bounds);
@@ -939,6 +833,31 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
 
 - (CGRect)layoutLeftViewForBounds:(CGRect)bounds {
   return CGRectZero;
+}
+
+// Accesses the clear button view when it's available; correctly resolves RTL.
+- (UIView*)clearButton {
+  if ([self isTextFieldLTR]) {
+    return self.rightView;
+  } else {
+    return self.leftView;
+  }
+}
+
+- (void)resetClearButton {
+  if ([self isTextFieldLTR]) {
+    self.rightView = nil;
+  } else {
+    self.rightView = nil;
+  }
+}
+
+- (CGFloat)clearButtonAnimationOffset {
+  if ([self isTextFieldLTR]) {
+    return kToolbarButtonAnimationOffset;
+  } else {
+    return -kToolbarButtonAnimationOffset;
+  }
 }
 
 @end

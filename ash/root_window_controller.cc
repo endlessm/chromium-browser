@@ -9,6 +9,7 @@
 #include <queue>
 #include <vector>
 
+#include "ash/accessibility/touch_exploration_controller.h"
 #include "ash/ash_constants.h"
 #include "ash/ash_touch_exploration_manager_chromeos.h"
 #include "ash/focus_cycler.h"
@@ -36,7 +37,6 @@
 #include "ash/touch/touch_hud_projection.h"
 #include "ash/touch/touch_observer_hud.h"
 #include "ash/virtual_keyboard_container_layout_manager.h"
-#include "ash/wallpaper/wallpaper_delegate.h"
 #include "ash/wallpaper/wallpaper_widget_controller.h"
 #include "ash/wm/always_on_top_controller.h"
 #include "ash/wm/container_finder.h"
@@ -72,7 +72,6 @@
 #include "ui/aura/window_observer.h"
 #include "ui/aura/window_tracker.h"
 #include "ui/base/models/menu_model.h"
-#include "ui/chromeos/touch_exploration_controller.h"
 #include "ui/compositor/layer.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/events/event_utils.h"
@@ -278,7 +277,6 @@ std::vector<RootWindowController*>*
 
 RootWindowController::~RootWindowController() {
   Shutdown();
-  DCHECK(!animating_wallpaper_widget_controller_.get());
   DCHECK(!wallpaper_widget_controller_.get());
   ash_host_.reset();
   mus_window_tree_host_.reset();
@@ -450,40 +448,11 @@ const aura::Window* RootWindowController::GetContainer(int container_id) const {
   return window_tree_host_->window()->GetChildById(container_id);
 }
 
-void RootWindowController::SetWallpaperWidgetController(
-    WallpaperWidgetController* controller) {
-  wallpaper_widget_controller_.reset(controller);
-}
-
-void RootWindowController::SetAnimatingWallpaperWidgetController(
-    AnimatingWallpaperWidgetController* controller) {
-  if (animating_wallpaper_widget_controller_.get())
-    animating_wallpaper_widget_controller_->StopAnimating();
-  animating_wallpaper_widget_controller_.reset(controller);
-}
-
-void RootWindowController::OnWallpaperAnimationFinished(views::Widget* widget) {
-  // Make sure the wallpaper is visible.
-  system_wallpaper_->SetColor(SK_ColorBLACK);
-  Shell::Get()->wallpaper_delegate()->OnWallpaperAnimationFinished();
-  // Only removes old component when wallpaper animation finished. If we
-  // remove the old one before the new wallpaper is done fading in there will
-  // be a white flash during the animation.
-  if (animating_wallpaper_widget_controller()) {
-    WallpaperWidgetController* controller =
-        animating_wallpaper_widget_controller()->GetController(true);
-    DCHECK_EQ(controller->widget(), widget);
-    // Release the old controller and close its wallpaper widget.
-    SetWallpaperWidgetController(controller);
-  }
-}
-
 void RootWindowController::Shutdown() {
   touch_exploration_manager_.reset();
 
   ResetRootForNewWindowsIfNecessary();
 
-  SetAnimatingWallpaperWidgetController(nullptr);
   wallpaper_widget_controller_.reset();
 
   CloseChildWindows();
@@ -635,9 +604,9 @@ void RootWindowController::SetTouchAccessibilityAnchorPoint(
 
 void RootWindowController::ShowContextMenu(const gfx::Point& location_in_screen,
                                            ui::MenuSourceType source_type) {
-  // The wallpaper controller may not be set yet if the user clicked on the
+  // The wallpaper widget may not be set yet if the user clicked on the
   // status area before the initial animation completion. See crbug.com/222218
-  if (!wallpaper_widget_controller())
+  if (!wallpaper_widget_controller()->GetWidget())
     return;
 
   const int64_t display_id = display::Screen::GetScreen()
@@ -654,9 +623,14 @@ void RootWindowController::ShowContextMenu(const gfx::Point& location_in_screen,
       menu_model_.get(), views::MenuRunner::CONTEXT_MENU,
       base::Bind(&RootWindowController::OnMenuClosed, base::Unretained(this),
                  base::TimeTicks::Now()));
-  menu_runner_->RunMenuAt(wallpaper_widget_controller()->widget(), nullptr,
+  menu_runner_->RunMenuAt(wallpaper_widget_controller()->GetWidget(), nullptr,
                           gfx::Rect(location_in_screen, gfx::Size()),
                           views::MENU_ANCHOR_TOPLEFT, source_type);
+}
+
+void RootWindowController::HideContextMenu() {
+  if (menu_runner_)
+    menu_runner_->Cancel();
 }
 
 void RootWindowController::UpdateAfterLoginStatusChange(LoginStatus status) {
@@ -693,6 +667,10 @@ RootWindowController::RootWindowController(
   aura::client::SetWindowParentingClient(root_window,
                                          stacking_controller_.get());
   capture_client_.reset(new ::wm::ScopedCaptureClient(root_window));
+
+  wallpaper_widget_controller_ = std::make_unique<WallpaperWidgetController>(
+      base::BindOnce(&RootWindowController::OnFirstWallpaperWidgetSet,
+                     base::Unretained(this)));
 }
 
 void RootWindowController::Init(RootWindowType root_window_type) {
@@ -707,9 +685,6 @@ void RootWindowController::Init(RootWindowType root_window_type) {
 
   InitLayoutManagers();
   InitTouchHuds();
-  // Initializing views shelf here will cause it being visible on login screen
-  // on secondary display once views based login is enabled. See
-  // https://crbug.com/796239.
   InitializeShelf();
 
   if (Shell::GetPrimaryRootWindowController()
@@ -985,6 +960,9 @@ void RootWindowController::CreateContainers() {
   wm::SetSnapsChildrenToPhysicalPixelBoundary(overlay_container);
   overlay_container->SetProperty(kUsesScreenCoordinatesKey, true);
 
+  CreateContainer(kShellWindowId_DockedMagnifierContainer,
+                  "DockedMagnifierContainer", lock_screen_related_containers);
+
   aura::Window* mouse_cursor_container =
       CreateContainer(kShellWindowId_MouseCursorContainer,
                       "MouseCursorContainer", screen_rotation_container);
@@ -1032,6 +1010,15 @@ void RootWindowController::OnMenuClosed(
   shelf_->UpdateVisibilityState();
   UMA_HISTOGRAM_TIMES("Apps.ContextMenuUserJourneyTime.Desktop",
                       base::TimeTicks::Now() - desktop_context_menu_show_time);
+}
+
+void RootWindowController::OnFirstWallpaperWidgetSet() {
+  DCHECK(system_wallpaper_.get());
+
+  // Set the system wallpaper color once a wallpaper has been set to ensure the
+  // wallpaper color that might have been set for the Chrome OS boot splash
+  // screen is overriden.
+  system_wallpaper_->SetColor(SK_ColorBLACK);
 }
 
 }  // namespace ash

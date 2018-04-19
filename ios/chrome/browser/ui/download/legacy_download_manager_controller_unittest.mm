@@ -87,6 +87,7 @@ TEST_F(LegacyDownloadManagerControllerTest, TestXibViewConnections) {
   EXPECT_TRUE([_controller googleDriveButton]);
 }
 
+// TODO(crbug.com/804250): this test is flaky.
 TEST_F(LegacyDownloadManagerControllerTest, TestStart) {
   [_controller start];
   EXPECT_TRUE(

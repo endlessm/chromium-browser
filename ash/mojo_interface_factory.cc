@@ -8,16 +8,19 @@
 
 #include "ash/accelerators/accelerator_controller.h"
 #include "ash/accessibility/accessibility_controller.h"
+#include "ash/app_list/app_list_controller_impl.h"
 #include "ash/cast_config_controller.h"
 #include "ash/display/ash_display_controller.h"
 #include "ash/highlighter/highlighter_controller.h"
 #include "ash/ime/ime_controller.h"
 #include "ash/login/login_screen_controller.h"
+#include "ash/magnifier/docked_magnifier_controller.h"
 #include "ash/media_controller.h"
 #include "ash/message_center/message_center_controller.h"
 #include "ash/metrics/time_to_first_present_recorder.h"
 #include "ash/new_window_controller.h"
 #include "ash/note_taking_controller.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/session/session_controller.h"
 #include "ash/shelf/shelf_controller.h"
@@ -31,6 +34,7 @@
 #include "ash/tray_action/tray_action.h"
 #include "ash/voice_interaction/voice_interaction_controller.h"
 #include "ash/wallpaper/wallpaper_controller.h"
+#include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/bind.h"
 #include "base/lazy_instance.h"
@@ -54,9 +58,13 @@ void BindAccessibilityControllerRequestOnMainThread(
   Shell::Get()->accessibility_controller()->BindRequest(std::move(request));
 }
 
-void BindAppListRequestOnMainThread(
-    app_list::mojom::AppListRequest request) {
+void BindAppListRequestOnMainThread(app_list::mojom::AppListRequest request) {
   Shell::Get()->app_list()->BindRequest(std::move(request));
+}
+
+void BindAppListControllerRequestOnMainThread(
+    mojom::AppListControllerRequest request) {
+  Shell::Get()->app_list_controller()->BindRequest(std::move(request));
 }
 
 void BindAshDisplayControllerRequestOnMainThread(
@@ -71,6 +79,11 @@ void BindAshMessageCenterControllerRequestOnMainThread(
 
 void BindCastConfigOnMainThread(mojom::CastConfigRequest request) {
   Shell::Get()->cast_config()->BindRequest(std::move(request));
+}
+
+void BindDockedMagnifierControllerRequestOnMainThread(
+    mojom::DockedMagnifierControllerRequest request) {
+  Shell::Get()->docked_magnifier_controller()->BindRequest(std::move(request));
 }
 
 void BindHighlighterControllerRequestOnMainThread(
@@ -158,6 +171,11 @@ void BindWallpaperRequestOnMainThread(
   Shell::Get()->wallpaper_controller()->BindRequest(std::move(request));
 }
 
+void BindSplitViewRequestOnMainThread(
+    mojom::SplitViewControllerRequest request) {
+  Shell::Get()->split_view_controller()->BindRequest(std::move(request));
+}
+
 }  // namespace
 
 void RegisterInterfaces(
@@ -171,6 +189,8 @@ void RegisterInterfaces(
       main_thread_task_runner);
   registry->AddInterface(base::Bind(&BindAppListRequestOnMainThread),
                          main_thread_task_runner);
+  registry->AddInterface(base::Bind(&BindAppListControllerRequestOnMainThread),
+                         main_thread_task_runner);
   registry->AddInterface(
       base::Bind(&BindAshDisplayControllerRequestOnMainThread),
       main_thread_task_runner);
@@ -179,6 +199,11 @@ void RegisterInterfaces(
       main_thread_task_runner);
   registry->AddInterface(base::Bind(&BindCastConfigOnMainThread),
                          main_thread_task_runner);
+  if (features::IsDockedMagnifierEnabled()) {
+    registry->AddInterface(
+        base::BindRepeating(&BindDockedMagnifierControllerRequestOnMainThread),
+        main_thread_task_runner);
+  }
   registry->AddInterface(
       base::Bind(&BindHighlighterControllerRequestOnMainThread),
       main_thread_task_runner);
@@ -223,6 +248,8 @@ void RegisterInterfaces(
   registry->AddInterface(base::Bind(&BindVpnListRequestOnMainThread),
                          main_thread_task_runner);
   registry->AddInterface(base::Bind(&BindWallpaperRequestOnMainThread),
+                         main_thread_task_runner);
+  registry->AddInterface(base::Bind(&BindSplitViewRequestOnMainThread),
                          main_thread_task_runner);
 
   // Inject additional optional interfaces.

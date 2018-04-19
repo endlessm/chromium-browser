@@ -10,6 +10,7 @@
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
 #include "ash/wm/mru_window_tracker.h"
+#include "ash/wm/overview/overview_utils.h"
 #include "ash/wm/overview/window_grid.h"
 #include "ash/wm/overview/window_selector.h"
 #include "ash/wm/overview/window_selector_item.h"
@@ -23,6 +24,38 @@
 #include "ui/wm/core/window_util.h"
 
 namespace ash {
+
+namespace {
+
+// Returns true if |window| should be hidden when entering overview.
+bool ShouldHideWindowInOverview(const aura::Window* window) {
+  return !window->GetProperty(ash::kShowInOverviewKey);
+}
+
+// Returns true if |window| should be excluded from overview.
+bool ShouldExcludeWindowFromOverview(const aura::Window* window) {
+  if (ShouldHideWindowInOverview(window))
+    return true;
+
+  // Other non-selectable windows will be ignored in overview.
+  if (!WindowSelector::IsSelectable(window))
+    return true;
+
+  // Remove the default snapped window from the window list. The default
+  // snapped window occupies one side of the screen, while the other windows
+  // occupy the other side of the screen in overview mode. The default snap
+  // position is the position where the window was first snapped. See
+  // |default_snap_position_| in SplitViewController for more detail.
+  if (Shell::Get()->IsSplitViewModeActive() &&
+      window ==
+          Shell::Get()->split_view_controller()->GetDefaultSnappedWindow()) {
+    return true;
+  }
+
+  return false;
+}
+
+}  // namespace
 
 WindowSelectorController::WindowSelectorController() = default;
 
@@ -63,48 +96,20 @@ bool WindowSelectorController::ToggleOverview() {
 
     auto windows = Shell::Get()->mru_window_tracker()->BuildMruWindowList();
 
-    // System modal windows will be hidden in overview.
-    std::vector<aura::Window*> hide_windows;
-    for (auto* window : windows) {
-      if (!window->GetProperty(ash::kShowInOverviewKey))
-        hide_windows.push_back(window);
-    }
+    // Hidden windows will be removed by ShouldExcludeWindowFromOverview so we
+    // must copy them out first.
+    std::vector<aura::Window*> hide_windows(windows.size());
+    auto end = std::copy_if(windows.begin(), windows.end(),
+                            hide_windows.begin(), ShouldHideWindowInOverview);
+    hide_windows.resize(end - hide_windows.begin());
 
-    auto end = std::remove_if(
-        windows.begin(), windows.end(), [&hide_windows](aura::Window* window) {
-          return std::find(hide_windows.begin(), hide_windows.end(), window) !=
-                 hide_windows.end();
-        });
+    end = std::remove_if(windows.begin(), windows.end(),
+                         ShouldExcludeWindowFromOverview);
     windows.resize(end - windows.begin());
 
-    // Other non-selectable windows will be ignored in overview.
-    end =
-        std::remove_if(windows.begin(), windows.end(),
-                       std::not1(std::ptr_fun(&WindowSelector::IsSelectable)));
-    windows.resize(end - windows.begin());
-
-    if (!Shell::Get()->IsSplitViewModeActive()) {
-      // Don't enter overview with no window if the split view mode is inactive.
-      if (windows.empty())
-        return false;
-    } else {
-      // Don't enter overview with less than 1 window if the split view mode is
-      // active.
-      if (windows.size() <= 1)
-        return false;
-
-      // Remove the default snapped window from the window list. The default
-      // snapped window occupies one side of the screen, while the other windows
-      // occupy the other side of the screen in overview mode. The default snap
-      // position is the position where the window was first snapped. See
-      // |default_snap_position_| in SplitViewController for more detail.
-      aura::Window* default_snapped_window =
-          Shell::Get()->split_view_controller()->GetDefaultSnappedWindow();
-      auto iter =
-          std::find(windows.begin(), windows.end(), default_snapped_window);
-      DCHECK(iter != windows.end());
-      windows.erase(iter);
-    }
+    // Don't enter overview with no windows to select from.
+    if (!IsNewOverviewUi() && windows.empty())
+      return false;
 
     Shell::Get()->NotifyOverviewModeStarting();
     window_selector_.reset(new WindowSelector(this));
@@ -223,8 +228,8 @@ void WindowSelectorController::OnOverviewButtonTrayLongPressed(
   }
 
   // Snap the window selector item and remove it from the grid.
-  item_to_snap->EnsureVisible();
-  item_to_snap->RestoreWindow();
+  // The transform will be reset later after the window is snapped.
+  item_to_snap->RestoreWindow(/*reset_transform=*/false);
   aura::Window* window = item_to_snap->GetWindow();
   window_selector_->RemoveWindowSelectorItem(item_to_snap);
   split_view_controller->SnapWindow(window, SplitViewController::LEFT);
@@ -249,12 +254,17 @@ WindowSelectorController::GetWindowsListInOverviewGridsForTesting() {
 // TODO(flackr): Make WindowSelectorController observe the activation of
 // windows, so we can remove WindowSelectorDelegate.
 void WindowSelectorController::OnSelectionEnded() {
+  if (is_shutting_down_)
+    return;
+  is_shutting_down_ = true;
+  Shell::Get()->NotifyOverviewModeEnding();
   window_selector_->Shutdown();
   // Don't delete |window_selector_| yet since the stack is still using it.
   base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE,
                                                   window_selector_.release());
   last_selection_time_ = base::Time::Now();
   Shell::Get()->NotifyOverviewModeEnded();
+  is_shutting_down_ = false;
 }
 
 void WindowSelectorController::AddDelayedAnimationObserver(

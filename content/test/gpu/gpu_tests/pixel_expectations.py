@@ -72,12 +72,14 @@ class PixelExpectations(GpuTestExpectations):
                bug=660461)
 
     self.Flaky('Pixel_OffscreenCanvas2DResizeOnWorker',
-        ['win10', ('intel', 0x1912)], bug=690663)
+        ['win10', ('intel', 0x1912), 'android'], bug=690663)
 
     self.Flaky('Pixel_OffscreenCanvasTransferBeforeStyleResize',
               ['mac', 'linux', 'win', 'android'], bug=735228)
     self.Flaky('Pixel_OffscreenCanvasTransferAfterStyleResize',
               ['mac', 'linux', 'win', 'android'], bug=735171)
+    self.Flaky('Pixel_OffscreenCanvasTransferToImageBitmap',
+              ['linux', 'android'], bug=807742)
 
     self.Flaky('Pixel_OffscreenCanvasWebGLSoftwareCompositingWorker',
         ['mac', ('nvidia', 0xfe9), 'debug'], bug=751328)
@@ -106,3 +108,34 @@ class PixelExpectations(GpuTestExpectations):
     self.Fail('Pixel_Video_VP9', ['win', 'intel'], bug=602688)
     self.Fail('Pixel_DirectComposition_Video_VP9', ['win', 'intel'],
         bug=602688)
+
+    # Prepare for Skia's Delta Anti-Aliasing golden images rebaseline
+    self.Fail('Pixel_OffscreenCanvasAccelerated2D',
+              ['mac', 'linux', 'win', 'android', 'chromeos'], bug=817110)
+    self.Fail('Pixel_OffscreenCanvasAccelerated2DWorker',
+              ['mac', 'linux', 'win', 'android', 'chromeos'], bug=817110)
+    self.Fail('Pixel_OffscreenCanvasUnaccelerated2D',
+              ['mac', 'linux', 'win', 'android', 'chromeos'], bug=817110)
+    self.Fail('Pixel_OffscreenCanvasUnaccelerated2DGPUCompositing',
+              ['mac', 'linux', 'win', 'android', 'chromeos'], bug=817110)
+    self.Fail('Pixel_OffscreenCanvasUnaccelerated2DGPUCompositingWorker',
+              ['mac', 'linux', 'win', 'android', 'chromeos'], bug=817110)
+    self.Fail('Pixel_OffscreenCanvasUnaccelerated2DWorker',
+              ['mac', 'linux', 'win', 'android', 'chromeos'], bug=817110)
+
+    # TODO(zmo): temporarily suppress these two tests until new
+    # reference images with new names are generated.
+    self.Fail('Pixel_Canvas2DRedBox_NoGpuProcess',
+              ['linux', 'mac', 'win'], bug=744658)
+    self.Fail('Pixel_CSS3DBlueBox_NoGpuProcess',
+              ['linux', 'mac', 'win'], bug=744658)
+
+    self.Flaky('Pixel_2DCanvasWebGL', ['android'], bug=807370)
+    self.Flaky('Pixel_Canvas2DRedBox', ['android'], bug=809846)
+    self.Flaky('Pixel_CanvasDisplayLinearRGBAccelerated2D', ['android'],
+               bug=809868)
+    self.Flaky('Pixel_CanvasDisplayLinearRGBUnaccelerated2DGPUCompositing',
+               ['android'], bug=810006)
+
+    self.Fail('Pixel_CSSFilterEffects', ['mac'], bug=815045)
+    self.Fail('Pixel_CSSFilterEffects_NoOverlays', ['mac'], bug=815045)

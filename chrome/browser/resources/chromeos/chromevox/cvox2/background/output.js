@@ -97,6 +97,9 @@ Output = function() {
 
   /** @private {!Object<string, boolean>} */
   this.suppressions_ = {};
+
+  /** @private {boolean} */
+  this.enableHints_ = true;
 };
 
 /**
@@ -280,7 +283,8 @@ Output.PRESSED_STATE_MAP = {
 Output.RULES = {
   navigate: {
     'default': {
-      speak: `$name $value $state $restriction $role $description`,
+      speak: `$name $node(activeDescendant) $value $state $restriction $role
+          $description`,
       braille: ``
     },
     abstractContainer: {
@@ -293,7 +297,7 @@ Output.RULES = {
       // author (via posInSet), do we include them in the output.
       enter: `$nameFromNode $role $state $restriction $description
           $if($posInSet, @describe_index($posInSet, $setSize))`,
-      speak: `$state $name= $role
+      speak: `$state $nameOrTextContent= $role
           $if($posInSet, @describe_index($posInSet, $setSize))
           $description $restriction`
     },
@@ -301,7 +305,7 @@ Output.RULES = {
       speak: `$if($valueForRange, $valueForRange, $value)
           $if($minValueForRange, @aria_value_min($minValueForRange))
           $if($maxValueForRange, @aria_value_max($maxValueForRange))
-          $name $role $description $state $restriction`
+          $name $node(activeDescendant) $role $description $state $restriction`
     },
     alert: {
       enter: `$name $role $state`,
@@ -345,7 +349,8 @@ Output.RULES = {
     },
     group: {
       enter: `$nameFromNode $state $restriction $description`,
-      speak: `$nameOrDescendants $value $state $restriction $description`,
+      speak: `$nameOrDescendants $value $state $restriction $roleDescription
+          $description`,
       leave: ``
     },
     heading: {
@@ -365,7 +370,7 @@ Output.RULES = {
     inlineTextBox: {speak: `$name=`},
     inputTime: {enter: `$nameFromNode $role $state $restriction $description`},
     labelText: {
-      speak: `$name $value $state $restriction $description`,
+      speak: `$name $value $state $restriction $roleDescription $description`,
     },
     lineBreak: {speak: `$name=`},
     link: {
@@ -390,7 +395,8 @@ Output.RULES = {
     listMarker: {speak: `$name`},
     menu: {
       enter: `$name $role`,
-      speak: `$name $role @@list_with_items($countChildren(menuItem))
+      speak: `$name $node(activeDescendant)
+          $role @@list_with_items($countChildren(menuItem))
           $description $state $restriction`
     },
     menuItem: {
@@ -406,15 +412,15 @@ Output.RULES = {
     menuItemRadio: {
       speak: `$if($checked, $earcon(CHECK_ON), $earcon(CHECK_OFF))
           $if($checked, @describe_radio_selected($name),
-          @describe_radio_unselected($name)) $state $restriction
+          @describe_radio_unselected($name)) $state $roleDescription
+          $restriction
           $description @describe_index($posInSet, $setSize) `
     },
     menuListOption: {
-      speak: `$name @role_menuitem
-          @describe_index($posInSet, $setSize) $state
+      speak: `$name $role @describe_index($posInSet, $setSize) $state
           $restriction $description`
     },
-    paragraph: {speak: `$descendants`},
+    paragraph: {speak: `$nameOrDescendants`},
     popUpButton: {
       speak: `$if($value, $value, $descendants) $name $role @aria_has_popup
           $state $restriction $description`
@@ -424,20 +430,24 @@ Output.RULES = {
           $if($checked, @describe_radio_selected($name),
           @describe_radio_unselected($name))
           @describe_index($posInSet, $setSize)
-          $description $state $restriction`
+          $roleDescription $description $state $restriction`
     },
     rootWebArea: {enter: `$name`, speak: `$if($name, $name, $docUrl)`},
     region: {speak: `$state $nameOrTextContent $description $roleDescription`},
     row: {enter: `$node(tableRowHeader)`},
-    rowHeader: {speak: `$nameOrTextContent $description $state`},
+    rowHeader: {
+      speak: `$nameOrTextContent $description $roleDescription
+        $state`
+    },
     staticText: {speak: `$name=`},
     switch: {
       speak: `$if($checked, $earcon(CHECK_ON), $earcon(CHECK_OFF))
           $if($checked, @describe_switch_on($name),
-          @describe_switch_off($name)) $description $state $restriction`
+          @describe_switch_off($name)) $roleDescription
+          $description $state $restriction`
     },
     tab: {
-      speak: `@describe_tab($name) $description
+      speak: `@describe_tab($name) $roleDescription $description
           @describe_index($posInSet, $setSize) $state $restriction `,
     },
     table: {
@@ -446,7 +456,10 @@ Output.RULES = {
           $if($ariaColumnCount, $ariaColumnCount, $tableColumnCount))
           $node(tableHeader)`
     },
-    tableHeaderContainer: {speak: `$nameOrTextContent $state $description`},
+    tableHeaderContainer: {
+      speak: `$nameOrTextContent $state $roleDescription
+        $description`
+    },
     tabList: {
       speak: `$name $node(activeDescendant) $state $restriction $role
           $description`,
@@ -459,7 +472,10 @@ Output.RULES = {
           $description $state $restriction`,
       braille: ``
     },
-    timer: {speak: `$nameFromNode $descendants $value $state $description`},
+    timer: {
+      speak: `$nameFromNode $descendants $value $state $role
+        $description`
+    },
     toggleButton: {
       speak: `$if($checked, $earcon(CHECK_ON), $earcon(CHECK_OFF))
           $name $role $pressed $description $state $restriction`
@@ -614,6 +630,10 @@ Output.isTruthy = function(node, attrib) {
       return node.htmlAttributes['aria-posinset'];
     case 'setSize':
       return node.htmlAttributes['aria-setsize'];
+
+    // These attributes default to false for empty strings.
+    case 'roleDescription':
+      return !!node.roleDescription;
     default:
       return node[attrib] !== undefined || node.state[attrib];
   }
@@ -771,6 +791,15 @@ Output.prototype = {
   },
 
   /**
+   * Don't include hints in subsequent output.
+   * @return {Output}
+   */
+  withoutHints: function() {
+    this.enableHints_ = false;
+    return this;
+  },
+
+  /**
    * Suppresses processing of a token for subsequent formatting commands.
    * @param {string} token
    * @return {Output}
@@ -845,11 +874,11 @@ Output.prototype = {
   go: function() {
     // Speech.
     var queueMode = cvox.QueueMode.CATEGORY_FLUSH;
-    if (this.queueMode_ !== undefined) {
-      queueMode = /** @type{cvox.QueueMode} */ (this.queueMode_);
-    } else if (Output.forceModeForNextSpeechUtterance_ !== undefined) {
+    if (Output.forceModeForNextSpeechUtterance_ !== undefined) {
       queueMode = /** @type{cvox.QueueMode} */ (
           Output.forceModeForNextSpeechUtterance_);
+    } else if (this.queueMode_ !== undefined) {
+      queueMode = /** @type{cvox.QueueMode} */ (this.queueMode_);
     }
 
     if (this.speechBuffer_.length > 0)
@@ -943,6 +972,8 @@ Output.prototype = {
       this.subNode_(range, prevRange, type, buff);
     else
       this.range_(range, prevRange, type, buff);
+
+    this.hint_(range, uniqueAncestors, buff);
   },
 
   /**
@@ -1008,8 +1039,10 @@ Output.prototype = {
             options.annotation.push(new Output.SelectionSpan(
                 node.textSelStart || 0, node.textSelEnd || 0));
 
-            selectedText = node.value.substring(
-                node.textSelStart || 0, node.textSelEnd || 0);
+            if (node.value) {
+              selectedText = node.value.substring(
+                  node.textSelStart || 0, node.textSelEnd || 0);
+            }
           }
           options.annotation.push(token);
           if (selectedText && !this.formatOptions_.braille) {
@@ -1211,27 +1244,58 @@ Output.prototype = {
                 buff);
           }
         } else if (token == 'node') {
-          if (!tree.firstChild || !node[tree.firstChild.value])
+          if (!tree.firstChild)
             return;
-          var related = node[tree.firstChild.value];
-          this.node_(related, related, Output.EventType.NAVIGATE, buff);
+
+          var relationName = tree.firstChild.value;
+          if (node[relationName]) {
+            var related = node[relationName];
+            this.node_(related, related, Output.EventType.NAVIGATE, buff);
+          } else if (
+              relationName == 'tableColumnHeader' &&
+              node.role == RoleType.CELL) {
+            // Because table columns do not contain cells as descendants, we
+            // must search for the correct column.
+            var columnIndex = node.tableCellColumnIndex;
+            if (opt_prevNode) {
+              // Skip output when previous position falls on the same column.
+              while (opt_prevNode &&
+                     !AutomationPredicate.cellLike(opt_prevNode)) {
+                opt_prevNode = opt_prevNode.parent;
+              }
+
+              if (opt_prevNode &&
+                  opt_prevNode.tableCellColumnIndex == columnIndex)
+                return;
+            }
+            var tableLike = node.parent && node.parent.parent;
+            if (!tableLike || !AutomationPredicate.table(tableLike))
+              return;
+            var column = tableLike.children.find(function(candidate) {
+              return columnIndex === candidate.tableColumnIndex;
+            });
+            if (column && column.tableColumnHeader &&
+                column.tableColumnHeader.name) {
+              this.append_(buff, column.tableColumnHeader.name, options);
+            }
+          }
         } else if (token == 'nameOrTextContent') {
           if (node.name) {
             this.format_(node, '$name', buff);
-          } else {
-            var walker = new AutomationTreeWalker(node, Dir.FORWARD, {
-              visit: AutomationPredicate.leafOrStaticText,
-              leaf: AutomationPredicate.leafOrStaticText
-            });
-            var outputStrings = [];
-            while (walker.next().node &&
-                   walker.phase == AutomationTreeWalkerPhase.DESCENDANT) {
-              if (walker.node.name)
-                outputStrings.push(walker.node.name);
-            }
-            var joinedOutput = outputStrings.join(' ');
-            this.append_(buff, joinedOutput, options);
+            return;
           }
+          var walker = new AutomationTreeWalker(node, Dir.FORWARD, {
+            visit: AutomationPredicate.leafOrStaticText,
+            leaf: AutomationPredicate.leafOrStaticText
+          });
+          var outputStrings = [];
+          while (walker.next().node &&
+                 walker.phase == AutomationTreeWalkerPhase.DESCENDANT) {
+            if (walker.node.name)
+              outputStrings.push(walker.node.name);
+          }
+          var finalOutput = outputStrings.join(' ');
+          this.append_(buff, finalOutput, options);
         } else if (node[token] !== undefined) {
           options.annotation.push(token);
           var value = node[token];
@@ -1662,6 +1726,44 @@ Output.prototype = {
     var loc = range.start.node.boundsForRange(rangeStart, rangeEnd);
     if (loc)
       this.locations_.push(loc);
+  },
+
+  hint_: function(range, uniqueAncestors, buff) {
+    if (!this.enableHints_ || localStorage['useVerboseMode'] != 'true')
+      return;
+
+    var node = range.start.node;
+    if (!node) {
+      this.append_(buff, Msgs.getMsg('warning_no_current_range'));
+      return;
+    }
+
+    // Add hints by priority.
+    if (node.restriction == chrome.automation.Restriction.DISABLED) {
+      // No hints here without further context such as form validation.
+      return;
+    }
+
+    if (node.state[StateType.EDITABLE] && cvox.ChromeVox.isStickyPrefOn)
+      this.format_(node, '@sticky_mode_enabled', buff);
+
+    if (AutomationPredicate.checkable(node))
+      this.format_(node, '@hint_checkable', buff);
+    if (AutomationPredicate.clickable(node))
+      this.format_(node, '@hint_clickable', buff);
+    if (node.autoComplete == 'list' || node.autoComplete == 'both')
+      this.format_(node, '@hint_autocomplete_list', buff);
+    if (node.autoComplete == 'inline' || node.autoComplete == 'both')
+      this.format_(node, '@hint_autocomplete_inline', buff);
+    if (node.accessKey)
+      this.append_(buff, Msgs.getMsg('access_key', [node.accessKey]));
+
+    // Ancestry based hints.
+    if (uniqueAncestors.find(AutomationPredicate.table))
+      this.format_(node, '@hint_table', buff);
+    if (uniqueAncestors.find(
+            AutomationPredicate.roles([RoleType.MENU, RoleType.MENU_BAR])))
+      this.format_(node, '@hint_menu', buff);
   },
 
   /**

@@ -30,10 +30,10 @@
 #include "url/url_constants.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-#include "chrome/browser/extensions/test_extension_dir.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/common/extension.h"
 #include "extensions/test/background_page_watcher.h"
+#include "extensions/test/test_extension_dir.h"
 #endif
 
 namespace {
@@ -215,7 +215,7 @@ class ProcessMemoryMetricsEmitterTest : public ExtensionBrowserTest {
   void PreRunTestOnMainThread() override {
     InProcessBrowserTest::PreRunTestOnMainThread();
 
-    test_ukm_recorder_ = base::MakeUnique<ukm::TestAutoSetUkmRecorder>();
+    test_ukm_recorder_ = std::make_unique<ukm::TestAutoSetUkmRecorder>();
   }
 
  protected:
@@ -320,6 +320,15 @@ class ProcessMemoryMetricsEmitterTest : public ExtensionBrowserTest {
     CheckMemoryMetricWithName(source_id, UkmEntry::kNumberOfExtensionsName,
                               true, metric_count);
     CheckTimeMetricWithName(source_id, UkmEntry::kUptimeName, metric_count);
+
+    CheckMemoryMetricWithName(source_id, UkmEntry::kNumberOfDocumentsName, true,
+                              metric_count);
+    CheckMemoryMetricWithName(source_id, UkmEntry::kNumberOfFramesName, true,
+                              metric_count);
+    CheckMemoryMetricWithName(source_id, UkmEntry::kNumberOfLayoutObjectsName,
+                              true, metric_count);
+    CheckMemoryMetricWithName(source_id, UkmEntry::kNumberOfNodesName, true,
+                              metric_count);
   }
 
   void CheckUkmBrowserSource(ukm::SourceId source_id,
@@ -371,7 +380,7 @@ class ProcessMemoryMetricsEmitterTest : public ExtensionBrowserTest {
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   // Create an barebones extension with a background page for the given name.
   const Extension* CreateExtension(const std::string& name) {
-    auto dir = base::MakeUnique<TestExtensionDir>();
+    auto dir = std::make_unique<TestExtensionDir>();
     dir->WriteManifestWithSingleQuotes(
         base::StringPrintf("{"
                            "'name': '%s',"

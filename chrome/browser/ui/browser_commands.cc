@@ -52,15 +52,15 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/translate/translate_bubble_view_state_transition.h"
 #include "chrome/browser/upgrade_detector.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/content_restriction.h"
-#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/favicon/content/content_favicon_driver.h"
-#include "components/feature_engagement/features.h"
+#include "components/feature_engagement/buildflags.h"
 #include "components/google/core/browser/google_util.h"
 #include "components/prefs/pref_service.h"
 #include "components/sessions/core/live_tab_context.h"
@@ -132,7 +132,7 @@ translate::TranslateBubbleUiEvent TranslateBubbleResultToUiEvent(
   switch (result) {
     default:
       NOTREACHED();
-      // Fall through.
+      FALLTHROUGH;
     case ShowTranslateBubbleResult::SUCCESS:
       return translate::TranslateBubbleUiEvent::BUBBLE_SHOWN;
     case ShowTranslateBubbleResult::BROWSER_WINDOW_NOT_VALID:
@@ -179,14 +179,11 @@ bool CanBookmarkCurrentPageInternal(const Browser* browser,
 }
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-bool GetBookmarkOverrideCommand(
-    Profile* profile,
-    const extensions::Extension** extension,
-    extensions::Command* command,
-    extensions::CommandService::ExtensionCommandType* command_type) {
+bool GetBookmarkOverrideCommand(Profile* profile,
+                                const extensions::Extension** extension,
+                                extensions::Command* command) {
   DCHECK(extension);
   DCHECK(command);
-  DCHECK(command_type);
 
   ui::Accelerator bookmark_page_accelerator =
       chrome::GetPrimaryChromeAcceleratorForCommandId(IDC_BOOKMARK_PAGE);
@@ -201,13 +198,10 @@ bool GetBookmarkOverrideCommand(
        i != extension_set.end();
        ++i) {
     extensions::Command prospective_command;
-    extensions::CommandService::ExtensionCommandType prospective_command_type;
     if (command_service->GetSuggestedExtensionCommand(
-            (*i)->id(), bookmark_page_accelerator, &prospective_command,
-            &prospective_command_type)) {
+            (*i)->id(), bookmark_page_accelerator, &prospective_command)) {
       *extension = i->get();
       *command = prospective_command;
-      *command_type = prospective_command_type;
       return true;
     }
   }
@@ -801,17 +795,13 @@ void BookmarkCurrentPageAllowingExtensionOverrides(Browser* browser) {
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   const extensions::Extension* extension = NULL;
   extensions::Command command;
-  extensions::CommandService::ExtensionCommandType command_type;
-  if (GetBookmarkOverrideCommand(browser->profile(),
-                                 &extension,
-                                 &command,
-                                 &command_type)) {
-    switch (command_type) {
-      case extensions::CommandService::NAMED:
+  if (GetBookmarkOverrideCommand(browser->profile(), &extension, &command)) {
+    switch (command.type()) {
+      case extensions::Command::Type::kNamed:
         browser->window()->ExecuteExtensionCommand(extension, command);
         break;
-      case extensions::CommandService::BROWSER_ACTION:
-      case extensions::CommandService::PAGE_ACTION:
+      case extensions::Command::Type::kBrowserAction:
+      case extensions::Command::Type::kPageAction:
         // BookmarkCurrentPage is called through a user gesture, so it is safe
         // to grant the active tab permission.
         extensions::ExtensionActionAPI::Get(browser->profile())->
@@ -1055,9 +1045,9 @@ void FocusBookmarksToolbar(Browser* browser) {
   browser->window()->FocusBookmarksToolbar();
 }
 
-void FocusInfobars(Browser* browser) {
-  base::RecordAction(UserMetricsAction("FocusInfobars"));
-  browser->window()->FocusInfobars();
+void FocusInactivePopupForAccessibility(Browser* browser) {
+  base::RecordAction(UserMetricsAction("FocusInactivePopupForAccessibility"));
+  browser->window()->FocusInactivePopupForAccessibility();
 }
 
 void FocusNextPane(Browser* browser) {
@@ -1215,6 +1205,7 @@ void OpenInChrome(Browser* browser) {
       true);
   target_browser->window()->Show();
 }
+
 bool CanViewSource(const Browser* browser) {
   return !browser->is_devtools() &&
       browser->tab_strip_model()->GetActiveWebContents()->GetController().

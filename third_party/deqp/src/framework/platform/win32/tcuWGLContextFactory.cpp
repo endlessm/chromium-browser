@@ -65,13 +65,17 @@ private:
 class WGLContext : public glu::RenderContext
 {
 public:
-									WGLContext			(HINSTANCE instance, const wgl::Core& wglCore, const glu::RenderConfig& config);
+									WGLContext			(HINSTANCE instance, const wgl::Core& wglCore, const WGLContext* sharedContext, const glu::RenderConfig& config);
 									~WGLContext			(void);
 
 	glu::ContextType				getType				(void) const	{ return m_contextType;			}
 	const RenderTarget&				getRenderTarget		(void) const	{ return m_renderTarget;		}
 	void							postIterate			(void);
 	const glw::Functions&			getFunctions		(void) const	{ return m_functions;			}
+
+	glw::GenericFuncType			getProcAddress		(const char* name) const;
+
+	void							makeCurrent			(void);
 
 private:
 									WGLContext			(const WGLContext& other);
@@ -86,7 +90,7 @@ private:
 	glw::Functions					m_functions;
 };
 
-WGLContext::WGLContext (HINSTANCE instance, const wgl::Core& wglCore, const glu::RenderConfig& config)
+WGLContext::WGLContext (HINSTANCE instance, const wgl::Core& wglCore, const WGLContext* sharedContext, const glu::RenderConfig& config)
 	: m_contextType	(config.type)
 	, m_window		(instance,
 					 config.width	!= glu::RenderConfig::DONT_CARE	? config.width	: DEFAULT_WINDOW_WIDTH,
@@ -108,7 +112,11 @@ WGLContext::WGLContext (HINSTANCE instance, const wgl::Core& wglCore, const glu:
 	if (pixelFormat < 0)
 		throw NotSupportedError("Compatible WGL pixel format not found");
 
-	m_context = new wgl::Context(&wglCore, deviceCtx, config.type, pixelFormat);
+	const wgl::Context* sharedCtx = DE_NULL;
+	if (DE_NULL != sharedContext)
+		sharedCtx = sharedContext->m_context;
+
+	m_context = new wgl::Context(&wglCore, deviceCtx, sharedCtx, config.type, pixelFormat, config.resetNotificationStrategy);
 
 	try
 	{
@@ -145,6 +153,16 @@ WGLContext::~WGLContext (void)
 	delete m_context;
 }
 
+glw::GenericFuncType WGLContext::getProcAddress (const char* name) const
+{
+	return m_context->getGLFunction(name);
+}
+
+void WGLContext::makeCurrent (void)
+{
+	m_context->makeCurrent();
+}
+
 void WGLContext::postIterate (void)
 {
 	m_context->swapBuffers();
@@ -160,9 +178,11 @@ ContextFactory::ContextFactory (HINSTANCE instance)
 {
 }
 
-glu::RenderContext* ContextFactory::createContext (const glu::RenderConfig& config, const tcu::CommandLine&) const
+glu::RenderContext* ContextFactory::createContext (const glu::RenderConfig&  config, const tcu::CommandLine&,
+												   const glu::RenderContext* sharedContext) const
 {
-	return new WGLContext(m_instance, m_wglCore, config);
+	const WGLContext* sharedWGLContext = static_cast<const WGLContext*>(sharedContext);
+	return new WGLContext(m_instance, m_wglCore, sharedWGLContext, config);
 }
 
 } // wgl

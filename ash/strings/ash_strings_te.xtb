@@ -23,8 +23,10 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" /> (HDMI/DP)</translation>
 <translation id="1510238584712386396">లాంచర్</translation>
 <translation id="1525508553941733066">తీసివేయి</translation>
+<translation id="1537254971476575106">పూర్తి స్క్రీన్‌ మాగ్నిఫైయర్</translation>
 <translation id="15373452373711364">పెద్ద మౌస్ కర్సర్</translation>
 <translation id="1550523713251050646">మరిన్ని ఎంపికల కోసం క్లిక్ చేయండి</translation>
+<translation id="1608626060424371292">ఈ వినియోగదారుని తీసివేయండి</translation>
 <translation id="1621499497873603021">బ్యాటరీ ఖాళీ కావడానికి మిగిలి ఉన్న సమయం, <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">క్షమించండి, మీ పాస్‌వర్డ్ ఇప్పటికీ ధృవీకరించబడలేదు. గమనిక: మీరు మీ పాస్‌వర్డ్‌ను ఇటీవల మార్చి ఉంటే, మీరు సైన్ అవుట్ చేసిన తర్వాత మీ కొత్త పాస్‌వర్డ్ వర్తించబడుతుంది, దయచేసి పాత పాస్‌వర్డ్‌ను ఇక్కడ ఉపయోగించండి.</translation>
 <translation id="1677472565718498478"><ph name="TIME" /> మిగిలి ఉంది</translation>
@@ -43,12 +45,15 @@
 <translation id="1951012854035635156">సహాయకం</translation>
 <translation id="1957803754585243749">0°</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
+<translation id="1995660704900986789">పవర్ ఆఫ్ చేయి</translation>
 <translation id="2012624427112548395">Ctrl+Search+H</translation>
 <translation id="2049639323467105390">ఈ పరికరం <ph name="DOMAIN" /> ద్వారా నిర్వహించబడుతుంది.</translation>
 <translation id="2050339315714019657">నిలువు</translation>
 <translation id="2067602449040652523">కీబోర్డ్ ప్రకాశం</translation>
+<translation id="2081529251031312395">ఇప్పటికీ $1 తర్వాత సైన్ ఇన్ చేయవచ్చు.</translation>
 <translation id="2122028596993374965"><ph name="RECEIVER_NAME" />కి <ph name="TAB_NAME" />ని ప్రసారం చేయడాన్ని ఆపివేయి</translation>
 <translation id="2127372758936585790">తక్కువ-పవర్ గల ఛార్జర్</translation>
+<translation id="2135456203358955318">డాక్ చేయబడిన మాగ్నిఫైయర్</translation>
 <translation id="2144487987174258011">Adobe Flash Playerని నవీకరించడానికి పున:ప్రారంభించండి</translation>
 <translation id="2208323208084708176">ఏకీకృత డెస్క్‌టాప్ మోడ్</translation>
 <translation id="2220572644011485463">PIN లేదా పాస్‌వర్డ్</translation>
@@ -73,7 +78,6 @@
 <translation id="2653659639078652383">సమర్పించు</translation>
 <translation id="2675319268637823299">ఒక నిర్వాహకుడు <ph name="USER_EMAIL" /> కోసం బహుళ సైన్-ఇన్ అనుమతిని తిరస్కరించారు.
     కొనసాగించాలంటే అందరు వినియోగదారులు తప్పనిసరిగా సైన్ అవుట్ చేయాలి.</translation>
-<translation id="2700058918926273959">సెషన్ <ph name="SESSION_TIME_REMAINING" />లో ముగుస్తుంది. మీరు సైన్ అవుట్ చేయబడతారు.</translation>
 <translation id="2727977024730340865">తక్కువ-పవర్ గల ఛార్జర్‌కు ప్లగిన్ చేయబడింది. బ్యాటరీ ఛార్జింగ్ విశ్వసనీయంగా ఉండకపోవచ్చు.</translation>
 <translation id="2761704814324807722">స్థితి ట్రే, సమయం <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581"><ph name="NAME" />కి మళ్లీ కనెక్ట్ చేస్తోంది</translation>
@@ -83,6 +87,7 @@
 <translation id="2844169650293029770">USB-C పరికరం (ఎడమవైపు ముందు పోర్ట్)</translation>
 <translation id="2865888419503095837">నెట్‌వర్క్ సమాచారం</translation>
 <translation id="2872961005593481000">షట్ డౌన్ చెయ్యండి</translation>
+<translation id="2878884018241093801">ఇటీవలి అంశాలు ఏవీ లేవు</translation>
 <translation id="2903844815300039659"><ph name="NAME" />కి కనెక్ట్ చేయబడింది, <ph name="STRENGTH" /></translation>
 <translation id="2911940648265863620">మీరు మీ స్క్రీన్‌ను షేర్ చేస్తున్నారు</translation>
 <translation id="2942516765047364088">అర స్థానం</translation>
@@ -109,7 +114,6 @@
 <translation id="3413817803639110246">ఇప్పటికీ చూడటానికి ఏమీ లేవు</translation>
 <translation id="3445925074670675829">USB-C పరికరం</translation>
 <translation id="3465566417615315331">మీ ఫోటోను క్లిక్ చేయండి</translation>
-<translation id="3473479545200714844">స్క్రీన్ మాగ్నిఫైయర్</translation>
 <translation id="3477079411857374384">Control-Shift-Space</translation>
 <translation id="3510164367642747937">మౌస్ కర్సర్‌ని హైలైట్ చేయి</translation>
 <translation id="3513798432020909783"><ph name="MANAGER_EMAIL" /> ద్వారా ఖాతా నిర్వహించబడింది</translation>
@@ -131,6 +135,7 @@
 <translation id="3891340733213178823">సైన్ అవుట్ చేయడానికి Ctrl+Shift+Qని రెండుసార్లు నొక్కండి.</translation>
 <translation id="3893630138897523026">ChromeVox (చదవబడే అభిప్రాయం)</translation>
 <translation id="3899995891769452915">వాయిస్ ఇన్‌పుట్</translation>
+<translation id="3900355044994618856"><ph name="SESSION_TIME_REMAINING" /> తర్వాత మీ సెషన్ ముగుస్తుంది</translation>
 <translation id="3901991538546252627"><ph name="NAME" />కి కనెక్ట్ చేస్తోంది</translation>
 <translation id="394485226368336402">ఆడియో సెట్టింగ్‌‍లు</translation>
 <translation id="397105322502079400">గణిస్తోంది...</translation>
@@ -139,6 +144,7 @@
 <translation id="4072264167173457037">సిగ్నల్ ఓ మోస్తరుగా ఉంది</translation>
 <translation id="4279490309300973883">ప్రతిబింబిస్తుంది</translation>
 <translation id="4321179778687042513">ctrl</translation>
+<translation id="4331809312908958774">Chrome OS</translation>
 <translation id="4338109981321384717">భూతద్దం</translation>
 <translation id="4351433414020964307">సహాయకం లోడ్ అవుతోంది...</translation>
 <translation id="4378551569595875038">కనెక్ట్ అవుతోంది...</translation>
@@ -183,6 +189,7 @@
 <translation id="5744083938413354016">నొక్కి లాగండి</translation>
 <translation id="5777841717266010279">స్క్రీన్ భాగస్వామ్యాన్ని ఆపివేయాలా?</translation>
 <translation id="57838592816432529">మ్యూట్ చేయి</translation>
+<translation id="5820394555380036790">Chromium OS</translation>
 <translation id="5832805196449965646">వ్యక్తిని జోడించు</translation>
 <translation id="5860033963881614850">ఆఫ్ అయ్యింది</translation>
 <translation id="5895138241574237353">మళ్ళీ ప్రారంభించు</translation>
@@ -206,6 +213,7 @@
 <translation id="607652042414456612">మీ కంప్యూటర్ సమీప బ్లూటూత్ పరికరాల్లో కనుగొనబడుతుంది మరియు చిరునామా <ph name="ADDRESS" />తో "<ph name="NAME" />" వలె కనిపిస్తుంది</translation>
 <translation id="6106745654298855237"><ph name="POWER_SOURCE" />ని ఛార్జ్ చేస్తోంది</translation>
 <translation id="615957422585914272">స్క్రీన్‌పై కీబోర్డ్‌ను చూపు</translation>
+<translation id="6164005077879661055">ఈ పర్యవేక్షించబడే వినియోగదారు తీసివేయబడినప్పుడు పర్యవేక్షించబడే వినియోగదారుతో అనుబంధించబడిన అన్ని ఫైల్‌లు మరియు స్థానిక డేటా శాశ్వతంగా తొలగించబడతాయి. ఈ పర్యవేక్షించబడే వినియోగదారు సందర్శించిన వెబ్‌సైట్‌లు మరియు వీరి సెట్టింగ్‌లు ఇప్పటికీ <ph name="MANAGEMENT_URL" />లో నిర్వాహకునికి కనిపించవచ్చు.</translation>
 <translation id="6165508094623778733">మరింత తెలుసుకోండి</translation>
 <translation id="6267036997247669271"><ph name="NAME" />: సక్రియం చేస్తోంది...</translation>
 <translation id="6284232397434400372">రిజల్యూషన్ మార్చబడింది</translation>
@@ -240,6 +248,7 @@
 <translation id="6857811139397017780"><ph name="NETWORKSERVICE" />ని సక్రియం చెయ్యి</translation>
 <translation id="6911468394164995108">మరొక దానిలో చేరండి...</translation>
 <translation id="6981982820502123353">ప్రాప్యత</translation>
+<translation id="698231206551913481">ఈ వినియోగదారును తీసివేసిన తర్వాత ఈ వినియోగదారుతో అనుబంధించిన అన్ని ఫైల్‌లు మరియు స్థానిక డేటా శాశ్వతంగా తొలగించబడతాయి.</translation>
 <translation id="7029814467594812963">సెషన్‌ని నిష్క్రమించు</translation>
 <translation id="7034339000180558234"><ph name="RECEIVER_NAME" />కి <ph name="TAB_NAME" />ని ప్రసారం చేస్తున్నాము</translation>
 <translation id="7052914147756339792">వాల్‌పేపర్‌ను సెట్ చేయి...</translation>
@@ -247,6 +256,7 @@
 <translation id="7066646422045619941">ఈ నెట్‌వర్క్‌ను మీ నిర్వాహకులు నిలిపివేసారు.</translation>
 <translation id="7067196344162293536">స్వయంచాలకంగా తిప్పు</translation>
 <translation id="7098389117866926363">USB-C పరికరం (వెనుక భాగంలో ఎడమ పోర్ట్)</translation>
+<translation id="7131634465328662194">మీరు ఆటోమేటిక్‌గా సైన్ అవుట్ చేయబడతారు.</translation>
 <translation id="7165278925115064263">Alt+Shift+K</translation>
 <translation id="7168224885072002358"><ph name="TIMEOUT_SECONDS" />లో తిరిగి పాత రిజల్యూషన్‌కి మార్చబడుతోంది</translation>
 <translation id="7256634071279256947">వెనుకవైపు మైక్రోఫోన్</translation>
@@ -303,6 +313,7 @@
 <translation id="8484916590211895857"><ph name="NAME" />: మళ్లీ కనెక్ట్ చేస్తోంది...</translation>
 <translation id="8517041960877371778">మీ <ph name="DEVICE_TYPE" /> ఆన్‌లో ఉన్నప్పుడు ఛార్జ్ కాకపోవచ్చు.</translation>
 <translation id="8639760480004882931"><ph name="PERCENTAGE" /> మిగిలి ఉంది</translation>
+<translation id="8649101189709089199">వినడానికి ఎంచుకోండి</translation>
 <translation id="8652175077544655965">సెట్టింగ్‌లను మూసివేయండి</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">తక్కువ-పవర్ గల ఛార్జర్ కనెక్ట్ చేయబడింది</translation>
@@ -312,6 +323,7 @@
 తదుపరి నోటిఫికేషన్‌లు, విండోలు మరియు డైలాగ్‌లు డెస్క్‌టాప్‌ల మధ్య విభజించబడవచ్చు.</translation>
 <translation id="8825534185036233643">రెండింటి కంటే ఎక్కువ డిస్‌ప్లేలతో మిర్రరింగ్ చేయడానికి మద్దతు లేదు.</translation>
 <translation id="8828714802988429505">90°</translation>
+<translation id="8841375032071747811">వెనుకకు బటన్</translation>
 <translation id="8850991929411075241">Search+Esc</translation>
 <translation id="8870509716567206129">యాప్‌లో విభజన స్క్రీన్‌కి మద్దతు లేదు.</translation>
 <translation id="8878886163241303700">స్క్రీన్ విస్తరించబడుతోంది</translation>

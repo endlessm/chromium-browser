@@ -1056,7 +1056,7 @@ TEST_P(GestureEventQueueWithSourceTest, GestureFlingCancelsFiltered) {
 
   // GFS in queue means that a GFC is added to the queue
   SimulateGestureEvent(WebInputEvent::kGestureFlingCancel, source_device);
-  merged_event =GestureEventLastQueueEvent();
+  merged_event = GestureEventLastQueueEvent();
   EXPECT_EQ(WebInputEvent::kGestureFlingCancel, merged_event.GetType());
   EXPECT_FALSE(FlingInProgress());
   EXPECT_EQ(3U, GestureEventQueueSize());

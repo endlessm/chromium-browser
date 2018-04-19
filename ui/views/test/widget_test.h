@@ -5,6 +5,8 @@
 #ifndef UI_VIEWS_TEST_WIDGET_TEST_H_
 #define UI_VIEWS_TEST_WIDGET_TEST_H_
 
+#include <memory>
+
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "build/build_config.h"
@@ -34,6 +36,14 @@ namespace test {
 
 class WidgetTest : public ViewsTestBase {
  public:
+  // This class can be used as a deleter for std::unique_ptr<Widget>
+  // to call function Widget::CloseNow automatically.
+  struct WidgetCloser {
+    void operator()(Widget* widget) const;
+  };
+
+  using WidgetAutoclosePtr = std::unique_ptr<Widget, WidgetCloser>;
+
   WidgetTest();
   ~WidgetTest() override;
 
@@ -89,6 +99,11 @@ class WidgetTest : public ViewsTestBase {
 
   // Return true if |window| is transparent according to the native platform.
   static bool IsNativeWindowTransparent(gfx::NativeWindow window);
+
+  // Returns whether |widget| has a Window shadow managed in this process. That
+  // is, a shadow that is drawn outside of the Widget bounds, and managed by the
+  // WindowManager.
+  static bool WidgetHasInProcessShadow(Widget* widget);
 
   // Returns the set of all Widgets that currently have a NativeWindow.
   static Widget::Widgets GetAllWidgets();

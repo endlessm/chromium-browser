@@ -23,9 +23,11 @@
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/browser_view_button_provider.h"
+#include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/harmony/chrome_typography.h"
-#include "chrome/browser/ui/views/toolbar/app_menu_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+#include "chrome/browser/ui/views_mode_controller.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/installer/util/google_update_settings.h"
@@ -35,22 +37,17 @@
 #include "content/public/browser/browser_thread.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/views/controls/button/checkbox.h"
+#include "ui/views/controls/button/menu_button.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/separator.h"
 #include "ui/views/controls/styled_label.h"
-#include "ui/views/layout/fill_layout.h"
+#include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/grid_layout.h"
 #include "ui/views/widget/widget.h"
 
 using views::GridLayout;
 
 namespace {
-
-// Fixed width of the column holding the description label of the bubble.
-const int kWidthOfDescriptionText = 320;
-
-// Distance between checkbox and the text to the right of it.
-const int kCheckboxTextDistance = 4;
 
 enum SessionCrashedBubbleHistogramValue {
   SESSION_CRASHED_BUBBLE_SHOWN,
@@ -123,6 +120,14 @@ bool SessionCrashedBubble::Show(Browser* browser) {
         base::Bind(&SessionCrashedBubbleView::ShowForReal,
                    base::Passed(&browser_observer)));
   } else {
+#if defined(OS_MACOSX)
+    // SessionCrashedBubbleView doesn't support being hosted by a Cocoa browser
+    // window, so return false here so StartupBrowserCreator will fall back to
+    // the infobar.
+    // TODO(ellyjones): Make SessionCrashedBubbleView support a Cocoa host.
+    if (views_mode_controller::IsViewsBrowserCocoa())
+      return false;
+#endif
     SessionCrashedBubbleView::ShowForReal(std::move(browser_observer), false);
   }
   return true;
@@ -148,8 +153,8 @@ void SessionCrashedBubbleView::ShowForReal(
   }
 
   views::View* anchor_view = BrowserView::GetBrowserViewForBrowser(browser)
-                                 ->toolbar()
-                                 ->app_menu_button();
+                                 ->button_provider()
+                                 ->GetAppMenuButton();
   SessionCrashedBubbleView* crash_bubble =
       new SessionCrashedBubbleView(anchor_view, browser, offer_uma_optin);
   views::BubbleDialogDelegateView::CreateBubble(crash_bubble)->Show();
@@ -193,7 +198,10 @@ void SessionCrashedBubbleView::OnWidgetDestroying(views::Widget* widget) {
 }
 
 void SessionCrashedBubbleView::Init() {
-  SetLayoutManager(std::make_unique<views::FillLayout>());
+  ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
+  SetLayoutManager(std::make_unique<views::BoxLayout>(
+      views::BoxLayout::kVertical, gfx::Insets(),
+      provider->GetDistanceMetric(views::DISTANCE_UNRELATED_CONTROL_VERTICAL)));
 
   // Description text label.
   views::Label* text_label = new views::Label(
@@ -201,14 +209,17 @@ void SessionCrashedBubbleView::Init() {
   text_label->SetMultiLine(true);
   text_label->SetLineHeight(20);
   text_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  text_label->SizeToFit(kWidthOfDescriptionText);
+  text_label->SizeToFit(
+      provider->GetDistanceMetric(
+          ChromeDistanceMetric::DISTANCE_BUBBLE_PREFERRED_WIDTH) -
+      margins().width());
   AddChildView(text_label);
+
+  if (offer_uma_optin_)
+    AddChildView(CreateUmaOptInView());
 }
 
-views::View* SessionCrashedBubbleView::CreateFootnoteView() {
-  if (!offer_uma_optin_)
-    return nullptr;
-
+views::View* SessionCrashedBubbleView::CreateUmaOptInView() {
   RecordBubbleHistogramValue(SESSION_CRASHED_BUBBLE_OPTIN_BAR_SHOWN);
 
   // Checkbox for metric reporting setting.
@@ -249,7 +260,8 @@ views::View* SessionCrashedBubbleView::CreateFootnoteView() {
   views::ColumnSet* cs = uma_layout->AddColumnSet(kReportColumnSetId);
   cs->AddColumn(GridLayout::CENTER, GridLayout::LEADING, 0,
                 GridLayout::USE_PREF, 0, 0);
-  cs->AddPaddingColumn(0, kCheckboxTextDistance);
+  cs->AddPaddingColumn(0, ChromeLayoutProvider::Get()->GetDistanceMetric(
+                              views::DISTANCE_RELATED_LABEL_HORIZONTAL));
   cs->AddColumn(GridLayout::FILL, GridLayout::FILL, 1, GridLayout::USE_PREF, 0,
                 0);
 
@@ -312,7 +324,7 @@ void SessionCrashedBubbleView::StyledLabelLinkClicked(views::StyledLabel* label,
 
 void SessionCrashedBubbleView::RestorePreviousSession() {
   ignored_ = false;
-  MaybeEnableUMA();
+  MaybeEnableUma();
   CloseBubble();
 
   RecordBubbleHistogramValue(SESSION_CRASHED_BUBBLE_RESTORED);
@@ -323,7 +335,7 @@ void SessionCrashedBubbleView::RestorePreviousSession() {
 
 void SessionCrashedBubbleView::OpenStartupPages() {
   ignored_ = false;
-  MaybeEnableUMA();
+  MaybeEnableUma();
   CloseBubble();
 
   RecordBubbleHistogramValue(SESSION_CRASHED_BUBBLE_STARTUP_PAGES);
@@ -332,7 +344,7 @@ void SessionCrashedBubbleView::OpenStartupPages() {
   SessionRestore::OpenStartupPagesAfterCrash(browser_);
 }
 
-void SessionCrashedBubbleView::MaybeEnableUMA() {
+void SessionCrashedBubbleView::MaybeEnableUma() {
   // Record user's choice for opt-in in to UMA.
   // There's no opt-out choice in the crash restore bubble.
   if (uma_option_ && uma_option_->checked()) {

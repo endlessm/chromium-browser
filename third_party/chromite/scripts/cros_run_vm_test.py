@@ -68,7 +68,7 @@ class VMTest(object):
     Args:
       build_dir: Build directory.
     """
-    cros_build_lib.RunCommand(['ninja', '-C', build_dir, 'chrome',
+    cros_build_lib.RunCommand(['autoninja', '-C', build_dir, 'chrome',
                                'chrome_sandbox', 'nacl_helper'],
                               log_output=True)
 
@@ -110,7 +110,7 @@ class VMTest(object):
     if self.board:
       cmd += ['--board', self.board]
     if self.results_dir:
-      cmd += ['--results-dir', self.results_dir]
+      cmd += ['--results_dir', self.results_dir]
     cmd += [
         '--no-quickmerge',
         '--ssh_options', '-F /dev/null -i /dev/null',

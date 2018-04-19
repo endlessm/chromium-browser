@@ -160,8 +160,7 @@ class EasyUnlockService::BluetoothDetector
 
   void TurnOffBluetoothDiscoverability() {
     if (adapter_) {
-      adapter_->SetDiscoverable(
-          false, base::Bind(&base::DoNothing), base::Bind(&base::DoNothing));
+      adapter_->SetDiscoverable(false, base::DoNothing(), base::DoNothing());
     }
   }
 
@@ -253,7 +252,7 @@ EasyUnlockService::~EasyUnlockService() {
 void EasyUnlockService::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterDictionaryPref(prefs::kEasyUnlockPairing,
-                                   base::MakeUnique<base::DictionaryValue>());
+                                   std::make_unique<base::DictionaryValue>());
 
   proximity_auth::ProximityAuthProfilePrefManager::RegisterPrefs(registry);
 }

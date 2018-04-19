@@ -18,6 +18,7 @@
 #include "base/files/file_util.h"
 #include "base/i18n/number_formatting.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/numerics/ranges.h"
 #include "base/strings/nullable_string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -45,7 +46,7 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image_skia.h"
-#include "ui/message_center/notification.h"
+#include "ui/message_center/public/cpp/notification.h"
 
 namespace {
 
@@ -109,10 +110,6 @@ enum class ConnectionInitializationStatusCode {
   NUM_ITEMS
 };
 
-int ClampInt(int value, int low, int hi) {
-  return std::max(std::min(value, hi), low);
-}
-
 base::string16 CreateNotificationTitle(
     const message_center::Notification& notification) {
   base::string16 title;
@@ -143,6 +140,7 @@ int NotificationPriorityToFdoUrgency(int priority) {
       return URGENCY_CRITICAL;
     default:
       NOTREACHED();
+      FALLTHROUGH;
     case message_center::DEFAULT_PRIORITY:
       return URGENCY_NORMAL;
   }
@@ -163,32 +161,12 @@ gfx::Image ResizeImageToFdoMaxSize(const gfx::Image& image) {
   const SkBitmap* image_bitmap = image.ToSkBitmap();
   double scale = std::min(static_cast<double>(kMaxImageWidth) / width,
                           static_cast<double>(kMaxImageHeight) / height);
-  width = ClampInt(scale * width, 1, kMaxImageWidth);
-  height = ClampInt(scale * height, 1, kMaxImageHeight);
+  width = base::ClampToRange<int>(scale * width, 1, kMaxImageWidth);
+  height = base::ClampToRange<int>(scale * height, 1, kMaxImageHeight);
   return gfx::Image(
       gfx::ImageSkia::CreateFrom1xBitmap(skia::ImageOperations::Resize(
           *image_bitmap, skia::ImageOperations::RESIZE_LANCZOS3, width,
           height)));
-}
-
-// Runs once the profile has been loaded in order to perform a given
-// |operation| on a notification.
-void ProfileLoadedCallback(NotificationCommon::Operation operation,
-                           NotificationHandler::Type notification_type,
-                           const GURL& origin,
-                           const std::string& notification_id,
-                           const base::Optional<int>& action_index,
-                           const base::Optional<base::string16>& reply,
-                           const base::Optional<bool>& by_user,
-                           Profile* profile) {
-  if (!profile)
-    return;
-
-  NotificationDisplayServiceImpl* display_service =
-      NotificationDisplayServiceImpl::GetForProfile(profile);
-  display_service->ProcessNotificationOperation(operation, notification_type,
-                                                origin, notification_id,
-                                                action_index, reply, by_user);
 }
 
 bool ShouldAddCloseButton(const std::string& server_name) {
@@ -212,9 +190,9 @@ void ForwardNotificationOperationOnUiThread(
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   g_browser_process->profile_manager()->LoadProfile(
       profile_id, is_incognito,
-      base::Bind(&ProfileLoadedCallback, operation, notification_type, origin,
-                 notification_id, action_index, base::nullopt /* reply */,
-                 by_user));
+      base::Bind(&NotificationDisplayServiceImpl::ProfileLoadedCallback,
+                 operation, notification_type, origin, notification_id,
+                 action_index, base::nullopt /* reply */, by_user));
 }
 
 class ResourceFile {
@@ -310,7 +288,7 @@ class NotificationPlatformBridgeLinuxImpl
     PostTaskToTaskRunnerThread(base::BindOnce(
         &NotificationPlatformBridgeLinuxImpl::DisplayOnTaskRunner, this,
         notification_type, profile_id, is_incognito,
-        base::Passed(&notification_copy)));
+        std::move(notification_copy)));
   }
 
   void Close(const std::string& profile_id,

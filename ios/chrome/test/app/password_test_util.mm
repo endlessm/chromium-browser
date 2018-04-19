@@ -15,6 +15,8 @@
 
 @implementation MockReauthenticationModule
 
+@synthesize localizedReasonForAuthentication =
+    _localizedReasonForAuthentication;
 @synthesize shouldSucceed = _shouldSucceed;
 @synthesize canAttempt = _canAttempt;
 
@@ -28,8 +30,10 @@
 }
 
 - (void)attemptReauthWithLocalizedReason:(NSString*)localizedReason
+                    canReusePreviousAuth:(BOOL)canReusePreviousAuth
                                  handler:(void (^)(BOOL success))
                                              showCopyPasswordsHandler {
+  self.localizedReasonForAuthentication = localizedReason;
   showCopyPasswordsHandler(_shouldSucceed);
 }
 

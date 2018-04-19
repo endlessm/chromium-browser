@@ -32,6 +32,10 @@
 #import "ios/chrome/browser/ui/ntp/new_tab_page_header_constants.h"
 #import "ios/chrome/browser/ui/ntp/notification_promo_whats_new.h"
 #import "ios/chrome/browser/ui/overscroll_actions/overscroll_actions_controller.h"
+#import "ios/chrome/browser/ui/toolbar/adaptive/primary_toolbar_view_controller.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button_factory.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button_visibility_configuration.h"
+#import "ios/chrome/browser/ui/toolbar/clean/toolbar_mediator.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
@@ -58,6 +62,13 @@
 @property(nonatomic, strong, readwrite)
     ContentSuggestionsHeaderViewController* headerController;
 
+// Toolbar to be embeded in header view.
+@property(nonatomic, strong)
+    PrimaryToolbarViewController* primaryToolbarViewController;
+
+// Mediator for updating the toolbar when the WebState changes.
+@property(nonatomic, strong) ToolbarMediator* primaryToolbarMediator;
+
 @end
 
 @implementation ContentSuggestionsCoordinator
@@ -71,10 +82,13 @@
     _headerCollectionInteractionHandler;
 @synthesize headerController = _headerController;
 @synthesize webStateList = _webStateList;
+@synthesize toolbarDelegate = _toolbarDelegate;
 @synthesize dispatcher = _dispatcher;
 @synthesize delegate = _delegate;
 @synthesize metricsRecorder = _metricsRecorder;
 @synthesize NTPMediator = _NTPMediator;
+@synthesize primaryToolbarViewController = _primaryToolbarViewController;
+@synthesize primaryToolbarMediator = _primaryToolbarMediator;
 
 - (void)start {
   if (self.visible || !self.browserState) {
@@ -121,6 +135,28 @@
   self.headerController.delegate = self.NTPMediator;
   self.headerController.readingListModel =
       ReadingListModelFactory::GetForBrowserState(self.browserState);
+  self.headerController.toolbarDelegate = self.toolbarDelegate;
+
+  if (IsUIRefreshPhase1Enabled()) {
+    ToolbarButtonFactory* buttonFactory =
+        [[ToolbarButtonFactory alloc] initWithStyle:NORMAL];
+    buttonFactory.dispatcher = self.dispatcher;
+    buttonFactory.visibilityConfiguration =
+        [[ToolbarButtonVisibilityConfiguration alloc] initWithType:PRIMARY];
+
+    self.primaryToolbarViewController =
+        [[PrimaryToolbarViewController alloc] init];
+    self.primaryToolbarViewController.buttonFactory = buttonFactory;
+    [self.primaryToolbarViewController updateForSideSwipeSnapshotOnNTP:YES];
+    self.headerController.toolbarViewController =
+        self.primaryToolbarViewController;
+
+    self.primaryToolbarMediator = [[ToolbarMediator alloc] init];
+    self.primaryToolbarMediator.voiceSearchProvider =
+        ios::GetChromeBrowserProvider()->GetVoiceSearchProvider();
+    self.primaryToolbarMediator.consumer = self.primaryToolbarViewController;
+    self.primaryToolbarMediator.webStateList = self.webStateList;
+  }
 
   favicon::LargeIconService* largeIconService =
       IOSChromeLargeIconServiceFactory::GetForBrowserState(self.browserState);
@@ -128,11 +164,14 @@
       IOSChromeLargeIconCacheFactory::GetForBrowserState(self.browserState);
   std::unique_ptr<ntp_tiles::MostVisitedSites> mostVisitedFactory =
       IOSMostVisitedSitesFactory::NewForBrowserState(self.browserState);
+  ReadingListModel* readingListModel =
+      ReadingListModelFactory::GetForBrowserState(self.browserState);
   self.contentSuggestionsMediator = [[ContentSuggestionsMediator alloc]
       initWithContentService:contentSuggestionsService
             largeIconService:largeIconService
               largeIconCache:cache
-             mostVisitedSite:std::move(mostVisitedFactory)];
+             mostVisitedSite:std::move(mostVisitedFactory)
+            readingListModel:readingListModel];
   self.contentSuggestionsMediator.commandHandler = self.NTPMediator;
   self.contentSuggestionsMediator.headerProvider = self.headerController;
 
@@ -297,18 +336,16 @@
   [self.NTPMediator dismissModals];
 }
 
-- (void)dismissKeyboard {
-}
-
-- (void)setScrollsToTop:(BOOL)enable {
-}
-
 - (CGPoint)scrollOffset {
   CGPoint collectionOffset =
       self.suggestionsViewController.collectionView.contentOffset;
   collectionOffset.y -=
       self.headerCollectionInteractionHandler.collectionShiftingOffset;
   return collectionOffset;
+}
+
+- (void)willUpdateSnapshot {
+  [self.suggestionsViewController clearOverscroll];
 }
 
 @end

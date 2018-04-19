@@ -13,10 +13,11 @@ set(DEQP_VK_MEMORY_SRCS
 	vktMemoryPipelineBarrierTests.cpp
 	vktMemoryRequirementsTests.cpp
 	vktMemoryRequirementsTests.hpp
+	vktMemoryBindingTests.cpp
+	vktMemoryBindingTests.hpp
 	)
 
 set(DEQP_VK_MEMORY_LIBS
-	deqp-vk-common
 	tcutil
 	vkutil
 	)

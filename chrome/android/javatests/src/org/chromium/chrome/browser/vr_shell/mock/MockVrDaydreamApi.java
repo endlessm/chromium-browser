@@ -8,6 +8,8 @@ import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Intent;
 
+import com.google.vr.ndk.base.DaydreamApi;
+
 import org.chromium.chrome.browser.vr_shell.VrDaydreamApi;
 
 /**
@@ -17,6 +19,7 @@ public class MockVrDaydreamApi implements VrDaydreamApi {
     private boolean mLaunchInVrCalled;
     private boolean mExitFromVrCalled;
     private boolean mLaunchVrHomescreenCalled;
+    private boolean mForwardSetupIntent;
 
     @Override
     public boolean isDaydreamReadyDevice() {
@@ -52,7 +55,7 @@ public class MockVrDaydreamApi implements VrDaydreamApi {
     @Override
     public boolean exitFromVr(int requestCode, final Intent intent) {
         mExitFromVrCalled = true;
-        return true;
+        return false;
     }
 
     @Override
@@ -85,4 +88,19 @@ public class MockVrDaydreamApi implements VrDaydreamApi {
 
     @Override
     public void close() {}
+
+    @Override
+    public Intent setupVrIntent(Intent intent) {
+        if (mForwardSetupIntent) {
+            return DaydreamApi.setupVrIntent(intent);
+        }
+        return null;
+    }
+
+    public void setForwardSetupIntent(boolean forward) {
+        mForwardSetupIntent = forward;
+    }
+
+    @Override
+    public void launchGvrSettings() {}
 }

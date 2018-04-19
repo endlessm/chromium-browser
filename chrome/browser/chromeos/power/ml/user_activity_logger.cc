@@ -6,16 +6,14 @@
 
 #include <cmath>
 
-#include "base/time/default_clock.h"
 #include "base/timer/timer.h"
+#include "chrome/browser/chromeos/power/ml/real_boot_clock.h"
 #include "chromeos/dbus/power_manager/power_supply_properties.pb.h"
 #include "chromeos/system/devicetype.h"
 
 namespace chromeos {
 namespace power {
 namespace ml {
-
-constexpr int kIdleDelaySeconds = 10;
 
 UserActivityLogger::UserActivityLogger(
     UserActivityLoggerDelegate* delegate,
@@ -25,7 +23,7 @@ UserActivityLogger::UserActivityLogger(
     session_manager::SessionManager* session_manager,
     viz::mojom::VideoDetectorObserverRequest request,
     const chromeos::ChromeUserManager* user_manager)
-    : clock_(std::make_unique<base::DefaultClock>()),
+    : boot_clock_(std::make_unique<RealBootClock>()),
       logger_delegate_(delegate),
       idle_event_observer_(this),
       user_activity_observer_(this),
@@ -34,7 +32,6 @@ UserActivityLogger::UserActivityLogger(
       session_manager_(session_manager),
       binding_(this, std::move(request)),
       user_manager_(user_manager),
-      idle_delay_(base::TimeDelta::FromSeconds(kIdleDelaySeconds)),
       weak_ptr_factory_(this) {
   DCHECK(logger_delegate_);
   DCHECK(idle_event_notifier);
@@ -74,10 +71,6 @@ void UserActivityLogger::LidEventReceived(
     chromeos::PowerManagerClient::LidState state,
     const base::TimeTicks& /* timestamp */) {
   lid_state_ = state;
-  if (lid_state_ == chromeos::PowerManagerClient::LidState::CLOSED) {
-    MaybeLogEvent(UserActivityEvent::Event::OFF,
-                  UserActivityEvent::Event::LID_CLOSED);
-  }
 }
 
 void UserActivityLogger::PowerChanged(
@@ -108,17 +101,57 @@ void UserActivityLogger::ScreenIdleStateChanged(
     const power_manager::ScreenIdleState& proto) {
   if (proto.off()) {
     screen_idle_timer_.Start(
-        FROM_HERE, idle_delay_,
+        FROM_HERE, kIdleDelay,
         base::Bind(&UserActivityLogger::MaybeLogEvent, base::Unretained(this),
                    UserActivityEvent::Event::TIMEOUT,
                    UserActivityEvent::Event::SCREEN_OFF));
   }
 }
 
-void UserActivityLogger::SuspendDone(
-    const base::TimeDelta& /* sleep_duration */) {
-  MaybeLogEvent(UserActivityEvent::Event::TIMEOUT,
-                UserActivityEvent::Event::IDLE_SLEEP);
+void UserActivityLogger::SuspendImminent(
+    power_manager::SuspendImminent::Reason reason) {
+  suspend_reason_ = reason;
+}
+
+void UserActivityLogger::SuspendDone(const base::TimeDelta& sleep_duration) {
+  if (!suspend_reason_)
+    return;
+
+  if (sleep_duration < kMinSuspendDuration) {
+    // 1. If reason_ is IDLE: user quickly woke up the computer hence
+    // it's not a TIMEOUT event but a REACTIVATE event.
+    // 2. If reason_ is LID_CLOSED: user closed the lid and then
+    // quickly opened it hence it's not an OFF event but a REACTIVATE event.
+    // 3. If reason_ is OTHER: user initiated a suspend and then cancelled
+    // it hence it's not an OFF event but a REACTIVATE event.
+    // In any case, when sleep duration is short, we treat the event as a
+    // REACTIVATE event.
+    MaybeLogEvent(UserActivityEvent::Event::REACTIVATE,
+                  UserActivityEvent::Event::USER_ACTIVITY);
+
+    suspend_reason_ = base::nullopt;
+    return;
+  }
+
+  switch (suspend_reason_.value()) {
+    case power_manager::SuspendImminent_Reason_IDLE:
+      MaybeLogEvent(UserActivityEvent::Event::TIMEOUT,
+                    UserActivityEvent::Event::IDLE_SLEEP);
+      break;
+    case power_manager::SuspendImminent_Reason_LID_CLOSED:
+      MaybeLogEvent(UserActivityEvent::Event::OFF,
+                    UserActivityEvent::Event::LID_CLOSED);
+      break;
+    case power_manager::SuspendImminent_Reason_OTHER:
+      MaybeLogEvent(UserActivityEvent::Event::OFF,
+                    UserActivityEvent::Event::MANUAL_SLEEP);
+      break;
+    default:
+      // We don't track other suspend reason.
+      break;
+  }
+
+  suspend_reason_ = base::nullopt;
 }
 
 void UserActivityLogger::InactivityDelaysChanged(
@@ -133,7 +166,7 @@ void UserActivityLogger::OnVideoActivityStarted() {
 
 void UserActivityLogger::OnIdleEventObserved(
     const IdleEventNotifier::ActivityData& activity_data) {
-  idle_event_start_ = clock_->Now();
+  idle_event_start_since_boot_ = boot_clock_->GetTimeSinceBoot();
   ExtractFeatures(activity_data);
 }
 
@@ -146,6 +179,12 @@ void UserActivityLogger::OnSessionStateChanged() {
                   UserActivityEvent::Event::SCREEN_LOCK);
   }
 }
+
+// static
+constexpr base::TimeDelta UserActivityLogger::kIdleDelay;
+
+// static
+constexpr base::TimeDelta UserActivityLogger::kMinSuspendDuration;
 
 void UserActivityLogger::OnReceiveSwitchStates(
     base::Optional<chromeos::PowerManagerClient::SwitchStates> switch_states) {
@@ -179,35 +218,45 @@ void UserActivityLogger::ExtractFeatures(
   }
 
   // Set time related features.
+  features_.set_last_activity_day(activity_data.last_activity_day);
+
   features_.set_last_activity_time_sec(
-      (activity_data.last_activity_time -
-       activity_data.last_activity_time.LocalMidnight())
-          .InSeconds());
-  if (!activity_data.last_user_activity_time.is_null()) {
+      activity_data.last_activity_time_of_day.InSeconds());
+
+  if (activity_data.last_user_activity_time_of_day) {
     features_.set_last_user_activity_time_sec(
-        (activity_data.last_user_activity_time -
-         activity_data.last_user_activity_time.LocalMidnight())
-            .InSeconds());
-  }
-
-  base::Time::Exploded exploded;
-  activity_data.last_activity_time.LocalExplode(&exploded);
-  features_.set_last_activity_day(
-      static_cast<chromeos::power::ml::UserActivityEvent_Features_DayOfWeek>(
-          exploded.day_of_week));
-
-  if (!activity_data.last_mouse_time.is_null()) {
-    features_.set_time_since_last_mouse_sec(
-        (clock_->Now() - activity_data.last_mouse_time).InSeconds());
-  }
-  if (!activity_data.last_key_time.is_null()) {
-    features_.set_time_since_last_key_sec(
-        (clock_->Now() - activity_data.last_key_time).InSeconds());
+        activity_data.last_user_activity_time_of_day.value().InSeconds());
   }
 
   features_.set_recent_time_active_sec(
-      (activity_data.last_activity_time - activity_data.earliest_activity_time)
-          .InSeconds());
+      activity_data.recent_time_active.InSeconds());
+
+  if (activity_data.time_since_last_key) {
+    features_.set_time_since_last_key_sec(
+        activity_data.time_since_last_key.value().InSeconds());
+  }
+  if (activity_data.time_since_last_mouse) {
+    features_.set_time_since_last_mouse_sec(
+        activity_data.time_since_last_mouse.value().InSeconds());
+  }
+  if (activity_data.time_since_last_touch) {
+    features_.set_time_since_last_touch_sec(
+        activity_data.time_since_last_touch.value().InSeconds());
+  }
+
+  features_.set_video_playing_time_sec(
+      activity_data.video_playing_time.InSeconds());
+
+  if (activity_data.time_since_video_ended) {
+    features_.set_time_since_video_ended_sec(
+        activity_data.time_since_video_ended.value().InSeconds());
+  }
+
+  features_.set_key_events_in_last_hour(activity_data.key_events_in_last_hour);
+  features_.set_mouse_events_in_last_hour(
+      activity_data.mouse_events_in_last_hour);
+  features_.set_touch_events_in_last_hour(
+      activity_data.touch_events_in_last_hour);
 
   // Set device mode.
   if (lid_state_ == chromeos::PowerManagerClient::LidState::CLOSED) {
@@ -249,7 +298,7 @@ void UserActivityLogger::ExtractFeatures(
 void UserActivityLogger::MaybeLogEvent(
     UserActivityEvent::Event::Type type,
     UserActivityEvent::Event::Reason reason) {
-  if (idle_event_start_.is_null())
+  if (!idle_event_start_since_boot_)
     return;
   screen_idle_timer_.Stop();
   UserActivityEvent activity_event;
@@ -257,20 +306,22 @@ void UserActivityLogger::MaybeLogEvent(
   UserActivityEvent::Event* event = activity_event.mutable_event();
   event->set_type(type);
   event->set_reason(reason);
-  event->set_log_duration_sec((clock_->Now() - idle_event_start_).InSeconds());
+  event->set_log_duration_sec(
+      (boot_clock_->GetTimeSinceBoot() - idle_event_start_since_boot_.value())
+          .InSeconds());
 
   *activity_event.mutable_features() = features_;
 
   // Log to metrics.
   logger_delegate_->LogActivity(activity_event);
-  idle_event_start_ = base::Time();
+  idle_event_start_since_boot_ = base::nullopt;
 }
 
 void UserActivityLogger::SetTaskRunnerForTesting(
     scoped_refptr<base::SequencedTaskRunner> task_runner,
-    std::unique_ptr<base::Clock> test_clock) {
+    std::unique_ptr<BootClock> test_boot_clock) {
   screen_idle_timer_.SetTaskRunner(task_runner);
-  clock_ = std::move(test_clock);
+  boot_clock_ = std::move(test_boot_clock);
 }
 
 }  // namespace ml

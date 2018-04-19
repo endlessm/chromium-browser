@@ -11,7 +11,7 @@
 #include "chrome/browser/signin/chrome_signin_helper.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_utils.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "ui/base/ui_base_types.h"
 
@@ -90,7 +90,7 @@ class BrowserWindowCocoa
   void ToolbarSizeChanged(bool is_animating) override;
   void FocusAppMenu() override;
   void FocusBookmarksToolbar() override;
-  void FocusInfobars() override;
+  void FocusInactivePopupForAccessibility() override;
   void RotatePaneFocus(bool forwards) override;
   bool IsBookmarkBarVisible() const override;
   bool IsBookmarkBarAnimating() const override;

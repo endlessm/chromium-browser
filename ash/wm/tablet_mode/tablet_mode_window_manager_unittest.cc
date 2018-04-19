@@ -8,6 +8,8 @@
 
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/shelf_prefs.h"
+#include "ash/public/cpp/window_properties.h"
+#include "ash/public/cpp/window_state_type.h"
 #include "ash/root_window_controller.h"
 #include "ash/screen_util.h"
 #include "ash/session/session_controller.h"
@@ -21,6 +23,7 @@
 #include "ash/wm/switchable_windows.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_properties.h"
+#include "ash/wm/window_resizer.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_state_observer.h"
 #include "ash/wm/window_util.h"
@@ -548,8 +551,8 @@ std::string GetPlacementOverride(aura::Window* window) {
   gfx::Rect* bounds = window->GetProperty(kRestoreBoundsOverrideKey);
   if (bounds) {
     gfx::Rect restore_bounds = *bounds;
-    ui::WindowShowState restore_state =
-        window->GetProperty(kRestoreShowStateOverrideKey);
+    ui::WindowShowState restore_state = ToWindowShowState(
+        window->GetProperty(kRestoreWindowStateTypeOverrideKey));
     return GetPlacementString(restore_bounds, restore_state);
   }
   return std::string();
@@ -899,6 +902,58 @@ TEST_F(TabletModeWindowManagerTest, MinimizedEnterAndLeaveTabletMode) {
   EXPECT_FALSE(window_state->IsMinimized());
   window_state->Minimize();
   EXPECT_TRUE(window_state->IsMinimized());
+}
+
+// Tests that pre-minimized window show state is persistent after entering and
+// leaving tablet mode, that is not cleared in tablet mode.
+TEST_F(TabletModeWindowManagerTest, PersistPreMinimizedShowState) {
+  gfx::Rect rect(10, 10, 100, 100);
+  std::unique_ptr<aura::Window> window(
+      CreateWindow(aura::client::WINDOW_TYPE_NORMAL, rect));
+  wm::WindowState* window_state = wm::GetWindowState(window.get());
+  window_state->Maximize();
+  window_state->Minimize();
+  EXPECT_EQ(ui::SHOW_STATE_MAXIMIZED,
+            window->GetProperty(aura::client::kPreMinimizedShowStateKey));
+
+  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
+  window_state->Unminimize();
+  // Check that pre-minimized window show state is not cleared due to
+  // unminimizing in tablet mode.
+  EXPECT_EQ(ui::SHOW_STATE_MAXIMIZED,
+            window->GetProperty(aura::client::kPreMinimizedShowStateKey));
+  window_state->Minimize();
+  EXPECT_EQ(ui::SHOW_STATE_MAXIMIZED,
+            window->GetProperty(aura::client::kPreMinimizedShowStateKey));
+
+  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(false);
+  window_state->Unminimize();
+  EXPECT_TRUE(window_state->IsMaximized());
+}
+
+// Tests unminimizing in tablet mode and then existing tablet mode should have
+// pre-minimized window show state.
+TEST_F(TabletModeWindowManagerTest, UnminimizeInTabletMode) {
+  // Tests restoring to maximized show state.
+  gfx::Rect rect(10, 10, 100, 100);
+  std::unique_ptr<aura::Window> window(
+      CreateWindow(aura::client::WINDOW_TYPE_NORMAL, rect));
+  wm::WindowState* window_state = wm::GetWindowState(window.get());
+  window_state->Maximize();
+  window_state->Minimize();
+  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
+  window_state->Unminimize();
+  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(false);
+  EXPECT_TRUE(window_state->IsMaximized());
+
+  // Tests restoring to normal show state.
+  window_state->Restore();
+  EXPECT_EQ(gfx::Rect(10, 10, 100, 100), window->GetBoundsInScreen());
+  window_state->Minimize();
+  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
+  window_state->Unminimize();
+  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(false);
+  EXPECT_EQ(gfx::Rect(10, 10, 100, 100), window->GetBoundsInScreen());
 }
 
 // Check that a full screen window remains full screen upon entering maximize
@@ -1535,8 +1590,6 @@ TEST_F(TabletModeWindowManagerTest, AlwaysOnTopWindows) {
   EXPECT_FALSE(wm::GetWindowState(w2.get())->IsMaximized());
   EXPECT_EQ(rect1.ToString(), w1->bounds().ToString());
   EXPECT_EQ(rect2.ToString(), w2->bounds().ToString());
-  EXPECT_TRUE(wm::GetWindowState(w1.get())->can_be_dragged());
-  EXPECT_TRUE(wm::GetWindowState(w2.get())->can_be_dragged());
 
   // Enter tablet mode. Neither window should be managed because they have
   // the always-on-top property set, which means that none of their properties
@@ -1548,8 +1601,6 @@ TEST_F(TabletModeWindowManagerTest, AlwaysOnTopWindows) {
   EXPECT_FALSE(wm::GetWindowState(w2.get())->IsMaximized());
   EXPECT_EQ(rect1.ToString(), w1->bounds().ToString());
   EXPECT_EQ(rect2.ToString(), w2->bounds().ToString());
-  EXPECT_TRUE(wm::GetWindowState(w1.get())->can_be_dragged());
-  EXPECT_TRUE(wm::GetWindowState(w2.get())->can_be_dragged());
 
   // Remove the always-on-top property from both windows while in maximize
   // mode. The windows should become managed, which means they should be
@@ -1563,8 +1614,6 @@ TEST_F(TabletModeWindowManagerTest, AlwaysOnTopWindows) {
   EXPECT_NE(rect1.size().ToString(), w1->bounds().size().ToString());
   EXPECT_NE(rect2.origin().ToString(), w2->bounds().origin().ToString());
   EXPECT_EQ(rect2.size().ToString(), w2->bounds().size().ToString());
-  EXPECT_FALSE(wm::GetWindowState(w1.get())->can_be_dragged());
-  EXPECT_FALSE(wm::GetWindowState(w2.get())->can_be_dragged());
 
   // Applying the always-on-top property to both windows while in maximize
   // mode should cause both windows to return to their original size,
@@ -1576,8 +1625,6 @@ TEST_F(TabletModeWindowManagerTest, AlwaysOnTopWindows) {
   EXPECT_FALSE(wm::GetWindowState(w2.get())->IsMaximized());
   EXPECT_EQ(rect1.ToString(), w1->bounds().ToString());
   EXPECT_EQ(rect2.ToString(), w2->bounds().ToString());
-  EXPECT_TRUE(wm::GetWindowState(w1.get())->can_be_dragged());
-  EXPECT_TRUE(wm::GetWindowState(w2.get())->can_be_dragged());
 
   // The always-on-top windows should not change when leaving tablet mode.
   DestroyTabletModeWindowManager();
@@ -1585,8 +1632,6 @@ TEST_F(TabletModeWindowManagerTest, AlwaysOnTopWindows) {
   EXPECT_FALSE(wm::GetWindowState(w2.get())->IsMaximized());
   EXPECT_EQ(rect1.ToString(), w1->bounds().ToString());
   EXPECT_EQ(rect2.ToString(), w2->bounds().ToString());
-  EXPECT_TRUE(wm::GetWindowState(w1.get())->can_be_dragged());
-  EXPECT_TRUE(wm::GetWindowState(w2.get())->can_be_dragged());
 }
 
 // Tests that windows that can control maximized bounds are not maximized
@@ -1735,6 +1780,22 @@ TEST_F(TabletModeWindowManagerTest, SetPropertyOnUnmanagedWindow) {
   wm::GetWindowState(window.get())->set_allow_set_bounds_direct(true);
   window->SetProperty(aura::client::kAlwaysOnTopKey, true);
   window->Show();
+}
+
+// Test that there is no window resizer in tablet mode.
+TEST_F(TabletModeWindowManagerTest, NoWindowResizerInTabletMode) {
+  gfx::Rect rect(10, 10, 200, 200);
+  std::unique_ptr<aura::Window> window(
+      CreateWindow(aura::client::WINDOW_TYPE_NORMAL, rect));
+  std::unique_ptr<WindowResizer> resizer(CreateWindowResizer(
+      window.get(), gfx::Point(), HTCAPTION, ::wm::WINDOW_MOVE_SOURCE_MOUSE));
+  EXPECT_TRUE(resizer.get());
+  resizer.reset();
+
+  CreateTabletModeWindowManager();
+  resizer = CreateWindowResizer(window.get(), gfx::Point(), HTCAPTION,
+                                ::wm::WINDOW_MOVE_SOURCE_MOUSE);
+  EXPECT_FALSE(resizer.get());
 }
 
 }  // namespace ash

@@ -49,7 +49,6 @@
 #include "components/prefs/pref_service.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/vector_icons/vector_icons.h"
-#include "content/public/browser/browser_accessibility_state.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -63,6 +62,7 @@
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/keyboard/keyboard_controller.h"
 #include "ui/native_theme/native_theme_aura.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/widget/tooltip_manager.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/non_client_view.h"
@@ -136,6 +136,7 @@ void ToolbarView::Init() {
   if (!is_display_mode_normal()) {
     AddChildView(location_bar_);
     location_bar_->Init();
+    initialized_ = true;
     return;
   }
 
@@ -149,6 +150,8 @@ void ToolbarView::Init() {
   back_->set_tag(IDC_BACK);
   back_->SetTooltipText(l10n_util::GetStringUTF16(IDS_TOOLTIP_BACK));
   back_->SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_BACK));
+  back_->GetViewAccessibility().OverrideDescription(
+      l10n_util::GetStringUTF8(IDS_ACCDESCRIPTION_BACK));
   back_->set_id(VIEW_ID_BACK_BUTTON);
   back_->Init();
 
@@ -162,6 +165,8 @@ void ToolbarView::Init() {
   forward_->set_tag(IDC_FORWARD);
   forward_->SetTooltipText(l10n_util::GetStringUTF16(IDS_TOOLTIP_FORWARD));
   forward_->SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_FORWARD));
+  forward_->GetViewAccessibility().OverrideDescription(
+      l10n_util::GetStringUTF8(IDS_ACCDESCRIPTION_FORWARD));
   forward_->set_id(VIEW_ID_FORWARD_BUTTON);
   forward_->Init();
 
@@ -183,9 +188,10 @@ void ToolbarView::Init() {
   home_->set_id(VIEW_ID_HOME_BUTTON);
   home_->Init();
 
-  browser_actions_ = new BrowserActionsContainer(
-      browser_,
-      nullptr);  // No master container for this one (it is master).
+  // No master container for this one (it is master).
+  BrowserActionsContainer* main_container = nullptr;
+  browser_actions_ =
+      new BrowserActionsContainer(browser_, main_container, this);
 
   app_menu_button_ = new AppMenuButton(this);
   app_menu_button_->EnableCanvasFlippingForRTLUI(true);
@@ -221,19 +227,12 @@ void ToolbarView::Init() {
 
   location_bar_->Init();
 
-  show_home_button_.Init(prefs::kShowHomeButton,
-                         browser_->profile()->GetPrefs(),
-                         base::Bind(&ToolbarView::OnShowHomeButtonChanged,
-                                    base::Unretained(this)));
+  show_home_button_.Init(
+      prefs::kShowHomeButton, browser_->profile()->GetPrefs(),
+      base::BindRepeating(&ToolbarView::OnShowHomeButtonChanged,
+                          base::Unretained(this)));
 
-  // Accessibility specific tooltip text.
-  if (content::BrowserAccessibilityState::GetInstance()->
-          IsAccessibleBrowser()) {
-    back_->SetTooltipText(
-        l10n_util::GetStringUTF16(IDS_ACCNAME_TOOLTIP_BACK));
-    forward_->SetTooltipText(
-        l10n_util::GetStringUTF16(IDS_ACCNAME_TOOLTIP_FORWARD));
-  }
+  initialized_ = true;
 }
 
 void ToolbarView::Update(WebContents* tab) {
@@ -274,7 +273,7 @@ void ToolbarView::ShowIntentPickerBubble(
         intent_picker_view, GetWebContents(), app_info,
         false /* disable_stay_in_chrome */, callback);
     if (bubble_widget && intent_picker_view)
-      bubble_widget->AddObserver(intent_picker_view);
+      intent_picker_view->OnBubbleWidgetCreated(bubble_widget);
   }
 }
 #endif  // defined(OS_CHROMEOS)
@@ -284,7 +283,7 @@ void ToolbarView::ShowBookmarkBubble(
     bool already_bookmarked,
     bookmarks::BookmarkBubbleObserver* observer) {
   views::View* anchor_view = location_bar();
-  StarView* star_view = location_bar()->star_view();
+  BubbleIconView* const star_view = location_bar()->star_view();
   if (!ui::MaterialDesignController::IsSecondaryUiMaterial()) {
     if (star_view && star_view->visible())
       anchor_view = star_view;
@@ -297,10 +296,8 @@ void ToolbarView::ShowBookmarkBubble(
   views::Widget* bubble_widget = BookmarkBubbleView::ShowBubble(
       anchor_view, gfx::Rect(), nullptr, observer, std::move(delegate),
       browser_->profile(), url, already_bookmarked);
-  if (bubble_widget && star_view) {
-    star_view->SetHighlighted();
-    bubble_widget->AddObserver(star_view);
-  }
+  if (bubble_widget && star_view)
+    star_view->OnBubbleWidgetCreated(bubble_widget);
 }
 
 void ToolbarView::ShowTranslateBubble(
@@ -322,15 +319,7 @@ void ToolbarView::ShowTranslateBubble(
       is_user_gesture ? TranslateBubbleView::USER_GESTURE
                       : TranslateBubbleView::AUTOMATIC);
   if (bubble_widget && translate_icon_view)
-    bubble_widget->AddObserver(translate_icon_view);
-}
-
-int ToolbarView::GetMaxBrowserActionsWidth() const {
-  // The browser actions container is allowed to grow, but only up until the
-  // omnibox reaches its minimum size. So its maximum allowed width is its
-  // current size, plus any that the omnibox could give up.
-  return browser_actions_->width() +
-         (location_bar_->width() - location_bar_->GetMinimumSize().width());
+    translate_icon_view->OnBubbleWidgetCreated(bubble_widget);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -380,6 +369,29 @@ const ToolbarModel* ToolbarView::GetToolbarModel() const {
 ContentSettingBubbleModelDelegate*
 ToolbarView::GetContentSettingBubbleModelDelegate() {
   return browser_->content_setting_bubble_model_delegate();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// ToolbarView, BrowserActionsContainer::Delegate implementation:
+
+views::MenuButton* ToolbarView::GetOverflowReferenceView() {
+  return app_menu_button_;
+}
+
+base::Optional<int> ToolbarView::GetMaxBrowserActionsWidth() const {
+  // The browser actions container is allowed to grow, but only up until the
+  // omnibox reaches its minimum size. So its maximum allowed width is its
+  // current size, plus any that the omnibox could give up.
+  return browser_actions_->width() +
+         (location_bar_->width() - location_bar_->GetMinimumSize().width());
+}
+
+std::unique_ptr<ToolbarActionsBar> ToolbarView::CreateToolbarActionsBar(
+    ToolbarActionsBarDelegate* delegate,
+    Browser* browser,
+    ToolbarActionsBar* main_bar) const {
+  DCHECK_EQ(browser_, browser);
+  return std::make_unique<ToolbarActionsBar>(delegate, browser, main_bar);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -449,7 +461,7 @@ gfx::Size ToolbarView::GetMinimumSize() const {
 
 void ToolbarView::Layout() {
   // If we have not been initialized yet just do nothing.
-  if (!location_bar_)
+  if (!initialized_)
     return;
 
   if (!is_display_mode_normal()) {
@@ -576,6 +588,10 @@ bool ToolbarView::AcceleratorPressed(const ui::Accelerator& accelerator) {
   return AccessiblePaneView::AcceleratorPressed(accelerator);
 }
 
+void ToolbarView::ChildPreferredSizeChanged(views::View* child) {
+  Layout();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // ToolbarView, protected:
 
@@ -641,6 +657,15 @@ void ToolbarView::UpdateSeverity(AppMenuIconController::IconType type,
     incompatibility_warning_showing = true;
     return;
   }
+}
+
+// BrowserViewButtonProvider:
+BrowserActionsContainer* ToolbarView::GetBrowserActionsContainer() {
+  return browser_actions_;
+}
+
+views::MenuButton* ToolbarView::GetAppMenuButton() {
+  return app_menu_button_;
 }
 
 gfx::Size ToolbarView::GetSizeInternal(

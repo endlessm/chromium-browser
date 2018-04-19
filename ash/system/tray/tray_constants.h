@@ -6,29 +6,15 @@
 #define ASH_SYSTEM_TRAY_TRAY_CONSTANTS_H_
 
 #include "ash/ash_export.h"
-
-typedef unsigned int SkColor;
+#include "third_party/skia/include/core/SkColor.h"
 
 namespace ash {
 
-extern const int kPaddingFromRightEdgeOfScreenBottomAlignment;
-extern const int kPaddingFromBottomOfScreenBottomAlignment;
-extern const int kPaddingFromOuterEdgeOfLauncherVerticalAlignment;
-extern const int kPaddingFromInnerEdgeOfLauncherVerticalAlignment;
-extern const int kPaddingFromBottomOfScreenVerticalAlignment;
-
 extern const int kBubblePaddingHorizontalBottom;
-extern const int kBubblePaddingHorizontalSide;
-extern const int kBubblePaddingVerticalBottom;
-extern const int kBubblePaddingVerticalSide;
 
 // The size delta between the default font and the font size found in tray
 // items like labels and buttons.
 extern const int kTrayTextFontSizeIncrease;
-
-extern const int kTrayBubbleAnchorTopInsetBottomAnchor;
-
-extern const int kTrayImageItemHorizontalPaddingVerticalAlignment;
 
 ASH_EXPORT extern const int kTrayItemSize;
 
@@ -38,14 +24,10 @@ constexpr int kTrayImageItemPadding = 3;
 extern const int kTrayLabelItemHorizontalPaddingBottomAlignment;
 extern const int kTrayLabelItemVerticalPaddingVerticalAlignment;
 
-extern const int kTrayMenuBottomRowPadding;
-extern const int kTrayMenuBottomRowPaddingBetweenItems;
-
 // The width of the tray menu.
 extern const int kTrayMenuWidth;
 
 extern const int kTrayPopupAutoCloseDelayInSeconds;
-extern const int kTrayPopupAutoCloseDelayForTextInSeconds;
 extern const int kTrayPopupPaddingHorizontal;
 extern const int kTrayPopupPaddingBetweenItems;
 extern const int kTrayPopupButtonEndMargin;
@@ -75,7 +57,6 @@ ASH_EXPORT extern const int kTrayDetailedViewTransitionDelayMs;
 // item. This applies to all labels in the system menu.
 extern const int kTrayPopupLabelRightPadding;
 
-extern const SkColor kTrayPopupHoverBackgroundColor;
 extern const int kTrayRoundedBorderRadius;
 
 // The width of ToggleButton views including any border padding.
@@ -87,15 +68,8 @@ extern const SkColor kPublicAccountUserCardNameColor;
 extern const SkColor kHeaderBackgroundColor;
 
 extern const SkColor kHeaderTextColorNormal;
-extern const SkColor kHeaderTextColorHover;
 
 extern const SkColor kMobileNotConnectedXIconColor;
-
-extern const int kTrayPopupMinWidth;
-extern const int kTrayPopupMaxWidth;
-extern const int kNotificationIconWidth;
-extern const int kNotificationButtonWidth;
-extern const int kTrayNotificationContentsWidth;
 
 // Extra padding used to adjust hitting region around tray items.
 extern const int kHitRegionPadding;
@@ -148,6 +122,17 @@ extern const int kTrayPopupInkDropCornerRadius;
 
 // The height of the system info row.
 extern const int kTrayPopupSystemInfoRowHeight;
+
+// The colors used when --enable-features=SystemTrayUnified flag is enabled.
+constexpr SkColor kUnifiedMenuBackgroundColor = SkColorSetRGB(0x20, 0x21, 0x24);
+constexpr SkColor kUnifiedMenuTextColor = SkColorSetRGB(0xf1, 0xf2, 0xf3);
+constexpr SkColor kUnifiedMenuIconColor = SkColorSetRGB(0xf1, 0xf2, 0xf3);
+constexpr SkColor kUnifiedMenuIconColorDisabled =
+    SkColorSetA(kUnifiedMenuIconColor, 0xa3);
+constexpr SkColor kUnifiedMenuButtonColor =
+    SkColorSetA(kUnifiedMenuIconColor, 0x14);
+
+constexpr int kUnifiedTopShortcutSpacing = 16;
 
 }  // namespace ash
 

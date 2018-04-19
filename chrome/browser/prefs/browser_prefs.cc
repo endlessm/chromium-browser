@@ -65,7 +65,7 @@
 #include "chrome/browser/ui/webui/flags_ui.h"
 #include "chrome/browser/ui/webui/ntp/new_tab_ui.h"
 #include "chrome/browser/ui/webui/print_preview/sticky_settings.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/secure_origin_whitelist.h"
 #include "components/autofill/core/browser/autofill_manager.h"
@@ -73,7 +73,7 @@
 #include "components/certificate_transparency/ct_policy_manager.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/dom_distiller/core/distilled_page_prefs.h"
-#include "components/feature_engagement/features.h"
+#include "components/feature_engagement/buildflags.h"
 #include "components/flags_ui/pref_service_flags_storage.h"
 #include "components/gcm_driver/gcm_channel_status_syncer.h"
 #include "components/network_time/network_time_tracker.h"
@@ -84,7 +84,7 @@
 #include "components/ntp_snippets/sessions/foreign_sessions_suggestions_provider.h"
 #include "components/ntp_snippets/user_classifier.h"
 #include "components/ntp_tiles/most_visited_sites.h"
-#include "components/offline_pages/features/features.h"
+#include "components/offline_pages/buildflags/buildflags.h"
 #include "components/omnibox/browser/zero_suggest_provider.h"
 #include "components/password_manager/core/browser/password_bubble_experiment.h"
 #include "components/password_manager/core/browser/password_manager.h"
@@ -175,7 +175,6 @@
 #include "chrome/browser/android/oom_intervention/oom_intervention_decider.h"
 #include "chrome/browser/android/preferences/browser_prefs_android.h"
 #include "chrome/browser/geolocation/geolocation_permission_context_android.h"
-#include "chrome/browser/gpu/gpu_driver_info_manager_android.h"
 #include "chrome/browser/ntp_snippets/download_suggestions_provider.h"
 #include "components/cdm/browser/media_drm_storage_impl.h"
 #include "components/ntp_snippets/breaking_news/breaking_news_gcm_app_handler.h"
@@ -219,9 +218,9 @@
 #include "chrome/browser/chromeos/login/users/avatar/user_image_sync_observer.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager_impl.h"
 #include "chrome/browser/chromeos/login/users/multi_profile_user_controller.h"
-#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/chromeos/net/network_throttling_observer.h"
 #include "chrome/browser/chromeos/platform_keys/key_permissions.h"
+#include "chrome/browser/chromeos/policy/app_install_event_logger.h"
 #include "chrome/browser/chromeos/policy/auto_enrollment_client.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_cloud_policy_manager_chromeos.h"
@@ -271,6 +270,10 @@
 #if defined(OS_WIN)
 #include "chrome/browser/apps/app_launch_for_metro_restart_win.h"
 #include "chrome/browser/component_updater/sw_reporter_installer_win.h"
+#if defined(GOOGLE_CHROME_BUILD)
+#include "chrome/browser/conflicts/module_database_win.h"
+#include "chrome/browser/conflicts/problematic_programs_updater_win.h"
+#endif  // defined(GOOGLE_CHROME_BUILD)
 #include "chrome/browser/safe_browsing/chrome_cleaner/settings_resetter_win.h"
 #include "chrome/browser/safe_browsing/settings_reset_prompt/settings_reset_prompt_prefs_manager.h"
 #include "chrome/browser/ui/desktop_ios_promotion/desktop_ios_promotion_util.h"
@@ -313,6 +316,9 @@ const char kStabilityLaunchedActivityCounts[] =
     "user_experience_metrics.stability.launched_activity_counts";
 const char kStabilityCrashedActivityCounts[] =
     "user_experience_metrics.stability.crashed_activity_counts";
+#else
+// Deprecated 1/2018.
+const char kShowFirstRunBubbleOption[] = "show-first-run-bubble-option";
 #endif  // defined(OS_ANDROID)
 
 // Deprecated 11/2017.
@@ -387,7 +393,6 @@ void RegisterLocalState(PrefRegistrySimple* registry) {
 
 #if defined(OS_ANDROID)
   ::android::RegisterPrefs(registry);
-  GpuDriverInfoManager::RegisterPrefs(registry);
   // Obsolete activity prefs. See MigrateObsoleteBrowserPrefs().
   registry->RegisterIntegerPref(kStabilityForegroundActivityType, 0);
   registry->RegisterIntegerPref(kStabilityLaunchedActivityFlags, 0);
@@ -402,6 +407,8 @@ void RegisterLocalState(PrefRegistrySimple* registry) {
   StartupBrowserCreator::RegisterLocalStatePrefs(registry);
   task_manager::TaskManagerInterface::RegisterPrefs(registry);
   UpgradeDetector::RegisterPrefs(registry);
+  // Obsolete. See MigrateObsoleteBrowserPrefs().
+  registry->RegisterIntegerPref(kShowFirstRunBubbleOption, 0);
 #if !defined(OS_CHROMEOS)
   RegisterDefaultBrowserPromptPrefs(registry);
 #endif  // !defined(OS_CHROMEOS)
@@ -459,6 +466,10 @@ void RegisterLocalState(PrefRegistrySimple* registry) {
   component_updater::RegisterPrefsForSwReporter(registry);
   desktop_ios_promotion::RegisterLocalPrefs(registry);
   password_manager::PasswordManager::RegisterLocalPrefs(registry);
+#if defined(GOOGLE_CHROME_BUILD)
+  ModuleDatabase::RegisterLocalStatePrefs(registry);
+  ProblematicProgramsUpdater::RegisterLocalStatePrefs(registry);
+#endif  // defined(GOOGLE_CHROME_BUILD)
 #endif
 
 #if defined(TOOLKIT_VIEWS)
@@ -626,6 +637,7 @@ void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
   extensions::EPKPChallengeUserKey::RegisterProfilePrefs(registry);
   flags_ui::PrefServiceFlagsStorage::RegisterProfilePrefs(registry);
   lock_screen_apps::StateController::RegisterProfilePrefs(registry);
+  policy::AppInstallEventLogger::RegisterProfilePrefs(registry);
   policy::DeviceStatusCollector::RegisterProfilePrefs(registry);
   ::onc::RegisterProfilePrefs(registry);
 #endif
@@ -705,6 +717,9 @@ void MigrateObsoleteBrowserPrefs(Profile* profile, PrefService* local_state) {
   local_state->ClearPref(kStabilityLaunchedActivityFlags);
   local_state->ClearPref(kStabilityLaunchedActivityCounts);
   local_state->ClearPref(kStabilityCrashedActivityCounts);
+#else
+  // Added 1/2018.
+  local_state->ClearPref(kShowFirstRunBubbleOption);
 #endif  // defined(OS_ANDROID)
 }
 

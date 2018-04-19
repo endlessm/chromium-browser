@@ -20,6 +20,7 @@
 #include "ash/system/tray/tray_constants.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/bind.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -28,8 +29,8 @@
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/message_center/message_center.h"
-#include "ui/message_center/notification.h"
-#include "ui/message_center/notification_delegate.h"
+#include "ui/message_center/public/cpp/notification.h"
+#include "ui/message_center/public/cpp/notification_delegate.h"
 #include "ui/strings/grit/ui_strings.h"
 
 using message_center::Notification;
@@ -55,9 +56,8 @@ base::string16 GetDisplaySize(int64_t display_id) {
   // to empty string if this happens on release build.
   const display::DisplayIdList id_list =
       display_manager->GetMirroringDestinationDisplayIdList();
-  const bool mirroring =
-      display_manager->IsInMirrorMode() &&
-      std::find(id_list.begin(), id_list.end(), display_id) != id_list.end();
+  const bool mirroring = display_manager->IsInMirrorMode() &&
+                         base::ContainsValue(id_list, display_id);
   DCHECK(!mirroring);
   if (mirroring)
     return base::string16();
@@ -305,7 +305,7 @@ bool ScreenLayoutObserver::GetDisplayMessageForNotification(
       continue;
     // b) the source is accelerometer.
     if (iter.second.active_rotation_source() ==
-        display::Display::ROTATION_SOURCE_ACCELEROMETER) {
+        display::Display::RotationSource::ACCELEROMETER) {
       continue;
     }
     // c) if the device is in tablet mode, and source is not user.
@@ -313,7 +313,7 @@ bool ScreenLayoutObserver::GetDisplayMessageForNotification(
             ->tablet_mode_controller()
             ->IsTabletModeWindowManagerEnabled() &&
         iter.second.active_rotation_source() !=
-            display::Display::ROTATION_SOURCE_USER) {
+            display::Display::RotationSource::USER) {
       continue;
     }
 

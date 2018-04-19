@@ -87,7 +87,8 @@ class TestingCloudPolicyClientForRemoteCommands : public CloudPolicyClient {
                           std::string(), /* machine_model */
                           nullptr,       /* service */
                           nullptr,       /* request_context */
-                          nullptr /* signing_service */),
+                          nullptr /* signing_service */,
+                          CloudPolicyClient::DeviceDMTokenCallback()),
         server_(server) {
     dm_token_ = kDMToken;
   }
@@ -136,10 +137,10 @@ class TestingCloudPolicyClientForRemoteCommands : public CloudPolicyClient {
     // Simulate delay from client to DMServer.
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
-        base::Bind(
+        base::BindOnce(
             &TestingCloudPolicyClientForRemoteCommands::DoFetchRemoteCommands,
-            base::Unretained(this), base::Passed(&last_command_id),
-            command_results, callback, fetch_call_expectation),
+            base::Unretained(this), std::move(last_command_id), command_results,
+            callback, fetch_call_expectation),
         base::TimeDelta::FromSeconds(
             kTestClientServerCommunicationDelayInSeconds));
   }

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
 
+#include <utility>
+
 #include "base/metrics/histogram_macros.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/extension_util.h"
@@ -12,7 +14,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/extension_uninstaller.h"
 #include "chrome/browser/ui/apps/app_info_dialog.h"
+#include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
@@ -24,8 +28,6 @@
 #include "net/base/url_util.h"
 #include "rlz/features/features.h"
 #include "ui/app_list/app_list_switches.h"
-#include "ui/display/display.h"
-#include "ui/display/screen.h"
 #include "ui/gfx/geometry/rect.h"
 
 #if BUILDFLAG(ENABLE_RLZ)
@@ -46,18 +48,14 @@ const extensions::Extension* GetExtension(Profile* profile,
 
 }  // namespace
 
+AppListControllerDelegate::AppListControllerDelegate()
+    : weak_ptr_factory_(this) {}
+
 AppListControllerDelegate::~AppListControllerDelegate() {}
 
-void AppListControllerDelegate::ViewClosing() {}
-
-int64_t AppListControllerDelegate::GetAppListDisplayId() {
-  auto* screen = display::Screen::GetScreen();
-  return screen ? screen->GetDisplayNearestWindow(GetAppListWindow()).id()
-                : display::kInvalidDisplayId;
-}
-
-gfx::Rect AppListControllerDelegate::GetAppInfoDialogBounds() {
-  return gfx::Rect();
+void AppListControllerDelegate::GetAppInfoDialogBounds(
+    GetAppInfoDialogBoundsCallback callback) {
+  std::move(callback).Run(gfx::Rect());
 }
 
 void AppListControllerDelegate::OnShowChildDialog() {
@@ -95,8 +93,14 @@ void AppListControllerDelegate::DoShowAppInfoFlow(
     Profile* profile,
     const std::string& extension_id) {
   DCHECK(CanDoShowAppInfoFlow());
+
   const extensions::Extension* extension = GetExtension(profile, extension_id);
   DCHECK(extension);
+  if (extension->is_hosted_app() && extension->from_bookmark()) {
+    chrome::ShowSiteSettings(
+        profile, extensions::AppLaunchInfo::GetFullLaunchURL(extension));
+    return;
+  }
 
   OnShowChildDialog();
 
@@ -106,10 +110,18 @@ void AppListControllerDelegate::DoShowAppInfoFlow(
 
   // Since the AppListControllerDelegate is a leaky singleton, passing its raw
   // pointer around is OK.
-  ShowAppInfoInAppList(
-      GetAppListWindow(), GetAppInfoDialogBounds(), profile, extension,
-      base::Bind(&AppListControllerDelegate::OnCloseChildDialog,
-                 base::Unretained(this)));
+  GetAppInfoDialogBounds(base::BindOnce(
+      [](base::WeakPtr<AppListControllerDelegate> self, Profile* profile,
+         const std::string& extension_id, const gfx::Rect& bounds) {
+        const extensions::Extension* extension =
+            GetExtension(profile, extension_id);
+        DCHECK(extension);
+        ShowAppInfoInAppList(
+            bounds, profile, extension,
+            base::BindRepeating(&AppListControllerDelegate::OnCloseChildDialog,
+                                self));
+      },
+      weak_ptr_factory_.GetWeakPtr(), profile, extension_id));
 }
 
 void AppListControllerDelegate::UninstallApp(Profile* profile,

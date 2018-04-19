@@ -22,13 +22,13 @@ WebViewAutofillClientIOS::WebViewAutofillClientIOS(
     PersonalDataManager* personal_data_manager,
     web::WebState* web_state,
     id<AutofillClientIOSBridge> bridge,
-    std::unique_ptr<IdentityProvider> identity_provider,
+    identity::IdentityManager* identity_manager,
     scoped_refptr<AutofillWebDataService> autofill_web_data_service)
     : pref_service_(pref_service),
       personal_data_manager_(personal_data_manager),
       web_state_(web_state),
       bridge_(bridge),
-      identity_provider_(std::move(identity_provider)),
+      identity_manager_(identity_manager),
       autofill_web_data_service_(autofill_web_data_service) {}
 
 WebViewAutofillClientIOS::~WebViewAutofillClientIOS() {
@@ -48,8 +48,8 @@ syncer::SyncService* WebViewAutofillClientIOS::GetSyncService() {
   return nullptr;
 }
 
-IdentityProvider* WebViewAutofillClientIOS::GetIdentityProvider() {
-  return identity_provider_.get();
+identity::IdentityManager* WebViewAutofillClientIOS::GetIdentityManager() {
+  return identity_manager_;
 }
 
 ukm::UkmRecorder* WebViewAutofillClientIOS::GetUkmRecorder() {

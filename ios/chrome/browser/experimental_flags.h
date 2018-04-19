@@ -45,23 +45,20 @@ bool IsLRUSnapshotCacheEnabled();
 // Whether memory debugging tools are enabled.
 bool IsMemoryDebuggingEnabled();
 
-// Whether the Clear Browsing Data counters and time selection UI is enabled.
-bool IsNewClearBrowsingDataUIEnabled();
-
-// Whether the page icon for downgraded HTTPS is enabled.
-bool IsPageIconForDowngradedHTTPSEnabled();
-
 // Whether startup crash is enabled.
 bool IsStartupCrashEnabled();
 
-// Whether viewing and copying passwords is enabled.
-bool IsViewCopyPasswordsEnabled();
+// Whether the new Clear Browsing Data UI is enabled.
+bool IsNewClearBrowsingDataUIEnabled();
 
 // Whether a new version of FeedbackKit is the preferred feedback UI provider.
 bool IsNewFeedbackKitEnabled();
 
 // Whether the 3rd party keyboard omnibox workaround is enabled.
 bool IsThirdPartyKeyboardWorkaroundEnabled();
+
+// Whether RecentTabs UI Reboot is enabled.
+bool IsRecentTabsUIRebootEnabled();
 
 // Whether the application group sandbox must be cleared before starting.
 // Calling this method will reset the flag to false, so the sandbox is cleared

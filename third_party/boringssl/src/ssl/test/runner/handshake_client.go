@@ -87,8 +87,11 @@ func (c *Conn) clientHandshake() error {
 		nextProtoNeg:            len(c.config.NextProtos) > 0,
 		secureRenegotiation:     []byte{},
 		alpnProtocols:           c.config.NextProtos,
+		quicTransportParams:     c.config.QUICTransportParams,
 		duplicateExtension:      c.config.Bugs.DuplicateExtension,
 		channelIDSupported:      c.config.ChannelID != nil,
+		tokenBindingParams:      c.config.TokenBindingParams,
+		tokenBindingVersion:     c.config.TokenBindingVersion,
 		npnAfterAlpn:            c.config.Bugs.SwapNPNAndALPN,
 		extendedMasterSecret:    maxVersion >= VersionTLS10,
 		srtpProtectionProfiles:  c.config.SRTPProtectionProfiles,
@@ -97,6 +100,7 @@ func (c *Conn) clientHandshake() error {
 		pskBinderFirst:          c.config.Bugs.PSKBinderFirst,
 		omitExtensions:          c.config.Bugs.OmitExtensions,
 		emptyExtensions:         c.config.Bugs.EmptyExtensions,
+		dummyPQPaddingLen:       c.config.Bugs.SendDummyPQPaddingLength,
 	}
 
 	if maxVersion >= VersionTLS13 {
@@ -159,18 +163,13 @@ func (c *Conn) clientHandshake() error {
 	if maxVersion >= VersionTLS13 {
 		keyShares = make(map[CurveID]ecdhCurve)
 		hello.hasKeyShares = true
-		if c.config.TLS13Variant == TLS13Draft23 {
-			hello.keyShareExtension = extensionNewKeyShare
-		} else {
-			hello.keyShareExtension = extensionOldKeyShare
-		}
 		hello.trailingKeyShareData = c.config.Bugs.TrailingKeyShareData
 		curvesToSend := c.config.defaultCurves()
 		for _, curveID := range hello.supportedCurves {
 			if !curvesToSend[curveID] {
 				continue
 			}
-			curve, ok := curveForCurveID(curveID)
+			curve, ok := curveForCurveID(curveID, c.config)
 			if !ok {
 				continue
 			}
@@ -382,7 +381,7 @@ NextCipherSuite:
 			// set. Fill in an arbitrary TLS 1.3 version to compute
 			// the binder.
 			if session.vers < VersionTLS13 {
-				version = tls13Draft22Version
+				version = tls13Draft23Version
 			}
 			generatePSKBinders(version, hello, pskCipherSuite, session.masterSecret, []byte{}, []byte{}, c.config)
 		}
@@ -419,7 +418,7 @@ NextCipherSuite:
 		finishedHash.addEntropy(session.masterSecret)
 		finishedHash.Write(helloBytes)
 
-		if !c.config.Bugs.SkipChangeCipherSpec && isDraft22(session.wireVersion) {
+		if !c.config.Bugs.SkipChangeCipherSpec {
 			c.wireVersion = session.wireVersion
 			c.vers = VersionTLS13
 			c.writeRecord(recordTypeChangeCipherSpec, []byte{1})
@@ -427,14 +426,8 @@ NextCipherSuite:
 			c.vers = 0
 		}
 
-		var earlyTrafficSecret []byte
-		if isDraft22(session.wireVersion) {
-			earlyTrafficSecret = finishedHash.deriveSecret(earlyTrafficLabelDraft22)
-			c.earlyExporterSecret = finishedHash.deriveSecret(earlyExporterLabelDraft22)
-		} else {
-			earlyTrafficSecret = finishedHash.deriveSecret(earlyTrafficLabel)
-			c.earlyExporterSecret = finishedHash.deriveSecret(earlyExporterLabel)
-		}
+		earlyTrafficSecret := finishedHash.deriveSecret(earlyTrafficLabel)
+		c.earlyExporterSecret = finishedHash.deriveSecret(earlyExporterLabel)
 
 		c.useOutTrafficSecret(session.wireVersion, pskCipherSuite, earlyTrafficSecret)
 		for _, earlyData := range c.config.Bugs.SendEarlyData {
@@ -495,7 +488,7 @@ NextCipherSuite:
 	c.vers = serverVersion
 	c.haveVers = true
 
-	if isDraft22(c.wireVersion) {
+	if c.vers >= VersionTLS13 {
 		// The first server message must be followed by a ChangeCipherSpec.
 		c.expectTLS13ChangeCipherSpec = true
 	}
@@ -503,12 +496,10 @@ NextCipherSuite:
 	helloRetryRequest, haveHelloRetryRequest := msg.(*helloRetryRequestMsg)
 	var secondHelloBytes []byte
 	if haveHelloRetryRequest {
-		if isDraft22(c.wireVersion) {
-			// Explicitly read the ChangeCipherSpec now; it should
-			// be attached to the first flight, not the second flight.
-			if err := c.readTLS13ChangeCipherSpec(); err != nil {
-				return err
-			}
+		// Explicitly read the ChangeCipherSpec now; it should
+		// be attached to the first flight, not the second flight.
+		if err := c.readTLS13ChangeCipherSpec(); err != nil {
+			return err
 		}
 
 		c.out.resetCipher()
@@ -533,7 +524,7 @@ NextCipherSuite:
 				c.sendAlert(alertHandshakeFailure)
 				return errors.New("tls: received invalid HelloRetryRequest")
 			}
-			curve, ok := curveForCurveID(group)
+			curve, ok := curveForCurveID(group, c.config)
 			if !ok {
 				return errors.New("tls: Unable to get curve requested in HelloRetryRequest")
 			}
@@ -636,11 +627,9 @@ NextCipherSuite:
 
 	hs.writeHash(helloBytes, hs.c.sendHandshakeSeq-1)
 	if haveHelloRetryRequest {
-		if isDraft22(c.wireVersion) {
-			err = hs.finishedHash.UpdateForHelloRetryRequest()
-			if err != nil {
-				return err
-			}
+		err = hs.finishedHash.UpdateForHelloRetryRequest()
+		if err != nil {
+			return err
 		}
 		hs.writeServerHash(helloRetryRequest.marshal())
 		hs.writeClientHash(secondHelloBytes)
@@ -737,12 +726,6 @@ NextCipherSuite:
 func (hs *clientHandshakeState) doTLS13Handshake() error {
 	c := hs.c
 
-	if !isDraft22(c.wireVersion) {
-		// Early versions of the middlebox hacks inserted
-		// ChangeCipherSpec differently on 0-RTT and 2-RTT handshakes.
-		c.expectTLS13ChangeCipherSpec = true
-	}
-
 	if !bytes.Equal(hs.hello.sessionId, hs.serverHello.sessionId) {
 		return errors.New("tls: session IDs did not match.")
 	}
@@ -799,17 +782,10 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 		hs.finishedHash.addEntropy(zeroSecret)
 	}
 
-	clientLabel := clientHandshakeTrafficLabel
-	serverLabel := serverHandshakeTrafficLabel
-	if isDraft22(c.wireVersion) {
-		clientLabel = clientHandshakeTrafficLabelDraft22
-		serverLabel = serverHandshakeTrafficLabelDraft22
-	}
-
 	// Derive handshake traffic keys and switch read key to handshake
 	// traffic key.
-	clientHandshakeTrafficSecret := hs.finishedHash.deriveSecret(clientLabel)
-	serverHandshakeTrafficSecret := hs.finishedHash.deriveSecret(serverLabel)
+	clientHandshakeTrafficSecret := hs.finishedHash.deriveSecret(clientHandshakeTrafficLabel)
+	serverHandshakeTrafficSecret := hs.finishedHash.deriveSecret(serverHandshakeTrafficLabel)
 	if err := c.useInTrafficSecret(c.wireVersion, hs.suite, serverHandshakeTrafficSecret); err != nil {
 		return err
 	}
@@ -946,18 +922,9 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 	hs.finishedHash.nextSecret()
 	hs.finishedHash.addEntropy(zeroSecret)
 
-	clientLabel = clientApplicationTrafficLabel
-	serverLabel = serverApplicationTrafficLabel
-	exportLabel := exporterLabel
-	if isDraft22(c.wireVersion) {
-		clientLabel = clientApplicationTrafficLabelDraft22
-		serverLabel = serverApplicationTrafficLabelDraft22
-		exportLabel = exporterLabelDraft22
-	}
-
-	clientTrafficSecret := hs.finishedHash.deriveSecret(clientLabel)
-	serverTrafficSecret := hs.finishedHash.deriveSecret(serverLabel)
-	c.exporterSecret = hs.finishedHash.deriveSecret(exportLabel)
+	clientTrafficSecret := hs.finishedHash.deriveSecret(clientApplicationTrafficLabel)
+	serverTrafficSecret := hs.finishedHash.deriveSecret(serverApplicationTrafficLabel)
+	c.exporterSecret = hs.finishedHash.deriveSecret(exporterLabel)
 
 	// Switch to application data keys on read. In particular, any alerts
 	// from the client certificate are read over these keys.
@@ -1001,14 +968,10 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 			helloRequest := new(helloRequestMsg)
 			c.writeRecord(recordTypeHandshake, helloRequest.marshal())
 		}
-		if isDraft22(c.wireVersion) {
-			endOfEarlyData := new(endOfEarlyDataMsg)
-			endOfEarlyData.nonEmpty = c.config.Bugs.NonEmptyEndOfEarlyData
-			c.writeRecord(recordTypeHandshake, endOfEarlyData.marshal())
-			hs.writeClientHash(endOfEarlyData.marshal())
-		} else {
-			c.sendAlert(alertEndOfEarlyData)
-		}
+		endOfEarlyData := new(endOfEarlyDataMsg)
+		endOfEarlyData.nonEmpty = c.config.Bugs.NonEmptyEndOfEarlyData
+		c.writeRecord(recordTypeHandshake, endOfEarlyData.marshal())
+		hs.writeClientHash(endOfEarlyData.marshal())
 	}
 
 	if !c.config.Bugs.SkipChangeCipherSpec && !hs.hello.hasEarlyData {
@@ -1106,13 +1069,7 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 
 	// Switch to application data keys.
 	c.useOutTrafficSecret(c.wireVersion, hs.suite, clientTrafficSecret)
-
-	resumeLabel := resumptionLabel
-	if isDraft22(c.wireVersion) {
-		resumeLabel = resumptionLabelDraft22
-	}
-
-	c.resumptionSecret = hs.finishedHash.deriveSecret(resumeLabel)
+	c.resumptionSecret = hs.finishedHash.deriveSecret(resumptionLabel)
 	for _, ticket := range deferredTickets {
 		if err := c.processTLS13NewSessionTicket(ticket, hs.suite); err != nil {
 			return err
@@ -1451,6 +1408,29 @@ func (hs *clientHandshakeState) processServerExtensions(serverExtensions *server
 		return errors.New("server advertised unrequested Channel ID extension")
 	}
 
+	if len(serverExtensions.tokenBindingParams) == 1 {
+		found := false
+		for _, p := range c.config.TokenBindingParams {
+			if p == serverExtensions.tokenBindingParams[0] {
+				c.tokenBindingParam = p
+				found = true
+				break
+			}
+		}
+		if !found {
+			return errors.New("tls: server advertised unsupported Token Binding key param")
+		}
+		if serverExtensions.tokenBindingVersion > c.config.TokenBindingVersion {
+			return errors.New("tls: server's Token Binding version is too new")
+		}
+		if c.vers < VersionTLS13 {
+			if !serverExtensions.extendedMasterSecret || serverExtensions.secureRenegotiation == nil {
+				return errors.New("server sent Token Binding without EMS or RI")
+			}
+		}
+		c.tokenBindingNegotiated = true
+	}
+
 	if serverExtensions.extendedMasterSecret && c.vers >= VersionTLS13 {
 		return errors.New("tls: server advertised extended master secret over TLS 1.3")
 	}
@@ -1504,6 +1484,18 @@ func (hs *clientHandshakeState) processServerExtensions(serverExtensions *server
 			c.sendAlert(alertHandshakeFailure)
 			return errors.New("tls: server accepted early data when not expected")
 		}
+	}
+
+	if len(serverExtensions.quicTransportParams) > 0 {
+		if c.vers < VersionTLS13 {
+			c.sendAlert(alertHandshakeFailure)
+			return errors.New("tls: server sent QUIC transport params for TLS version less than 1.3")
+		}
+		c.quicTransportParams = serverExtensions.quicTransportParams
+	}
+
+	if l := c.config.Bugs.ExpectDummyPQPaddingLength; l != 0 && serverExtensions.dummyPQPaddingLen != l {
+		return fmt.Errorf("tls: expected %d-byte dummy PQ padding extension, but got %d bytes", l, serverExtensions.dummyPQPaddingLen)
 	}
 
 	return nil
@@ -1854,11 +1846,7 @@ func generatePSKBinders(version uint16, hello *clientHelloMsg, pskCipherSuite *c
 	helloBytes := hello.marshal()
 	binderSize := len(hello.pskBinders)*(binderLen+1) + 2
 	truncatedHello := helloBytes[:len(helloBytes)-binderSize]
-	binderLabel := resumptionPSKBinderLabel
-	if isDraft22(version) {
-		binderLabel = resumptionPSKBinderLabelDraft22
-	}
-	binder := computePSKBinder(psk, version, binderLabel, pskCipherSuite, firstClientHello, helloRetryRequest, truncatedHello)
+	binder := computePSKBinder(psk, version, resumptionPSKBinderLabel, pskCipherSuite, firstClientHello, helloRetryRequest, truncatedHello)
 	if config.Bugs.SendShortPSKBinder {
 		binder = binder[:binderLen]
 	}

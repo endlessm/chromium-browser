@@ -26,9 +26,9 @@ network::mojom::NetworkContext* TestStoragePartition::GetNetworkContext() {
   return network_context_;
 }
 
-network::mojom::URLLoaderFactory*
+scoped_refptr<SharedURLLoaderFactory>
 TestStoragePartition::GetURLLoaderFactoryForBrowserProcess() {
-  return url_loader_factory_for_browser_process_;
+  return nullptr;
 }
 
 network::mojom::CookieManager*
@@ -125,5 +125,7 @@ void TestStoragePartition::Flush() {}
 void TestStoragePartition::ClearBluetoothAllowedDevicesMapForTesting() {}
 
 void TestStoragePartition::FlushNetworkInterfaceForTesting() {}
+
+void TestStoragePartition::WaitForDeletionTasksForTesting() {}
 
 }  // namespace content

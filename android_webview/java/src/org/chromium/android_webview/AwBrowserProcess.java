@@ -16,9 +16,9 @@ import android.os.RemoteException;
 import android.os.StrictMode;
 
 import org.chromium.android_webview.command_line.CommandLineUtil;
-import org.chromium.android_webview.crash.CrashReceiverService;
-import org.chromium.android_webview.crash.ICrashReceiverService;
 import org.chromium.android_webview.policy.AwPolicyProvider;
+import org.chromium.android_webview.services.CrashReceiverService;
+import org.chromium.android_webview.services.ICrashReceiverService;
 import org.chromium.base.BuildInfo;
 import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
@@ -93,7 +93,7 @@ public final class AwBrowserProcess {
             boolean isExternalService) {
         final boolean bindToCaller = true;
         final boolean ignoreVisibilityForImportance = true;
-        ChildProcessCreationParams.registerDefault(new ChildProcessCreationParams(packageName,
+        ChildProcessCreationParams.set(new ChildProcessCreationParams(packageName,
                 isExternalService, LibraryProcessType.PROCESS_WEBVIEW_CHILD, bindToCaller,
                 ignoreVisibilityForImportance));
     }
@@ -149,8 +149,8 @@ public final class AwBrowserProcess {
 
     private static void tryObtainingDataDirLock() {
         // Many existing apps rely on this even though it's known to be unsafe.
-        // Make it fatal for apps that target P or higher.
-        boolean dieOnFailure = BuildInfo.targetsAtLeastP();
+        // Make it fatal when on P for apps that target P or higher
+        boolean dieOnFailure = BuildInfo.isAtLeastP() && BuildInfo.targetsAtLeastP();
 
         StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskWrites();
         try {

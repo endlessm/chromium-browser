@@ -20,7 +20,7 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
         args=[
           '--chrome-dir', self.m.vars.checkout_root,
           '--output-dir', self.m.vars.skia_out.join(self.m.vars.configuration),
-          '--no-sync', '--make-output-dir'])
+          '--no-sync', '--no-hooks', '--make-output-dir'])
 
   def _get_goma_json(self):
     json_key = 'jwt_service_account_goma-client'
@@ -143,6 +143,22 @@ with open(sys.argv[1], 'w') as f:
         'skia_use_libwebp':       'false',
         'skia_use_zlib':          'false',
       })
+    if 'NoDEPS' in extra_tokens:
+      args.update({
+        'is_official_build':         'true',
+        'skia_enable_fontmgr_empty': 'true',
+        'skia_enable_gpu':           'true',
+
+        'skia_enable_effects':    'false',
+        'skia_enable_pdf':        'false',
+        'skia_use_expat':         'false',
+        'skia_use_freetype':      'false',
+        'skia_use_libjpeg_turbo': 'false',
+        'skia_use_libpng':        'false',
+        'skia_use_libwebp':       'false',
+        'skia_use_vulkan':        'false',
+        'skia_use_zlib':          'false',
+      })
     if 'NoGPU' in extra_tokens:
       args['skia_enable_gpu'] = 'false'
     if 'EmbededResouces' in extra_tokens:
@@ -192,7 +208,7 @@ with open(sys.argv[1], 'w') as f:
         # ANGLE uses case-insensitive include paths in D3D code. Not sure why
         # only Goma warns about this.
         extra_cflags.append('-Wno-nonportable-include-path')
-      ninja_args.extend(['-j', '100'])
+      ninja_args.extend(['-j', '2000'])
 
     sanitize = ''
     for t in extra_tokens:
@@ -248,17 +264,14 @@ with open(sys.argv[1], 'w') as f:
           self.m.run(self.m.python, 'stop goma',
                      script='goma_ctl.py', args=['stop'], infra_step=True,
                      abort_on_failure=False, fail_build_on_failure=False)
-
-  def copy_extra_build_products(self, swarming_out_dir):
-    configuration = self.m.vars.builder_cfg.get('configuration', '')
-    extra_tokens  = self.m.vars.extra_tokens
-    os            = self.m.vars.builder_cfg.get('os',            '')
-
-    win_vulkan_sdk = str(self.m.vars.slave_dir.join('win_vulkan_sdk'))
-    if 'Win' in os and 'Vulkan' in extra_tokens:
-      self.m.run.copy_build_products(
-          win_vulkan_sdk,
-          swarming_out_dir.join('out', configuration + '_x64'))
+          # Hack: goma_ctl stop is asynchronous, so the process often does not
+          # stop before the recipe exits, which causes Swarming to freak out.
+          # Wait a couple seconds for it to exit normally.
+          # TODO(dogben): Remove after internal b/72128121 is resolved.
+          self.m.run(self.m.python.inline, 'wait for goma_ctl stop',
+                     program="""import time; time.sleep(2)""",
+                     infra_step=True,
+                     abort_on_failure=False, fail_build_on_failure=False)
 
   def step(self, name, cmd):
     app = self.m.vars.skia_out.join(self.m.vars.configuration, cmd[0])
@@ -287,9 +300,18 @@ with open(sys.argv[1], 'w') as f:
         path.append(slave_dir.join('linux_vulkan_sdk', 'bin'))
         ld_library_path.append(slave_dir.join('linux_vulkan_sdk', 'lib'))
 
+    if 'MSAN' in extra_tokens:
+      # Find the MSAN-built libc++.
+      ld_library_path.append(clang_linux + '/msan')
+
     if any('SAN' in t for t in extra_tokens):
       # Sanitized binaries may want to run clang_linux/bin/llvm-symbolizer.
       path.append(clang_linux + '/bin')
+      # We find that testing sanitizer builds with libc++ uncovers more issues
+      # than with the system-provided C++ standard library, which is usually
+      # libstdc++. libc++ proactively hooks into sanitizers to help their
+      # analyses. We ship a copy of libc++ with our Linux toolchain in /lib.
+      ld_library_path.append(clang_linux + '/lib')
     elif self.m.vars.is_linux:
       cmd = ['catchsegv'] + cmd
 
@@ -297,10 +319,6 @@ with open(sys.argv[1], 'w') as f:
       env[ 'ASAN_OPTIONS'] = 'symbolize=1 detect_leaks=1'
       env[ 'LSAN_OPTIONS'] = 'symbolize=1 print_suppressions=1'
       env['UBSAN_OPTIONS'] = 'symbolize=1 print_stacktrace=1'
-
-    if 'MSAN' in extra_tokens:
-      # Find the MSAN-built libc++.
-      ld_library_path.append(clang_linux + '/msan')
 
     if 'TSAN' in extra_tokens:
       # We don't care about malloc(), fprintf, etc. used in signal handlers.

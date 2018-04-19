@@ -43,6 +43,7 @@
 #include "components/google/core/browser/google_util.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/browser/threat_details.h"
+#include "components/safe_browsing/common/safe_browsing.mojom.h"
 #include "components/safe_browsing/common/safe_browsing_prefs.h"
 #include "components/safe_browsing/db/database_manager.h"
 #include "components/safe_browsing/db/test_database_manager.h"
@@ -334,7 +335,7 @@ class TestSafeBrowsingBlockingPageFactory
         is_extended_reporting_opt_in_allowed,
         web_contents->GetBrowserContext()->IsOffTheRecord(),
         IsExtendedReportingEnabled(*prefs), IsScout(*prefs),
-        is_proceed_anyway_disabled,
+        IsExtendedReportingPolicyManaged(*prefs), is_proceed_anyway_disabled,
         true,   // should_open_links_in_new_tab
         false,  // check_can_go_back_to_safety
         "cpn_safe_browsing" /* help_center_article_link */);
@@ -702,18 +703,18 @@ class SafeBrowsingBlockingPageBrowserTest
       const HTMLElement& actual_element,
       const std::string& expected_tag_name,
       const int expected_child_ids_size,
-      const std::vector<AttributeNameValue>& expected_attributes) {
+      const std::vector<mojom::AttributeNameValuePtr>& expected_attributes) {
     EXPECT_EQ(expected_tag_name, actual_element.tag());
     EXPECT_EQ(expected_child_ids_size, actual_element.child_ids_size());
     ASSERT_EQ(static_cast<int>(expected_attributes.size()),
               actual_element.attribute_size());
     for (size_t i = 0; i < expected_attributes.size(); ++i) {
-      const AttributeNameValue& expected_attribute_pair =
-          expected_attributes[i];
+      const mojom::AttributeNameValue& expected_attribute =
+          *expected_attributes[i];
       const HTMLElement::Attribute& actual_attribute_pb =
           actual_element.attribute(i);
-      EXPECT_EQ(expected_attribute_pair.first, actual_attribute_pb.name());
-      EXPECT_EQ(expected_attribute_pair.second, actual_attribute_pb.value());
+      EXPECT_EQ(expected_attribute.name, actual_attribute_pb.name());
+      EXPECT_EQ(expected_attribute.value, actual_attribute_pb.value());
     }
   }
 
@@ -998,7 +999,7 @@ IN_PROC_BROWSER_TEST_P(SafeBrowsingBlockingPageBrowserTest,
       if (elem.tag() == "IFRAME") {
         iframe_node_id = elem.id();
         VerifyElement(report, elem, "IFRAME", /*child_size=*/0,
-                      std::vector<AttributeNameValue>());
+                      std::vector<mojom::AttributeNameValuePtr>());
         break;
       }
     }
@@ -1007,9 +1008,10 @@ IN_PROC_BROWSER_TEST_P(SafeBrowsingBlockingPageBrowserTest,
     // Find the parent DIV that is the parent of the iframe.
     for (const HTMLElement& elem : report.dom()) {
       if (elem.id() != iframe_node_id) {
+        std::vector<mojom::AttributeNameValuePtr> attributes;
+        attributes.push_back(mojom::AttributeNameValue::New("foo", "1"));
         // Not the IIFRAME, so this is the parent DIV
-        VerifyElement(report, elem, "DIV", /*child_size=*/1,
-                      {std::make_pair("foo", "1")});
+        VerifyElement(report, elem, "DIV", /*child_size=*/1, attributes);
         // Make sure this DIV has the IFRAME as a child.
         EXPECT_EQ(iframe_node_id, elem.child_ids(0));
       }
@@ -1144,12 +1146,19 @@ IN_PROC_BROWSER_TEST_P(SafeBrowsingBlockingPageBrowserTest, ProceedDisabled) {
 }
 
 // Verifies that the reporting checkbox is hidden when opt-in is
-// disabled by policy.
+// disabled by policy. However, reports can still be sent if extended
+// reporting is enabled (eg: by its own policy).
+// Note: this combination will be deprecated along with the OptInAllowed
+// policy, to be replaced by a policy on the SBER setting itself.
 IN_PROC_BROWSER_TEST_P(SafeBrowsingBlockingPageBrowserTest,
                        ReportingDisabledByPolicy) {
   SetExtendedReportingPref(browser()->profile()->GetPrefs(), true);
   browser()->profile()->GetPrefs()->SetBoolean(
       prefs::kSafeBrowsingExtendedReportingOptInAllowed, false);
+
+  scoped_refptr<content::MessageLoopRunner> threat_report_sent_runner(
+      new content::MessageLoopRunner);
+  SetReportSentCallback(threat_report_sent_runner->QuitClosure());
 
   TestReportingDisabledAndDontProceed(
       embedded_test_server()->GetURL(kEmptyPage));
@@ -1642,6 +1651,27 @@ IN_PROC_BROWSER_TEST_P(SafeBrowsingBlockingPageBrowserTest,
   // TODO(felt): Sometimes the cert status here is 0u, which is wrong.
   // Filed https://crbug.com/641187 to investigate.
   ExpectSecurityIndicatorDowngrade(post_tab, net::CERT_STATUS_INVALID);
+}
+
+// Test that no safe browsing interstitial will be shown, if URL matches
+// enterprise safe browsing whitelist domains.
+IN_PROC_BROWSER_TEST_P(SafeBrowsingBlockingPageBrowserTest,
+                       VerifyEnterpriseWhitelist) {
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndEnableFeature(kEnterprisePasswordProtectionV1);
+  GURL url = embedded_test_server()->GetURL(kEmptyPage);
+  // Add test server domain into the enterprise whitelist.
+  base::ListValue whitelist;
+  whitelist.AppendString(url.host());
+  browser()->profile()->GetPrefs()->Set(prefs::kSafeBrowsingWhitelistDomains,
+                                        whitelist);
+
+  SetURLThreatType(url, testing::get<0>(GetParam()));
+  ui_test_utils::NavigateToURL(browser(), url);
+  base::RunLoop().RunUntilIdle();
+  WebContents* contents = browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_TRUE(content::WaitForRenderFrameReady(contents->GetMainFrame()));
+  EXPECT_FALSE(YesInterstitial());
 }
 
 INSTANTIATE_TEST_CASE_P(

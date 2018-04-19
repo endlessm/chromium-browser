@@ -9,6 +9,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/browser_context.h"
 #include "extensions/features/features.h"
+#include "ui/base/ui_features.h"
 
 #if defined(OS_ANDROID) || BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/common/pref_names.h"
@@ -19,9 +20,16 @@
 namespace media_router {
 
 #if !defined(OS_ANDROID)
+// Controls if browser side DIAL sink query is enabled.
+const base::Feature kEnableDialSinkQuery{"EnableDialSinkQuery",
+                                         base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Controls if browser side Cast device discovery is enabled.
 const base::Feature kEnableCastDiscovery{"EnableCastDiscovery",
                                          base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kCastMediaRouteProvider{"CastMediaRouteProvider",
+                                            base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Controls if local media casting is enabled.
 const base::Feature kEnableCastLocalMedia{"EnableCastLocalMedia",
@@ -57,14 +65,33 @@ bool MediaRouterEnabled(content::BrowserContext* context) {
 }
 
 #if !defined(OS_ANDROID)
+// Returns true if browser side DIAL sink query is enabled.
+bool DialSinkQueryEnabled() {
+  return base::FeatureList::IsEnabled(kEnableDialSinkQuery);
+}
+
 // Returns true if browser side Cast discovery is enabled.
 bool CastDiscoveryEnabled() {
   return base::FeatureList::IsEnabled(kEnableCastDiscovery);
 }
 
+bool CastMediaRouteProviderEnabled() {
+  return base::FeatureList::IsEnabled(kCastMediaRouteProvider);
+}
+
 // Returns true if local media casting is enabled.
 bool CastLocalMediaEnabled() {
   return base::FeatureList::IsEnabled(kEnableCastLocalMedia);
+}
+
+// Returns true if the presentation receiver window for local media casting is
+// available on the current platform.
+bool PresentationReceiverWindowEnabled() {
+#if defined(OS_MACOSX) && !BUILDFLAG(MAC_VIEWS_BROWSER)
+  return false;
+#else
+  return true;
+#endif
 }
 #endif
 

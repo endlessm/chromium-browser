@@ -26,9 +26,9 @@ import org.chromium.chrome.browser.download.DownloadItem;
 import org.chromium.chrome.browser.download.ui.StubbedProvider.StubbedDownloadDelegate;
 import org.chromium.chrome.browser.download.ui.StubbedProvider.StubbedOfflineContentProvider;
 import org.chromium.chrome.browser.test.ChromeBrowserTestRule;
+import org.chromium.components.download.DownloadState;
 import org.chromium.components.offline_items_collection.ContentId;
 import org.chromium.components.offline_items_collection.OfflineItem;
-import org.chromium.content_public.browser.DownloadState;
 
 import java.util.ArrayList;
 import java.util.Set;
@@ -225,7 +225,8 @@ public class DownloadHistoryAdapterTest {
         }
     }
 
-    private void onFilterChanged(final int flag, int numberOfCallsToWaitFor) throws Exception {
+    private void onFilterChanged(final @DownloadFilter.Type int flag, int numberOfCallsToWaitFor)
+            throws Exception {
         int callCount = mObserver.onChangedCallback.getCallCount();
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override

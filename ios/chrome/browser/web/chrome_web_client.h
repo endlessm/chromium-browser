@@ -22,7 +22,6 @@ class ChromeWebClient : public web::WebClient {
   std::unique_ptr<web::WebMainParts> CreateWebMainParts() override;
   void PreWebViewCreation() const override;
   void AddAdditionalSchemes(Schemes* schemes) const override;
-  std::string GetAcceptLangs(web::BrowserState* state) const override;
   std::string GetApplicationLocale() const override;
   bool IsAppSpecificURL(const GURL& url) const override;
   base::string16 GetPluginNotSupportedText() const override;
@@ -48,6 +47,7 @@ class ChromeWebClient : public web::WebClient {
       const GURL& request_url,
       bool overridable,
       const base::Callback<void(bool)>& callback) override;
+  void RegisterServices(StaticServiceMap* services) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ChromeWebClient);

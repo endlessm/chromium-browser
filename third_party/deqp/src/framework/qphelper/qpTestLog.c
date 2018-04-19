@@ -551,31 +551,6 @@ static deBool qpTestLog_writeKeyValuePair (qpTestLog* log, const char* elementNa
 }
 
 /*--------------------------------------------------------------------*//*!
- * \brief Write a message to output log
- * \param log		qpTestLog instance
- * \param format	Format string of message
- * \param ...		Parameters for message
- * \return true if ok, false otherwise
- *//*--------------------------------------------------------------------*/
-deBool qpTestLog_writeMessage (qpTestLog* log, const char* format, ...)
-{
-	char	buffer[1024];
-	va_list	args;
-
-	/* \todo [petri] Handle buffer overflows! */
-
-	va_start(args, format);
-	buffer[DE_LENGTH_OF_ARRAY(buffer) - 1] = 0;
-	vsnprintf(buffer, sizeof(buffer), format, args);
-	va_end(args);
-
-	printf("%s\n", buffer);
-
-	/* <Text>text</Text> */
-	return qpTestLog_writeKeyValuePair(log, "Text", DE_NULL, DE_NULL, DE_NULL, QP_KEY_TAG_LAST, buffer);
-}
-
-/*--------------------------------------------------------------------*//*!
  * \brief Write key-value-pair into log
  * \param log			qpTestLog instance
  * \param name			Unique identifier for entry
@@ -604,8 +579,6 @@ deBool qpTestLog_writeInteger (qpTestLog* log, const char* name, const char* des
 	char tmpString[64];
 	int64ToString(value, tmpString);
 
-	printf("%s = %lld %s\n", description, (signed long long)value, unit ? unit : "");
-
 	/* <Number Name="name" Description="description" Tag="Performance">15</Number> */
 	return qpTestLog_writeKeyValuePair(log, "Number", name, description, unit, tag, tmpString);
 }
@@ -623,8 +596,6 @@ deBool qpTestLog_writeFloat (qpTestLog* log, const char* name, const char* descr
 {
 	char tmpString[64];
 	floatToString(value, tmpString, sizeof(tmpString));
-
-	printf("%s = %f %s\n", description, value, unit ? unit : "");
 
 	/* <Number Name="name" Description="description" Tag="Performance">15</Number> */
 	return qpTestLog_writeKeyValuePair(log, "Number", name, description, unit, tag, tmpString);
@@ -853,8 +824,8 @@ deBool qpTestLog_writeImage	(
 	size_t			writeDataBytes		= ~(size_t)0;
 
 	DE_ASSERT(log && name);
-	DE_ASSERT(deInRange32(width, 1, 16384));
-	DE_ASSERT(deInRange32(height, 1, 16384));
+	DE_ASSERT(deInRange32(width, 1, 32768));
+	DE_ASSERT(deInRange32(height, 1, 32768));
 	DE_ASSERT(data);
 
 	if (log->flags & QP_TEST_LOG_EXCLUDE_IMAGES)

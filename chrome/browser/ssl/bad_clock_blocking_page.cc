@@ -34,17 +34,17 @@ using content::NavigationEntry;
 
 namespace {
 
-const char kMetricsName[] = "bad_clock";
+const char kBadClockMetricsName[] = "bad_clock";
 
-std::unique_ptr<ChromeMetricsHelper> CreateMetricsHelper(
+std::unique_ptr<ChromeMetricsHelper> CreateBadClockMetricsHelper(
     content::WebContents* web_contents,
     const GURL& request_url) {
   // Set up the metrics helper for the BadClockUI.
   security_interstitials::MetricsHelper::ReportDetails reporting_info;
-  reporting_info.metric_prefix = kMetricsName;
+  reporting_info.metric_prefix = kBadClockMetricsName;
   std::unique_ptr<ChromeMetricsHelper> metrics_helper =
       std::make_unique<ChromeMetricsHelper>(web_contents, request_url,
-                                            reporting_info, kMetricsName);
+                                            reporting_info);
   metrics_helper.get()->StartRecordingCaptivePortalMetrics(false);
   return metrics_helper;
 }
@@ -80,7 +80,7 @@ BadClockBlockingPage::BadClockBlockingPage(
               web_contents,
               ssl_info,
               request_url,
-              CreateMetricsHelper(web_contents, request_url))),
+              CreateBadClockMetricsHelper(web_contents, request_url))),
       callback_(callback),
       ssl_info_(ssl_info),
       bad_clock_ui_(new security_interstitials::BadClockUI(request_url,
@@ -114,12 +114,6 @@ void BadClockBlockingPage::PopulateInterstitialStrings(
 
 void BadClockBlockingPage::OverrideEntry(NavigationEntry* entry) {
   entry->GetSSL() = content::SSLStatus(ssl_info_);
-}
-
-void BadClockBlockingPage::SetSSLCertReporterForTesting(
-    std::unique_ptr<SSLCertReporter> ssl_cert_reporter) {
-  cert_report_helper()->SetSSLCertReporterForTesting(
-      std::move(ssl_cert_reporter));
 }
 
 // This handles the commands sent from the interstitial JavaScript.

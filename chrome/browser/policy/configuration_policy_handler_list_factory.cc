@@ -26,8 +26,8 @@
 #include "chrome/browser/sessions/restore_on_startup_policy_handler.h"
 #include "chrome/browser/spellchecker/spellcheck_language_policy_handler.h"
 #include "chrome/browser/supervised_user/supervised_user_creation_policy_handler.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "components/autofill/core/browser/autofill_credit_card_policy_handler.h"
 #include "components/autofill/core/browser/autofill_policy_handler.h"
@@ -259,14 +259,17 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kEnableOnlineRevocationChecks,
     ssl_config::prefs::kCertRevocationCheckingEnabled,
     base::Value::Type::BOOLEAN },
+  { key::kMachineLevelUserCloudPolicyEnrollmentToken,
+    policy_prefs::kMachineLevelUserCloudPolicyEnrollmentToken,
+    base::Value::Type::STRING },
   { key::kRequireOnlineRevocationChecksForLocalAnchors,
     ssl_config::prefs::kCertRevocationCheckingRequiredLocalAnchors,
     base::Value::Type::BOOLEAN },
   { key::kEnableSha1ForLocalAnchors,
     ssl_config::prefs::kCertEnableSha1LocalAnchors,
     base::Value::Type::BOOLEAN },
-  { key::kEnableCommonNameFallbackForLocalAnchors,
-    ssl_config::prefs::kCertEnableCommonNameFallbackLocalAnchors,
+  { key::kEnableSymantecLegacyInfrastructure,
+    ssl_config::prefs::kCertEnableSymantecLegacyInfrastructure,
     base::Value::Type::BOOLEAN },
   { key::kAuthSchemes,
     prefs::kAuthSchemes,
@@ -289,6 +292,21 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kAllowCrossOriginAuthPrompt,
     prefs::kAllowCrossOriginAuthPrompt,
     base::Value::Type::BOOLEAN },
+  { key::kPasswordProtectionWarningTrigger,
+    prefs::kPasswordProtectionWarningTrigger,
+    base::Value::Type::INTEGER},
+  { key::kPasswordProtectionRiskTrigger,
+    prefs::kPasswordProtectionRiskTrigger,
+    base::Value::Type::INTEGER},
+  { key::kSafeBrowsingWhitelistDomains,
+    prefs::kSafeBrowsingWhitelistDomains,
+    base::Value::Type::LIST},
+  { key::kPasswordProtectionLoginURLs,
+    prefs::kPasswordProtectionLoginURLs,
+    base::Value::Type::LIST},
+  { key::kPasswordProtectionChangePasswordURL,
+    prefs::kPasswordProtectionChangePasswordURL,
+    base::Value::Type::STRING},
 #if defined(OS_POSIX)
   { key::kNtlmV2Enabled,
     prefs::kNtlmV2Enabled,
@@ -402,9 +420,6 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kDisableSafeBrowsingProceedAnyway,
     prefs::kSafeBrowsingProceedAnywayDisabled,
     base::Value::Type::BOOLEAN },
-  { key::kSafeBrowsingExtendedReportingOptInAllowed,
-    prefs::kSafeBrowsingExtendedReportingOptInAllowed,
-    base::Value::Type::BOOLEAN },
   { key::kSSLErrorOverrideAllowed,
     prefs::kSSLErrorOverrideAllowed,
     base::Value::Type::BOOLEAN },
@@ -451,6 +466,9 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kForceEphemeralProfiles,
     prefs::kForceEphemeralProfiles,
     base::Value::Type::BOOLEAN },
+  { key::kSSLVersionMin,
+    ssl_config::prefs::kSSLVersionMin,
+    base::Value::Type::STRING },
   { key::kSSLVersionMax,
     ssl_config::prefs::kSSLVersionMax,
     base::Value::Type::STRING },
@@ -740,11 +758,28 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
     prefs::kAbusiveExperienceInterventionEnforce,
     base::Value::Type::BOOLEAN },
 
-#if defined(OS_WIN)
+#if defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
   { key::kThirdPartyBlockingEnabled,
     prefs::kThirdPartyBlockingEnabled,
     base::Value::Type::BOOLEAN },
 #endif
+
+#if !defined(OS_ANDROID)
+#if !defined(OS_CHROMEOS)
+  { key::kRelaunchNotification,
+    prefs::kRelaunchNotification,
+    base::Value::Type::INTEGER },
+#endif  // !defined(OS_CHROMEOS)
+  { key::kRelaunchNotificationPeriod,
+    prefs::kRelaunchNotificationPeriod,
+    base::Value::Type::INTEGER },
+#endif  // !defined(OS_ANDROID)
+
+#if !defined(OS_ANDROID)
+  { key::kAutoplayAllowed,
+    prefs::kAutoplayAllowed,
+    base::Value::Type::BOOLEAN },
+#endif  // !defined(OS_ANDROID)
 };
 // clang-format on
 
@@ -1027,6 +1062,22 @@ std::unique_ptr<ConfigurationPolicyHandlerList> BuildHandlerList(
       prefs::kPolicyRegisteredProtocolHandlers, chrome_schema, SCHEMA_STRICT,
       SimpleSchemaValidatingPolicyHandler::RECOMMENDED_ALLOWED,
       SimpleSchemaValidatingPolicyHandler::MANDATORY_PROHIBITED));
+
+  // Here we are deprecating policy SafeBrowsingExtendedReportingOptInAllowed
+  // in favour of new policy for SafeBrowsingExtendedReportingEnabled.
+  std::vector<std::unique_ptr<ConfigurationPolicyHandler>> sber_legacy_policy;
+  sber_legacy_policy.push_back(std::make_unique<SimplePolicyHandler>(
+      key::kSafeBrowsingExtendedReportingOptInAllowed,
+      prefs::kSafeBrowsingExtendedReportingOptInAllowed,
+      base::Value::Type::BOOLEAN));
+  handlers->AddHandler(std::make_unique<LegacyPoliciesDeprecatingPolicyHandler>(
+      std::move(sber_legacy_policy),
+      base::WrapUnique(new SimpleSchemaValidatingPolicyHandler(
+          key::kSafeBrowsingExtendedReportingEnabled,
+          prefs::kSafeBrowsingScoutReportingEnabled, chrome_schema,
+          SCHEMA_STRICT,
+          SimpleSchemaValidatingPolicyHandler::RECOMMENDED_ALLOWED,
+          SimpleSchemaValidatingPolicyHandler::MANDATORY_ALLOWED))));
 #endif
 
 #if defined(OS_CHROMEOS)

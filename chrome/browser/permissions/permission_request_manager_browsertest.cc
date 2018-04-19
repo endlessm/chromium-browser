@@ -4,6 +4,8 @@
 
 #include "chrome/browser/permissions/permission_request_manager.h"
 
+#include <memory>
+
 #include "base/command_line.h"
 #include "base/metrics/field_trial.h"
 #include "base/run_loop.h"
@@ -15,6 +17,7 @@
 #include "chrome/browser/media/webrtc/media_stream_devices_controller.h"
 #include "chrome/browser/permissions/permission_context_base.h"
 #include "chrome/browser/permissions/permission_request_impl.h"
+#include "chrome/browser/permissions/permission_request_manager_test_api.h"
 #include "chrome/browser/permissions/permission_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -137,7 +140,7 @@ PermissionRequest* PermissionDialogTest::MakePermissionRequest(
   bool user_gesture = true;
   auto decided = [](ContentSetting) {};
   auto cleanup = [] {};  // Leave cleanup to test harness destructor.
-  owned_requests_.push_back(base::MakeUnique<PermissionRequestImpl>(
+  owned_requests_.push_back(std::make_unique<PermissionRequestImpl>(
       GetUrl(), permission, user_gesture, base::Bind(decided),
       base::Bind(cleanup)));
   return owned_requests_.back().get();
@@ -293,8 +296,9 @@ IN_PROC_BROWSER_TEST_F(PermissionRequestManagerBrowserTest,
   EXPECT_EQ(1, bubble_factory()->TotalRequestCount());
 }
 
-// Bubble requests should be shown after in-page navigation.
-IN_PROC_BROWSER_TEST_F(PermissionRequestManagerBrowserTest, InPageNavigation) {
+// Bubble requests should be shown after same-document navigation.
+IN_PROC_BROWSER_TEST_F(PermissionRequestManagerBrowserTest,
+                       SameDocumentNavigation) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   ui_test_utils::NavigateToURLBlockUntilNavigationsComplete(
@@ -333,7 +337,7 @@ IN_PROC_BROWSER_TEST_F(PermissionRequestManagerBrowserTest, MultipleTabs) {
   // SetUp() only creates a mock prompt factory for the first tab.
   MockPermissionPromptFactory* bubble_factory_0 = bubble_factory();
   std::unique_ptr<MockPermissionPromptFactory> bubble_factory_1(
-      base::MakeUnique<MockPermissionPromptFactory>(
+      std::make_unique<MockPermissionPromptFactory>(
           GetPermissionRequestManager()));
 
   TabStripModel* tab_strip_model = browser()->tab_strip_model();
@@ -489,7 +493,8 @@ IN_PROC_BROWSER_TEST_F(PermissionDialogTest, SwitchBrowserWindow) {
                              TabStripModel::ADD_ACTIVE);
 
   // Clear the request. There should be no crash.
-  GetPermissionRequestManager()->CancelRequest(owned_requests_.back().get());
+  test::PermissionRequestManagerTestApi(GetPermissionRequestManager())
+      .SimulateWebContentsDestroyed();
   owned_requests_.clear();
 }
 

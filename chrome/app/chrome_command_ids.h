@@ -12,6 +12,8 @@
 // than the corresponding #define labels.  If you change a given command's
 // number, any NIB files that refer to it will also need to be updated.
 
+// clang-format off
+
 // Values below IDC_MinimumLabelValue are reserved for dynamic menu items.
 #define IDC_MinimumLabelValue           4000
 
@@ -74,7 +76,7 @@
 #define IDC_COPY_URL                    34060
 #define IDC_OPEN_IN_CHROME              34061
 #define IDC_SITE_SETTINGS               34062
-#define IDC_APP_INFO                    34063
+#define IDC_HOSTED_APP_MENU_APP_INFO    34063
 
 // Page-related commands
 #define IDC_BOOKMARK_PAGE               35000
@@ -118,7 +120,7 @@
 #define IDC_FOCUS_NEXT_PANE             39004
 #define IDC_FOCUS_PREVIOUS_PANE         39005
 #define IDC_FOCUS_BOOKMARKS             39006
-#define IDC_FOCUS_INFOBARS              39007
+#define IDC_FOCUS_INACTIVE_POPUP_FOR_ACCESSIBILITY 39007
 
 // Show various bits of UI
 #define IDC_OPEN_FILE                   40000

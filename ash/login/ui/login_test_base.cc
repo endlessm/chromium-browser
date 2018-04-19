@@ -6,10 +6,12 @@
 
 #include <string>
 
+#include "ash/login/ui/login_test_utils.h"
 #include "ash/public/cpp/config.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/interfaces/tray_action.mojom.h"
 #include "ash/shell.h"
+#include "base/strings/strcat.h"
 #include "services/ui/public/cpp/property_type_converters.h"
 #include "services/ui/public/interfaces/window_manager.mojom.h"
 #include "ui/views/widget/widget.h"
@@ -68,22 +70,13 @@ std::unique_ptr<views::Widget> LoginTestBase::CreateWidgetWithContent(
   return new_widget;
 }
 
-mojom::LoginUserInfoPtr LoginTestBase::CreateUser(
-    const std::string& name) const {
-  auto user = mojom::LoginUserInfo::New();
-  user->basic_user_info = mojom::UserInfo::New();
-  user->basic_user_info->account_id =
-      AccountId::FromUserEmail(name + "@foo.com");
-  user->basic_user_info->display_name = "User " + name;
-  user->basic_user_info->display_email =
-      user->basic_user_info->account_id.GetUserEmail();
-  return user;
-}
-
 void LoginTestBase::SetUserCount(size_t count) {
   // Add missing users, then remove extra users.
-  while (users_.size() < count)
-    users_.push_back(CreateUser(std::to_string(users_.size())));
+  while (users_.size() < count) {
+    std::string email =
+        base::StrCat({"user", std::to_string(users_.size()), "@domain.com"});
+    users_.push_back(CreateUser(email));
+  }
   users_.erase(users_.begin() + count, users_.end());
 
   // Notify any listeners that the user count has changed.

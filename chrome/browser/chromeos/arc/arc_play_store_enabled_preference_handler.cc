@@ -7,7 +7,6 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "chrome/browser/chromeos/arc/arc_auth_notification.h"
 #include "chrome/browser/chromeos/arc/arc_optin_uma.h"
 #include "chrome/browser/chromeos/arc/arc_session_manager.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
@@ -34,9 +33,6 @@ ArcPlayStoreEnabledPreferenceHandler::ArcPlayStoreEnabledPreferenceHandler(
 }
 
 ArcPlayStoreEnabledPreferenceHandler::~ArcPlayStoreEnabledPreferenceHandler() {
-  sync_preferences::PrefServiceSyncable* pref_service_syncable =
-      PrefServiceSyncableFromProfile(profile_);
-  pref_service_syncable->RemoveObserver(this);
   pref_change_registrar_.RemoveAll();
 }
 
@@ -54,13 +50,15 @@ void ArcPlayStoreEnabledPreferenceHandler::Start() {
   VLOG(1) << "Start observing Google Play Store enabled preference. "
           << "Initial value: " << is_play_store_enabled;
 
-  // If the OOBE screen is shown, don't kill the mini-container.
-  // We'll do it if and when the user declines the TOS. We need to check
-  // |is_play_store_enabled| to handle the case where |kArcEnabled| is managed
-  // but some of the preferences still need to be set by the user.
+  // If the OOBE or Assistant Wizard screen is shown, don't kill the
+  // mini-container. We'll do it if and when the user declines the TOS. We need
+  // to check |is_play_store_enabled| to handle the case where |kArcEnabled| is
+  // managed but some of the preferences still need to be set by the user.
   // TODO(cmtm): This feature isn't covered by unittests. Add a unittest for it.
-  if (!IsArcOobeOptInActive() || is_play_store_enabled)
+  if (!(IsArcOobeOptInActive() || IsArcOptInWizardForAssistantActive()) ||
+      is_play_store_enabled) {
     UpdateArcSessionManager();
+  }
   if (is_play_store_enabled)
     return;
 
@@ -78,19 +76,25 @@ void ArcPlayStoreEnabledPreferenceHandler::Start() {
             << "profile. Removing data.";
     arc_session_manager_->RequestArcDataRemoval();
   }
-
-  // ArcAuthNotification may need to be shown.
-  PrefServiceSyncableFromProfile(profile_)->AddObserver(this);
-  OnIsSyncingChanged();
 }
 
 void ArcPlayStoreEnabledPreferenceHandler::OnPreferenceChanged() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   const bool is_play_store_enabled = IsArcPlayStoreEnabledForProfile(profile_);
   if (!IsArcPlayStoreEnabledPreferenceManagedForProfile(profile_)) {
-    // Update UMA only for non-Managed cases.
-    UpdateOptInActionUMA(is_play_store_enabled ? OptInActionType::OPTED_IN
-                                               : OptInActionType::OPTED_OUT);
+    // Update UMA only for non-Managed cases. Note, that multiple OptIn/OptOut
+    // may happen during a session. In this case each event would be reported.
+    // For example, if a user opts-in ARC on OOBE, and later opts-out via
+    // settings page, OOBE_OPTED_IN and SESSION_OPTED_OUT will be recorded.
+    if (IsArcOobeOptInActive()) {
+      UpdateOptInActionUMA(is_play_store_enabled
+                               ? OptInActionType::OOBE_OPTED_IN
+                               : OptInActionType::OOBE_OPTED_OUT);
+    } else {
+      UpdateOptInActionUMA(is_play_store_enabled
+                               ? OptInActionType::SESSION_OPTED_IN
+                               : OptInActionType::SESSION_OPTED_OUT);
+    }
 
     if (!is_play_store_enabled) {
       // Remove the pinned Play Store icon launcher in Shelf.
@@ -101,11 +105,6 @@ void ArcPlayStoreEnabledPreferenceHandler::OnPreferenceChanged() {
         chrome_launcher_controller->UnpinAppWithID(kPlayStoreAppId);
     }
   }
-
-  // Hide auth notification if it was opened before and arc.enabled pref was
-  // explicitly set to true or false.
-  if (profile_->GetPrefs()->HasPrefPath(prefs::kArcEnabled))
-    auth_notification_.reset();
 
   UpdateArcSessionManager();
 
@@ -126,25 +125,6 @@ void ArcPlayStoreEnabledPreferenceHandler::UpdateArcSessionManager() {
     arc_session_manager_->RequestEnable();
   else
     arc_session_manager_->RequestDisable();
-}
-
-void ArcPlayStoreEnabledPreferenceHandler::OnIsSyncingChanged() {
-  sync_preferences::PrefServiceSyncable* const pref_service_syncable =
-      PrefServiceSyncableFromProfile(profile_);
-  if (!pref_service_syncable->IsSyncing())
-    return;
-  pref_service_syncable->RemoveObserver(this);
-
-  // TODO(hidehiko): Extract kEnableArcOOBEOptIn check as a utility method.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kEnableArcOOBEOptIn) ||
-      !profile_->IsNewProfile() ||
-      profile_->GetPrefs()->HasPrefPath(prefs::kArcEnabled) ||
-      !arc::IsPlayStoreAvailable()) {
-    return;
-  }
-
-  auth_notification_ = std::make_unique<ArcAuthNotification>(profile_);
 }
 
 }  // namespace arc

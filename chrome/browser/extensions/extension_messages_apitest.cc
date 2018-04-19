@@ -28,7 +28,6 @@
 #include "chrome/browser/extensions/browsertest_util.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_util.h"
-#include "chrome/browser/extensions/test_extension_dir.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -37,6 +36,7 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/crx_file/id_util.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_process_host.h"
@@ -57,6 +57,7 @@
 #include "extensions/common/value_builder.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
+#include "extensions/test/test_extension_dir.h"
 #include "net/cert/asn1_util.h"
 #include "net/cert/jwk_serializer.h"
 #include "net/dns/mock_host_resolver.h"
@@ -1282,8 +1283,7 @@ IN_PROC_BROWSER_TEST_P(ExternallyConnectableMessagingTest,
 
   scoped_refptr<const Extension> invalid =
       ExtensionBuilder()
-          // A bit scary that this works...
-          .SetID("invalid")
+          .SetID(crx_file::id_util::GenerateId("invalid"))
           .SetManifest(DictionaryBuilder()
                            .Set("name", "Fake extension")
                            .Set("version", "1")

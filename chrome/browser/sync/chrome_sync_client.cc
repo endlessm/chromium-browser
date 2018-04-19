@@ -36,13 +36,12 @@
 #include "chrome/browser/ui/sync/browser_synced_window_delegates_getter.h"
 #include "chrome/browser/undo/bookmark_undo_service_factory.h"
 #include "chrome/browser/web_data_service_factory.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "components/autofill/core/browser/webdata/autocomplete_sync_bridge.h"
-#include "components/autofill/core/browser/webdata/autocomplete_syncable_service.h"
 #include "components/autofill/core/browser/webdata/autofill_profile_syncable_service.h"
 #include "components/autofill/core/browser/webdata/autofill_wallet_metadata_syncable_service.h"
 #include "components/autofill/core/browser/webdata/autofill_wallet_syncable_service.h"
@@ -361,16 +360,12 @@ ChromeSyncClient::GetSyncableServiceForType(syncer::ModelType type) {
       return PrefServiceSyncableFromProfile(profile_)
           ->GetSyncableService(syncer::PRIORITY_PREFERENCES)
           ->AsWeakPtr();
-    case syncer::AUTOFILL:
     case syncer::AUTOFILL_PROFILE:
     case syncer::AUTOFILL_WALLET_DATA:
     case syncer::AUTOFILL_WALLET_METADATA: {
       if (!web_data_service_)
         return base::WeakPtr<syncer::SyncableService>();
-      if (type == syncer::AUTOFILL) {
-        return autofill::AutocompleteSyncableService::FromWebDataService(
-            web_data_service_.get())->AsWeakPtr();
-      } else if (type == syncer::AUTOFILL_PROFILE) {
+      if (type == syncer::AUTOFILL_PROFILE) {
         return autofill::AutofillProfileSyncableService::FromWebDataService(
             web_data_service_.get())->AsWeakPtr();
       } else if (type == syncer::AUTOFILL_WALLET_METADATA) {
@@ -405,17 +400,6 @@ ChromeSyncClient::GetSyncableServiceForType(syncer::ModelType type) {
       history::HistoryService* history = GetHistoryService();
       return history ? history->AsWeakPtr()
                      : base::WeakPtr<history::HistoryService>();
-    }
-    case syncer::TYPED_URLS: {
-      // We request history service with explicit access here because this
-      // codepath is executed on backend thread while HistoryServiceFactory
-      // checks preference value in implicit mode and PrefService expectes calls
-      // only from UI thread.
-      history::HistoryService* history = HistoryServiceFactory::GetForProfile(
-          profile_, ServiceAccessType::EXPLICIT_ACCESS);
-      if (!history)
-        return base::WeakPtr<history::TypedUrlSyncableService>();
-      return history->GetTypedUrlSyncableService()->AsWeakPtr();
     }
 #if BUILDFLAG(ENABLE_SPELLCHECK)
     case syncer::DICTIONARY:

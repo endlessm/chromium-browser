@@ -50,7 +50,6 @@ MemBackendImpl::~MemBackendImpl() {
   DCHECK(CheckLRUListOrder(lru_list_));
   while (!entries_.empty())
     entries_.begin()->second->Doom();
-  DCHECK_EQ(0, current_size_);
 
   if (!post_cleanup_callback_.is_null())
     base::SequencedTaskRunnerHandle::Get()->PostTask(
@@ -175,7 +174,8 @@ int MemBackendImpl::CreateEntry(const std::string& key,
   if (!did_insert)
     return net::ERR_FAILED;
 
-  MemEntryImpl* cache_entry = new MemEntryImpl(this, key, net_log_);
+  MemEntryImpl* cache_entry =
+      new MemEntryImpl(weak_factory_.GetWeakPtr(), key, net_log_);
   create_result.first->second = cache_entry;
   *entry = cache_entry;
   return net::OK;
@@ -332,7 +332,13 @@ void MemBackendImpl::EvictIfNeeded() {
   base::LinkNode<MemEntryImpl>* entry = lru_list_.head();
   while (current_size_ > target_size && entry != lru_list_.end()) {
     MemEntryImpl* to_doom = entry->value();
-    entry = entry->next();
+
+    do {
+      entry = entry->next();
+      // It's possible that entry now points to a child of to_doom, and the
+      // parent is about to be deleted. Skip past any child entries.
+    } while (entry != lru_list_.end() && entry->value()->parent() == to_doom);
+
     if (!to_doom->InUse())
       to_doom->Doom();
   }

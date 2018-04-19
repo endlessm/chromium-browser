@@ -527,22 +527,40 @@ UIColor* InterpolateFromColorToColor(UIColor* firstColor,
                          alpha:Lerp(a1, a2, fraction)];
 }
 
-bool IsCompact(id<UITraitEnvironment> environment) {
+bool IsCompactWidth(id<UITraitEnvironment> environment) {
   return environment.traitCollection.horizontalSizeClass ==
          UIUserInterfaceSizeClassCompact;
 }
 
-bool IsCompact() {
+bool IsCompactWidth() {
   UIWindow* keyWindow = [UIApplication sharedApplication].keyWindow;
-  return IsCompact(keyWindow);
+  return IsCompactWidth(keyWindow);
 }
 
 bool IsCompactTablet(id<UITraitEnvironment> environment) {
-  return IsIPadIdiom() && IsCompact(environment);
+  return IsIPadIdiom() && IsCompactWidth(environment);
 }
 
 bool IsCompactTablet() {
-  return IsIPadIdiom() && IsCompact();
+  return IsIPadIdiom() && IsCompactWidth();
+}
+
+bool IsCompactHeight() {
+  return IsCompactHeight([UIApplication sharedApplication].keyWindow);
+}
+
+bool IsCompactHeight(id<UITraitEnvironment> environment) {
+  return environment.traitCollection.verticalSizeClass ==
+         UIUserInterfaceSizeClassCompact;
+}
+
+bool IsSplitToolbarMode() {
+  return IsCompactWidth() && !IsCompactHeight();
+}
+
+bool IsSplitToolbarMode(id<UITraitEnvironment> environment) {
+  return IsUIRefreshPhase1Enabled() && IsCompactWidth(environment) &&
+         !IsCompactHeight(environment);
 }
 
 // Returns the current first responder.

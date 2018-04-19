@@ -36,7 +36,6 @@ import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebChromeClient.CustomViewCallback;
 import android.webkit.WebResourceError;
-import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -89,8 +88,6 @@ import java.util.WeakHashMap;
  * choose the latter, because it makes for a cleaner design.
  */
 @SuppressWarnings("deprecation")
-// You shouldn't change TargetApi, please see how Android M API was added.
-@TargetApi(Build.VERSION_CODES.LOLLIPOP)
 class WebViewContentsClientAdapter extends AwContentsClient {
     // TAG is chosen for consistency with classic webview tracing.
     private static final String TAG = "WebViewCallback";
@@ -265,44 +262,6 @@ class WebViewContentsClientAdapter extends AwContentsClient {
         }
     }
 
-    protected static class WebResourceRequestImpl implements WebResourceRequest {
-        private final AwWebResourceRequest mRequest;
-
-        public WebResourceRequestImpl(AwWebResourceRequest request) {
-            mRequest = request;
-        }
-
-        @Override
-        public Uri getUrl() {
-            return Uri.parse(mRequest.url);
-        }
-
-        @Override
-        public boolean isForMainFrame() {
-            return mRequest.isMainFrame;
-        }
-
-        @Override
-        public boolean hasGesture() {
-            return mRequest.hasUserGesture;
-        }
-
-        @Override
-        public String getMethod() {
-            return mRequest.method;
-        }
-
-        @Override
-        public Map<String, String> getRequestHeaders() {
-            return mRequest.requestHeaders;
-        }
-
-        @Override
-        public boolean isRedirect() {
-            return mRequest.isRedirect;
-        }
-    }
-
     @TargetApi(Build.VERSION_CODES.M)
     private static class WebResourceErrorImpl extends WebResourceError {
         private final AwWebResourceError mError;
@@ -330,8 +289,8 @@ class WebViewContentsClientAdapter extends AwContentsClient {
         try {
             TraceEvent.begin("WebViewContentsClientAdapter.shouldInterceptRequest");
             if (TRACE) Log.i(TAG, "shouldInterceptRequest=" + request.url);
-            WebResourceResponse response = mWebViewClient.shouldInterceptRequest(mWebView,
-                    new WebResourceRequestImpl(request));
+            WebResourceResponse response = mWebViewClient.shouldInterceptRequest(
+                    mWebView, new WebResourceRequestAdapter(request));
             if (response == null) return null;
 
             // AwWebResourceResponse should support null headers. b/16332774.
@@ -362,7 +321,7 @@ class WebViewContentsClientAdapter extends AwContentsClient {
             boolean result;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 result = mWebViewClient.shouldOverrideUrlLoading(
-                        mWebView, new WebResourceRequestImpl(request));
+                        mWebView, new WebResourceRequestAdapter(request));
             } else {
                 result = mWebViewClient.shouldOverrideUrlLoading(mWebView, request.url);
             }
@@ -635,42 +594,51 @@ class WebViewContentsClientAdapter extends AwContentsClient {
                 error.description = mWebViewDelegate.getErrorString(mContext, error.errorCode);
             }
             if (TRACE) Log.i(TAG, "onReceivedError=" + request.url);
-            mWebViewClient.onReceivedError(mWebView, new WebResourceRequestImpl(request),
+            mWebViewClient.onReceivedError(mWebView, new WebResourceRequestAdapter(request),
                     new WebResourceErrorImpl(error));
         } finally {
             TraceEvent.end("WebViewContentsClientAdapter.onReceivedError");
         }
     }
 
-    @SuppressLint({"NewApi", "Override"})
+    // TODO(ntfschr): remove @SuppressLint once lint uses 27 for targetSdk (this is needed to
+    // subclass SafeBrowsingResponse)
+    @SuppressLint({"Override"})
     @Override
+    @TargetApi(Build.VERSION_CODES.O_MR1)
     public void onSafeBrowsingHit(AwWebResourceRequest request, int threatType,
             final Callback<AwSafeBrowsingResponse> callback) {
+        // WebViewClient.onSafeBrowsingHit was added in O_MR1.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
             callback.onResult(new AwSafeBrowsingResponse(SafeBrowsingAction.SHOW_INTERSTITIAL,
                     /* reporting */ true));
             return;
         }
-        mWebViewClient.onSafeBrowsingHit(mWebView, new WebResourceRequestImpl(request), threatType,
-                new SafeBrowsingResponse() {
-                    @Override
-                    public void showInterstitial(boolean allowReporting) {
-                        callback.onResult(new AwSafeBrowsingResponse(
-                                SafeBrowsingAction.SHOW_INTERSTITIAL, allowReporting));
-                    }
+        try {
+            TraceEvent.begin("WebViewContentsClientAdapter.onSafeBrowsingHit");
+            mWebViewClient.onSafeBrowsingHit(mWebView, new WebResourceRequestAdapter(request),
+                    threatType, new SafeBrowsingResponse() {
+                        @Override
+                        public void showInterstitial(boolean allowReporting) {
+                            callback.onResult(new AwSafeBrowsingResponse(
+                                    SafeBrowsingAction.SHOW_INTERSTITIAL, allowReporting));
+                        }
 
-                    @Override
-                    public void proceed(boolean report) {
-                        callback.onResult(
-                                new AwSafeBrowsingResponse(SafeBrowsingAction.PROCEED, report));
-                    }
+                        @Override
+                        public void proceed(boolean report) {
+                            callback.onResult(
+                                    new AwSafeBrowsingResponse(SafeBrowsingAction.PROCEED, report));
+                        }
 
-                    @Override
-                    public void backToSafety(boolean report) {
-                        callback.onResult(new AwSafeBrowsingResponse(
-                                SafeBrowsingAction.BACK_TO_SAFETY, report));
-                    }
-                });
+                        @Override
+                        public void backToSafety(boolean report) {
+                            callback.onResult(new AwSafeBrowsingResponse(
+                                    SafeBrowsingAction.BACK_TO_SAFETY, report));
+                        }
+                    });
+        } finally {
+            TraceEvent.end("WebViewContentsClientAdapter.onRenderProcessGone");
+        }
     }
 
     @Override
@@ -679,7 +647,7 @@ class WebViewContentsClientAdapter extends AwContentsClient {
         try {
             TraceEvent.begin("WebViewContentsClientAdapter.onReceivedHttpError");
             if (TRACE) Log.i(TAG, "onReceivedHttpError=" + request.url);
-            mWebViewClient.onReceivedHttpError(mWebView, new WebResourceRequestImpl(request),
+            mWebViewClient.onReceivedHttpError(mWebView, new WebResourceRequestAdapter(request),
                     new WebResourceResponse(true, response.getMimeType(), response.getCharset(),
                             response.getStatusCode(), response.getReasonPhrase(),
                             response.getResponseHeaders(), response.getData()));
@@ -1281,7 +1249,6 @@ class WebViewContentsClientAdapter extends AwContentsClient {
         }
     }
 
-    // TODO: Move to upstream.
     private static class AwHttpAuthHandlerAdapter extends android.webkit.HttpAuthHandler {
         private AwHttpAuthHandler mAwHandler;
 
@@ -1314,7 +1281,6 @@ class WebViewContentsClientAdapter extends AwContentsClient {
 
     /**
      * Type adaptation class for PermissionRequest.
-     * TODO: Move to the upstream once the PermissionRequest is part of SDK.
      */
     public static class PermissionRequestAdapter extends PermissionRequest {
 

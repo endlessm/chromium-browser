@@ -87,12 +87,12 @@
 #include "chrome/browser/ssl/chrome_ssl_host_state_delegate_factory.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/ui/webui/prefs_internals_source.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_paths_internal.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
@@ -103,6 +103,7 @@
 #include "components/domain_reliability/service.h"
 #include "components/gcm_driver/gcm_profile_service.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "components/language/core/common/locale_util.h"
 #include "components/metrics/metrics_service.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
 #include "components/pref_registry/pref_registry_syncable.h"
@@ -125,10 +126,10 @@
 #include "ppapi/features/features.h"
 #include "printing/features/features.h"
 #include "services/identity/identity_service.h"
-#include "services/identity/public/interfaces/constants.mojom.h"
+#include "services/identity/public/mojom/constants.mojom.h"
 #include "services/preferences/public/cpp/in_process_service_factory.h"
-#include "services/preferences/public/interfaces/preferences.mojom.h"
-#include "services/preferences/public/interfaces/tracked_preference_validation_delegate.mojom.h"
+#include "services/preferences/public/mojom/preferences.mojom.h"
+#include "services/preferences/public/mojom/tracked_preference_validation_delegate.mojom.h"
 #include "services/service_manager/public/cpp/service.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -142,9 +143,16 @@
 #include "chrome/browser/chromeos/preferences.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
+#include "chromeos/assistant/buildflags.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
+
+#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
+#include "chromeos/services/assistant/public/mojom/constants.mojom.h"
+#include "chromeos/services/assistant/service.h"
+#endif
+
 #endif
 
 #if !defined(OS_ANDROID)
@@ -739,7 +747,7 @@ Profile::ProfileType ProfileImpl::GetProfileType() const {
 #if !defined(OS_ANDROID)
 std::unique_ptr<content::ZoomLevelDelegate>
 ProfileImpl::CreateZoomLevelDelegate(const base::FilePath& partition_path) {
-  return base::MakeUnique<ChromeZoomLevelPrefs>(
+  return std::make_unique<ChromeZoomLevelPrefs>(
       GetPrefs(), GetPath(), partition_path,
       zoom::ZoomEventManager::GetForBrowserContext(this)->GetWeakPtr());
 }
@@ -977,8 +985,8 @@ PrefService* ProfileImpl::GetOffTheRecordPrefs() {
 
 PrefService* ProfileImpl::GetReadOnlyOffTheRecordPrefs() {
   if (!dummy_otr_prefs_) {
-    dummy_otr_prefs_.reset(CreateIncognitoPrefServiceSyncable(
-        prefs_.get(), CreateExtensionPrefStore(this, true), nullptr));
+    dummy_otr_prefs_ = CreateIncognitoPrefServiceSyncable(
+        prefs_.get(), CreateExtensionPrefStore(this, true), nullptr);
   }
   return dummy_otr_prefs_.get();
 }
@@ -1098,6 +1106,22 @@ void ProfileImpl::RegisterInProcessServices(StaticServiceMap* services) {
     services->insert(std::make_pair(prefs::mojom::kServiceName, info));
   }
 
+#if defined(OS_CHROMEOS)
+#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
+  {
+    service_manager::EmbeddedServiceInfo info;
+    info.factory = base::BindRepeating([] {
+      return std::unique_ptr<service_manager::Service>(
+          std::make_unique<chromeos::assistant::Service>());
+    });
+    info.task_runner = content::BrowserThread::GetTaskRunnerForThread(
+        content::BrowserThread::UI);
+    services->insert(
+        std::make_pair(chromeos::assistant::mojom::kServiceName, info));
+  }
+#endif
+#endif
+
   service_manager::EmbeddedServiceInfo identity_service_info;
 
   // The Identity Service must run on the UI thread.
@@ -1149,6 +1173,7 @@ void ProfileImpl::ChangeAppLocale(
   if (local_state->IsManagedPreference(prefs::kApplicationLocale))
     return;
   std::string pref_locale = GetPrefs()->GetString(prefs::kApplicationLocale);
+  language::ConvertToActualUILocale(&pref_locale);
   bool do_update_pref = true;
   switch (via) {
     case APP_LOCALE_CHANGED_VIA_SETTINGS:
@@ -1345,6 +1370,6 @@ std::unique_ptr<service_manager::Service> ProfileImpl::CreateIdentityService() {
   SigninManagerBase* signin_manager = SigninManagerFactory::GetForProfile(this);
   ProfileOAuth2TokenService* token_service =
       ProfileOAuth2TokenServiceFactory::GetForProfile(this);
-  return base::MakeUnique<identity::IdentityService>(
+  return std::make_unique<identity::IdentityService>(
       account_tracker, signin_manager, token_service);
 }

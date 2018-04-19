@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">العنوان 1</translation>
 <translation id="1545749641540134597">فحص رمز الاستجابة السريعة</translation>
 <translation id="1580783302095112590">تم إرسال البريد.</translation>
+<translation id="1582732959743469162">سيؤدي ذلك إلى إيقاف تقدّم جميع عمليات التنزيل الحالية.</translation>
 <translation id="1612730193129642006">عرض شبكة علامة التبويب</translation>
+<translation id="1644574205037202324">السجل</translation>
 <translation id="1646446875146297738">إن تمكين "عدم التتبع" يعني تضمين طلب في حركة بيانات التصفح. ويعتمد أي تأثير يحدث على ما إذا كان موقع الويب سيستجيب للطلب، وكيفية تفسيره للطلب.
 
 على سبيل المثال، قد تستجيب بعض مواقع الويب لهذا الطلب عبر عرض إعلانات لا تستند إلى مواقع ويب أخرى زرتها. ولكن ستظل العديد من مواقع الويب تجمع بيانات تصفحك وتستخدمها - على سبيل المثال، لتحسين الأمان وتقديم محتوى وخدمات وإعلانات واقتراحات على مواقع الويب ولإعداد تقارير الإحصاءات. <ph name="BEGIN_LINK" />مزيد من المعلومات<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@
 <translation id="3175081911749765310">خدمات الويب</translation>
 <translation id="3207960819495026254">محدد بعلامة متابعة القراءة</translation>
 <translation id="3210163015918861891">تم إيقاف المزامنة</translation>
+<translation id="3224641773458703735">لتصدير كلمات المرور، يلزمك أولاً تعيين رمز مرور على جهازك.</translation>
 <translation id="3240426699337459095">تم نسخ الرابط</translation>
 <translation id="3244271242291266297">الشهر</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />، و<ph name="ADDITIONAL_INFO" />، و<ph name="INDEX" /> من <ph name="NUM_SUGGESTIONS" /></translation>
@@ -153,6 +156,7 @@
 <translation id="3771033907050503522">علامات تبويب التصفح المتخفي</translation>
 <translation id="3779810277399252432">لا يتوفر اتصال بالإنترنت.</translation>
 <translation id="3783017676699494206">حفظ الصورة</translation>
+<translation id="3789841737615482174">تثبيت</translation>
 <translation id="385051799172605136">الرجوع إلى الوراء</translation>
 <translation id="3897092660631435901">قائمة</translation>
 <translation id="3928666092801078803">جمع البيانات التابعة لي</translation>
@@ -220,7 +224,6 @@
 <translation id="5300589172476337783">عرض</translation>
 <translation id="5317780077021120954">حفظ</translation>
 <translation id="5327248766486351172">الاسم</translation>
-<translation id="533632423981297619">ستكون كلمات مرورك مرئية لأي شخص يمكنه الاطلاع على الملف الذي تم تصديره. ينبغي عدم مشاركة هذا الملف مع أي شخص.</translation>
 <translation id="5388358297987318779">فتح الصورة</translation>
 <translation id="5409365236829784218">لا تتوفر تطبيقات مثبتة يمكن من خلالها فتح هذا الملف.</translation>
 <translation id="5433691172869980887">تم نسخ اسم المستخدم</translation>
@@ -249,6 +252,7 @@
 <translation id="5871497086027727873">تم نقل عنصر واحد</translation>
 <translation id="5911030830365207728">‏الترجمة من Google</translation>
 <translation id="5916664084637901428">تشغيل</translation>
+<translation id="5938160824633642847">جهازك ممتلئ تقريبًا. يمكنك إخلاء بعض المساحة وإعادة المحاولة.</translation>
 <translation id="5948291296578561264">يسمح لك ذلك بحفظ الصور في مكتبة صورك.</translation>
 <translation id="5955891643922670672">عرض النسخة في وضع عدم الاتصال</translation>
 <translation id="5964480694698977962">إنشاء علامة تبويب جديدة للتصفح المتخفي.</translation>
@@ -280,7 +284,9 @@
 <translation id="633809752005859102">حدث خطأ ما، وسنحاول حل المشكلة.</translation>
 <translation id="6342069812937806050">الآن</translation>
 <translation id="6344783595350022745">محو النص</translation>
+<translation id="6346549652287021269">هل تريد بدء تنزيل جديد؟</translation>
 <translation id="6362362396625799311">لا توجد علامات تبويب للتصفح المتخفي</translation>
+<translation id="6374469231428023295">إعادة المحاولة</translation>
 <translation id="6380866119319257197">إذا كنت قد نسيت عبارة المرور أو ترغب في تغيير هذا الإعداد، يمكنك <ph name="BEGIN_LINK" />إعادة تعيين المزامنة<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">الاسم كما في البطاقة</translation>
 <translation id="6406506848690869874">المزامنة</translation>
@@ -289,6 +295,7 @@
 
 تم تشفير بياناتك باستخدام عبارة مرور المزامنة في <ph name="TIME" />. أدخلها لبدء المزامنة.</translation>
 <translation id="6418346271604475326">‏جارٍ إعداد PDF</translation>
+<translation id="6434591244308415567">حدث خطأ. يُرجى إعادة المحاولة لاحقًا.</translation>
 <translation id="6445051938772793705">البلد</translation>
 <translation id="6445981559479772097">تم إرسال الرسالة.</translation>
 <translation id="6464071786529933911">فتح في علامة تبويب جديدة للتصفح المتخفي</translation>
@@ -299,6 +306,7 @@
 <translation id="6657585470893396449">كلمة المرور</translation>
 <translation id="667999046851023355">مستند</translation>
 <translation id="6713747756340119864">Google Apps</translation>
+<translation id="6730682669179532099">يتعذّر تصدير كلمات المرور</translation>
 <translation id="6762156594045689028">لتغيير هذا الإعداد، يمكنك <ph name="BEGIN_LINK" />إعادة تعيين المزامنة<ph name="END_LINK" /></translation>
 <translation id="6780034285637185932">الرمز البريدي</translation>
 <translation id="6785453220513215166">جارٍ إرسال تقرير بالأعطال…</translation>
@@ -308,13 +316,16 @@
 <translation id="681368974849482173">تم إنشاء العنصر</translation>
 <translation id="6896758677409633944">نسخ</translation>
 <translation id="6903907808598579934">تشغيل المزامنة</translation>
+<translation id="6914783257214138813">ستكون كلمات مرورك مرئية لأي شخص يمكنه الاطلاع على الملف الذي تم تصديره.</translation>
 <translation id="6945221475159498467">تحديد</translation>
 <translation id="6973630695168034713">المجلدات</translation>
 <translation id="7004499039102548441">علامات التبويب الأخيرة</translation>
 <translation id="7006788746334555276">إعدادات المحتوى</translation>
+<translation id="7029809446516969842">كلمات المرور</translation>
 <translation id="7031882061095297553">مزامنة لـ</translation>
 <translation id="7053983685419859001">منع</translation>
 <translation id="7062545763355031412">قبول الحسابات وتبديلها</translation>
+<translation id="7102005569666697658">جارٍ تنزيل… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">إخفاء</translation>
 <translation id="7133798577887235672">الاسم بالكامل</translation>
 <translation id="7136892417564438900">الكاميرا غير متاحة</translation>
@@ -325,6 +336,7 @@
 <translation id="7203585745079012652">النطق بالإجابات</translation>
 <translation id="722055596168483966">‏تخصيص خدمات Google</translation>
 <translation id="7272437679830969316">تعذَّر التحقق من هويتك. لم يتم نسخ كلمة المرور.</translation>
+<translation id="7291368939935408496">جارٍ تحضير كلمات المرور…</translation>
 <translation id="7336264872878993241">تم تنزيل <ph name="PERCENT" /> بالمائة</translation>
 <translation id="7346909386216857016">موافق، حسنًا</translation>
 <translation id="7400418766976504921">‏عنوان URL</translation>
@@ -349,6 +361,7 @@
 <translation id="7769602470925380267">قبول وتسجيل الخروج</translation>
 <translation id="7772032839648071052">تأكيد عبارة المرور</translation>
 <translation id="780301667611848630">لا، شكرًا</translation>
+<translation id="7856733331829174190">تعذّر التنزيل.</translation>
 <translation id="7859704718976024901">سجل التصفح</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">جارٍ تصدير كلمات المرور...</translation>
@@ -409,6 +422,7 @@
 <translation id="9083392325882095631">عنصر واحد</translation>
 <translation id="9100610230175265781">عبارة المرور مطلوبة</translation>
 <translation id="9148126808321036104">تسجيل الدخول مرة أخرى</translation>
+<translation id="915371508759614899">هل تريد إلغاء التنزيل؟</translation>
 <translation id="9157836665414082580">إيقاف مربعات الحوار</translation>
 <translation id="9188680907066685419">تسجيل الخروج من الحساب المُدار</translation>
 <translation id="9203116392574189331">Handoff</translation>

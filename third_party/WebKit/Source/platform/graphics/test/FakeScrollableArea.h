@@ -9,6 +9,7 @@
 #include "platform/scroll/ScrollableArea.h"
 #include "platform/scroll/ScrollbarThemeMock.h"
 #include "public/platform/Platform.h"
+#include "public/platform/scheduler/test/renderer_scheduler_test_support.h"
 
 namespace {
 blink::ScrollbarThemeMock scrollbar_theme_;
@@ -55,8 +56,12 @@ class FakeScrollableArea : public GarbageCollectedFinalized<FakeScrollableArea>,
     return FlooredIntSize(scroll_offset_);
   }
 
-  scoped_refptr<WebTaskRunner> GetTimerTaskRunner() const final {
-    return Platform::Current()->CurrentThread()->Scheduler()->TimerTaskRunner();
+  scoped_refptr<base::SingleThreadTaskRunner> GetTimerTaskRunner() const final {
+    if (!timer_task_runner_) {
+      timer_task_runner_ =
+          blink::scheduler::GetSingleThreadTaskRunnerForTesting();
+    }
+    return timer_task_runner_;
   }
 
   ScrollbarTheme& GetPageScrollbarTheme() const override {
@@ -69,6 +74,7 @@ class FakeScrollableArea : public GarbageCollectedFinalized<FakeScrollableArea>,
 
  private:
   ScrollOffset scroll_offset_;
+  mutable scoped_refptr<base::SingleThreadTaskRunner> timer_task_runner_;
 };
 
 }  // namespace blink

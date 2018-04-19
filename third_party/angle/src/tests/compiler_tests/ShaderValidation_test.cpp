@@ -1748,10 +1748,9 @@ TEST_F(FragmentShaderValidationTest, StructEqDifferentStruct)
 TEST_F(ComputeShaderValidationTest, Version100)
 {
     const std::string &shaderString =
-        "void main()\n"
-        "layout(local_size_x=1) in;\n"
-        "{\n"
-        "}\n";
+        R"(void main()
+        {
+        })";
     if (compile(shaderString))
     {
         FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
@@ -1762,11 +1761,10 @@ TEST_F(ComputeShaderValidationTest, Version100)
 TEST_F(ComputeShaderValidationTest, Version300)
 {
     const std::string &shaderString =
-        "#version 300 es\n"
-        "void main()\n"
-        "layout(local_size_x=1) in;\n"
-        "{\n"
-        "}\n";
+        R"(#version 300 es
+        void main()
+        {
+        })";
     if (compile(shaderString))
     {
         FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
@@ -5699,5 +5697,65 @@ TEST_F(FragmentShaderValidationTest,
     if (compile(shaderString))
     {
         FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that the type of an initializer of a constant variable needs to match.
+TEST_F(FragmentShaderValidationTest, ConstantInitializerTypeMismatch)
+{
+    const std::string &shaderString =
+        R"(
+        precision mediump float;
+        const float f = 0;
+
+        void main()
+        {
+            gl_FragColor = vec4(f);
+        })";
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that redeclaring a built-in is an error in ESSL 1.00. ESSL 1.00.17 section 4.2.6 disallows
+// "redefinition" of built-ins - it's not very explicit about redeclaring them, but we treat this as
+// an error. The redeclaration cannot serve any purpose since it can't be accompanied by a
+// definition.
+TEST_F(FragmentShaderValidationTest, RedeclaringBuiltIn)
+{
+    const std::string &shaderString =
+        R"(
+        precision mediump float;
+        float sin(float x);
+
+        void main()
+        {
+            gl_FragColor = vec4(0.0);
+        })";
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Redefining a built-in that is not available in the current shader stage is assumed to be not an
+// error. Test with redefining groupMemoryBarrier() in fragment shader. The built-in
+// groupMemoryBarrier() is only available in compute shaders.
+TEST_F(FragmentShaderValidationTest, RedeclaringBuiltInFromAnotherShaderStage)
+{
+    const std::string &shaderString =
+        R"(#version 310 es
+        precision mediump float;
+        out vec4 my_FragColor;
+        float groupMemoryBarrier() { return 1.0; }
+
+        void main()
+        {
+            my_FragColor = vec4(groupMemoryBarrier());
+        })";
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
     }
 }

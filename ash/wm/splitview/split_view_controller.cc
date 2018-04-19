@@ -17,21 +17,27 @@
 #include "ash/system/toast/toast_data.h"
 #include "ash/system/toast/toast_manager.h"
 #include "ash/wm/mru_window_tracker.h"
+#include "ash/wm/overview/scoped_overview_animation_settings.h"
+#include "ash/wm/overview/window_grid.h"
 #include "ash/wm/overview/window_selector_controller.h"
+#include "ash/wm/overview/window_selector_item.h"
 #include "ash/wm/splitview/split_view_divider.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_state.h"
+#include "ash/wm/window_transient_descendant_iterator.h"
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/optional.h"
+#include "base/stl_util.h"
 #include "base/sys_info.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
 #include "ui/base/class_property.h"
+#include "ui/base/hit_test.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/layer.h"
 #include "ui/views/widget/widget.h"
@@ -69,11 +75,81 @@ void TransposeRect(gfx::Rect* rect) {
   rect->SetRect(rect->y(), rect->x(), rect->height(), rect->width());
 }
 
+// Returns true if |window| is an Arc app window.
+bool IsArcAppWindow(aura::Window* window) {
+  return window && window->GetProperty(aura::client::kAppType) ==
+                       static_cast<int>(AppType::ARC_APP);
+}
+
+// Gets the window that is stacked above the other. The windows for comparison
+// must have the same parent if they are both not nullptr.
+aura::Window* GetWindowStackedAbove(aura::Window* window1,
+                                    aura::Window* window2) {
+  if (!window1 || !window2)
+    return window1 ? window1 : window2;
+
+  DCHECK(window1->parent() == window2->parent());
+  const aura::Window::Windows windows = window1->parent()->children();
+  auto window1_i = std::find(windows.begin(), windows.end(), window1);
+  auto window2_i = std::find(windows.begin(), windows.end(), window2);
+  return window1_i > window2_i ? window1 : window2;
+}
+
+mojom::SplitViewState ToMojomSplitViewState(SplitViewController::State state) {
+  switch (state) {
+    case SplitViewController::NO_SNAP:
+      return mojom::SplitViewState::NO_SNAP;
+    case SplitViewController::LEFT_SNAPPED:
+      return mojom::SplitViewState::LEFT_SNAPPED;
+    case SplitViewController::RIGHT_SNAPPED:
+      return mojom::SplitViewState::RIGHT_SNAPPED;
+    case SplitViewController::BOTH_SNAPPED:
+      return mojom::SplitViewState::BOTH_SNAPPED;
+    default:
+      NOTREACHED();
+      return mojom::SplitViewState::NO_SNAP;
+  }
+}
+
+mojom::WindowStateType GetStateTypeFromSnapPostion(
+    SplitViewController::SnapPosition snap_position) {
+  DCHECK(snap_position != SplitViewController::NONE);
+  if (snap_position == SplitViewController::LEFT)
+    return mojom::WindowStateType::LEFT_SNAPPED;
+  if (snap_position == SplitViewController::RIGHT)
+    return mojom::WindowStateType::RIGHT_SNAPPED;
+  NOTREACHED();
+  return mojom::WindowStateType::DEFAULT;
+}
+
+bool IsPrimaryScreenOrientation(
+    blink::WebScreenOrientationLockType screen_orientation) {
+  return screen_orientation ==
+             blink::kWebScreenOrientationLockLandscapePrimary ||
+         screen_orientation == blink::kWebScreenOrientationLockPortraitPrimary;
+}
+
+bool IsLandscapeOrientation(
+    blink::WebScreenOrientationLockType screen_orientation) {
+  return screen_orientation ==
+             blink::kWebScreenOrientationLockLandscapePrimary ||
+         screen_orientation ==
+             blink::kWebScreenOrientationLockLandscapeSecondary;
+}
+
+// Returns the minimum size of the window according to the screen orientation.
+int GetMinimumWindowSize(aura::Window* window, bool is_landscape) {
+  int minimum_width = 0;
+  if (window && window->delegate()) {
+    gfx::Size minimum_size = window->delegate()->GetMinimumSize();
+    minimum_width = is_landscape ? minimum_size.width() : minimum_size.height();
+  }
+  return minimum_width;
+};
+
 }  // namespace
 
 SplitViewController::SplitViewController() {
-  screen_orientation_ =
-      Shell::Get()->screen_orientation_controller()->GetCurrentOrientation();
   display::Screen::GetScreen()->AddObserver(this);
 }
 
@@ -85,16 +161,14 @@ SplitViewController::~SplitViewController() {
 // static
 bool SplitViewController::ShouldAllowSplitView() {
 #if defined(GOOGLE_CHROME_BUILD)
-  // We decided to disable splitscreen on M65 stable channel unless it is
-  // explicity enabled by the user, and keep it enabled by default for all other
-  // channels on M65. From M66, it will be enabled by default on all channels.
-  // So this restriction will be removed after M65 branch is cut.
-  // See https://crbug.com/800501 for details.
+  // Disable splitscreen on M66 stable channel unless it is explicity enabled by
+  // the user, and keep it enabled by default for all other channels on M66.
+  // It will be reverted later on M67.
   constexpr char kChromeOSReleaseTrack[] = "CHROMEOS_RELEASE_TRACK";
-  constexpr char kChromeOSStableChannelString[] = "stable";
+  constexpr char kChromeOSStableChannelString[] = "stable-channel";
   std::string channel;
   if (base::SysInfo::GetLsbReleaseValue(kChromeOSReleaseTrack, &channel) &&
-      channel.find(kChromeOSStableChannelString) != std::string::npos &&
+      channel == kChromeOSStableChannelString &&
       !base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kAshEnableTabletSplitView)) {
     return false;
@@ -109,26 +183,12 @@ bool SplitViewController::ShouldAllowSplitView() {
   return true;
 }
 
-// static
-bool SplitViewController::IsLeftWindowOnTopOrLeftOfScreen(
-    blink::WebScreenOrientationLockType screen_orientation) {
-  return screen_orientation ==
-             blink::kWebScreenOrientationLockLandscapePrimary ||
-         screen_orientation ==
-             blink::kWebScreenOrientationLockPortraitSecondary;
+void SplitViewController::BindRequest(
+    mojom::SplitViewControllerRequest request) {
+  bindings_.AddBinding(this, std::move(request));
 }
 
 bool SplitViewController::CanSnap(aura::Window* window) {
-  // In M65, some ARC apps can be freely resized and thus are capble of
-  // displaying in splitscreen, but splitscreen is not supported for ARC apps
-  // windows yet in M65, thus we should explicity return false here for ARC apps
-  // windows. Otherwise we may see issues as in https://crbug.com/808748. It
-  // will be reverted later in M66.
-  if (window->GetProperty(aura::client::kAppType) ==
-      static_cast<int>(AppType::ARC_APP)) {
-    return false;
-  }
-
   if (!wm::CanActivateWindow(window))
     return false;
   if (!wm::GetWindowState(window)->CanSnap())
@@ -151,17 +211,17 @@ bool SplitViewController::IsSplitViewModeActive() const {
   return state_ != NO_SNAP;
 }
 
+blink::WebScreenOrientationLockType
+SplitViewController::GetCurrentScreenOrientation() const {
+  return Shell::Get()->screen_orientation_controller()->GetCurrentOrientation();
+}
+
 bool SplitViewController::IsCurrentScreenOrientationLandscape() const {
-  return screen_orientation_ ==
-             blink::kWebScreenOrientationLockLandscapePrimary ||
-         screen_orientation_ ==
-             blink::kWebScreenOrientationLockLandscapeSecondary;
+  return IsLandscapeOrientation(GetCurrentScreenOrientation());
 }
 
 bool SplitViewController::IsCurrentScreenOrientationPrimary() const {
-  return screen_orientation_ ==
-             blink::kWebScreenOrientationLockLandscapePrimary ||
-         screen_orientation_ == blink::kWebScreenOrientationLockPortraitPrimary;
+  return IsPrimaryScreenOrientation(GetCurrentScreenOrientation());
 }
 
 void SplitViewController::SnapWindow(aura::Window* window,
@@ -205,19 +265,29 @@ void SplitViewController::SnapWindow(aura::Window* window,
   else if (right_window_)
     state_ = RIGHT_SNAPPED;
 
+  // Update the divider position and window bounds before snapping a new window.
+  // Since the minimum size of |window| maybe larger than currently bounds in
+  // |snap_position|.
+  MoveDividerToClosestFixedPosition();
+  UpdateSnappedWindowsAndDividerBounds();
+
   StartObserving(window);
-  const wm::WMEvent event((snap_position == LEFT) ? wm::WM_EVENT_SNAP_LEFT
-                                                  : wm::WM_EVENT_SNAP_RIGHT);
-  wm::GetWindowState(window)->OnWMEvent(&event);
-  wm::ActivateWindow(window);
 
-  // Stack the other snapped window below the current active window so that
-  // the snapped two windows are always the top two windows while resizing.
-  aura::Window* stacking_target =
-      (window == left_window_) ? right_window_ : left_window_;
-  if (stacking_target)
-    window->parent()->StackChildBelow(stacking_target, window);
+  if (wm::GetWindowState(window)->GetStateType() ==
+      GetStateTypeFromSnapPostion(snap_position)) {
+    // If the window has already been snapped, just activate it. Restore its
+    // transform if applicable.
+    RestoreAndActivateSnappedWindow(window);
+  } else {
+    // Otherwise, try to snap it. It will be activated later after the window is
+    // snapped.
+    const wm::WMEvent event((snap_position == LEFT) ? wm::WM_EVENT_SNAP_LEFT
+                                                    : wm::WM_EVENT_SNAP_RIGHT);
+    wm::GetWindowState(window)->OnWMEvent(&event);
+  }
 
+  if (previous_state == NO_SNAP && previous_state != state_)
+    Shell::Get()->NotifySplitViewModeStarted();
   NotifySplitViewStateChanged(previous_state, state_);
   base::RecordAction(base::UserMetricsAction("SplitView_SnapWindow"));
 }
@@ -230,9 +300,11 @@ void SplitViewController::SwapWindows() {
 
   aura::Window* new_left_window = right_window_;
   aura::Window* new_right_window = left_window_;
+  left_window_ = new_left_window;
+  right_window_ = new_right_window;
 
-  SnapWindow(new_left_window, LEFT);
-  SnapWindow(new_right_window, RIGHT);
+  MoveDividerToClosestFixedPosition();
+  UpdateSnappedWindowsAndDividerBounds();
 
   base::RecordAction(
       base::UserMetricsAction("SplitView_DoubleTapDividerSwapWindows"));
@@ -262,25 +334,15 @@ gfx::Rect SplitViewController::GetSnappedWindowBoundsInScreen(
   if (snap_position == NONE)
     return work_area_bounds_in_screen;
 
-  // |divide_position_| might not be properly initialized yet.
-  divider_position_ = (divider_position_ < 0)
-                          ? GetDefaultDividerPosition(window)
-                          : divider_position_;
-  const gfx::Rect divider_bounds = SplitViewDivider::GetDividerBoundsInScreen(
-      work_area_bounds_in_screen, screen_orientation_, divider_position_,
-      false /* is_dragging */);
-
-  gfx::Rect left_or_top_rect;
-  gfx::Rect right_or_bottom_rect;
-  SplitRect(work_area_bounds_in_screen, divider_bounds,
-            IsCurrentScreenOrientationLandscape(), &left_or_top_rect,
-            &right_or_bottom_rect);
+  gfx::Rect left_or_top_rect, right_or_bottom_rect;
+  GetSnappedWindowBoundsInScreenInternal(window, &left_or_top_rect,
+                                         &right_or_bottom_rect);
 
   // Adjust the bounds for |left_or_top_rect| and |right_or_bottom_rect| if the
   // desired bound is smaller than the minimum bounds of the window.
   AdjustSnappedWindowBounds(&left_or_top_rect, &right_or_bottom_rect);
 
-  if (IsLeftWindowOnTopOrLeftOfScreen(screen_orientation_))
+  if (IsCurrentScreenOrientationPrimary())
     return (snap_position == LEFT) ? left_or_top_rect : right_or_bottom_rect;
   else
     return (snap_position == LEFT) ? right_or_bottom_rect : left_or_top_rect;
@@ -300,11 +362,41 @@ gfx::Rect SplitViewController::GetDisplayWorkAreaBoundsInScreen(
   return bounds;
 }
 
+gfx::Rect SplitViewController::GetSnappedWindowBoundsInScreenUnadjusted(
+    aura::Window* window,
+    SnapPosition snap_position) {
+  const gfx::Rect work_area_bounds_in_screen =
+      GetDisplayWorkAreaBoundsInScreen(window);
+  if (snap_position == NONE)
+    return work_area_bounds_in_screen;
+
+  gfx::Rect left_or_top_rect, right_or_bottom_rect;
+  GetSnappedWindowBoundsInScreenInternal(window, &left_or_top_rect,
+                                         &right_or_bottom_rect);
+
+  if (IsCurrentScreenOrientationPrimary())
+    return (snap_position == LEFT) ? left_or_top_rect : right_or_bottom_rect;
+  else
+    return (snap_position == LEFT) ? right_or_bottom_rect : left_or_top_rect;
+}
+
 void SplitViewController::StartResize(const gfx::Point& location_in_screen) {
   DCHECK(IsSplitViewModeActive());
   is_resizing_ = true;
   split_view_divider_->UpdateDividerBounds(is_resizing_);
   previous_event_location_ = location_in_screen;
+
+  smooth_resize_window_ = GetWindowForSmoothResize();
+  DCHECK(smooth_resize_window_);
+  wm::WindowState* window_state = wm::GetWindowState(smooth_resize_window_);
+  gfx::Point location_in_parent(location_in_screen);
+  ::wm::ConvertPointFromScreen(smooth_resize_window_->parent(),
+                               &location_in_parent);
+  int window_component = GetWindowComponentForResize(smooth_resize_window_);
+  window_state->CreateDragDetails(location_in_parent, window_component,
+                                  ::wm::WINDOW_MOVE_SOURCE_TOUCH);
+  window_state->OnDragStarted(window_component);
+
   base::RecordAction(base::UserMetricsAction("SplitView_ResizeWindows"));
 }
 
@@ -329,6 +421,9 @@ void SplitViewController::Resize(const gfx::Point& location_in_screen) {
   // Update the snapped window/windows and divider's position.
   UpdateSnappedWindowsAndDividerBounds();
 
+  // Apply window transform if necessary.
+  SetWindowsTransformDuringResizing();
+
   previous_event_location_ = modified_location_in_screen;
 }
 
@@ -345,6 +440,17 @@ void SplitViewController::EndResize(const gfx::Point& location_in_screen) {
   UpdateDividerPosition(modified_location_in_screen);
   MoveDividerToClosestFixedPosition();
   NotifyDividerPositionChanged();
+  RestoreWindowsTransformAfterResizing();
+
+  if (smooth_resize_window_) {
+    // Update snapped window/windows bounds before sending OnCompleteDrag() for
+    // smoother resizing visual result.
+    UpdateSnappedWindowsAndDividerBounds();
+    wm::WindowState* window_state = wm::GetWindowState(smooth_resize_window_);
+    window_state->OnCompleteDrag(
+        GetEndDragLocationInScreen(smooth_resize_window_, location_in_screen));
+    window_state->DeleteDragDetails();
+  }
 
   // Need to update snapped windows bounds even if the split view mode may have
   // to exit. Otherwise it's possible for a snapped window stuck in the edge of
@@ -415,9 +521,17 @@ void SplitViewController::RemoveObserver(Observer* observer) {
   observers_.RemoveObserver(observer);
 }
 
+void SplitViewController::AddObserver(mojom::SplitViewObserverPtr observer) {
+  mojom::SplitViewObserver* observer_ptr = observer.get();
+  mojo_observers_.AddPtr(std::move(observer));
+  observer_ptr->OnSplitViewStateChanged(ToMojomSplitViewState(state_));
+}
+
 void SplitViewController::OnWindowDestroying(aura::Window* window) {
   DCHECK(IsSplitViewModeActive());
   DCHECK(window == left_window_ || window == right_window_);
+  if (smooth_resize_window_ == window)
+    smooth_resize_window_ = nullptr;
   OnSnappedWindowMinimizedOrDestroyed(window);
 }
 
@@ -426,7 +540,9 @@ void SplitViewController::OnPostWindowStateTypeChange(
     ash::mojom::WindowStateType old_type) {
   DCHECK(IsSplitViewModeActive());
 
-  if (window_state->IsFullscreen() || window_state->IsMaximized()) {
+  if (window_state->IsSnapped()) {
+    RestoreAndActivateSnappedWindow(window_state->window());
+  } else if (window_state->IsFullscreen() || window_state->IsMaximized()) {
     // End split view mode if one of the snapped windows gets maximized /
     // full-screened. Also end overview mode if overview mode is active at the
     // moment.
@@ -456,10 +572,11 @@ void SplitViewController::OnWindowActivated(ActivationReason reason,
   }
 
   // Only window in MRU list can be snapped.
-  aura::Window::Windows windows =
-      Shell::Get()->mru_window_tracker()->BuildMruWindowList();
-  if (std::find(windows.begin(), windows.end(), gained_active) == windows.end())
+  if (!base::ContainsValue(
+          Shell::Get()->mru_window_tracker()->BuildMruWindowList(),
+          gained_active)) {
     return;
+  }
 
   // Snap the window on the non-default side of the screen if split view mode
   // is active.
@@ -487,23 +604,41 @@ void SplitViewController::OnOverviewModeStarting() {
   NotifySplitViewStateChanged(previous_state, state_);
 }
 
-void SplitViewController::OnOverviewModeEnded() {
+void SplitViewController::OnOverviewModeEnding() {
   DCHECK(IsSplitViewModeActive());
 
-  // If split view mode is active but only has one snapped window, use the MRU
-  // window list to auto select another window to snap.
-  if (state_ != BOTH_SNAPPED) {
-    aura::Window::Windows windows =
-        Shell::Get()->mru_window_tracker()->BuildMruWindowList();
-    for (auto* window : windows) {
+  if (state_ == BOTH_SNAPPED)
+    return;
+
+  WindowSelector* window_selector =
+      Shell::Get()->window_selector_controller()->window_selector();
+  WindowGrid* current_grid = window_selector->GetGridWithRootWindow(
+      GetDefaultSnappedWindow()->GetRootWindow());
+  if (!current_grid)
+    return;
+
+  // If split view mode is active but only has one snapped window when overview
+  // mode is ending, retrieve the first snappable window in the overview window
+  // grid and snap it.
+  const auto& windows = current_grid->window_list();
+  if (windows.size() > 0) {
+    for (const auto& window_selector_item : windows) {
+      aura::Window* window = window_selector_item->GetWindow();
       if (CanSnap(window) && window != GetDefaultSnappedWindow()) {
+        window_selector->RemoveWindowSelectorItem(window_selector_item.get());
         if (default_snap_position_ == LEFT)
           SnapWindow(window, SplitViewController::RIGHT);
         else if (default_snap_position_ == RIGHT)
           SnapWindow(window, SplitViewController::LEFT);
-        break;
+        return;
       }
     }
+
+    // Arriving here we know there is no window in the window grid can be
+    // snapped, in this case end the splitview mode and show cannot snap
+    // toast.
+    EndSplitView();
+    ShowAppCannotSnapToast();
   }
 }
 
@@ -513,12 +648,11 @@ void SplitViewController::OnDisplayMetricsChanged(
   if (!display.IsInternal())
     return;
 
-  // We need update |screen_orientation_| even though split view mode is not
-  // active at the moment.
+  // We need update |previous_screen_orientation_| even though split view mode
+  // is not active at the moment.
   blink::WebScreenOrientationLockType previous_screen_orientation =
-      screen_orientation_;
-  screen_orientation_ =
-      Shell::Get()->screen_orientation_controller()->GetCurrentOrientation();
+      previous_screen_orientation_;
+  previous_screen_orientation_ = GetCurrentScreenOrientation();
 
   if (!IsSplitViewModeActive())
     return;
@@ -539,11 +673,12 @@ void SplitViewController::OnDisplayMetricsChanged(
 
   // Update |divider_position_| if the top/left window changes.
   if ((metrics & (display::DisplayObserver::DISPLAY_METRIC_ROTATION)) &&
-      (IsLeftWindowOnTopOrLeftOfScreen(previous_screen_orientation) !=
-       IsLeftWindowOnTopOrLeftOfScreen(screen_orientation_))) {
+      (IsPrimaryScreenOrientation(previous_screen_orientation) !=
+       IsCurrentScreenOrientationPrimary())) {
     const int work_area_long_length = GetDividerEndPosition();
     const gfx::Size divider_size = SplitViewDivider::GetDividerSize(
-        display.work_area(), screen_orientation_, false /* is_dragging */);
+        display.work_area(), GetCurrentScreenOrientation(),
+        false /* is_dragging */);
     const int divider_short_length =
         std::min(divider_size.width(), divider_size.height());
     divider_position_ =
@@ -586,6 +721,10 @@ void SplitViewController::NotifySplitViewStateChanged(State previous_state,
   // should notify its observers.
   for (Observer& observer : observers_)
     observer.OnSplitViewStateChanged(previous_state, state);
+  mojo_observers_.ForAllPtrs(
+      [previous_state, state](mojom::SplitViewObserver* observer) {
+        observer->OnSplitViewStateChanged(ToMojomSplitViewState(state));
+      });
 }
 
 void SplitViewController::NotifyDividerPositionChanged() {
@@ -597,7 +736,8 @@ int SplitViewController::GetDefaultDividerPosition(aura::Window* window) const {
   const gfx::Rect work_area_bounds_in_screen =
       GetDisplayWorkAreaBoundsInScreen(window);
   const gfx::Size divider_size = SplitViewDivider::GetDividerSize(
-      work_area_bounds_in_screen, screen_orientation_, false /* is_dragging */);
+      work_area_bounds_in_screen, GetCurrentScreenOrientation(),
+      false /* is_dragging */);
   if (IsCurrentScreenOrientationLandscape())
     return (work_area_bounds_in_screen.width() - divider_size.width()) * 0.5f;
   else
@@ -695,8 +835,8 @@ SplitViewController::SnapPosition SplitViewController::GetBlackScrimPosition(
   } else {
     int top_distance = location_in_screen.y() - work_area_bounds.y();
     int bottom_distance = work_area_bounds.bottom() - location_in_screen.y();
-    left_window_distance = is_primary ? bottom_distance : top_distance;
-    right_window_distance = is_primary ? top_distance : bottom_distance;
+    left_window_distance = is_primary ? top_distance : bottom_distance;
+    right_window_distance = is_primary ? bottom_distance : top_distance;
 
     min_left_length = left_window_min_size.height();
     min_right_length = right_window_min_size.height();
@@ -722,6 +862,26 @@ void SplitViewController::UpdateDividerPosition(
     divider_position_ += location_in_screen.y() - previous_event_location_.y();
   }
   divider_position_ = std::max(0, divider_position_);
+}
+
+void SplitViewController::GetSnappedWindowBoundsInScreenInternal(
+    aura::Window* window,
+    gfx::Rect* left_or_top_rect,
+    gfx::Rect* right_or_bottom_rect) {
+  const gfx::Rect work_area_bounds_in_screen =
+      GetDisplayWorkAreaBoundsInScreen(window);
+
+  // |divide_position_| might not be properly initialized yet.
+  divider_position_ = (divider_position_ < 0)
+                          ? GetDefaultDividerPosition(window)
+                          : divider_position_;
+  const gfx::Rect divider_bounds = SplitViewDivider::GetDividerBoundsInScreen(
+      work_area_bounds_in_screen, GetCurrentScreenOrientation(),
+      divider_position_, false /* is_dragging */);
+
+  SplitRect(work_area_bounds_in_screen, divider_bounds,
+            IsCurrentScreenOrientationLandscape(), left_or_top_rect,
+            right_or_bottom_rect);
 }
 
 void SplitViewController::SplitRect(const gfx::Rect& work_area_rect,
@@ -755,7 +915,8 @@ void SplitViewController::MoveDividerToClosestFixedPosition() {
   const gfx::Rect work_area_bounds_in_screen =
       GetDisplayWorkAreaBoundsInScreen(GetDefaultSnappedWindow());
   const gfx::Size divider_size = SplitViewDivider::GetDividerSize(
-      work_area_bounds_in_screen, screen_orientation_, false /* is_dragging */);
+      work_area_bounds_in_screen, GetCurrentScreenOrientation(),
+      false /* is_dragging */);
   const int divider_thickness =
       std::min(divider_size.width(), divider_size.height());
 
@@ -787,11 +948,9 @@ aura::Window* SplitViewController::GetActiveWindowAfterResizingUponExit() {
     return nullptr;
 
   if (divider_position_ == 0) {
-    return IsLeftWindowOnTopOrLeftOfScreen(screen_orientation_) ? right_window_
-                                                                : left_window_;
+    return IsCurrentScreenOrientationPrimary() ? right_window_ : left_window_;
   } else {
-    return IsLeftWindowOnTopOrLeftOfScreen(screen_orientation_) ? left_window_
-                                                                : right_window_;
+    return IsCurrentScreenOrientationPrimary() ? left_window_ : right_window_;
   }
 }
 
@@ -833,39 +992,29 @@ void SplitViewController::AdjustSnappedWindowBounds(
     gfx::Rect* left_or_top_rect,
     gfx::Rect* right_or_bottom_rect) {
   aura::Window* left_or_top_window =
-      IsLeftWindowOnTopOrLeftOfScreen(screen_orientation_) ? left_window_
-                                                           : right_window_;
+      IsCurrentScreenOrientationPrimary() ? left_window_ : right_window_;
   aura::Window* right_or_bottom_window =
-      IsLeftWindowOnTopOrLeftOfScreen(screen_orientation_) ? right_window_
-                                                           : left_window_;
+      IsCurrentScreenOrientationPrimary() ? right_window_ : left_window_;
 
-  auto get_minimum_size = [](aura::Window* window, bool is_landscape) -> int {
-    int minimum_width = 0;
-    if (window && window->delegate()) {
-      gfx::Size minimum_size = window->delegate()->GetMinimumSize();
-      minimum_width =
-          is_landscape ? minimum_size.width() : minimum_size.height();
-    }
-    return minimum_width;
-  };
-
-  bool is_landscape = IsCurrentScreenOrientationLandscape();
-  int left_minimum_width = get_minimum_size(left_or_top_window, is_landscape);
-  int right_minimum_width =
-      get_minimum_size(right_or_bottom_window, is_landscape);
+  const bool is_landscape = IsCurrentScreenOrientationLandscape();
+  const int left_minimum_width =
+      GetMinimumWindowSize(left_or_top_window, is_landscape);
+  const int right_minimum_width =
+      GetMinimumWindowSize(right_or_bottom_window, is_landscape);
 
   if (!is_landscape) {
     TransposeRect(left_or_top_rect);
     TransposeRect(right_or_bottom_rect);
   }
 
-  if (left_or_top_rect->width() < left_minimum_width) {
-    left_or_top_rect->set_x(left_or_top_rect->x() -
-                            (left_minimum_width - left_or_top_rect->width()));
+  if (left_or_top_rect->width() < left_minimum_width)
     left_or_top_rect->set_width(left_minimum_width);
-  }
-  if (right_or_bottom_rect->width() < right_minimum_width)
+  if (right_or_bottom_rect->width() < right_minimum_width) {
+    right_or_bottom_rect->set_x(
+        right_or_bottom_rect->x() -
+        (right_minimum_width - right_or_bottom_rect->width()));
     right_or_bottom_rect->set_width(right_minimum_width);
+  }
 
   if (!is_landscape) {
     TransposeRect(left_or_top_rect);
@@ -892,7 +1041,7 @@ float SplitViewController::FindClosestPositionRatio(float distance,
 
 void SplitViewController::GetDividerOptionalPositionRatios(
     std::vector<float>* position_ratios) {
-  bool is_left_or_top = IsLeftWindowOnTopOrLeftOfScreen(screen_orientation_);
+  bool is_left_or_top = IsCurrentScreenOrientationPrimary();
   aura::Window* left_or_top_window =
       is_left_or_top ? left_window_ : right_window_;
   aura::Window* right_or_bottom_window =
@@ -918,6 +1067,159 @@ void SplitViewController::GetDividerOptionalPositionRatios(
 
   if (min_size_right_ratio <= kOneThirdPositionRatio)
     position_ratios->push_back(kTwoThirdPositionRatio);
+}
+
+aura::Window* SplitViewController::GetWindowForSmoothResize() {
+  DCHECK(IsSplitViewModeActive());
+
+  // If there is only one snapped window, return it.
+  if (!left_window_ || !right_window_)
+    return left_window_ ? left_window_ : right_window_;
+
+  // If both of two snapped windows are Arc app windows or both are not Arc app
+  // windows, return the one who is stacked above the other. Otherwise return
+  // the one who is an Arc app window.
+  if (IsArcAppWindow(left_window_) == IsArcAppWindow(right_window_))
+    return GetWindowStackedAbove(left_window_, right_window_);
+  else
+    return IsArcAppWindow(left_window_) ? left_window_ : right_window_;
+}
+
+int SplitViewController::GetWindowComponentForResize(aura::Window* window) {
+  if (window && (window == left_window_ || window == right_window_)) {
+    switch (GetCurrentScreenOrientation()) {
+      case blink::kWebScreenOrientationLockLandscapePrimary:
+        return (window == left_window_) ? HTRIGHT : HTLEFT;
+      case blink::kWebScreenOrientationLockLandscapeSecondary:
+        return (window == left_window_) ? HTLEFT : HTRIGHT;
+      case blink::kWebScreenOrientationLockPortraitSecondary:
+        return (window == left_window_) ? HTTOP : HTBOTTOM;
+      case blink::kWebScreenOrientationLockPortraitPrimary:
+        return (window == left_window_) ? HTBOTTOM : HTTOP;
+      default:
+        return HTNOWHERE;
+    }
+  }
+  return HTNOWHERE;
+}
+
+gfx::Point SplitViewController::GetEndDragLocationInScreen(
+    aura::Window* window,
+    const gfx::Point& location_in_screen) {
+  gfx::Point end_location(location_in_screen);
+  if (!window || (window != left_window_ && window != right_window_))
+    return end_location;
+
+  const gfx::Rect bounds = (window == left_window_)
+                               ? GetSnappedWindowBoundsInScreen(window, LEFT)
+                               : GetSnappedWindowBoundsInScreen(window, RIGHT);
+  switch (GetCurrentScreenOrientation()) {
+    case blink::kWebScreenOrientationLockLandscapePrimary:
+      end_location.set_x(window == left_window_ ? bounds.right() : bounds.x());
+      break;
+    case blink::kWebScreenOrientationLockLandscapeSecondary:
+      end_location.set_x(window == left_window_ ? bounds.x() : bounds.right());
+      break;
+    case blink::kWebScreenOrientationLockPortraitSecondary:
+      end_location.set_y(window == left_window_ ? bounds.y() : bounds.bottom());
+      break;
+    case blink::kWebScreenOrientationLockPortraitPrimary:
+      end_location.set_y(window == left_window_ ? bounds.bottom() : bounds.y());
+      break;
+    default:
+      NOTREACHED();
+      break;
+  }
+  return end_location;
+}
+
+void SplitViewController::RestoreAndActivateSnappedWindow(
+    aura::Window* window) {
+  DCHECK(window == left_window_ || window == right_window_);
+
+  // Restore the window's transform first if its transform is not identity. In
+  // this case the window must come from the overview window grid.
+  if (!window->layer()->GetTargetTransform().IsIdentity()) {
+    for (auto* window_iter : wm::GetTransientTreeIterator(window)) {
+      ScopedOverviewAnimationSettings animation_settings(
+          ash::OverviewAnimationType::OVERVIEW_ANIMATION_RESTORE_WINDOW,
+          window_iter);
+      window_iter->SetTransform(gfx::Transform());
+    }
+  }
+  wm::ActivateWindow(window);
+
+  // Stack the other snapped window below the current active window so that the
+  // two snapped window are always the top two windows when split view mode is
+  // active.
+  aura::Window* stacking_target =
+      (window == left_window_) ? right_window_ : left_window_;
+  if (stacking_target)
+    window->parent()->StackChildBelow(stacking_target, window);
+}
+
+void SplitViewController::SetWindowsTransformDuringResizing() {
+  DCHECK(IsSplitViewModeActive());
+  const bool is_landscape = IsCurrentScreenOrientationLandscape();
+  aura::Window* left_or_top_window =
+      IsCurrentScreenOrientationPrimary() ? left_window_ : right_window_;
+  aura::Window* right_or_bottom_window =
+      IsCurrentScreenOrientationPrimary() ? right_window_ : left_window_;
+
+  gfx::Rect left_or_top_rect, right_or_bottom_rect;
+  GetSnappedWindowBoundsInScreenInternal(
+      GetDefaultSnappedWindow(), &left_or_top_rect, &right_or_bottom_rect);
+
+  gfx::Transform left_or_top_transform;
+  if (left_or_top_window) {
+    const int left_size =
+        is_landscape ? left_or_top_rect.width() : left_or_top_rect.height();
+    const int left_minimum_size =
+        GetMinimumWindowSize(left_or_top_window, is_landscape);
+    const int distance = left_size - left_minimum_size;
+    if (distance < 0) {
+      left_or_top_transform.Translate(is_landscape ? distance : 0,
+                                      is_landscape ? 0 : distance);
+    }
+    SetTransform(left_or_top_window, left_or_top_transform);
+  }
+
+  gfx::Transform right_or_bottom_transform;
+  if (right_or_bottom_window) {
+    const int right_size = is_landscape ? right_or_bottom_rect.width()
+                                        : right_or_bottom_rect.height();
+    const int right_minimum_size =
+        GetMinimumWindowSize(right_or_bottom_window, is_landscape);
+    const int distance = right_size - right_minimum_size;
+    if (distance < 0) {
+      right_or_bottom_transform.Translate(is_landscape ? -distance : 0,
+                                          is_landscape ? 0 : -distance);
+    }
+    SetTransform(right_or_bottom_window, right_or_bottom_transform);
+  }
+
+  if (black_scrim_layer_.get()) {
+    black_scrim_layer_->SetTransform(left_or_top_transform.IsIdentity()
+                                         ? right_or_bottom_transform
+                                         : left_or_top_transform);
+  }
+}
+
+void SplitViewController::RestoreWindowsTransformAfterResizing() {
+  DCHECK(IsSplitViewModeActive());
+  if (left_window_)
+    SetTransform(left_window_, gfx::Transform());
+  if (right_window_)
+    SetTransform(right_window_, gfx::Transform());
+  if (black_scrim_layer_.get())
+    black_scrim_layer_->SetTransform(gfx::Transform());
+}
+
+void SplitViewController::SetTransform(aura::Window* window,
+                                       const gfx::Transform& transform) {
+  DCHECK(window);
+  for (auto* window_iter : wm::GetTransientTreeIterator(window))
+    window_iter->SetTransform(transform);
 }
 
 void SplitViewController::StartOverview() {

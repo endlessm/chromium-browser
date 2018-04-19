@@ -38,7 +38,6 @@
 #include "net/url_request/url_request_context_getter.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/policy/user_cloud_policy_manager_chromeos.h"
 #include "chrome/browser/chromeos/policy/user_policy_manager_factory_chromeos.h"
@@ -106,6 +105,10 @@ class ComponentCloudPolicyTest : public ExtensionBrowserTest {
     // testserver.
     command_line->AppendSwitchASCII(::chromeos::switches::kLoginUser,
                                     PolicyBuilder::kFakeUsername);
+    // Let policy code know that policy is not required to be cached at startup
+    // (it can be loaded asynchronously).
+    command_line->AppendSwitchASCII(
+        ::chromeos::switches::kProfileRequiresPolicy, "false");
 #endif
   }
 
@@ -203,7 +206,9 @@ class ComponentCloudPolicyTest : public ExtensionBrowserTest {
     EXPECT_CALL(observer, OnRegistrationStateChanged(_))
         .WillOnce(InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
     client_->AddObserver(&observer);
-    client_->SetupRegistration(kDMToken, kDeviceID);
+    client_->SetupRegistration(
+        kDMToken, kDeviceID,
+        std::vector<std::string>() /* user_affiliation_ids */);
     run_loop.Run();
     Mock::VerifyAndClearExpectations(&observer);
     client_->RemoveObserver(&observer);
@@ -269,7 +274,13 @@ IN_PROC_BROWSER_TEST_F(ComponentCloudPolicyTest, UpdateExtensionPolicy) {
   EXPECT_TRUE(policy_listener2.WaitUntilSatisfied());
 }
 
-IN_PROC_BROWSER_TEST_F(ComponentCloudPolicyTest, InstallNewExtension) {
+// Flaky on Mac. http://crbug.com/816647
+#if defined(OS_MACOSX)
+#define MAYBE_InstallNewExtension DISABLED_InstallNewExtension
+#else
+#define MAYBE_InstallNewExtension InstallNewExtension
+#endif
+IN_PROC_BROWSER_TEST_F(ComponentCloudPolicyTest, MAYBE_InstallNewExtension) {
   event_listener_->Reply("idle");
   event_listener_.reset();
 

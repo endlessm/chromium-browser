@@ -19,7 +19,7 @@
 
 namespace {
 
-constexpr int kDefaultPromoShowTimeInHours = 2;
+constexpr int kDefaultIncognitoWindowPromoShowTimeInHours = 2;
 constexpr char kIncognitoWindowObservedSessionTimeKey[] =
     "incognito_window_in_product_help_observed_session_time_key";
 
@@ -41,7 +41,8 @@ IncognitoWindowTracker::IncognitoWindowTracker(Profile* profile)
     : FeatureTracker(profile,
                      &kIPHIncognitoWindowFeature,
                      kIncognitoWindowObservedSessionTimeKey,
-                     base::TimeDelta::FromHours(kDefaultPromoShowTimeInHours)),
+                     base::TimeDelta::FromHours(
+                         kDefaultIncognitoWindowPromoShowTimeInHours)),
       incognito_promo_observer_(this) {}
 
 IncognitoWindowTracker::~IncognitoWindowTracker() = default;
@@ -51,7 +52,12 @@ void IncognitoWindowTracker::OnIncognitoWindowOpened() {
 }
 
 void IncognitoWindowTracker::OnBrowsingDataCleared() {
-  const auto severity = GetAppMenuButton()->severity();
+  auto* app_menu_button = GetAppMenuButton();
+  // TODO(bdea): Remove early return once https://crbug.com/811982 is fixed.
+  if (!app_menu_button)
+    return;
+
+  const auto severity = app_menu_button->severity();
   if (severity == AppMenuIconController::Severity::NONE && ShouldShowPromo())
     ShowPromo();
 }

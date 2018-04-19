@@ -20,11 +20,15 @@ class MockCloudPolicyClient : public CloudPolicyClient {
   MockCloudPolicyClient();
   virtual ~MockCloudPolicyClient();
 
-  MOCK_METHOD2(SetupRegistration, void(const std::string&, const std::string&));
-  MOCK_METHOD7(
+  MOCK_METHOD3(SetupRegistration,
+               void(const std::string&,
+                    const std::string&,
+                    const std::vector<std::string>&));
+  MOCK_METHOD8(
       Register,
       void(enterprise_management::DeviceRegisterRequest::Type type,
            enterprise_management::DeviceRegisterRequest::Flavor flavor,
+           enterprise_management::DeviceRegisterRequest::Lifetime lifetime,
            enterprise_management::LicenseType::LicenseTypeEnum license_type,
            const std::string&,
            const std::string&,
@@ -40,6 +44,10 @@ class MockCloudPolicyClient : public CloudPolicyClient {
                void(const enterprise_management::DeviceStatusReportRequest*,
                     const enterprise_management::SessionStatusReportRequest*,
                     const StatusCallback&));
+  MOCK_METHOD2(UploadAppInstallReport,
+               void(const enterprise_management::AppInstallReportRequest*,
+                    const StatusCallback& callback));
+  MOCK_METHOD0(CancelAppInstallReportUpload, void(void));
   MOCK_METHOD2(UpdateGcmId, void(const std::string&, const StatusCallback&));
 
   // Sets the DMToken.

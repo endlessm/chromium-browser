@@ -377,7 +377,7 @@ int calcCandidateCubemapFaces (const Vec3& r)
 
 			DE_ASSERT(faceNdx < 6);
 
-			faceBitmap = faceBitmap | (deUint8) (1U << faceNdx);
+			faceBitmap = (deUint8)(faceBitmap | (deUint8) (1U << faceNdx));
 		}
 	}
 
@@ -653,7 +653,7 @@ void convertNormalizedInt (deInt64		num,
 
 bool isPackedType (const TextureFormat::ChannelType type)
 {
-	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 38);
+	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 40);
 
 	switch (type)
 	{
@@ -678,7 +678,7 @@ void getPackInfo (const TextureFormat texFormat,
 				  IVec4& bitOffsets,
 				  int& baseTypeBytes)
 {
-	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 38);
+	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 40);
 
 	switch (texFormat.type)
 	{
@@ -751,7 +751,7 @@ deUint64 unpackBits (const BaseType pack,
 
 	const BaseType mask = (BaseType) (((BaseType) 1 << (BaseType) numBits) - (BaseType) 1);
 
-    return mask & (pack >> (BaseType) (8 * (int) sizeof(BaseType) - bitOffset - numBits));
+	return mask & (pack >> (BaseType) (8 * (int) sizeof(BaseType) - bitOffset - numBits));
 }
 
 deUint64 readChannel (const void* ptr,

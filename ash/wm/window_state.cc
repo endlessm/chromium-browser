@@ -14,6 +14,7 @@
 #include "ash/screen_util.h"
 #include "ash/shell.h"
 #include "ash/wm/default_state.h"
+#include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_animations.h"
 #include "ash/wm/window_positioning_utils.h"
 #include "ash/wm/window_properties.h"
@@ -38,6 +39,12 @@
 namespace ash {
 namespace wm {
 namespace {
+
+bool IsTabletModeEnabled() {
+  return Shell::Get()
+      ->tablet_mode_controller()
+      ->IsTabletModeWindowManagerEnabled();
+}
 
 // A tentative class to set the bounds on the window.
 // TODO(oshima): Once all logic is cleaned up, move this to the real layout
@@ -385,6 +392,15 @@ void WindowState::SetPreAddedToWorkspaceWindowBounds(const gfx::Rect& bounds) {
   pre_added_to_workspace_window_bounds_ = base::make_optional(bounds);
 }
 
+void WindowState::SetPersistentWindowInfo(
+    const PersistentWindowInfo& persistent_window_info) {
+  persistent_window_info_ = base::make_optional(persistent_window_info);
+}
+
+void WindowState::ResetPersistentWindowInfo() {
+  persistent_window_info_.reset();
+}
+
 void WindowState::AddObserver(WindowStateObserver* observer) {
   observer_list_.AddObserver(observer);
 }
@@ -432,6 +448,7 @@ void WindowState::set_bounds_changed_by_user(bool bounds_changed_by_user) {
   if (bounds_changed_by_user) {
     pre_auto_manage_window_bounds_.reset();
     pre_added_to_workspace_window_bounds_.reset();
+    persistent_window_info_.reset();
   }
 }
 
@@ -479,7 +496,6 @@ WindowState::WindowState(aura::Window* window)
       hide_shelf_when_fullscreen_(true),
       autohide_shelf_when_maximized_or_fullscreen_(false),
       minimum_visibility_(false),
-      can_be_dragged_(true),
       cached_always_on_top_(false),
       ignore_property_change_(false),
       current_state_(new DefaultState(ToWindowStateType(GetShowState()))) {
@@ -524,6 +540,12 @@ void WindowState::AdjustSnappedBounds(gfx::Rect* bounds) {
 void WindowState::UpdateWindowPropertiesFromStateType() {
   ui::WindowShowState new_window_state =
       ToWindowShowState(current_state_->GetType());
+  // Clear |kPreMinimizedShowStateKey| property only when the window is actually
+  // Unminimized and not in tablet mode.
+  if (new_window_state != ui::SHOW_STATE_MINIMIZED && IsMinimized() &&
+      !IsTabletModeEnabled()) {
+    window()->ClearProperty(aura::client::kPreMinimizedShowStateKey);
+  }
   if (new_window_state != GetShowState()) {
     base::AutoReset<bool> resetter(&ignore_property_change_, true);
     window_->SetProperty(aura::client::kShowStateKey, new_window_state);
@@ -607,6 +629,13 @@ void WindowState::SetBoundsDirectCrossFade(const gfx::Rect& new_bounds) {
   // quit.
   if (!window_->TargetVisibility()) {
     SetBoundsConstrained(new_bounds);
+    return;
+  }
+
+  // If the window already has a transform in place, do not use the cross fade
+  // animation, set the bounds directly instead.
+  if (!window_->layer()->GetTargetTransform().IsIdentity()) {
+    SetBoundsDirect(new_bounds);
     return;
   }
 

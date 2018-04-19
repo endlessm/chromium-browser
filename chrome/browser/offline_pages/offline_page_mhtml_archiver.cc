@@ -26,8 +26,6 @@
 
 namespace offline_pages {
 namespace {
-const base::FilePath::CharType kMHTMLExtension[] = FILE_PATH_LITERAL("mhtml");
-
 void DeleteFileOnFileThread(const base::FilePath& file_path,
                             const base::Closure& callback) {
   base::PostTaskWithTraitsAndReply(
@@ -120,7 +118,8 @@ void OfflinePageMHTMLArchiver::GenerateMHTML(
   GURL url(web_contents_->GetLastCommittedURL());
   base::string16 title(web_contents_->GetTitle());
   base::FilePath file_path(
-      archives_dir.Append(base::GenerateGUID()).AddExtension(kMHTMLExtension));
+      archives_dir.Append(base::GenerateGUID())
+          .AddExtension(OfflinePageUtils::kMHTMLExtension));
   content::MHTMLGenerationParams params(file_path);
   params.use_binary_encoding = true;
   params.remove_popup_overlay = create_archive_params.remove_popup_overlay;
@@ -143,10 +142,7 @@ void OfflinePageMHTMLArchiver::OnGenerateMHTMLDone(
                                ArchiverResult::ERROR_ARCHIVE_CREATION_FAILED);
     return;
   }
-  // TODO(jianli): if the file is not in internal directory, there may be a
-  // chance that the file gets modified before it has digest computed. So when
-  // we support archiving to public directory, we should first put it in
-  // internal directory, compute digest, and then move to public directory.
+
   ComputeDigestOnFileThread(
       file_path, base::Bind(&OfflinePageMHTMLArchiver::OnComputeDigestDone,
                             weak_ptr_factory_.GetWeakPtr(), url, file_path,

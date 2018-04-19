@@ -77,18 +77,19 @@ void PauseResponsesAndWaitForResumption(
   params.on_pause_handler.Reset();
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
-      base::Bind(parameters.on_pause_handler,
-                 base::Bind(&OnResume, base::ThreadTaskRunnerHandle::Get(),
-                            base::Bind(&SendResponses, header, body,
-                                       starting_body_offset, std::move(params),
-                                       completion_callback, send))));
+      base::BindOnce(
+          parameters.on_pause_handler,
+          base::Bind(
+              &OnResume, base::ThreadTaskRunnerHandle::Get(),
+              base::Bind(&SendResponses, header, body, starting_body_offset,
+                         std::move(params), completion_callback, send))));
 }
 
 void OnResponseSentOnServerIOThread(
     const TestDownloadHttpResponse::OnResponseSentCallback& callback,
     std::unique_ptr<TestDownloadHttpResponse::CompletedRequest> request) {
   BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-                          base::Bind(callback, base::Passed(&request)));
+                          base::BindOnce(callback, base::Passed(&request)));
 }
 
 // Send all responses to the client.
@@ -120,13 +121,14 @@ void SendResponses(const std::string& header,
         parameters.pause_offset < static_cast<int64_t>(body.size())) {
       DCHECK_EQ(starting_body_offset, 0);
       // Send the body response before the pause_offset.
-      send.Run(
-          body.substr(0, parameters.pause_offset),
-          base::Bind(&SendResponses, header,
-                     body.substr(parameters.pause_offset,
-                                 body.size() - parameters.pause_offset - 1),
-                     parameters.pause_offset, std::move(parameters),
-                     completion_callback, send));
+      send.Run(body.substr(0, parameters.pause_offset),
+               // Send the body after |pause_offset| later.
+               base::BindRepeating(
+                   &SendResponses, header,
+                   body.substr(parameters.pause_offset,
+                               body.size() - parameters.pause_offset),
+                   parameters.pause_offset, std::move(parameters),
+                   completion_callback, send));
       return;
     } else if (starting_body_offset == parameters.pause_offset) {
       // Pause the body response after the pause_offset.
@@ -151,6 +153,16 @@ GURL TestDownloadHttpResponse::GetNextURLForDownload() {
                                               ++index, kTestDownloadPath);
   return GURL(url_string);
 }
+
+TestDownloadHttpResponse::HttpResponseData::HttpResponseData(
+    int64_t min_offset,
+    int64_t max_offset,
+    const std::string& headers,
+    const std::string& body)
+    : min_offset(min_offset),
+      max_offset(max_offset),
+      headers(headers),
+      body(body) {}
 
 // static
 TestDownloadHttpResponse::Parameters
@@ -213,6 +225,15 @@ TestDownloadHttpResponse::Parameters::~Parameters() = default;
 void TestDownloadHttpResponse::Parameters::ClearInjectedErrors() {
   base::queue<int64_t> empty_error_list;
   injected_errors.swap(empty_error_list);
+}
+
+void TestDownloadHttpResponse::Parameters::SetResponseForRangeRequest(
+    int64_t min_offset,
+    int64_t max_offset,
+    const std::string& headers,
+    const std::string& body) {
+  range_request_responses.emplace_back(
+      HttpResponseData(min_offset, max_offset, headers, body));
 }
 
 TestDownloadHttpResponse::CompletedRequest::CompletedRequest(
@@ -333,10 +354,11 @@ void TestDownloadHttpResponse::SendResponse(
   std::string body;
   if (!parameters_.static_response.empty()) {
     header = parameters_.static_response;
-  } else {
+  } else if (!GetResponseForRangeRequest(&header, &body)) {
     header = GetResponseHeaders();
     body = GetResponseBody();
   }
+
   completed_request->transferred_byte_count = body.size();
 
   base::Closure request_completed_cb =
@@ -345,9 +367,10 @@ void TestDownloadHttpResponse::SendResponse(
   if (!parameters_.injected_errors.empty() &&
       parameters_.injected_errors.front() < requested_range_end_ &&
       !parameters_.inject_error_cb.is_null()) {
-    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-                            base::Bind(parameters_.inject_error_cb,
-                                       requested_range_begin_, body.size()));
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
+        base::BindOnce(parameters_.inject_error_cb, requested_range_begin_,
+                       body.size()));
   }
 
   SendResponses(header, body, requested_range_begin_, std::move(parameters_),
@@ -392,19 +415,53 @@ std::string TestDownloadHttpResponse::GetResponseHeaders() {
   return headers;
 }
 
-bool TestDownloadHttpResponse::HandleRangeAssumingValidatorMatch(
-    std::string& response) {
+std::vector<net::HttpByteRange>
+TestDownloadHttpResponse::ParseRequestRangeHeader() {
+  std::vector<net::HttpByteRange> ranges;
   if (request_.headers.find(net::HttpRequestHeaders::kRange) ==
       request_.headers.end()) {
-    return false;
+    return ranges;
   }
 
-  std::vector<net::HttpByteRange> ranges;
   if (!net::HttpUtil::ParseRangeHeader(
           request_.headers.at(net::HttpRequestHeaders::kRange), &ranges) ||
       ranges.size() != 1) {
-    return false;
+    ranges.clear();
   }
+  return ranges;
+}
+
+bool TestDownloadHttpResponse::GetResponseForRangeRequest(std::string* headers,
+                                                          std::string* body) {
+  std::vector<net::HttpByteRange> ranges = ParseRequestRangeHeader();
+  if (ranges.empty())
+    return false;
+
+  // Find the response for range request that starts from |requset_offset|.
+  // Use default logic to generate the response if nothing can be found.
+  int64_t requset_offset = ranges[0].first_byte_position();
+  for (const auto& response : parameters_.range_request_responses) {
+    if (response.min_offset == -1 && response.max_offset == -1)
+      continue;
+
+    if (requset_offset < response.min_offset)
+      continue;
+
+    if (response.max_offset == -1 || requset_offset <= response.max_offset) {
+      *headers = response.headers;
+      *body = response.body;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool TestDownloadHttpResponse::HandleRangeAssumingValidatorMatch(
+    std::string& response) {
+  std::vector<net::HttpByteRange> ranges = ParseRequestRangeHeader();
+  if (ranges.empty())
+    return false;
 
   // The request may have specified a range that's out of bounds.
   if (!ranges[0].ComputeBounds(parameters_.size)) {
@@ -461,10 +518,14 @@ TestDownloadResponseHandler::HandleTestDownloadRequest(
 }
 
 TestDownloadResponseHandler::TestDownloadResponseHandler() = default;
-TestDownloadResponseHandler::~TestDownloadResponseHandler() = default;
+
+TestDownloadResponseHandler::~TestDownloadResponseHandler() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+}
 
 void TestDownloadResponseHandler::RegisterToTestServer(
     net::test_server::EmbeddedTestServer* server) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!server->Started())
       << "Register request handler before starting the server";
   server->RegisterRequestHandler(base::Bind(
@@ -475,7 +536,26 @@ void TestDownloadResponseHandler::RegisterToTestServer(
 
 void TestDownloadResponseHandler::OnRequestCompleted(
     std::unique_ptr<TestDownloadHttpResponse::CompletedRequest> request) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   completed_requests_.push_back(std::move(request));
+
+  if (run_loop_ && run_loop_->running() &&
+      completed_requests().size() >= request_count_) {
+    run_loop_->Quit();
+  }
+}
+
+void TestDownloadResponseHandler::WaitUntilCompletion(size_t request_count) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  request_count_ = request_count;
+
+  if ((run_loop_ && run_loop_->running()) ||
+      completed_requests().size() >= request_count_) {
+    return;
+  }
+
+  run_loop_ = std::make_unique<base::RunLoop>();
+  run_loop_->Run();
 }
 
 }  // namespace content

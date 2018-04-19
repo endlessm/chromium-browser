@@ -12,7 +12,6 @@
 #include "ash/system/toast/toast_manager.h"
 #include "ash/touch/touch_devices_controller.h"
 #include "ash/wallpaper/wallpaper_controller.h"
-#include "ash/wallpaper/wallpaper_delegate.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/widget_finder.h"
 #include "ash/wm/window_properties.h"
@@ -115,7 +114,7 @@ void HandleToggleWallpaperMode() {
                                 base::Time::Now().LocalMidnight());
   switch (++index % 4) {
     case 0:
-      Shell::Get()->wallpaper_delegate()->InitializeWallpaper();
+      wallpaper_controller->ShowDefaultWallpaperForTesting();
       break;
     case 1:
       wallpaper_controller->SetWallpaperImage(
@@ -143,8 +142,8 @@ void HandleToggleTouchscreen() {
   base::RecordAction(base::UserMetricsAction("Accel_Toggle_Touchscreen"));
   TouchDevicesController* controller = Shell::Get()->touch_devices_controller();
   controller->SetTouchscreenEnabled(
-      !controller->GetTouchscreenEnabled(TouchscreenEnabledSource::USER_PREF),
-      TouchscreenEnabledSource::USER_PREF);
+      !controller->GetTouchscreenEnabled(TouchDeviceEnabledSource::USER_PREF),
+      TouchDeviceEnabledSource::USER_PREF);
 }
 
 void HandleToggleTabletMode() {

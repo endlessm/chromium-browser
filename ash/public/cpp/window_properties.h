@@ -9,11 +9,16 @@
 #include <string>
 
 #include "ash/public/cpp/ash_public_export.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/class_property.h"
 
 namespace aura {
 template <typename T>
 using WindowProperty = ui::ClassProperty<T>;
+}
+
+namespace gfx {
+class Rect;
 }
 
 namespace ash {
@@ -40,6 +45,19 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
     kPanelAttachedKey;
 
+// A property key which stores the bounds to restore a window to. These take
+// preference over the current bounds. This is used by e.g. the tablet mode
+// window manager.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<gfx::Rect*>* const
+    kRestoreBoundsOverrideKey;
+
+// A property key which stores the window state to restore a window to. These
+// take preference over the current state if
+// |kRestoreWindowStateTypeOverrideKey| is set. This is used by e.g. the tablet
+// mode window manager.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<
+    mojom::WindowStateType>* const kRestoreWindowStateTypeOverrideKey;
+
 // A property key to store the id for a window's shelf item.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<std::string*>* const
     kShelfIDKey;
@@ -52,6 +70,13 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<int32_t>* const
 // mode and Alt + Tab.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
     kShowInOverviewKey;
+
+// A property key to store the active color on the window frame.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<SkColor>* const
+    kFrameActiveColorKey;
+// A property key to store the inactive color on the window frame.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<SkColor>* const
+    kFrameInactiveColorKey;
 
 // A property key to store ash::WindowPinType for a window.
 // When setting this property to PINNED or TRUSTED_PINNED, the window manager

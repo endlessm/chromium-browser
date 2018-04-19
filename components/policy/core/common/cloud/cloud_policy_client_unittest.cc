@@ -44,6 +44,7 @@ const char kMachineID[] = "fake-machine-id";
 const char kMachineModel[] = "fake-machine-model";
 const char kOAuthToken[] = "fake-oauth-token";
 const char kDMToken[] = "fake-dm-token";
+const char kDeviceDMToken[] = "fake-device-dm-token";
 const char kMachineCertificate[] = "fake-machine-certificate";
 const char kEnrollmentCertificate[] = "fake-enrollment-certificate";
 const char kRequisition[] = "fake-requisition";
@@ -53,7 +54,7 @@ const char kResultPayload[] = "output_payload";
 const char kAssetId[] = "fake-asset-id";
 const char kLocation[] = "fake-location";
 const char kGcmID[] = "fake-gcm-id";
-
+const char kPackageName[] = "com.example.app";
 const int64_t kAgeOfCommand = 123123123;
 const int64_t kLastCommandId = 123456789;
 const int64_t kTimestamp = 987654321;
@@ -91,6 +92,14 @@ class MockAvailableLicensesObserver {
                void(bool, const CloudPolicyClient::LicenseMap&));
 };
 
+class MockDeviceDMTokenCallbackObserver {
+ public:
+  MockDeviceDMTokenCallbackObserver() {}
+
+  MOCK_METHOD1(OnDeviceDMTokenRequested,
+               std::string(const std::vector<std::string>&));
+};
+
 }  // namespace
 
 class CloudPolicyClientTest : public testing::Test {
@@ -103,6 +112,8 @@ class CloudPolicyClientTest : public testing::Test {
     register_request->set_type(em::DeviceRegisterRequest::USER);
     register_request->set_machine_id(kMachineID);
     register_request->set_machine_model(kMachineModel);
+    register_request->set_lifetime(
+        em::DeviceRegisterRequest::LIFETIME_INDEFINITE);
     register_request->set_flavor(
         em::DeviceRegisterRequest::FLAVOR_USER_REGISTRATION);
 
@@ -115,6 +126,7 @@ class CloudPolicyClientTest : public testing::Test {
     request->set_type(em::DeviceRegisterRequest::DEVICE);
     request->set_machine_id(kMachineID);
     request->set_machine_model(kMachineModel);
+    request->set_lifetime(em::DeviceRegisterRequest::LIFETIME_INDEFINITE);
     request->set_flavor(
         em::DeviceRegisterRequest::FLAVOR_ENROLLMENT_ATTESTATION);
 
@@ -129,6 +141,7 @@ class CloudPolicyClientTest : public testing::Test {
     policy_fetch_request->set_policy_type(dm_protocol::kChromeUserPolicyType);
     policy_fetch_request->set_signature_type(em::PolicyFetchRequest::SHA1_RSA);
     policy_fetch_request->set_verification_key_hash(kPolicyVerificationKeyHash);
+    policy_fetch_request->set_device_dm_token(kDeviceDMToken);
     policy_response_.mutable_policy_response()->add_response()->set_policy_data(
         CreatePolicyData("fake-policy-data"));
 
@@ -204,6 +217,8 @@ class CloudPolicyClientTest : public testing::Test {
     license_two->mutable_license_type()->set_license_type(
         em::LicenseType_LicenseTypeEnum_KIOSK);
     license_two->set_available_licenses(0);
+
+    upload_app_install_report_response_.mutable_app_install_report_response();
   }
 
   void SetUp() override {
@@ -216,7 +231,10 @@ class CloudPolicyClientTest : public testing::Test {
 
   void Register() {
     EXPECT_CALL(observer_, OnRegistrationStateChanged(_));
-    client_->SetupRegistration(kDMToken, client_id_);
+    EXPECT_CALL(device_dmtoken_callback_observer_, OnDeviceDMTokenRequested(_))
+        .WillOnce(Return(kDeviceDMToken));
+    client_->SetupRegistration(kDMToken, client_id_,
+                               std::vector<std::string>());
   }
 
   void CreateClient() {
@@ -225,9 +243,12 @@ class CloudPolicyClientTest : public testing::Test {
 
     request_context_ =
         new net::TestURLRequestContextGetter(loop_.task_runner());
-    client_ = std::make_unique<CloudPolicyClient>(kMachineID, kMachineModel,
-                                                  &service_, request_context_,
-                                                  &fake_signing_service_);
+    client_ = std::make_unique<CloudPolicyClient>(
+        kMachineID, kMachineModel, &service_, request_context_,
+        &fake_signing_service_,
+        base::BindRepeating(
+            &MockDeviceDMTokenCallbackObserver::OnDeviceDMTokenRequested,
+            base::Unretained(&device_dmtoken_callback_observer_)));
     client_->AddPolicyTypeToFetch(policy_type_, std::string());
     client_->AddObserver(&observer_);
   }
@@ -245,6 +266,8 @@ class CloudPolicyClientTest : public testing::Test {
   }
 
   void ExpectCertBasedRegistration() {
+    EXPECT_CALL(device_dmtoken_callback_observer_, OnDeviceDMTokenRequested(_))
+        .WillOnce(Return(kDeviceDMToken));
     EXPECT_CALL(service_, CreateJob(
         DeviceManagementRequestJob::TYPE_CERT_BASED_REGISTRATION,
         request_context_))
@@ -359,6 +382,26 @@ class CloudPolicyClientTest : public testing::Test {
                                    MatchProto(check_device_license_request_)));
   }
 
+  void ExpectUploadAppInstallReport(const em::DeviceManagementRequest& request,
+                                    MockDeviceManagementJob** async_job) {
+    if (async_job) {
+      EXPECT_CALL(
+          service_,
+          CreateJob(DeviceManagementRequestJob::TYPE_UPLOAD_APP_INSTALL_REPORT,
+                    request_context_))
+          .WillOnce(service_.CreateAsyncJob(async_job));
+    } else {
+      EXPECT_CALL(
+          service_,
+          CreateJob(DeviceManagementRequestJob::TYPE_UPLOAD_APP_INSTALL_REPORT,
+                    request_context_))
+          .WillOnce(service_.SucceedJob(upload_app_install_report_response_));
+    }
+    EXPECT_CALL(service_, StartJob(dm_protocol::kValueRequestAppInstallReport,
+                                   std::string(), std::string(), kDMToken,
+                                   client_id_, MatchProto(request)));
+  }
+
   void CheckPolicyResponse() {
     ASSERT_TRUE(client_->GetPolicyFor(policy_type_, std::string()));
     EXPECT_THAT(*client_->GetPolicyFor(policy_type_, std::string()),
@@ -398,6 +441,7 @@ class CloudPolicyClientTest : public testing::Test {
   em::DeviceManagementResponse gcm_id_update_response_;
   em::DeviceManagementResponse check_device_license_response_;
   em::DeviceManagementResponse check_device_license_broken_response_;
+  em::DeviceManagementResponse upload_app_install_report_response_;
 
   base::MessageLoop loop_;
   std::string client_id_;
@@ -406,6 +450,8 @@ class CloudPolicyClientTest : public testing::Test {
   StrictMock<MockCloudPolicyClientObserver> observer_;
   StrictMock<MockStatusCallbackObserver> callback_observer_;
   StrictMock<MockAvailableLicensesObserver> license_callback_observer_;
+  StrictMock<MockDeviceDMTokenCallbackObserver>
+      device_dmtoken_callback_observer_;
   FakeSigningService fake_signing_service_;
   std::unique_ptr<CloudPolicyClient> client_;
   // Pointer to the client's request context.
@@ -422,7 +468,9 @@ TEST_F(CloudPolicyClientTest, Init) {
 TEST_F(CloudPolicyClientTest, SetupRegistrationAndPolicyFetch) {
   EXPECT_CALL(service_, CreateJob(_, _)).Times(0);
   EXPECT_CALL(observer_, OnRegistrationStateChanged(_));
-  client_->SetupRegistration(kDMToken, client_id_);
+  EXPECT_CALL(device_dmtoken_callback_observer_, OnDeviceDMTokenRequested(_))
+      .WillOnce(Return(kDeviceDMToken));
+  client_->SetupRegistration(kDMToken, client_id_, std::vector<std::string>());
   EXPECT_TRUE(client_->is_registered());
   EXPECT_FALSE(client_->GetPolicyFor(policy_type_, std::string()));
 
@@ -436,8 +484,11 @@ TEST_F(CloudPolicyClientTest, SetupRegistrationAndPolicyFetch) {
 TEST_F(CloudPolicyClientTest, RegistrationAndPolicyFetch) {
   ExpectRegistration(kOAuthToken);
   EXPECT_CALL(observer_, OnRegistrationStateChanged(_));
+  EXPECT_CALL(device_dmtoken_callback_observer_, OnDeviceDMTokenRequested(_))
+      .WillOnce(Return(kDeviceDMToken));
   client_->Register(em::DeviceRegisterRequest::USER,
                     em::DeviceRegisterRequest::FLAVOR_USER_REGISTRATION,
+                    em::DeviceRegisterRequest::LIFETIME_INDEFINITE,
                     em::LicenseType::UNDEFINED, kOAuthToken, std::string(),
                     std::string(), std::string());
   EXPECT_TRUE(client_->is_registered());
@@ -458,6 +509,7 @@ TEST_F(CloudPolicyClientTest, RegistrationWithCertificateAndPolicyFetch) {
   client_->RegisterWithCertificate(
       em::DeviceRegisterRequest::DEVICE,
       em::DeviceRegisterRequest::FLAVOR_ENROLLMENT_ATTESTATION,
+      em::DeviceRegisterRequest::LIFETIME_INDEFINITE,
       em::LicenseType::UNDEFINED, kEnrollmentCertificate, std::string(),
       std::string(), std::string());
   EXPECT_TRUE(client_->is_registered());
@@ -477,6 +529,7 @@ TEST_F(CloudPolicyClientTest, RegistrationWithCertificateFailToSignRequest) {
   client_->RegisterWithCertificate(
       em::DeviceRegisterRequest::DEVICE,
       em::DeviceRegisterRequest::FLAVOR_ENROLLMENT_ATTESTATION,
+      em::DeviceRegisterRequest::LIFETIME_INDEFINITE,
       em::LicenseType::UNDEFINED, kEnrollmentCertificate, std::string(),
       std::string(), std::string());
   EXPECT_FALSE(client_->is_registered());
@@ -493,8 +546,11 @@ TEST_F(CloudPolicyClientTest, RegistrationParametersPassedThrough) {
       em::DeviceRegisterRequest::FLAVOR_ENROLLMENT_MANUAL);
   ExpectRegistration(kOAuthToken);
   EXPECT_CALL(observer_, OnRegistrationStateChanged(_));
+  EXPECT_CALL(device_dmtoken_callback_observer_, OnDeviceDMTokenRequested(_))
+      .WillOnce(Return(kDeviceDMToken));
   client_->Register(em::DeviceRegisterRequest::USER,
                     em::DeviceRegisterRequest::FLAVOR_ENROLLMENT_MANUAL,
+                    em::DeviceRegisterRequest::LIFETIME_INDEFINITE,
                     em::LicenseType::UNDEFINED, kOAuthToken, kClientID,
                     kRequisition, kStateKey);
   EXPECT_EQ(kClientID, client_id_);
@@ -507,6 +563,7 @@ TEST_F(CloudPolicyClientTest, RegistrationNoToken) {
   EXPECT_CALL(observer_, OnClientError(_));
   client_->Register(em::DeviceRegisterRequest::USER,
                     em::DeviceRegisterRequest::FLAVOR_USER_REGISTRATION,
+                    em::DeviceRegisterRequest::LIFETIME_INDEFINITE,
                     em::LicenseType::UNDEFINED, kOAuthToken, std::string(),
                     std::string(), std::string());
   EXPECT_FALSE(client_->is_registered());
@@ -523,6 +580,7 @@ TEST_F(CloudPolicyClientTest, RegistrationFailure) {
   EXPECT_CALL(observer_, OnClientError(_));
   client_->Register(em::DeviceRegisterRequest::USER,
                     em::DeviceRegisterRequest::FLAVOR_USER_REGISTRATION,
+                    em::DeviceRegisterRequest::LIFETIME_INDEFINITE,
                     em::LicenseType::UNDEFINED, kOAuthToken, std::string(),
                     std::string(), std::string());
   EXPECT_FALSE(client_->is_registered());
@@ -545,6 +603,7 @@ TEST_F(CloudPolicyClientTest, RetryRegistration) {
                        MatchProto(registration_request_)));
   client_->Register(em::DeviceRegisterRequest::USER,
                     em::DeviceRegisterRequest::FLAVOR_USER_REGISTRATION,
+                    em::DeviceRegisterRequest::LIFETIME_INDEFINITE,
                     em::LicenseType::UNDEFINED, kOAuthToken, std::string(),
                     std::string(), std::string());
   EXPECT_FALSE(client_->is_registered());
@@ -1065,6 +1124,78 @@ TEST_F(CloudPolicyClientTest, RequestAvailableLicensesBrokenResponse) {
 
   client_->RequestAvailableLicenses(kOAuthToken, callback);
   EXPECT_EQ(DM_STATUS_RESPONSE_DECODING_ERROR, client_->status());
+}
+
+TEST_F(CloudPolicyClientTest, UploadAppInstallReport) {
+  Register();
+  em::DeviceManagementRequest request;
+  request.mutable_app_install_report_request();
+  ExpectUploadAppInstallReport(request, nullptr /* async_job */);
+  EXPECT_CALL(callback_observer_, OnCallbackComplete(true)).Times(1);
+
+  CloudPolicyClient::StatusCallback callback =
+      base::BindRepeating(&MockStatusCallbackObserver::OnCallbackComplete,
+                          base::Unretained(&callback_observer_));
+
+  em::AppInstallReportRequest app_install_report;
+  client_->UploadAppInstallReport(&app_install_report, callback);
+  EXPECT_EQ(DM_STATUS_SUCCESS, client_->status());
+}
+
+TEST_F(CloudPolicyClientTest, CancelUploadAppInstallReport) {
+  Register();
+  em::DeviceManagementRequest request;
+  request.mutable_app_install_report_request();
+  MockDeviceManagementJob* async_job = nullptr;
+  ExpectUploadAppInstallReport(request, &async_job);
+  EXPECT_CALL(callback_observer_, OnCallbackComplete(true)).Times(0);
+
+  CloudPolicyClient::StatusCallback callback =
+      base::BindRepeating(&MockStatusCallbackObserver::OnCallbackComplete,
+                          base::Unretained(&callback_observer_));
+
+  em::AppInstallReportRequest app_install_report;
+  client_->UploadAppInstallReport(&app_install_report, callback);
+  EXPECT_EQ(1, client_->GetActiveRequestCountForTest());
+
+  client_->CancelAppInstallReportUpload();
+  EXPECT_EQ(0, client_->GetActiveRequestCountForTest());
+}
+
+TEST_F(CloudPolicyClientTest, UploadAppInstallReportSupersedesPending) {
+  Register();
+  em::DeviceManagementRequest request;
+  request.mutable_app_install_report_request();
+  MockDeviceManagementJob* async_job = nullptr;
+  ExpectUploadAppInstallReport(request, &async_job);
+  EXPECT_CALL(callback_observer_, OnCallbackComplete(true)).Times(0);
+
+  CloudPolicyClient::StatusCallback callback =
+      base::BindRepeating(&MockStatusCallbackObserver::OnCallbackComplete,
+                          base::Unretained(&callback_observer_));
+
+  em::AppInstallReportRequest app_install_report;
+  client_->UploadAppInstallReport(&app_install_report, callback);
+  EXPECT_EQ(1, client_->GetActiveRequestCountForTest());
+  Mock::VerifyAndClearExpectations(&service_);
+  Mock::VerifyAndClearExpectations(&callback_observer_);
+
+  // Starting another app push-install report upload should cancel the pending
+  // one.
+  request.mutable_app_install_report_request()
+      ->add_app_install_report()
+      ->set_package(kPackageName);
+  ExpectUploadAppInstallReport(request, &async_job);
+  EXPECT_CALL(callback_observer_, OnCallbackComplete(true)).Times(1);
+
+  app_install_report.CopyFrom(request.app_install_report_request());
+  client_->UploadAppInstallReport(&app_install_report, callback);
+  EXPECT_EQ(1, client_->GetActiveRequestCountForTest());
+
+  async_job->SendResponse(DM_STATUS_SUCCESS,
+                          upload_app_install_report_response_);
+  EXPECT_EQ(DM_STATUS_SUCCESS, client_->status());
+  EXPECT_EQ(0, client_->GetActiveRequestCountForTest());
 }
 
 }  // namespace policy

@@ -24,9 +24,9 @@
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "components/data_reduction_proxy/proto/data_store.pb.h"
+#include "components/offline_pages/buildflags/buildflags.h"
 #include "components/offline_pages/core/offline_page_item.h"
 #include "components/offline_pages/core/request_header/offline_page_header.h"
-#include "components/offline_pages/features/features.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/previews/core/previews_user_data.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
@@ -131,7 +131,7 @@ class PreviewsInfoBarTabHelperUnitTest
       return;
     }
     std::unique_ptr<ChromeNavigationData> navigation_data =
-        base::MakeUnique<ChromeNavigationData>();
+        std::make_unique<ChromeNavigationData>();
     navigation_data->set_previews_user_data(std::move(previews_user_data));
     content::WebContentsTester::For(web_contents())
         ->SetNavigationData(test_handle_.get(), std::move(navigation_data));
@@ -213,7 +213,7 @@ TEST_F(PreviewsInfoBarTabHelperUnitTest, TestPreviewsIDSet) {
 
   uint64_t id = 5u;
   std::unique_ptr<previews::PreviewsUserData> previews_user_data =
-      base::MakeUnique<previews::PreviewsUserData>(id);
+      std::make_unique<previews::PreviewsUserData>(id);
   set_previews_user_data(std::move(previews_user_data));
 
   CallDidFinishNavigation();

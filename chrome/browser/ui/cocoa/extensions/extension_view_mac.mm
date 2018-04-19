@@ -17,6 +17,7 @@
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/common/view_type.h"
+#include "ui/base/ui_features.h"
 
 // The minimum/maximum dimensions of the popup.
 const CGFloat ExtensionViewMac::kMinWidth = 25.0;
@@ -102,7 +103,7 @@ void ExtensionViewMac::ShowIfCompletelyLoaded() {
 namespace extensions {
 
 // static
-std::unique_ptr<ExtensionView> ExtensionViewHost::CreateExtensionView(
+std::unique_ptr<ExtensionView> ExtensionViewHost::CreateExtensionViewCocoa(
     ExtensionViewHost* host,
     Browser* browser) {
   return std::make_unique<ExtensionViewMac>(host, browser);

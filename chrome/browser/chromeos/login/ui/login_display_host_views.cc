@@ -9,8 +9,11 @@
 
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/login/existing_user_controller.h"
+#include "chrome/browser/chromeos/login/screens/gaia_view.h"
+#include "chrome/browser/chromeos/login/ui/gaia_dialog_delegate.h"
 #include "chrome/browser/chromeos/login/ui/login_display.h"
 #include "chrome/browser/chromeos/login/ui/login_display_views.h"
+#include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
 #include "chromeos/login/auth/user_context.h"
 #include "components/user_manager/user_names.h"
@@ -34,8 +37,9 @@ gfx::NativeWindow LoginDisplayHostViews::GetNativeWindow() const {
 }
 
 OobeUI* LoginDisplayHostViews::GetOobeUI() const {
-  NOTREACHED();
-  return nullptr;
+  if (!dialog_)
+    return nullptr;
+  return dialog_->GetOobeUI();
 }
 
 WebUILoginView* LoginDisplayHostViews::GetWebUILoginView() const {
@@ -43,12 +47,11 @@ WebUILoginView* LoginDisplayHostViews::GetWebUILoginView() const {
   return nullptr;
 }
 
-void LoginDisplayHostViews::BeforeSessionStart() {
-  NOTIMPLEMENTED();
-}
+void LoginDisplayHostViews::OnFinalize() {
+  if (dialog_)
+    dialog_->Close();
 
-void LoginDisplayHostViews::Finalize(base::OnceClosure completion_callback) {
-  NOTIMPLEMENTED();
+  base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
 }
 
 void LoginDisplayHostViews::SetStatusAreaVisible(bool visible) {
@@ -56,7 +59,11 @@ void LoginDisplayHostViews::SetStatusAreaVisible(bool visible) {
 }
 
 void LoginDisplayHostViews::StartWizard(OobeScreen first_screen) {
-  NOTIMPLEMENTED();
+  if (!GetOobeUI())
+    return;
+
+  wizard_controller_.reset(new WizardController(this, GetOobeUI()));
+  wizard_controller_->Init(first_screen);
 }
 
 WizardController* LoginDisplayHostViews::GetWizardController() {
@@ -64,8 +71,7 @@ WizardController* LoginDisplayHostViews::GetWizardController() {
   return nullptr;
 }
 
-void LoginDisplayHostViews::StartUserAdding(
-    base::OnceClosure completion_callback) {
+void LoginDisplayHostViews::OnStartUserAdding() {
   NOTIMPLEMENTED();
 }
 
@@ -109,6 +115,10 @@ void LoginDisplayHostViews::OnStartArcKiosk() {
   NOTIMPLEMENTED();
 }
 
+void LoginDisplayHostViews::OnBrowserCreated() {
+  NOTIMPLEMENTED();
+}
+
 void LoginDisplayHostViews::StartVoiceInteractionOobe() {
   NOTIMPLEMENTED();
 }
@@ -116,6 +126,35 @@ void LoginDisplayHostViews::StartVoiceInteractionOobe() {
 bool LoginDisplayHostViews::IsVoiceInteractionOobe() {
   NOTIMPLEMENTED();
   return false;
+}
+
+void LoginDisplayHostViews::UpdateGaiaDialogVisibility(bool visible) {
+  if (visible == !!dialog_)
+    return;
+
+  if (visible) {
+    dialog_ = new GaiaDialogDelegate(weak_factory_.GetWeakPtr());
+    dialog_->Show();
+    return;
+  }
+
+  if (users_.empty() && GetOobeUI()) {
+    // Dialog could not be closed if there's no user in the login screen,
+    // refreshing the dialog instead.
+    GetOobeUI()->GetGaiaScreenView()->ShowGaiaAsync();
+    return;
+  }
+
+  dialog_->Close();
+}
+
+void LoginDisplayHostViews::UpdateGaiaDialogSize(int width, int height) {
+  if (dialog_)
+    dialog_->SetSize(width, height);
+}
+
+const user_manager::UserList LoginDisplayHostViews::GetUsers() {
+  return users_;
 }
 
 void LoginDisplayHostViews::HandleAuthenticateUser(
@@ -180,6 +219,18 @@ void LoginDisplayHostViews::OnAuthFailure(const AuthFailure& error) {
 void LoginDisplayHostViews::OnAuthSuccess(const UserContext& user_context) {
   if (on_authenticated_)
     std::move(on_authenticated_).Run(true);
+}
+
+void LoginDisplayHostViews::OnDialogDestroyed(
+    const GaiaDialogDelegate* dialog) {
+  if (dialog == dialog_) {
+    dialog_ = nullptr;
+    wizard_controller_.reset();
+  }
+}
+
+void LoginDisplayHostViews::SetUsers(const user_manager::UserList& users) {
+  users_ = users;
 }
 
 }  // namespace chromeos

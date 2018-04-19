@@ -294,44 +294,6 @@ def _git_amend_head(message, committer_timestamp):
   return RunGit(['commit', '--amend', '-m', message], env=env)
 
 
-def add_git_similarity(parser):
-  parser.add_option(
-      '--similarity', metavar='SIM', type=int, action='store',
-      help='Sets the percentage that a pair of files need to match in order to'
-           ' be considered copies (default 50)')
-  parser.add_option(
-      '--find-copies', action='store_true',
-      help='Allows git to look for copies.')
-  parser.add_option(
-      '--no-find-copies', action='store_false', dest='find_copies',
-      help='Disallows git from looking for copies.')
-
-  old_parser_args = parser.parse_args
-
-  def Parse(args):
-    options, args = old_parser_args(args)
-
-    if options.similarity is None:
-      options.similarity = _git_get_branch_config_value(
-          'git-cl-similarity', default=50, value_type=int)
-    else:
-      print('Note: Saving similarity of %d%% in git config.'
-            % options.similarity)
-      _git_set_branch_config_value('git-cl-similarity', options.similarity)
-
-    options.similarity = max(0, min(options.similarity, 100))
-
-    if options.find_copies is None:
-      options.find_copies = _git_get_branch_config_value(
-          'git-find-copies', default=True, value_type=bool)
-    else:
-      _git_set_branch_config_value('git-find-copies', bool(options.find_copies))
-
-    return options, args
-
-  parser.parse_args = Parse
-
-
 def _get_properties_from_options(options):
   properties = dict(x.split('=', 1) for x in options.properties)
   for key, val in properties.iteritems():
@@ -458,20 +420,13 @@ def _get_bucket_map_for_builders(builders):
 
   bucket_map = {}
   for builder in builders:
-    masters = builders_map.get(builder, [])
-    if not masters:
-      return None, ('No matching master for builder %s.' % builder)
-    if len(masters) > 1:
-      return None, ('The builder name %s exists in multiple masters %s.' %
-                    (builder, masters))
-    bucket = _prefix_master(masters[0])
-    bucket_map.setdefault(bucket, {})[builder] = []
-
+    bucket = builders_map.get(builder, {}).get('bucket')
+    if bucket:
+      bucket_map.setdefault(bucket, {})[builder] = []
   return bucket_map, None
 
 
-def _trigger_try_jobs(auth_config, changelist, buckets, options,
-                      category='git_cl_try', patchset=None):
+def _trigger_try_jobs(auth_config, changelist, buckets, options, patchset):
   """Sends a request to Buildbucket to trigger try jobs for a changelist.
 
   Args:
@@ -501,7 +456,7 @@ def _trigger_try_jobs(auth_config, changelist, buckets, options,
       patch=patchset)
 
   shared_parameters_properties = changelist.GetTryJobProperties(patchset)
-  shared_parameters_properties['category'] = category
+  shared_parameters_properties['category'] = options.category
   if options.clobber:
     shared_parameters_properties['clobber'] = True
   extra_properties = _get_properties_from_options(options)
@@ -737,7 +692,7 @@ def write_try_results_json(output_file, builds):
   write_json(output_file, converted)
 
 
-def print_stats(similarity, find_copies, args):
+def print_stats(args):
   """Prints statistics about the change to the user."""
   # --no-ext-diff is broken in some versions of Git, so try to work around
   # this by overriding the environment (but there is still a problem if the
@@ -746,18 +701,12 @@ def print_stats(similarity, find_copies, args):
   if 'GIT_EXTERNAL_DIFF' in env:
     del env['GIT_EXTERNAL_DIFF']
 
-  if find_copies:
-    similarity_options = ['-l100000', '-C%s' % similarity]
-  else:
-    similarity_options = ['-M%s' % similarity]
-
   try:
     stdout = sys.stdout.fileno()
   except AttributeError:
     stdout = None
   return subprocess2.call(
-      ['git',
-       'diff', '--no-ext-diff', '--stat'] + similarity_options + args,
+      ['git', 'diff', '--no-ext-diff', '--stat', '-l100000', '-C50'] + args,
       stdout=stdout, env=env)
 
 
@@ -1577,9 +1526,7 @@ class Changelist(object):
           rietveld_obj=self._codereview_impl.GetRietveldObjForPresubmit(),
           gerrit_obj=self._codereview_impl.GetGerritObjForPresubmit())
     except presubmit_support.PresubmitFailure as e:
-      DieWithError(
-          ('%s\nMaybe your depot_tools is out of date?\n'
-           'If all fails, contact maruel@') % e)
+      DieWithError('%s\nMaybe your depot_tools is out of date?' % e)
 
   def CMDPatchIssue(self, issue_arg, reject, nocommit, directory):
     """Fetches and applies the issue patch from codereview to local branch."""
@@ -1665,7 +1612,7 @@ class Changelist(object):
               'uploading now might not include those changes.')
         confirm_or_exit(action='upload')
 
-    print_stats(options.similarity, options.find_copies, git_diff_args)
+    print_stats(git_diff_args)
     ret = self.CMDUploadChange(options, git_diff_args, custom_cl_base, change)
     if not ret:
       if options.use_commit_queue:
@@ -1746,6 +1693,9 @@ class Changelist(object):
   def GetIssueOwner(self):
     """Get owner from codereview, which may differ from this checkout."""
     return self._codereview_impl.GetIssueOwner()
+
+  def GetReviewers(self):
+    return self._codereview_impl.GetReviewers()
 
   def GetMostRecentPatchset(self):
     return self._codereview_impl.GetMostRecentPatchset()
@@ -1905,6 +1855,9 @@ class _ChangelistCodereviewBase(object):
   def GetIssueOwner(self):
     raise NotImplementedError()
 
+  def GetReviewers(self):
+    raise NotImplementedError()
+
   def GetTryJobProperties(self, patchset=None):
     raise NotImplementedError()
 
@@ -2006,6 +1959,9 @@ class _RietveldChangelistImpl(_ChangelistCodereviewBase):
 
   def GetIssueOwner(self):
     return (self.GetIssueProperties() or {}).get('owner_email')
+
+  def GetReviewers(self):
+    return (self.GetIssueProperties() or {}).get('reviewers')
 
   def AddComment(self, message, publish=None):
     return self.RpcServer().add_comment(self.GetIssue(), message)
@@ -2272,10 +2228,6 @@ class _RietveldChangelistImpl(_ChangelistCodereviewBase):
 
     if options.private or settings.GetDefaultPrivateFlag() == "True":
       upload_args.append('--private')
-
-    upload_args.extend(['--git_similarity', str(options.similarity)])
-    if not options.find_copies:
-      upload_args.extend(['--git_no_find_copies'])
 
     # Include the upstream repo's URL in the change -- this is useful for
     # projects that have their source spread across multiple repos.
@@ -2815,7 +2767,15 @@ class _GerritChangelistImpl(_ChangelistCodereviewBase):
         DieWithError('Couldn\'t find patchset %i in change %i' %
                      (parsed_issue_arg.patchset, self.GetIssue()))
 
+    remote_url = self._changelist.GetRemoteUrl()
+    if remote_url.endswith('.git'):
+      remote_url = remote_url[:-len('.git')]
     fetch_info = revision_info['fetch']['http']
+
+    if remote_url != fetch_info['url']:
+      DieWithError('Trying to patch a change from %s but this repo appears '
+                   'to be %s.' % (fetch_info['url'], remote_url))
+
     RunGit(['fetch', fetch_info['url'], fetch_info['ref']])
 
     if force:
@@ -3266,6 +3226,10 @@ class _GerritChangelistImpl(_ChangelistCodereviewBase):
 
   def GetIssueOwner(self):
     return self._GetChangeDetail(['DETAILED_ACCOUNTS'])['owner']['email']
+
+  def GetReviewers(self):
+    details = self._GetChangeDetail(['DETAILED_ACCOUNTS'])
+    return [reviewer['email'] for reviewer in details['reviewers']['REVIEWER']]
 
 
 _CODEREVIEW_IMPLEMENTATIONS = {
@@ -5010,7 +4974,6 @@ def CMDupload(parser, args):
                     help='email address to use to connect to Rietveld')
 
   orig_args = args
-  add_git_similarity(parser)
   auth.add_auth_options(parser)
   _add_codereview_select_options(parser)
   (options, args) = parser.parse_args(args)
@@ -5110,7 +5073,6 @@ def CMDland(parser, args):
                     help="external contributor for patch (appended to " +
                          "description and used as author for git). Should be " +
                          "formatted as 'First Last <email@example.com>'")
-  add_git_similarity(parser)
   auth.add_auth_options(parser)
   (options, args) = parser.parse_args(args)
   auth_config = auth.extract_auth_config_from_options(options)
@@ -5236,7 +5198,7 @@ def CMDland(parser, args):
 
   branches = [merge_base, cl.GetBranchRef()]
   if not options.force:
-    print_stats(options.similarity, options.find_copies, branches)
+    print_stats(branches)
 
   # We want to squash all this branch's commits into one commit with the proper
   # description. We do this by doing a "reset --soft" to the base branch (which
@@ -5578,6 +5540,8 @@ def CMDtry(parser, args):
       help='Force a clobber before building; that is don\'t do an '
            'incremental build')
   group.add_option(
+      '--category', default='git_cl_try', help='Specify custom build category.')
+  group.add_option(
       '--project',
       help='Override which project to use. Projects are defined '
            'in recipe to determine to which repository or directory to '
@@ -5656,8 +5620,7 @@ def CMDtry(parser, args):
           (patchset, cl.GetPatchset(), patchset))
 
   try:
-    _trigger_try_jobs(auth_config, cl, buckets, options, 'git_cl_try',
-                      patchset)
+    _trigger_try_jobs(auth_config, cl, buckets, options, patchset)
   except BuildbucketResponseException as ex:
     print('ERROR: %s' % ex)
     return 1
@@ -5885,7 +5848,9 @@ def CMDowners(parser, args):
   return owners_finder.OwnersFinder(
       affected_files,
       change.RepositoryRoot(),
-      author, fopen=file, os_path=os.path,
+      author,
+      cl.GetReviewers(),
+      fopen=file, os_path=os.path,
       disable_color=options.no_color,
       override_files=change.OriginalOwnersFiles()).run()
 

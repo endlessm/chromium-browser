@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">Address 1</translation>
 <translation id="1545749641540134597">I-scan ang QR Code</translation>
 <translation id="1580783302095112590">Naipadala na ang mail.</translation>
+<translation id="1582732959743469162">Ihihinto nito ang lahat ng progreso para sa iyong kasalukuyang pag-download.</translation>
 <translation id="1612730193129642006">Ipakita ang Grid ng Tab</translation>
+<translation id="1644574205037202324">History</translation>
 <translation id="1646446875146297738">Ang pag-enable sa ‘Huwag Subaybayan’ ay nangangahulugan na may isasamang kahilingan sa iyong trapiko sa pagba-browse. Ang anumang epekto ay nakadepende kung tumutugon man ang website sa kahilingan, at kung paano nabibigyan ng kahulugan ang kahilingan.
 
 Halimbawa, maaaring tumugon ang ilang website sa kahilingang ito sa pamamagitan ng pagpapakita sa iyo ng mga ad na hindi nakabatay sa iba pang mga website na iyong binisita. Maraming website ang mangongolekta at gagamit pa rin ng iyong data sa pagba-browse - halimbawa, upang mapaigting ang seguridad, upang makapagbigay ng nilalaman, mga serbisyo, ad at rekomendasyon sa kanilang mga website, at upang makabuo ng mga istatistika sa pag-uulat. <ph name="BEGIN_LINK" />Matuto nang higit pa<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@ Halimbawa, maaaring tumugon ang ilang website sa kahilingang ito sa pamamagitan 
 <translation id="3175081911749765310">Web Services</translation>
 <translation id="3207960819495026254">Naka-bookmark</translation>
 <translation id="3210163015918861891">Naka-off ang Pag-sync</translation>
+<translation id="3224641773458703735">Upang makapag-export ng mga password, kinakailangan mo munang magtakda ng passcode sa iyong device.</translation>
 <translation id="3240426699337459095">Nakopya ang link</translation>
 <translation id="3244271242291266297">MM</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> ng <ph name="NUM_SUGGESTIONS" /></translation>
@@ -153,6 +156,7 @@ Halimbawa, maaaring tumugon ang ilang website sa kahilingang ito sa pamamagitan 
 <translation id="3771033907050503522">Mga Tab na Incognito</translation>
 <translation id="3779810277399252432">Walang koneksyon sa internet.</translation>
 <translation id="3783017676699494206">I-save ang Larawan</translation>
+<translation id="3789841737615482174">Mag-install</translation>
 <translation id="385051799172605136">Bumalik</translation>
 <translation id="3897092660631435901">Menu</translation>
 <translation id="3928666092801078803">Pagsamahin ang aking data</translation>
@@ -220,7 +224,6 @@ Na-encrypt ang iyong data gamit ang iyong passphrase sa pag-sync. Ilagay ito upa
 <translation id="5300589172476337783">Ipakita</translation>
 <translation id="5317780077021120954">I-save</translation>
 <translation id="5327248766486351172">Pangalan</translation>
-<translation id="533632423981297619">Makikita ng sinumang nakakakita sa na-export na file ang mga password mo. Huwag ibahagi ang file na ito sa kahit sino.</translation>
 <translation id="5388358297987318779">Buksan ang Larawan</translation>
 <translation id="5409365236829784218">Walang naka-install na app na makakapagbukas ng file na ito.</translation>
 <translation id="5433691172869980887">Nakopya ang username</translation>
@@ -249,6 +252,7 @@ Dapat ding naka-enable ang handoff sa Pangkalahatang seksyon ng Mga Setting, at 
 <translation id="5871497086027727873">1 item ang inilipat</translation>
 <translation id="5911030830365207728">Google Translate</translation>
 <translation id="5916664084637901428">Naka-on</translation>
+<translation id="5938160824633642847">Malapit nang mapuno ang iyong device. Magbakante ng espasyo at subukang muli.</translation>
 <translation id="5948291296578561264">Binibigyang-daan ka nito na mag-save ng mga larawan sa iyong library ng larawan.</translation>
 <translation id="5955891643922670672">Tinitingnan ang Offline na Bersyon</translation>
 <translation id="5964480694698977962">Gumawa ng bagong tab na incognito.</translation>
@@ -280,7 +284,9 @@ Dapat ding naka-enable ang handoff sa Pangkalahatang seksyon ng Mga Setting, at 
 <translation id="633809752005859102">Nagkaroon ng malaking problema. Gagawan namin iyon ng paraan.</translation>
 <translation id="6342069812937806050">Ngayon lang</translation>
 <translation id="6344783595350022745">I-clear ang Teksto</translation>
+<translation id="6346549652287021269">Magsimula ng Bagong Download?</translation>
 <translation id="6362362396625799311">Walang Mga Tab na Incognito</translation>
+<translation id="6374469231428023295">Subukang Muli</translation>
 <translation id="6380866119319257197">Kung makalimutan mo ang iyong passphrase o gusto mong baguhin ang setting na ito, <ph name="BEGIN_LINK" />i-reset ang pag-sync<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">Pangalan sa Card</translation>
 <translation id="6406506848690869874">Pag-sync</translation>
@@ -289,6 +295,7 @@ Dapat ding naka-enable ang handoff sa Pangkalahatang seksyon ng Mga Setting, at 
 
 Na-encrypt ang iyong data gamit ang iyong passphrase sa pag-sync noong <ph name="TIME" />. Ilagay ito upang simulan ang pag-sync.</translation>
 <translation id="6418346271604475326">Ihinahanda ang PDF</translation>
+<translation id="6434591244308415567">Nagkaroon ng error. Subukang muli sa ibang pagkakataon.</translation>
 <translation id="6445051938772793705">Bansa</translation>
 <translation id="6445981559479772097">Napadala na ang mensahe.</translation>
 <translation id="6464071786529933911">Buksan sa Bagong Tab na Incognito</translation>
@@ -299,6 +306,7 @@ Na-encrypt ang iyong data gamit ang iyong passphrase sa pag-sync noong <ph name=
 <translation id="6657585470893396449">Password</translation>
 <translation id="667999046851023355">Dokumento</translation>
 <translation id="6713747756340119864">Google Apps</translation>
+<translation id="6730682669179532099">Hindi Ma-export ang Mga Password</translation>
 <translation id="6762156594045689028">Upang baguhin ang setting na ito, <ph name="BEGIN_LINK" />i-reset ang pag-sync<ph name="END_LINK" /></translation>
 <translation id="6780034285637185932">Zip Code</translation>
 <translation id="6785453220513215166">Nagpapadala ng ulat sa pag-crash...</translation>
@@ -308,13 +316,16 @@ Na-encrypt ang iyong data gamit ang iyong passphrase sa pag-sync noong <ph name=
 <translation id="681368974849482173">Nagawa ang item</translation>
 <translation id="6896758677409633944">Copy</translation>
 <translation id="6903907808598579934">I-on ang pag-sync</translation>
+<translation id="6914783257214138813">Makikita ng sinumang makakatingin sa na-export na file ang iyong mga password.</translation>
 <translation id="6945221475159498467">Pumili</translation>
 <translation id="6973630695168034713">Mga Folder</translation>
 <translation id="7004499039102548441">Mga Kamakailang Tab</translation>
 <translation id="7006788746334555276">Mga Setting ng Nilalaman</translation>
+<translation id="7029809446516969842">Mga Password</translation>
 <translation id="7031882061095297553">I-sync sa</translation>
 <translation id="7053983685419859001">Harangan</translation>
 <translation id="7062545763355031412">Tanggapin at lumipat ng account</translation>
+<translation id="7102005569666697658">Dina-download… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">Itago</translation>
 <translation id="7133798577887235672">Buong Pangalan</translation>
 <translation id="7136892417564438900">Hindi available ang camera</translation>
@@ -325,6 +336,7 @@ Na-encrypt ang iyong data gamit ang iyong passphrase sa pag-sync noong <ph name=
 <translation id="7203585745079012652">Bigkasin ang Mga Sagot</translation>
 <translation id="722055596168483966">I-personalize ang mga serbisyo ng Google</translation>
 <translation id="7272437679830969316">Hindi ma-verify ang iyong pagkakakilanlan. Hindi nakopya ang password.</translation>
+<translation id="7291368939935408496">Inihahanda ang Mga Password...</translation>
 <translation id="7336264872878993241"><ph name="PERCENT" /> (na) porsyento ang na-download na</translation>
 <translation id="7346909386216857016">Ok, nakuha ko</translation>
 <translation id="7400418766976504921">URL</translation>
@@ -349,6 +361,7 @@ Na-encrypt ang iyong data gamit ang iyong passphrase sa pag-sync noong <ph name=
 <translation id="7769602470925380267">Tanggapin at mag-sign out</translation>
 <translation id="7772032839648071052">Kumpirmahin ang passphrase</translation>
 <translation id="780301667611848630">Hindi salamat</translation>
+<translation id="7856733331829174190">Hindi Ma-download</translation>
 <translation id="7859704718976024901">History ng Pagba-browse</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">I-export Password...</translation>
@@ -409,6 +422,7 @@ Na-encrypt ang iyong data gamit ang iyong passphrase sa pag-sync noong <ph name=
 <translation id="9083392325882095631">1 item</translation>
 <translation id="9100610230175265781">Kinakailangan ang passphrase</translation>
 <translation id="9148126808321036104">Muling mag-sign in</translation>
+<translation id="915371508759614899">Kanselahin ang Pag-download?</translation>
 <translation id="9157836665414082580">Pigilan ang Mga Dialog</translation>
 <translation id="9188680907066685419">Mag-sign out sa pinamamahalaang account</translation>
 <translation id="9203116392574189331">Handoff</translation>

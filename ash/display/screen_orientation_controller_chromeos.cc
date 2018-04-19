@@ -15,7 +15,6 @@
 #include "chromeos/accelerometer/accelerometer_reader.h"
 #include "chromeos/accelerometer/accelerometer_types.h"
 #include "ui/aura/client/aura_constants.h"
-#include "ui/chromeos/accelerometer/accelerometer_util.h"
 #include "ui/display/display.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/manager/managed_display_info.h"
@@ -54,15 +53,17 @@ blink::WebScreenOrientationLockType RotationToOrientation(
     blink::WebScreenOrientationLockType natural,
     display::Display::Rotation rotation) {
   if (natural == blink::kWebScreenOrientationLockLandscape) {
+    // To be consistent with Android, the rgotation of the primary portrait
+    // on naturally landscape device is 270.
     switch (rotation) {
       case display::Display::ROTATE_0:
         return blink::kWebScreenOrientationLockLandscapePrimary;
       case display::Display::ROTATE_90:
-        return blink::kWebScreenOrientationLockPortraitPrimary;
+        return blink::kWebScreenOrientationLockPortraitSecondary;
       case display::Display::ROTATE_180:
         return blink::kWebScreenOrientationLockLandscapeSecondary;
       case display::Display::ROTATE_270:
-        return blink::kWebScreenOrientationLockPortraitSecondary;
+        return blink::kWebScreenOrientationLockPortraitPrimary;
     }
   } else {  // Natural portrait
     switch (rotation) {
@@ -91,15 +92,17 @@ display::Display::Rotation OrientationToRotation(
   }
 
   if (natural == blink::kWebScreenOrientationLockLandscape) {
+    // To be consistent with Android, the rotation of the primary portrait
+    // on naturally landscape device is 270.
     switch (orientation) {
       case blink::kWebScreenOrientationLockLandscapePrimary:
         return display::Display::ROTATE_0;
       case blink::kWebScreenOrientationLockPortraitPrimary:
-        return display::Display::ROTATE_90;
+        return display::Display::ROTATE_270;
       case blink::kWebScreenOrientationLockLandscapeSecondary:
         return display::Display::ROTATE_180;
       case blink::kWebScreenOrientationLockPortraitSecondary:
-        return display::Display::ROTATE_270;
+        return display::Display::ROTATE_90;
       default:
         break;
     }
@@ -200,7 +203,7 @@ void ScreenOrientationController::UnlockAll() {
   SetRotationLockedInternal(false);
   if (user_rotation_ != current_rotation_) {
     SetDisplayRotation(user_rotation_,
-                       display::Display::ROTATION_SOURCE_ACCELEROMETER,
+                       display::Display::RotationSource::ACCELEROMETER,
                        DisplayConfigurationController::ANIMATION_SYNC);
   }
 }
@@ -285,10 +288,8 @@ void ScreenOrientationController::OnAccelerometerUpdated(
     return;
   // Ignore the reading if it appears unstable. The reading is considered
   // unstable if it deviates too much from gravity
-  if (ui::IsAccelerometerReadingStable(*update,
-                                       chromeos::ACCELEROMETER_SOURCE_SCREEN)) {
+  if (update->IsReadingStable(chromeos::ACCELEROMETER_SOURCE_SCREEN))
     HandleScreenRotation(update->get(chromeos::ACCELEROMETER_SOURCE_SCREEN));
-  }
 }
 
 void ScreenOrientationController::OnDisplayConfigurationChanged() {
@@ -337,7 +338,7 @@ void ScreenOrientationController::OnTabletModeEnding() {
   // TODO(oshima): Remove if when current_rotation_ is removed.
   if (current_rotation_ != user_rotation_) {
     SetDisplayRotation(user_rotation_,
-                       display::Display::ROTATION_SOURCE_ACCELEROMETER,
+                       display::Display::RotationSource::ACCELEROMETER,
                        DisplayConfigurationController::ANIMATION_SYNC);
   }
   for (auto& observer : observers_)
@@ -398,50 +399,28 @@ void ScreenOrientationController::LockRotationToOrientation(
     case blink::kWebScreenOrientationLockDefault:
       NOTREACHED();
       break;
-    case blink::kWebScreenOrientationLockPortraitPrimary:
-      LockRotationToPrimaryOrientation(
-          blink::kWebScreenOrientationLockPortrait);
-      break;
     case blink::kWebScreenOrientationLockLandscape:
     case blink::kWebScreenOrientationLockPortrait:
       LockToRotationMatchingOrientation(lock_orientation);
       break;
-    case blink::kWebScreenOrientationLockPortraitSecondary:
-      LockRotationToSecondaryOrientation(
-          blink::kWebScreenOrientationLockPortrait);
-      break;
-    case blink::kWebScreenOrientationLockLandscapeSecondary:
-      LockRotationToSecondaryOrientation(
-          blink::kWebScreenOrientationLockLandscape);
-      break;
+
     case blink::kWebScreenOrientationLockLandscapePrimary:
-      LockRotationToPrimaryOrientation(
-          blink::kWebScreenOrientationLockLandscape);
+    case blink::kWebScreenOrientationLockLandscapeSecondary:
+    case blink::kWebScreenOrientationLockPortraitPrimary:
+    case blink::kWebScreenOrientationLockPortraitSecondary:
+      LockRotation(
+          OrientationToRotation(natural_orientation_, lock_orientation),
+          display::Display::RotationSource::ACTIVE);
+
       break;
     case blink::kWebScreenOrientationLockNatural:
       LockRotation(display::Display::ROTATE_0,
-                   display::Display::ROTATION_SOURCE_ACTIVE);
+                   display::Display::RotationSource::ACTIVE);
       break;
     default:
       NOTREACHED();
       break;
   }
-}
-
-void ScreenOrientationController::LockRotationToPrimaryOrientation(
-    blink::WebScreenOrientationLockType lock_orientation) {
-  LockRotation(natural_orientation_ == lock_orientation
-                   ? display::Display::ROTATE_0
-                   : display::Display::ROTATE_90,
-               display::Display::ROTATION_SOURCE_ACTIVE);
-}
-
-void ScreenOrientationController::LockRotationToSecondaryOrientation(
-    blink::WebScreenOrientationLockType lock_orientation) {
-  LockRotation(natural_orientation_ == lock_orientation
-                   ? display::Display::ROTATE_180
-                   : display::Display::ROTATE_270,
-               display::Display::ROTATION_SOURCE_ACTIVE);
 }
 
 void ScreenOrientationController::LockToRotationMatchingOrientation(
@@ -460,15 +439,19 @@ void ScreenOrientationController::LockToRotationMatchingOrientation(
       SetRotationLockedInternal(true);
     } else {
       LockRotation(display::Display::ROTATE_0,
-                   display::Display::ROTATION_SOURCE_ACTIVE);
+                   display::Display::RotationSource::ACTIVE);
     }
   } else {
     if (rotation == display::Display::ROTATE_90 ||
         rotation == display::Display::ROTATE_270) {
       SetRotationLockedInternal(true);
     } else {
-      LockRotation(display::Display::ROTATE_90,
-                   display::Display::ROTATION_SOURCE_ACTIVE);
+      // Rotate to the default rotation of the requested orientation.
+      display::Display::Rotation default_rotation =
+          natural_orientation_ == blink::kWebScreenOrientationLockLandscape
+              ? display::Display::ROTATE_270  // portrait in landscape device.
+              : display::Display::ROTATE_90;  // landscape in portrait device.
+      LockRotation(default_rotation, display::Display::RotationSource::ACTIVE);
     }
   }
 }
@@ -521,7 +504,7 @@ void ScreenOrientationController::HandleScreenRotation(
   if (new_rotation != current_rotation_ &&
       IsRotationAllowedInLockedState(new_rotation)) {
     SetDisplayRotation(new_rotation,
-                       display::Display::ROTATION_SOURCE_ACCELEROMETER);
+                       display::Display::RotationSource::ACCELEROMETER);
   }
 }
 

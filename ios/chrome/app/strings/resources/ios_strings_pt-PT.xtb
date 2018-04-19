@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">Morada 1</translation>
 <translation id="1545749641540134597">Ler código QR</translation>
 <translation id="1580783302095112590">Correio enviado.</translation>
+<translation id="1582732959743469162">Esta ação vai interromper totalmente o progresso da transferência atual.</translation>
 <translation id="1612730193129642006">Mostrar grelha de separadores</translation>
+<translation id="1644574205037202324">Histórico</translation>
 <translation id="1646446875146297738">Se ativar a funcionalidade "Não monitorizar", será incluído um pedido no seu tráfego de navegação. Os possíveis efeitos dependerão da resposta ao pedido por parte de um Website e da forma como o pedido é interpretado.
 
 Por exemplo, alguns Sites poderão mostrar anúncios que não sejam baseados noutros Sites visitados por si como resposta a este pedido. Muitos Sites continuarão a recolher e utilizar os seus dados de navegação com o objetivo de melhorar a segurança, fornecer conteúdos, serviços, anúncios e recomendações nos seus Sites e gerar estatísticas de relatórios. <ph name="BEGIN_LINK" />Saiba mais<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@ Por exemplo, alguns Sites poderão mostrar anúncios que não sejam baseados nou
 <translation id="3175081911749765310">Serviços Web</translation>
 <translation id="3207960819495026254">Adicionado aos marcadores</translation>
 <translation id="3210163015918861891">A sincronização está desativada</translation>
+<translation id="3224641773458703735">Para exportar palavras-passe, tem de definir primeiro um código secreto no dispositivo.</translation>
 <translation id="3240426699337459095">Link copiado</translation>
 <translation id="3244271242291266297">MM</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> de <ph name="NUM_SUGGESTIONS" /></translation>
@@ -153,6 +156,7 @@ Por exemplo, alguns Sites poderão mostrar anúncios que não sejam baseados nou
 <translation id="3771033907050503522">Sep. nav. anónima</translation>
 <translation id="3779810277399252432">Sem ligação à Internet.</translation>
 <translation id="3783017676699494206">Guardar Imagem</translation>
+<translation id="3789841737615482174">Instalar</translation>
 <translation id="385051799172605136">Anterior</translation>
 <translation id="3897092660631435901">Menu</translation>
 <translation id="3928666092801078803">Combinar os meus dados</translation>
@@ -220,7 +224,6 @@ Os dados estão encriptados com a sua frase de acesso de sincronização. Introd
 <translation id="5300589172476337783">Mostrar</translation>
 <translation id="5317780077021120954">Guardar</translation>
 <translation id="5327248766486351172">Nome</translation>
-<translation id="533632423981297619">As suas palavras-passe serão visíveis para todas as pessoas que consigam ver o ficheiro exportado. Não partilhe este ficheiro com ninguém.</translation>
 <translation id="5388358297987318779">Abrir Imagem</translation>
 <translation id="5409365236829784218">Não existem aplicações instaladas que possam abrir este ficheiro.</translation>
 <translation id="5433691172869980887">Nome de utilizador copiado</translation>
@@ -249,6 +252,7 @@ A Entrega também tem de estar ativada na secção Geral das Definições e os s
 <translation id="5871497086027727873">1 item movido</translation>
 <translation id="5911030830365207728">Google Tradutor</translation>
 <translation id="5916664084637901428">Ativado</translation>
+<translation id="5938160824633642847">O dispositivo está quase cheio. Liberte espaço e tente novamente.</translation>
 <translation id="5948291296578561264">Isto permite-lhe guardar fotos na sua biblioteca de fotos.</translation>
 <translation id="5955891643922670672">Ver a versão offline</translation>
 <translation id="5964480694698977962">Criar novo separador de navegação anónima</translation>
@@ -280,7 +284,9 @@ A Entrega também tem de estar ativada na secção Geral das Definições e os s
 <translation id="633809752005859102">Algo correu muito mal. Estamos a tratar do assunto.</translation>
 <translation id="6342069812937806050">Mesmo agora</translation>
 <translation id="6344783595350022745">Limpar Texto</translation>
+<translation id="6346549652287021269">Iniciar nova transferência?</translation>
 <translation id="6362362396625799311">Sem separadores de navegação anónima</translation>
+<translation id="6374469231428023295">Tentar novamente</translation>
 <translation id="6380866119319257197">Se se esquecer da frase de acesso ou pretender alterar esta definição, <ph name="BEGIN_LINK" />reponha a sincronização<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">Nome no cartão</translation>
 <translation id="6406506848690869874">Sincronização</translation>
@@ -289,6 +295,7 @@ A Entrega também tem de estar ativada na secção Geral das Definições e os s
 
 Os dados foram encriptados com a sua frase de acesso de sincronização em <ph name="TIME" />. Introduza-a para iniciar a sincronização.</translation>
 <translation id="6418346271604475326">A preparar PDF</translation>
+<translation id="6434591244308415567">Ocorreu um erro. Tente novamente mais tarde.</translation>
 <translation id="6445051938772793705">País</translation>
 <translation id="6445981559479772097">Mensagem enviada.</translation>
 <translation id="6464071786529933911">Abrir num novo separador de navegação anónima</translation>
@@ -299,6 +306,7 @@ Os dados foram encriptados com a sua frase de acesso de sincronização em <ph n
 <translation id="6657585470893396449">Palavra-passe</translation>
 <translation id="667999046851023355">Documento</translation>
 <translation id="6713747756340119864">Google Apps</translation>
+<translation id="6730682669179532099">Não é possível exportar palavras-passe</translation>
 <translation id="6762156594045689028">Para alterar esta definição, <ph name="BEGIN_LINK" />reponha a sincronização<ph name="END_LINK" /></translation>
 <translation id="6780034285637185932">Código postal</translation>
 <translation id="6785453220513215166">A enviar relatório de falha...</translation>
@@ -308,13 +316,16 @@ Os dados foram encriptados com a sua frase de acesso de sincronização em <ph n
 <translation id="681368974849482173">Item criado</translation>
 <translation id="6896758677409633944">Copiar</translation>
 <translation id="6903907808598579934">Ativar sincronização</translation>
+<translation id="6914783257214138813">As suas palavras-passe serão visíveis para todas as pessoas que consigam ver o ficheiro exportado.</translation>
 <translation id="6945221475159498467">Selecionar</translation>
 <translation id="6973630695168034713">Pastas</translation>
 <translation id="7004499039102548441">Separadores recentes</translation>
 <translation id="7006788746334555276">Definições de Conteúdo</translation>
+<translation id="7029809446516969842">Palavras-passe</translation>
 <translation id="7031882061095297553">Sincronizar com</translation>
 <translation id="7053983685419859001">Bloquear</translation>
 <translation id="7062545763355031412">Aceitar e mudar de contas</translation>
+<translation id="7102005569666697658">A transferir… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">Ocultar</translation>
 <translation id="7133798577887235672">Nome completo</translation>
 <translation id="7136892417564438900">A câmara não está disponível</translation>
@@ -325,6 +336,7 @@ Os dados foram encriptados com a sua frase de acesso de sincronização em <ph n
 <translation id="7203585745079012652">Ouvir Respostas</translation>
 <translation id="722055596168483966">Personalizar os serviços Google</translation>
 <translation id="7272437679830969316">Não é possível validar a sua identidade. Palavra-passe não copiada.</translation>
+<translation id="7291368939935408496">A preparar palavras-passe…</translation>
 <translation id="7336264872878993241"><ph name="PERCENT" /> por cento transferido</translation>
 <translation id="7346909386216857016">OK, compreendi</translation>
 <translation id="7400418766976504921">URL</translation>
@@ -349,6 +361,7 @@ Os dados foram encriptados com a sua frase de acesso de sincronização em <ph n
 <translation id="7769602470925380267">Aceitar e terminar sessão</translation>
 <translation id="7772032839648071052">Confirmar frase de acesso</translation>
 <translation id="780301667611848630">Não, obrigado</translation>
+<translation id="7856733331829174190">Impossível transferir</translation>
 <translation id="7859704718976024901">Histórico de navegação</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">Exportar palavras-passe...</translation>
@@ -409,6 +422,7 @@ Os dados foram encriptados com a sua frase de acesso de sincronização em <ph n
 <translation id="9083392325882095631">1 item</translation>
 <translation id="9100610230175265781">Frase de acesso obrigatória</translation>
 <translation id="9148126808321036104">Iniciar sessão novamente</translation>
+<translation id="915371508759614899">Cancelar a transferência?</translation>
 <translation id="9157836665414082580">Supr. caixas diálogo</translation>
 <translation id="9188680907066685419">Terminar sessão na conta gerida</translation>
 <translation id="9203116392574189331">Entrega</translation>

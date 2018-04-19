@@ -65,16 +65,21 @@ public final class JavaCronetEngine extends CronetEngineBase {
     @Override
     public UrlRequestBase createRequest(String url, UrlRequest.Callback callback, Executor executor,
             int priority, Collection<Object> connectionAnnotations, boolean disableCache,
-            boolean disableConnectionMigration, boolean allowDirectExecutor) {
-        return new JavaUrlRequest(
-                callback, mExecutorService, executor, url, mUserAgent, allowDirectExecutor);
+            boolean disableConnectionMigration, boolean allowDirectExecutor,
+            boolean trafficStatsTagSet, int trafficStatsTag, boolean trafficStatsUidSet,
+            int trafficStatsUid) {
+        return new JavaUrlRequest(callback, mExecutorService, executor, url, mUserAgent,
+                allowDirectExecutor, trafficStatsTagSet, trafficStatsTag, trafficStatsUidSet,
+                trafficStatsUid);
     }
 
     @Override
     protected ExperimentalBidirectionalStream createBidirectionalStream(String url,
             BidirectionalStream.Callback callback, Executor executor, String httpMethod,
             List<Map.Entry<String, String>> requestHeaders, @StreamPriority int priority,
-            boolean delayRequestHeadersUntilFirstFlush, Collection<Object> connectionAnnotations) {
+            boolean delayRequestHeadersUntilFirstFlush, Collection<Object> connectionAnnotations,
+            boolean trafficStatsTagSet, int trafficStatsTag, boolean trafficStatsUidSet,
+            int trafficStatsUid) {
         throw new UnsupportedOperationException(
                 "Can't create a bidi stream - httpurlconnection doesn't have those APIs");
     }

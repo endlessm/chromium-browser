@@ -23,8 +23,6 @@ constexpr char kLatencyVrBrowsing[] =
     "VR.Component.Assets.DurationUntilReady.OnEnter.VRBrowsing";
 constexpr char kLatencyWebVr[] =
     "VR.Component.Assets.DurationUntilReady.OnEnter.WebVRPresentation";
-constexpr char kLatencyLaunchBrowser[] =
-    "VR.Component.Assets.DurationUntilReady.OnChromeStart";
 constexpr char kLatencyRegisterComponent[] =
     "VR.Component.Assets.DurationUntilReady.OnRegisterComponent";
 // TODO(tiborg): Rename VRAssetsComponentStatus and VRAssetsLoadStatus in
@@ -64,7 +62,7 @@ void LogStatus(Mode mode, ComponentStatus status) {
       UMA_HISTOGRAM_ENUMERATION(kStatusVrBrowsing, status,
                                 ComponentStatus::kCount);
       return;
-    case Mode::kWebVr:
+    case Mode::kWebXrVrPresentation:
       UMA_HISTOGRAM_ENUMERATION(kStatusWebVr, status, ComponentStatus::kCount);
       return;
     default:
@@ -79,7 +77,7 @@ void LogLatency(Mode mode, const base::TimeDelta& latency) {
       UMA_HISTOGRAM_CUSTOM_TIMES(kLatencyVrBrowsing, latency, kMinLatency,
                                  kMaxLatency, kLatencyBucketCount);
       return;
-    case Mode::kWebVr:
+    case Mode::kWebXrVrPresentation:
       UMA_HISTOGRAM_CUSTOM_TIMES(kLatencyWebVr, latency, kMinLatency,
                                  kMaxLatency, kLatencyBucketCount);
       return;
@@ -102,7 +100,7 @@ void LogConnectionType(Mode mode,
           kNetworkConnectionTypeVrBrowsing, type,
           net::NetworkChangeNotifier::ConnectionType::CONNECTION_LAST + 1);
       return;
-    case Mode::kWebVr:
+    case Mode::kWebXrVrPresentation:
       UMA_HISTOGRAM_ENUMERATION(
           kNetworkConnectionTypeWebVr, type,
           net::NetworkChangeNotifier::ConnectionType::CONNECTION_LAST + 1);
@@ -139,16 +137,9 @@ void MetricsHelper::OnComponentReady(const base::Version& version) {
   component_ready_ = true;
   auto now = base::TimeTicks::Now();
   LogLatencyIfWaited(Mode::kVrBrowsing, now);
-  LogLatencyIfWaited(Mode::kWebVr, now);
+  LogLatencyIfWaited(Mode::kWebXrVrPresentation, now);
   OnComponentUpdated(AssetsComponentUpdateStatus::kSuccess, version);
 
-  if (!logged_ready_duration_on_chrome_start_) {
-    DCHECK(chrome_start_time_);
-    auto ready_duration = now - *chrome_start_time_;
-    UMA_HISTOGRAM_CUSTOM_TIMES(kLatencyLaunchBrowser, ready_duration,
-                               kMinLatency, kMaxLatency, kLatencyBucketCount);
-    logged_ready_duration_on_chrome_start_ = true;
-  }
   if (!logged_ready_duration_on_component_register_) {
     DCHECK(component_register_time_);
     auto ready_duration = now - *component_register_time_;
@@ -202,19 +193,13 @@ void MetricsHelper::OnAssetsLoaded(AssetsLoadStatus status,
       EncodeVersionStatus(component_version, static_cast<int>(status)));
 }
 
-void MetricsHelper::OnChromeStarted() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(!chrome_start_time_);
-  chrome_start_time_ = base::TimeTicks::Now();
-}
-
 base::Optional<base::TimeTicks>& MetricsHelper::GetEnterTime(Mode mode) {
   switch (mode) {
     case Mode::kVr:
       return enter_vr_time_;
     case Mode::kVrBrowsing:
       return enter_vr_browsing_time_;
-    case Mode::kWebVr:
+    case Mode::kWebXrVrPresentation:
       return enter_web_vr_time_;
     default:
       NOTIMPLEMENTED();

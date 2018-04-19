@@ -50,7 +50,6 @@
 #include "chrome/browser/chromeos/login/profile_auth_data.h"
 #include "chrome/browser/chromeos/login/saml/saml_offline_signin_limiter.h"
 #include "chrome/browser/chromeos/login/saml/saml_offline_signin_limiter_factory.h"
-#include "chrome/browser/chromeos/login/session/app_terminating_stack_dumper.h"
 #include "chrome/browser/chromeos/login/signin/oauth2_login_manager.h"
 #include "chrome/browser/chromeos/login/signin/oauth2_login_manager_factory.h"
 #include "chrome/browser/chromeos/login/signin/token_handle_fetcher.h"
@@ -61,6 +60,7 @@
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/supervised_user_manager.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
+#include "chrome/browser/chromeos/policy/app_install_event_log_manager_wrapper.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
@@ -82,11 +82,13 @@
 #include "chrome/browser/supervised_user/child_accounts/child_account_service.h"
 #include "chrome/browser/supervised_user/child_accounts/child_account_service_factory.h"
 #include "chrome/browser/ui/app_list/app_list_service.h"
+#include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/logging_chrome.h"
 #include "chrome/common/pref_names.h"
+#include "chromeos/assistant/buildflags.h"
 #include "chromeos/cert_loader.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
@@ -118,13 +120,17 @@
 #include "components/user_manager/user_names.h"
 #include "components/user_manager/user_type.h"
 #include "components/version_info/version_info.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/common/service_manager_connection.h"
 #include "extensions/common/features/feature_session_type.h"
 #include "net/cert/sth_distributor.h"
 #include "rlz/features/features.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "third_party/cros_system_api/switches/chrome_switches.h"
 #include "ui/base/ime/chromeos/input_method_descriptor.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/base/ime/chromeos/input_method_util.h"
@@ -135,6 +141,10 @@
 #include "components/rlz/rlz_tracker.h"
 #endif
 
+#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
+#include "chromeos/services/assistant/public/mojom/constants.mojom.h"
+#endif
+
 namespace chromeos {
 
 namespace {
@@ -142,10 +152,6 @@ namespace {
 // Milliseconds until we timeout our attempt to fetch flags from the child
 // account service.
 static const int kFlagsFetchingLoginTimeoutMs = 1000;
-
-// The maximum ammount of time that we are willing to delay a browser restart
-// for, waiting for a session restore to finish.
-static const int kMaxRestartDelaySeconds = 10;
 
 void InitLocaleAndInputMethodsForNewUser(
     UserSessionManager* session_manager,
@@ -271,11 +277,12 @@ void OnGetNSSCertDatabaseForUser(net::NSSCertDatabase* database) {
 // Returns new CommandLine with per-user flags.
 base::CommandLine CreatePerSessionCommandLine(Profile* profile) {
   base::CommandLine user_flags(base::CommandLine::NO_PROGRAM);
-  flags_ui::PrefServiceFlagsStorage flags_storage_(profile->GetPrefs());
-  about_flags::ConvertFlagsToSwitches(&flags_storage_, &user_flags,
+  flags_ui::PrefServiceFlagsStorage flags_storage(profile->GetPrefs());
+  about_flags::ConvertFlagsToSwitches(&flags_storage, &user_flags,
                                       flags_ui::kAddSentinels);
 
-  UserSessionManager::MaybeAppendPolicySwitches(&user_flags);
+  UserSessionManager::MaybeAppendPolicySwitches(profile->GetPrefs(),
+                                                &user_flags);
 
   return user_flags;
 }
@@ -292,27 +299,11 @@ bool NeedRestartToApplyPerSessionFlags(
   if (user_manager::UserManager::Get()->IsLoggedInAsSupervisedUser())
     return false;
 
-  // TODO: Remove this special handling for site isolation and isolate origins.
   auto* current_command_line = base::CommandLine::ForCurrentProcess();
-  if (current_command_line->HasSwitch(::switches::kSitePerProcess) !=
-      user_flags.HasSwitch(::switches::kSitePerProcess)) {
-    out_command_line_difference->insert(::switches::kSitePerProcess);
-  }
-  if (current_command_line->GetSwitchValueASCII(::switches::kIsolateOrigins) !=
-      user_flags.GetSwitchValueASCII(::switches::kIsolateOrigins)) {
-    out_command_line_difference->insert(::switches::kIsolateOrigins);
-  }
-
-  if (out_command_line_difference->empty() &&
-      about_flags::AreSwitchesIdenticalToCurrentCommandLine(
+  if (about_flags::AreSwitchesIdenticalToCurrentCommandLine(
           user_flags, *current_command_line, out_command_line_difference)) {
     return false;
   }
-
-  // TODO(mfomitchev): Browser restart doesn't currently work in Mus+ash.
-  // So if we are running Mustash and we need to restart - just crash right
-  // here. crbug.com/690140
-  CHECK(!user_flags.HasSwitch(::switches::kMash));
 
   return true;
 }
@@ -353,9 +344,9 @@ void LogCustomSwitches(const std::set<std::string>& switches) {
   }
 }
 
-void RestartOnTimeout() {
-  LOG(WARNING) << "Restarting Chrome because the time out was reached."
-                  "The session restore has not finished.";
+// Calls the real AttemptRestart method. This is used to avoid taking a function
+// pointer to chrome::AttemptRestart directly.
+void CallChromeAttemptRestart() {
   chrome::AttemptRestart();
 }
 
@@ -407,17 +398,64 @@ void UserSessionManager::RegisterPrefs(PrefRegistrySimple* registry) {
 
 // static
 void UserSessionManager::MaybeAppendPolicySwitches(
+    PrefService* user_profile_prefs,
     base::CommandLine* user_flags) {
+  // Get target values for --site-per-process and --isolate-origins for the user
+  // session according to policy. Values from command-line flags should not be
+  // honored at this point, so check |IsManaged()|.
+  const PrefService::Preference* site_per_process_pref =
+      user_profile_prefs->FindPreference(prefs::kSitePerProcess);
+  const PrefService::Preference* isolate_origins_pref =
+      user_profile_prefs->FindPreference(prefs::kIsolateOrigins);
+  bool site_per_process = site_per_process_pref->IsManaged() &&
+                          site_per_process_pref->GetValue()->GetBool();
+
+  std::string isolate_origins =
+      isolate_origins_pref->IsManaged()
+          ? isolate_origins_pref->GetValue()->GetString()
+          : std::string();
+
+  // The admin should also be able to use these policies to override trials that
+  // will try to turn site isolation on per default.
+  // Note that disabling either SitePerProcess or IsolateOrigins via policy will
+  // disable both types of field trials.
+  bool disable_site_isolation_trials =
+      (site_per_process_pref->IsManaged() &&
+       !site_per_process_pref->GetValue()->GetBool()) ||
+      (isolate_origins_pref->IsManaged() && isolate_origins.empty());
+
+  // Append sentinels indicating that these values originate from policy.
+  // This is important, because only command-line switches between the
+  // |"--policy-switches-begin"| / |"--policy-switches-end"| and the
+  // |"--flag-switches-begin"| / |"--flag-switches-end"| sentinels will be
+  // compared when comparing the current command line and the user session
+  // command line in order to decide if chrome should be restarted.
+  // We use the policy-style sentinels because these values originate from
+  // policy, and because login_manager uses the same sentinels when adding the
+  // login-screen site isolation flags.
+  bool use_policy_sentinels = site_per_process || !isolate_origins.empty() ||
+                              disable_site_isolation_trials;
+  if (use_policy_sentinels)
+    user_flags->AppendSwitch(chromeos::switches::kPolicySwitchesBegin);
+
   // Inject site isolation and isolate origins command line switch from
   // user policy.
-  auto* local_state = g_browser_process->local_state();
-  if (local_state->GetBoolean(prefs::kSitePerProcess)) {
+  if (site_per_process) {
     user_flags->AppendSwitch(::switches::kSitePerProcess);
   }
-  if (local_state->HasPrefPath(prefs::kIsolateOrigins)) {
+
+  if (!isolate_origins.empty()) {
     user_flags->AppendSwitchASCII(
         ::switches::kIsolateOrigins,
-        local_state->GetString(prefs::kIsolateOrigins));
+        user_profile_prefs->GetString(prefs::kIsolateOrigins));
+  }
+
+  if (disable_site_isolation_trials) {
+    user_flags->AppendSwitch(::switches::kDisableSiteIsolationTrials);
+  }
+
+  if (use_policy_sentinels) {
+    user_flags->AppendSwitch(chromeos::switches::kPolicySwitchesEnd);
   }
 }
 
@@ -427,13 +465,13 @@ UserSessionManager::UserSessionManager()
       has_auth_cookies_(false),
       user_sessions_restored_(false),
       user_sessions_restore_in_progress_(false),
-      exit_after_session_restore_(false),
       session_restore_strategy_(
           OAuth2LoginManager::RESTORE_FROM_SAVED_OAUTH2_REFRESH_TOKEN),
       running_easy_unlock_key_ops_(false),
       should_obtain_handles_(true),
       should_launch_browser_(true),
       waiting_for_child_account_status_(false),
+      attempt_restart_closure_(base::BindRepeating(&CallChromeAttemptRestart)),
       weak_factory_(this) {
   net::NetworkChangeNotifier::AddNetworkChangeObserver(this);
   user_manager::UserManager::Get()->AddSessionStateObserver(this);
@@ -458,6 +496,11 @@ void UserSessionManager::SetShouldObtainHandleInTests(
   if (!should_obtain_handles_) {
     token_handle_fetcher_.reset();
   }
+}
+
+void UserSessionManager::SetAttemptRestartClosureInTests(
+    const base::RepeatingClosure& attempt_restart_closure) {
+  attempt_restart_closure_ = attempt_restart_closure;
 }
 
 void UserSessionManager::CompleteGuestSessionLogin(const GURL& start_url) {
@@ -520,11 +563,6 @@ void UserSessionManager::StartSession(const UserContext& user_context,
 
   delegate_ = delegate;
   start_session_type_ = start_session_type;
-
-  if (start_session_type == UserSessionManager::PRIMARY_USER_SESSION) {
-    app_terminating_stack_dumper_ =
-        std::make_unique<AppTerminatingStackDumper>();
-  }
 
   VLOG(1) << "Starting user session.";
   PreStartSession();
@@ -832,7 +870,7 @@ bool UserSessionManager::RestartToApplyPerSessionFlagsIfNeed(
       cryptohome::Identification(
           user_manager::UserManager::Get()->GetActiveUser()->GetAccountId()),
       flags);
-  AttemptRestart(profile);
+  attempt_restart_closure_.Run();
   return true;
 }
 
@@ -912,22 +950,10 @@ void UserSessionManager::OnSessionRestoreStateChanged(
     return;
   }
 
-  if (exit_after_session_restore_ &&
-      (state == OAuth2LoginManager::SESSION_RESTORE_DONE ||
-       state == OAuth2LoginManager::SESSION_RESTORE_FAILED ||
-       state == OAuth2LoginManager::SESSION_RESTORE_CONNECTION_FAILED)) {
-    LOG(WARNING) << "Restarting Chrome after session restore finishes, "
-                 << "most likely due to custom flags.";
-
-    // We need to restart cleanly in this case to make sure OAuth2 RT is
-    // actually saved.
-    chrome::AttemptRestart();
-  } else {
-    // Schedule another flush after session restore for non-ephemeral profile
-    // if not restarting.
-    if (!ProfileHelper::IsEphemeralUserProfile(user_profile))
-      ProfileHelper::Get()->FlushProfile(user_profile);
-  }
+  // Schedule another flush after session restore for non-ephemeral profile
+  // if not restarting.
+  if (!ProfileHelper::IsEphemeralUserProfile(user_profile))
+    ProfileHelper::Get()->FlushProfile(user_profile);
 }
 
 void UserSessionManager::OnNetworkChanged(
@@ -1040,6 +1066,30 @@ void UserSessionManager::StartCrosSession() {
   btl->AddLoginTimeMarker("StartSession-End", false);
 }
 
+void UserSessionManager::OnUserNetworkPolicyParsed(bool send_password) {
+  // Sanity check that we only send the password for enterprise users. See
+  // https://crbug.com/386606.
+  const bool is_enterprise_managed = g_browser_process->platform_part()
+                                         ->browser_policy_connector_chromeos()
+                                         ->IsEnterpriseManaged();
+  if (!is_enterprise_managed) {
+    LOG(WARNING) << "Attempting to save user password for non enterprise user.";
+    user_context_.GetMutablePasswordKey()->ClearSecret();
+    return;
+  }
+
+  if (send_password) {
+    if (user_context_.GetPasswordKey()->GetSecret().size() > 0) {
+      DBusThreadManager::Get()->GetSessionManagerClient()->SaveLoginPassword(
+          user_context_.GetPasswordKey()->GetSecret());
+    } else {
+      LOG(WARNING) << "Not saving password because password is empty.";
+    }
+  }
+
+  user_context_.GetMutablePasswordKey()->ClearSecret();
+}
+
 void UserSessionManager::PrepareProfile() {
   const bool is_demo_session =
       DemoAppLauncher::IsDemoAppSession(user_context_.GetAccountId());
@@ -1057,9 +1107,6 @@ void UserSessionManager::OnProfileCreated(const UserContext& user_context,
                                           bool is_incognito_profile,
                                           Profile* profile,
                                           Profile::CreateStatus status) {
-  // No longer interesting in the app terminating calls.
-  app_terminating_stack_dumper_.reset();
-
   switch (status) {
     case Profile::CREATE_STATUS_CREATED:
       CHECK(profile);
@@ -1327,7 +1374,19 @@ void UserSessionManager::FinalizePrepareProfile(Profile* profile) {
     if (lock_screen_apps::StateController::IsEnabled())
       lock_screen_apps::StateController::Get()->SetPrimaryProfile(profile);
 
+    if (user->GetType() == user_manager::USER_TYPE_REGULAR) {
+      // App install logs are uploaded via the user's communication channel with
+      // the management server. This channel exists for regular users only.
+      // The |AppInstallEventLogManagerWrapper| manages its own lifetime and
+      // self-destructs on logout.
+      policy::AppInstallEventLogManagerWrapper::CreateForProfile(profile);
+    }
     arc::ArcServiceLauncher::Get()->OnPrimaryUserProfilePrepared(profile);
+
+#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
+    content::BrowserContext::GetConnectorFor(profile)->StartService(
+        chromeos::assistant::mojom::kServiceName);
+#endif
 
     TetherService* tether_service = TetherService::Get(profile);
     if (tether_service)
@@ -1507,8 +1566,6 @@ void UserSessionManager::RestoreAuthSessionImpl(
           chromeos::switches::kDisableGaiaServices)) {
     return;
   }
-
-  exit_after_session_restore_ = false;
 
   // Remove legacy OAuth1 token if we have one. If it's valid, we should already
   // have OAuth2 refresh token in OAuth2TokenService that could be used to
@@ -1743,40 +1800,6 @@ net::URLRequestContextGetter* UserSessionManager::GetAuthRequestContext()
   return signin_partition->GetURLRequestContext();
 }
 
-void UserSessionManager::AttemptRestart(Profile* profile) {
-  // Restart unconditionally in case if we are stuck somewhere in a session
-  // restore process. http://crbug.com/520346.
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::BindOnce(RestartOnTimeout),
-      base::TimeDelta::FromSeconds(kMaxRestartDelaySeconds));
-
-  if (running_easy_unlock_key_ops_) {
-    WaitForEasyUnlockKeyOpsFinished(
-        base::Bind(&UserSessionManager::AttemptRestart, AsWeakPtr(), profile));
-    return;
-  }
-
-  if (session_restore_strategy_ !=
-      OAuth2LoginManager::RESTORE_FROM_COOKIE_JAR) {
-    chrome::AttemptRestart();
-    return;
-  }
-
-  // We can't really quit if the session restore process that mints new
-  // refresh token is still in progress.
-  OAuth2LoginManager* login_manager =
-      OAuth2LoginManagerFactory::GetInstance()->GetForProfile(profile);
-  if (login_manager->state() != OAuth2LoginManager::SESSION_RESTORE_PREPARING &&
-      login_manager->state() !=
-          OAuth2LoginManager::SESSION_RESTORE_IN_PROGRESS) {
-    chrome::AttemptRestart();
-    return;
-  }
-
-  LOG(WARNING) << "Attempting browser restart during session restore.";
-  exit_after_session_restore_ = true;
-}
-
 void UserSessionManager::OnEasyUnlockKeyOpsFinished(const std::string& user_id,
                                                     bool success) {
   const user_manager::User* user = user_manager::UserManager::Get()->FindUser(
@@ -1944,6 +1967,12 @@ void UserSessionManager::DoBrowserLaunchInternal(Profile* profile,
   // Show the one-time notification and update the relevant pref about the
   // completion of the file system migration necessary for ARC, when needed.
   arc::ShowArcMigrationSuccessNotificationIfNeeded(profile);
+
+  if (should_launch_browser_ &&
+      profile->GetPrefs()->GetBoolean(prefs::kShowSyncSettingsOnSessionStart)) {
+    profile->GetPrefs()->ClearPref(prefs::kShowSyncSettingsOnSessionStart);
+    chrome::ShowSettingsSubPageForProfile(profile, "syncSetup");
+  }
 }
 
 void UserSessionManager::RespectLocalePreferenceWrapper(

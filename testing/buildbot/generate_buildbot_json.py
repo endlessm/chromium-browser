@@ -317,6 +317,12 @@ class BBJSONGenerator(object):
         a[key] = b[key]
     return a
 
+  def initialize_args_for_test(self, generated_test, tester_config):
+    if 'args' in tester_config:
+      if 'args' not in generated_test:
+        generated_test['args'] = []
+      generated_test['args'].extend(tester_config['args'])
+
   def initialize_swarming_dictionary_for_test(self, generated_test,
                                               tester_config):
     if 'swarming' not in generated_test:
@@ -369,6 +375,19 @@ class BBJSONGenerator(object):
       self.clean_swarming_dictionary(test['swarming'])
     return test
 
+  def add_common_test_properties(self, test, tester_config):
+    if tester_config.get('use_multi_dimension_trigger_script'):
+      test['trigger_script'] = {
+        'script': '//testing/trigger_scripts/trigger_multiple_dimensions.py',
+        'args': [
+          '--multiple-trigger-configs',
+          json.dumps(tester_config['swarming']['dimension_sets'] +
+                     tester_config.get('alternate_swarming_dimensions', [])),
+          '--multiple-dimension-script-verbose',
+          'True'
+        ],
+      }
+
   def generate_gtest(self, waterfall, tester_name, tester_config, test_name,
                      test_config):
     if not self.should_run_on_tester(
@@ -381,6 +400,7 @@ class BBJSONGenerator(object):
     else:
       result['test'] = test_name
     self.initialize_swarming_dictionary_for_test(result, tester_config)
+    self.initialize_args_for_test(result, tester_config)
     if self.is_android(tester_config) and tester_config.get('use_swarming',
                                                             True):
       if 'args' not in result:
@@ -422,6 +442,7 @@ class BBJSONGenerator(object):
 
     result = self.update_and_cleanup_test(result, test_name, tester_name,
                                           waterfall)
+    self.add_common_test_properties(result, tester_config)
     return result
 
   def generate_isolated_script_test(self, waterfall, tester_name, tester_config,
@@ -435,6 +456,7 @@ class BBJSONGenerator(object):
     self.initialize_swarming_dictionary_for_test(result, tester_config)
     result = self.update_and_cleanup_test(result, test_name, tester_name,
                                           waterfall)
+    self.add_common_test_properties(result, tester_config)
     return result
 
   def generate_script_test(self, waterfall, tester_name, tester_config,

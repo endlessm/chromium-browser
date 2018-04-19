@@ -12,13 +12,13 @@
 #include "base/run_loop.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
-#include "chrome/browser/extensions/browser_action_test_util.h"
 #include "chrome/browser/extensions/extension_action.h"
 #include "chrome/browser/extensions/extension_action_manager.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/extensions/browser_action_test_util.h"
 #include "chrome/browser/ui/extensions/extension_action_view_controller.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/toolbar/toolbar_action_view_controller.h"
@@ -550,7 +550,7 @@ IN_PROC_BROWSER_TEST_F(BrowserActionsBarBrowserTest, RemovePoppedOutAction) {
   EXPECT_EQ(3, browser_actions_bar()->NumberOfBrowserActions());
 
   // Pop out Extension 3 (index 3).
-  base::Closure closure = base::Bind(&base::DoNothing);
+  base::Closure closure = base::DoNothing();
   ToolbarActionsBar* toolbar_actions_bar =
       browser()->window()->GetToolbarActionsBar();
   EXPECT_EQ(extension3->id(), toolbar_actions_bar->GetActions()[2]->GetId());

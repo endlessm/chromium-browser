@@ -644,6 +644,18 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       'SELECT build_id, build_config, waterfall, builder_name, build_number, '
       'message_type, message_subtype, message_value, timestamp, board FROM '
       'buildMessageTable c JOIN buildTable b ON build_id = b.id ')
+
+  # See https://stackoverflow.com/a/7745635/219138 for a discussion of how to
+  # perform "greatest-n-per-group" in SQL. I chose the LEFT OUTER JOIN solution.
+  _SQL_FETCH_LATEST_BUILD_REQUEST = '''
+  SELECT t1.* from buildRequestTable as t1
+  LEFT OUTER JOIN buildRequestTable as t2
+    ON t1.request_reason = t2.request_reason
+       AND t1.request_build_config = t2.request_build_config
+       AND t1.timestamp < t2.timestamp
+  WHERE t2.request_build_config is NULL
+  '''
+
   _DATE_FORMAT = '%Y-%m-%d'
   _DATETIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 
@@ -654,7 +666,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       'build_number', 'builder_name', 'platform_version', 'full_version',
       'milestone_version', 'important', 'buildbucket_id', 'summary',
       'buildbot_generation', 'master_build_id', 'bot_hostname', 'deadline',
-      'build_type')
+      'build_type', 'metadata_url', 'toolchain_url')
 
   _SQL_FETCH_ANNOTATIONS = (
       'SELECT aT.build_id, aT.last_updated, last_annotator, '
@@ -1418,10 +1430,10 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
   @minimum_schema(47)
   def GetBuildHistory(self, build_config, num_results,
                       ignore_build_id=None, start_date=None, end_date=None,
-                      starting_build_number=None, ending_build_number=None,
                       milestone_version=None, platform_version=None,
-                      starting_build_id=None, waterfall=None,
-                      buildbot_generation=None, final=False, reverse=False):
+                      starting_build_id=None, ending_build_id=None,
+                      waterfall=None, buildbot_generation=None, final=False,
+                      reverse=False):
     """Returns basic information about most recent builds for build config.
 
     By default this function returns the most recent builds. Some arguments can
@@ -1439,15 +1451,13 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
           after this date.
       end_date: (Optional, type:datetime.date) Get builds that occured on or
           before this date.
-      starting_build_number: (Optional) The minimum build_number for which
-          data should be retrieved.
-      ending_build_number: (Optional) The maximum build_number for which
-          data should be retrieved.
       milestone_version: (Optional) Return only results for this
           milestone_version.
       platform_version: (Optional) Return only results for this
           platform_version.
       starting_build_id: (Optional) The minimum build_id for which data should
+          be retrieved.
+      ending_build_id: (Optional) The maximum build_id for which data should
           be retrieved.
       waterfall: (Optional) The waterfall for which data should be retrieved.
       buildbot_generation: (Optional) The buildbot_generation for which data
@@ -1464,19 +1474,19 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     return self.GetBuildsHistory(
         [build_config], num_results,
         ignore_build_id=ignore_build_id, start_date=start_date,
-        end_date=end_date, starting_build_number=starting_build_number,
-        ending_build_number=ending_build_number,
+        end_date=end_date,
         milestone_version=milestone_version, platform_version=platform_version,
-        starting_build_id=starting_build_id, waterfall=waterfall,
-        buildbot_generation=buildbot_generation, final=final, reverse=reverse)
+        starting_build_id=starting_build_id, ending_build_id=ending_build_id,
+        waterfall=waterfall, buildbot_generation=buildbot_generation,
+        final=final, reverse=reverse)
 
   @minimum_schema(47)
   def GetBuildsHistory(self, build_configs, num_results,
                        ignore_build_id=None, start_date=None, end_date=None,
-                       starting_build_number=None, ending_build_number=None,
                        milestone_version=None, platform_version=None,
-                       starting_build_id=None, waterfall=None,
-                       buildbot_generation=None, final=False, reverse=False):
+                       starting_build_id=None, ending_build_id=None,
+                       waterfall=None, buildbot_generation=None, final=False,
+                       reverse=False):
     """Returns basic information about most recent builds for build configs.
 
     By default this function returns the most recent builds. Some arguments can
@@ -1495,15 +1505,13 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
           after this date.
       end_date: (Optional, type:datetime.date) Get builds that occured on or
           before this date.
-      starting_build_number: (Optional) The minimum build_number for which
-          data should be retrieved.
-      ending_build_number: (Optional) The maximum build_number for which
-          data should be retrieved.
       milestone_version: (Optional) Return only results for this
           milestone_version.
       platform_version: (Optional) Return only results for this
           platform_version.
       starting_build_id: (Optional) The minimum build_id for which data should
+          be retrieved.
+      ending_build_id: (Optional) The maximum build_id for which data should
           be retrieved.
       waterfall: (Optional) The waterfall for which data should be retrieved.
       buildbot_generation: (Optional) The buildbot_generation for which data
@@ -1527,12 +1535,10 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     if end_date is not None:
       where_clauses.append('date(start_time) <= date("%s")' %
                            end_date.strftime(self._DATE_FORMAT))
-    if starting_build_number is not None:
-      where_clauses.append('build_number >= %d' % starting_build_number)
     if starting_build_id is not None:
       where_clauses.append('id >= %d' % starting_build_id)
-    if ending_build_number is not None:
-      where_clauses.append('build_number <= %d' % ending_build_number)
+    if ending_build_id is not None:
+      where_clauses.append('id <= %d' % ending_build_id)
     if ignore_build_id is not None:
       where_clauses.append('id != %d' % ignore_build_id)
     if milestone_version is not None:
@@ -2008,6 +2014,40 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
 
     results = self._Execute(query).fetchall()
 
+    return [build_requests.BuildRequest(*values) for values in results]
+
+  @minimum_schema(59)
+  def GetLatestBuildRequestsForReason(self, request_reason,
+                                      status=None,
+                                      num_results=NUM_RESULTS_NO_LIMIT,
+                                      n_days_back=7):
+    """Gets the latest build_requests associated with the request_reason.
+
+    Args:
+      request_reason: The reason to filter by
+      status: Whether to filter on status
+      num_results: Number of results to return, default to
+        self.NUM_RESULTS_NO_LIMIT.
+      n_days_back: How many days back to look for build requests.
+
+    Returns:
+      A list of build_request.BuildRequest instances.
+    """
+    query = [self._SQL_FETCH_LATEST_BUILD_REQUEST]
+    query.append("AND t1.request_reason = '%s'" % request_reason)
+
+    if n_days_back is not None:
+      query.append(
+          'AND t1.timestamp > TIMESTAMP(DATE_SUB(NOW(), INTERVAL %s DAY))'
+          % n_days_back)
+
+    if status is not None:
+      query.append("AND status = '%s'" % status)
+
+    if num_results != self.NUM_RESULTS_NO_LIMIT:
+      query.append('LIMIT %d' % num_results)
+
+    results = self._Execute(' '.join(query)).fetchall()
     return [build_requests.BuildRequest(*values) for values in results]
 
   def GetBuildRequestsForRequesterBuild(self, requester_build_id,

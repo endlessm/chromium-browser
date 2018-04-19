@@ -14,7 +14,6 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/process/kill.h"
 #include "base/process/launch.h"
 #include "base/process/process_handle.h"
@@ -454,6 +453,24 @@ TEST(SetupUtilTest, GetConsoleSessionStartTime) {
   EXPECT_FALSE(start_time.is_null());
 }
 
+TEST(SetupUtilTest, GetToastActivatorRegistryPath) {
+  base::string16 toast_activator_reg_path =
+      installer::GetToastActivatorRegistryPath();
+  EXPECT_FALSE(toast_activator_reg_path.empty());
+
+  // Confirm that the string is a path followed by a GUID.
+  size_t guid_begin = toast_activator_reg_path.find('{');
+  EXPECT_NE(base::string16::npos, guid_begin);
+  EXPECT_NE(0u, guid_begin);
+  EXPECT_EQ(L'\\', toast_activator_reg_path[guid_begin - 1]);
+
+  // A GUID has the form "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}".
+  constexpr size_t kGuidLength = 38;
+  EXPECT_EQ(kGuidLength, toast_activator_reg_path.length() - guid_begin);
+
+  EXPECT_EQ('}', toast_activator_reg_path.back());
+}
+
 namespace installer {
 
 class DeleteRegistryKeyPartialTest : public ::testing::Test {
@@ -575,7 +592,7 @@ class LegacyCleanupsTest : public ::testing::Test {
     ASSERT_NO_FATAL_FAILURE(
         registry_override_manager_.OverrideRegistry(HKEY_CURRENT_USER));
     installer_state_ =
-        base::MakeUnique<FakeInstallerState>(temp_dir_.GetPath());
+        std::make_unique<FakeInstallerState>(temp_dir_.GetPath());
     // Create the state to be cleared.
     ASSERT_TRUE(base::win::RegKey(HKEY_CURRENT_USER, kBinariesClientsKeyPath,
                                   KEY_WRITE | KEY_WOW64_32KEY)
@@ -646,7 +663,7 @@ class LegacyCleanupsTest : public ::testing::Test {
       operation_ = InstallerState::SINGLE_INSTALL_OR_UPDATE;
       target_path_ = target_path;
       state_key_ = dist->GetStateKey();
-      product_ = base::MakeUnique<Product>(dist);
+      product_ = std::make_unique<Product>(dist);
       level_ = InstallerState::USER_LEVEL;
       root_key_ = HKEY_CURRENT_USER;
     }

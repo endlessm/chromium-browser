@@ -414,7 +414,7 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
 
   SplitCriticalSideEffectEdges(const_cast<Function &>(Fn), DT, LI);
 
-  CurDAG->init(*MF, *ORE, this);
+  CurDAG->init(*MF, *ORE, this, LibInfo);
   FuncInfo->set(Fn, *MF, CurDAG);
 
   // Now get the optional analyzes if we want to.
@@ -985,13 +985,16 @@ void SelectionDAGISel::DoInstructionSelection() {
       if (Node->isStrictFPOpcode())
         Node = CurDAG->mutateStrictFPToFP(Node);
 
+      DEBUG(dbgs() << "\nISEL: Starting selection on root node: ";
+            Node->dump(CurDAG));
+
       Select(Node);
     }
 
     CurDAG->setRoot(Dummy.getValue());
   }
 
-  DEBUG(dbgs() << "===== Instruction selection ends:\n");
+  DEBUG(dbgs() << "\n===== Instruction selection ends:\n");
 
   PostprocessISelDAG();
 }
@@ -1380,8 +1383,10 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
   FastISelFailed = false;
   // Initialize the Fast-ISel state, if needed.
   FastISel *FastIS = nullptr;
-  if (TM.Options.EnableFastISel)
+  if (TM.Options.EnableFastISel) {
+    DEBUG(dbgs() << "Enabling fast-isel\n");
     FastIS = TLI->createFastISel(*FuncInfo, LibInfo);
+  }
 
   setupSwiftErrorVals(Fn, TLI, FuncInfo);
 
@@ -1445,13 +1450,11 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
       }
 
       if (AllPredsVisited) {
-        for (BasicBlock::const_iterator I = LLVMBB->begin();
-             const PHINode *PN = dyn_cast<PHINode>(I); ++I)
-          FuncInfo->ComputePHILiveOutRegInfo(PN);
+        for (const PHINode &PN : LLVMBB->phis())
+          FuncInfo->ComputePHILiveOutRegInfo(&PN);
       } else {
-        for (BasicBlock::const_iterator I = LLVMBB->begin();
-             const PHINode *PN = dyn_cast<PHINode>(I); ++I)
-          FuncInfo->InvalidatePHILiveOutRegInfo(PN);
+        for (const PHINode &PN : LLVMBB->phis())
+          FuncInfo->InvalidatePHILiveOutRegInfo(&PN);
       }
 
       FuncInfo->VisitedBBs.insert(LLVMBB);
@@ -2154,7 +2157,9 @@ static bool findNonImmUse(SDNode *Use, SDNode* Def, SDNode *ImmedUse,
   while (!WorkList.empty()) {
     Use = WorkList.back();
     WorkList.pop_back();
-    if (Use->getNodeId() < Def->getNodeId() && Use->getNodeId() != -1)
+    // NodeId topological order of TokenFactors is not guaranteed. Do not skip.
+    if (Use->getOpcode() != ISD::TokenFactor &&
+        Use->getNodeId() < Def->getNodeId() && Use->getNodeId() != -1)
       continue;
 
     // Don't revisit nodes if we already scanned it and didn't fail, we know we
@@ -2360,7 +2365,8 @@ void SelectionDAGISel::UpdateChains(
             std::replace(ChainNodesMatched.begin(), ChainNodesMatched.end(), N,
                          static_cast<SDNode *>(nullptr));
           });
-      CurDAG->ReplaceAllUsesOfValueWith(ChainVal, InputChain);
+      if (ChainNode->getOpcode() != ISD::TokenFactor)
+        CurDAG->ReplaceAllUsesOfValueWith(ChainVal, InputChain);
 
       // If the node became dead and we haven't already seen it, delete it.
       if (ChainNode != NodeToMatch && ChainNode->use_empty() &&
@@ -2988,9 +2994,7 @@ void SelectionDAGISel::SelectCodeCommon(SDNode *NodeToMatch,
   // update the chain results when the pattern is complete.
   SmallVector<SDNode*, 3> ChainNodesMatched;
 
-  DEBUG(dbgs() << "ISEL: Starting pattern match on root node: ";
-        NodeToMatch->dump(CurDAG);
-        dbgs() << '\n');
+  DEBUG(dbgs() << "ISEL: Starting pattern match\n");
 
   // Determine where to start the interpreter.  Normally we start at opcode #0,
   // but if the state machine starts with an OPC_SwitchOpcode, then we
@@ -3665,8 +3669,6 @@ void SelectionDAGISel::SelectCodeCommon(SDNode *NodeToMatch,
                << (IsMorphNodeTo ? "Morphed" : "Created")
                << " node: ";
         Res->dump(CurDAG);
-
-        dbgs() << '\n';
       );
 
       // If this was a MorphNodeTo then we're completely done!

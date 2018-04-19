@@ -66,6 +66,7 @@
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/pepper_broker_infobar_delegate.h"
 #include "chrome/browser/permissions/permission_request_manager.h"
+#include "chrome/browser/picture_in_picture/picture_in_picture_window_controller.h"
 #include "chrome/browser/plugins/plugin_finder.h"
 #include "chrome/browser/plugins/plugin_metadata.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
@@ -123,7 +124,6 @@
 #include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
 #include "chrome/browser/ui/find_bar/find_tab_helper.h"
-#include "chrome/browser/ui/first_run_bubble_presenter.h"
 #include "chrome/browser/ui/global_error/global_error.h"
 #include "chrome/browser/ui/global_error/global_error_service.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
@@ -184,6 +184,7 @@
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/browser/overscroll_configuration.h"
 #include "content/public/browser/plugin_service.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -231,6 +232,10 @@
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/fileapi/external_file_url_util.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
+#endif
+
+#if BUILDFLAG(ENABLE_PRINTING)
+#include "components/printing/browser/print_composite_client.h"
 #endif
 
 using base::TimeDelta;
@@ -1204,22 +1209,11 @@ bool Browser::CanOverscrollContent() const {
   if (!allow_overscroll)
     return false;
 
-  const std::string value =
-      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          switches::kOverscrollHistoryNavigation);
-  bool overscroll_enabled = value != "0";
-  if (!overscroll_enabled)
-    return false;
   if (is_app() || is_devtools() || !is_type_tabbed())
     return false;
 
-  // The detached bookmark bar has appearance of floating above the
-  // web-contents. This does not play nicely with overscroll navigation
-  // gestures. So disable overscroll navigation when the bookmark bar is in the
-  // detached state and the overscroll effect moves the layers.
-  if (value == "1" && bookmark_bar_state_ == BookmarkBar::DETACHED)
-    return false;
-  return true;
+  return content::OverscrollConfig::GetMode() !=
+         content::OverscrollConfig::Mode::kDisabled;
 }
 
 bool Browser::ShouldPreserveAbortedURLs(WebContents* source) {
@@ -1413,6 +1407,18 @@ void Browser::OnDidBlockFramebust(content::WebContents* web_contents,
       url, FramebustBlockTabHelper::ClickCallback());
 }
 
+void Browser::UpdatePictureInPictureSurfaceId(viz::SurfaceId surface_id) {
+  if (!surface_id.is_valid())
+    return;
+
+  pip_window_controller_.reset(
+      PictureInPictureWindowController::GetOrCreateForWebContents(
+          tab_strip_model_->GetActiveWebContents()));
+  pip_window_controller_->Init();
+  pip_window_controller_->EmbedSurface(surface_id);
+  pip_window_controller_->Show();
+}
+
 bool Browser::IsMouseLocked() const {
   return exclusive_access_manager_->mouse_lock_controller()->IsMouseLocked();
 }
@@ -1434,10 +1440,6 @@ void Browser::OnWindowDidShow() {
   GlobalError* error = service->GetFirstGlobalErrorWithBubbleView();
   if (error)
     error->ShowBubbleView(this);
-}
-
-void Browser::ShowFirstRunBubble() {
-  FirstRunBubblePresenter::PresentWhenReady(this);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1671,18 +1673,24 @@ void Browser::WebContentsCreated(WebContents* source_contents,
   task_manager::WebContentsTags::CreateForTabContents(new_contents);
 }
 
-void Browser::RendererUnresponsive(WebContents* source) {
+void Browser::RendererUnresponsive(
+    WebContents* source,
+    content::RenderWidgetHost* render_widget_host) {
   // Ignore hangs if a tab is blocked.
   int index = tab_strip_model_->GetIndexOfWebContents(source);
   DCHECK_NE(TabStripModel::kNoTab, index);
   if (tab_strip_model_->IsTabBlocked(index))
     return;
 
-  TabDialogs::FromWebContents(source)->ShowHungRendererDialog();
+  TabDialogs::FromWebContents(source)->ShowHungRendererDialog(
+      render_widget_host);
 }
 
-void Browser::RendererResponsive(WebContents* source) {
-  TabDialogs::FromWebContents(source)->HideHungRendererDialog();
+void Browser::RendererResponsive(
+    WebContents* source,
+    content::RenderWidgetHost* render_widget_host) {
+  TabDialogs::FromWebContents(source)->HideHungRendererDialog(
+      render_widget_host);
 }
 
 void Browser::DidNavigateMainFramePostCommit(WebContents* web_contents) {
@@ -1934,6 +1942,18 @@ gfx::Size Browser::GetSizeForNewRenderView(WebContents* web_contents) const {
   }
   return size;
 }
+
+#if BUILDFLAG(ENABLE_PRINTING)
+void Browser::PrintCrossProcessSubframe(
+    content::WebContents* web_contents,
+    const gfx::Rect& rect,
+    int document_cookie,
+    content::RenderFrameHost* subframe_host) const {
+  auto* client = printing::PrintCompositeClient::FromWebContents(web_contents);
+  if (client)
+    client->PrintCrossProcessSubframe(rect, document_cookie, subframe_host);
+}
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 // Browser, CoreTabHelperDelegate implementation:

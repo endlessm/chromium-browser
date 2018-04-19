@@ -146,7 +146,6 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kPpapiInProcess,
     ::switches::kRemoteDebuggingPort,
     ::switches::kRendererStartupDialog,
-    ::switches::kRootLayerScrolls,
     ::switches::kTouchCalibration,
     ::switches::kTouchDevices,
     ::switches::kTouchEventFeatureDetection,
@@ -185,6 +184,8 @@ void DeriveCommandLine(const GURL& start_url,
     // Please keep these in alphabetical order. Non-UI Compositor switches
     // here should also be added to
     // content/browser/renderer_host/render_process_host_impl.cc.
+    cc::switches::kAlwaysRequestPresentationTime,
+    cc::switches::kCheckDamageEarly,
     cc::switches::kDisableCompositedAntialiasing,
     cc::switches::kDisableMainFrameBeforeActivation,
     cc::switches::kDisableThreadedAnimation,
@@ -213,7 +214,6 @@ void DeriveCommandLine(const GURL& start_url,
     chromeos::switches::kHasChromeOSKeyboard,
     chromeos::switches::kLoginProfile,
     chromeos::switches::kNaturalScrollDefault,
-    chromeos::switches::kShowNonMdLogin,
     chromeos::switches::kSystemInDevMode,
     policy::switches::kDeviceManagementUrl,
     wm::switches::kWindowAnimationsDisabled,
@@ -358,6 +358,17 @@ void RestartChrome(const base::CommandLine& command_line) {
   restart_requested = true;
 
   if (!base::SysInfo::IsRunningOnChromeOS()) {
+    // Do nothing when running as test on bots or a dev box.
+    const base::CommandLine* current_command_line =
+        base::CommandLine::ForCurrentProcess();
+    const bool is_running_test =
+        current_command_line->HasSwitch(::switches::kTestName) ||
+        current_command_line->HasSwitch(::switches::kTestType);
+    if (is_running_test) {
+      DLOG(WARNING) << "Ignoring chrome restart for test.";
+      return;
+    }
+
     // Relaunch chrome without session manager on dev box.
     ReLaunch(command_line);
     return;

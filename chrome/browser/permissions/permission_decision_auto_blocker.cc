@@ -9,7 +9,6 @@
 #include <utility>
 
 #include "base/feature_list.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
@@ -58,7 +57,7 @@ int g_blacklist_embargo_days = kDefaultEmbargoDays;
 // TODO(meredithl): Revisit this once UMA metrics have data about request time.
 const int kCheckUrlTimeoutMs = 2000;
 
-std::unique_ptr<base::DictionaryValue> GetOriginDict(
+std::unique_ptr<base::DictionaryValue> GetOriginAutoBlockerData(
     HostContentSettingsMap* settings,
     const GURL& origin_url) {
   std::unique_ptr<base::DictionaryValue> dict =
@@ -66,7 +65,7 @@ std::unique_ptr<base::DictionaryValue> GetOriginDict(
           origin_url, GURL(), CONTENT_SETTINGS_TYPE_PERMISSION_AUTOBLOCKER_DATA,
           std::string(), nullptr));
   if (!dict)
-    return base::MakeUnique<base::DictionaryValue>();
+    return std::make_unique<base::DictionaryValue>();
 
   return dict;
 }
@@ -87,7 +86,8 @@ int RecordActionInWebsiteSettings(const GURL& url,
                                   Profile* profile) {
   HostContentSettingsMap* map =
       HostContentSettingsMapFactory::GetForProfile(profile);
-  std::unique_ptr<base::DictionaryValue> dict = GetOriginDict(map, url);
+  std::unique_ptr<base::DictionaryValue> dict =
+      GetOriginAutoBlockerData(map, url);
 
   base::Value* permission_dict = GetOrCreatePermissionDict(
       dict.get(), PermissionUtil::GetPermissionString(permission));
@@ -110,7 +110,8 @@ int GetActionCount(const GURL& url,
                    Profile* profile) {
   HostContentSettingsMap* map =
       HostContentSettingsMapFactory::GetForProfile(profile);
-  std::unique_ptr<base::DictionaryValue> dict = GetOriginDict(map, url);
+  std::unique_ptr<base::DictionaryValue> dict =
+      GetOriginAutoBlockerData(map, url);
   base::Value* permission_dict = GetOrCreatePermissionDict(
       dict.get(), PermissionUtil::GetPermissionString(permission));
 
@@ -217,7 +218,7 @@ PermissionResult PermissionDecisionAutoBlocker::GetEmbargoResult(
     base::Time current_time) {
   DCHECK(settings_map);
   std::unique_ptr<base::DictionaryValue> dict =
-      GetOriginDict(settings_map, request_origin);
+      GetOriginAutoBlockerData(settings_map, request_origin);
   base::Value* permission_dict = GetOrCreatePermissionDict(
       dict.get(), PermissionUtil::GetPermissionString(permission));
 
@@ -378,7 +379,8 @@ void PermissionDecisionAutoBlocker::RemoveEmbargoByUrl(
 
   HostContentSettingsMap* map =
       HostContentSettingsMapFactory::GetForProfile(profile_);
-  std::unique_ptr<base::DictionaryValue> dict = GetOriginDict(map, url);
+  std::unique_ptr<base::DictionaryValue> dict =
+      GetOriginAutoBlockerData(map, url);
   base::Value* permission_dict = GetOrCreatePermissionDict(
       dict.get(), PermissionUtil::GetPermissionString(permission));
 
@@ -451,7 +453,7 @@ void PermissionDecisionAutoBlocker::PlaceUnderEmbargo(
   HostContentSettingsMap* map =
       HostContentSettingsMapFactory::GetForProfile(profile_);
   std::unique_ptr<base::DictionaryValue> dict =
-      GetOriginDict(map, request_origin);
+      GetOriginAutoBlockerData(map, request_origin);
   base::Value* permission_dict = GetOrCreatePermissionDict(
       dict.get(), PermissionUtil::GetPermissionString(permission));
   permission_dict->SetKey(

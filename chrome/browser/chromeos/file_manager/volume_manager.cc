@@ -34,7 +34,6 @@
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/disks/disk_mount_manager.h"
 #include "components/drive/chromeos/file_system_interface.h"
-#include "components/drive/file_system_core_util.h"
 #include "components/prefs/pref_service.h"
 #include "components/storage_monitor/storage_monitor.h"
 #include "content/public/browser/browser_context.h"
@@ -332,7 +331,7 @@ VolumeManager::VolumeManager(
     chromeos::PowerManagerClient* power_manager_client,
     chromeos::disks::DiskMountManager* disk_mount_manager,
     chromeos::file_system_provider::Service* file_system_provider_service,
-    GetMtpStorageInfoCallback get_mtp_storage_info_callback)
+    const GetMtpStorageInfoCallback& get_mtp_storage_info_callback)
     : profile_(profile),
       drive_integration_service_(drive_integration_service),
       disk_mount_manager_(disk_mount_manager),
@@ -637,8 +636,7 @@ void VolumeManager::OnMountEvent(
           drive::util::GetFileSystemByProfile(profile_);
       if (file_system) {
         file_system->MarkCacheFileAsUnmounted(
-            base::FilePath(mount_info.source_path),
-            base::Bind(&drive::util::EmptyFileOperationCallback));
+            base::FilePath(mount_info.source_path), base::DoNothing());
       }
     }
   }
@@ -866,21 +864,27 @@ void VolumeManager::OnRemovableStorageAttached(
   std::string storage_name;
   base::RemoveChars(info.location(), kRootPath, &storage_name);
   DCHECK(!storage_name.empty());
-
-  const device::mojom::MtpStorageInfo* mtp_storage_info;
   if (get_mtp_storage_info_callback_.is_null()) {
-    mtp_storage_info = storage_monitor::StorageMonitor::GetInstance()
-                           ->media_transfer_protocol_manager()
-                           ->GetStorageInfo(storage_name);
+    storage_monitor::StorageMonitor::GetInstance()
+        ->media_transfer_protocol_manager()
+        ->GetStorageInfo(storage_name,
+                         base::BindOnce(&VolumeManager::DoAttachMtpStorage,
+                                        weak_ptr_factory_.GetWeakPtr(), info));
   } else {
-    mtp_storage_info = get_mtp_storage_info_callback_.Run(storage_name);
+    get_mtp_storage_info_callback_.Run(
+        storage_name, base::BindOnce(&VolumeManager::DoAttachMtpStorage,
+                                     weak_ptr_factory_.GetWeakPtr(), info));
   }
+}
 
+void VolumeManager::DoAttachMtpStorage(
+    const storage_monitor::StorageInfo& info,
+    const device::mojom::MtpStorageInfo* mtp_storage_info) {
   if (!mtp_storage_info) {
-    // mtp_storage_info can be null. e.g. As OnRemovableStorageAttached is
-    // called asynchronously, there can be a race condition where the storage
-    // has been already removed in MediaTransferProtocolManager at the time when
-    // this method is called.
+    // |mtp_storage_info| can be null. e.g. As OnRemovableStorageAttached and
+    // DoAttachMtpStorage are called asynchronously, there can be a race
+    // condition where the storage has been already removed in
+    // MediaTransferProtocolManager at the time when this method is called.
     return;
   }
 

@@ -39,7 +39,6 @@ class WebFrameTestClient : public blink::WebFrameClient {
                             const blink::WebString& default_value,
                             blink::WebString* actual_value) override;
   bool RunModalBeforeUnloadDialog(bool is_reload) override;
-  blink::WebScreenOrientationClient* GetWebScreenOrientationClient() override;
   void PostAccessibilityEvent(const blink::WebAXObject& object,
                               blink::WebAXEvent event) override;
   void DidChangeSelection(bool is_selection_empty) override;
@@ -62,6 +61,9 @@ class WebFrameTestClient : public blink::WebFrameClient {
   void DidCommitProvisionalLoad(const blink::WebHistoryItem& history_item,
                                 blink::WebHistoryCommitType history_type,
                                 blink::WebGlobalObjectReusePolicy) override;
+  void DidNavigateWithinPage(const blink::WebHistoryItem& history_item,
+                             blink::WebHistoryCommitType history_type,
+                             bool content_initiated) override;
   void DidReceiveTitle(const blink::WebString& title,
                        blink::WebTextDirection direction) override;
   void DidChangeIcon(blink::WebIconURL::Type icon_type) override;

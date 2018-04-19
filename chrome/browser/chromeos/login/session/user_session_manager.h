@@ -34,6 +34,7 @@
 class AccountId;
 class GURL;
 class PrefRegistrySimple;
+class PrefService;
 class Profile;
 class TokenHandleFetcher;
 
@@ -55,7 +56,6 @@ namespace test {
 class UserSessionManagerTestApi;
 }  // namespace test
 
-class AppTerminatingStackDumper;
 class EasyUnlockKeyManager;
 class InputEventsBlocker;
 class LoginDisplayHost;
@@ -121,7 +121,8 @@ class UserSessionManager
 
   // Appends additional command switches to the given command line if
   // SitePerProcess/IsolateOrigins policy is present.
-  static void MaybeAppendPolicySwitches(base::CommandLine* user_flags);
+  static void MaybeAppendPolicySwitches(PrefService* user_profile_prefs,
+                                        base::CommandLine* user_flags);
 
   // Invoked after the tmpfs is successfully mounted.
   // Asks session_manager to restart Chrome in Guest session mode.
@@ -263,6 +264,12 @@ class UserSessionManager
 
   void Shutdown();
 
+  // Called when the user network policy has been parsed. If |send_password| is
+  // true, the user's password will be sent over dbus to the session manager to
+  // save in a keyring. Before the function exits, it will clear the user
+  // password from the UserContext regardless of the value of |send_password|.
+  void OnUserNetworkPolicyParsed(bool send_password);
+
  private:
   friend class test::UserSessionManagerTestApi;
   friend struct base::DefaultSingletonTraits<UserSessionManager>;
@@ -380,10 +387,6 @@ class UserSessionManager
   // Notifies observers that user pending sessions restore has finished.
   void NotifyPendingUserSessionsRestoreFinished();
 
-  // Attempts restarting the browser process and esures that this does
-  // not happen while we are still fetching new OAuth refresh tokens.
-  void AttemptRestart(Profile* profile);
-
   // Callback invoked when Easy unlock key operations are finished.
   void OnEasyUnlockKeyOpsFinished(const std::string& user_id, bool success);
 
@@ -422,6 +425,10 @@ class UserSessionManager
 
   // Controls whether token handle fetching is enabled (used in tests).
   void SetShouldObtainHandleInTests(bool should_obtain_handles);
+
+  // Sets the function which is used to request a chrome restart.
+  void SetAttemptRestartClosureInTests(
+      const base::RepeatingClosure& attempt_restart_closure);
 
   // The user pods display type for histogram.
   enum UserPodsDisplay {
@@ -475,9 +482,6 @@ class UserSessionManager
       session_state_observer_list_;
 
   // OAuth2 session related members.
-
-  // True if we should restart chrome right after session restore.
-  bool exit_after_session_restore_;
 
   // Sesion restore strategy.
   OAuth2LoginManager::SessionRestoreStrategy session_restore_strategy_;
@@ -538,11 +542,8 @@ class UserSessionManager
 
   std::vector<base::OnceClosure> easy_unlock_key_ops_finished_callbacks_;
 
-  // Helper to dump app terminating stack during the primary user profile
-  // loading. It is instantiated on loading primary user profile and destroyed
-  // after the primary user profile is loaded.
-  // TODO(crbug.com/717585): Remove after the root cause of bug identified.
-  std::unique_ptr<AppTerminatingStackDumper> app_terminating_stack_dumper_;
+  // Mapped to |chrome::AttemptRestart|, except in tests.
+  base::RepeatingClosure attempt_restart_closure_;
 
   base::WeakPtrFactory<UserSessionManager> weak_factory_;
 

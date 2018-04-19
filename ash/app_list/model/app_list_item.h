@@ -20,6 +20,10 @@
 class FastShowPickler;
 class ChromeAppListModelUpdater;
 
+namespace ash {
+class AppListControllerImpl;
+}  // namespace ash
+
 namespace app_list {
 
 class AppListItemList;
@@ -84,10 +88,6 @@ class APP_LIST_MODEL_EXPORT AppListItem {
   // Returns the number of child items if it has any (e.g. is a folder) or 0.
   virtual size_t ChildItemCount() const;
 
-  // Returns the number of items that were badged because they are extension
-  // apps that have their Android analogs installed.
-  virtual size_t BadgedItemCount() const;
-
   // Utility functions for sync integration tests.
   virtual bool CompareForTest(const AppListItem* other) const;
   virtual std::string ToDebugString() const;
@@ -99,6 +99,7 @@ class APP_LIST_MODEL_EXPORT AppListItem {
   friend class ::ChromeAppListModelUpdater;
 
   friend class ::FastShowPickler;
+  friend class ash::AppListControllerImpl;
   friend class AppListItemList;
   friend class AppListItemListTest;
   friend class AppListModel;

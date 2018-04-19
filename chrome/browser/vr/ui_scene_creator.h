@@ -6,9 +6,11 @@
 #define CHROME_BROWSER_VR_UI_SCENE_CREATOR_H_
 
 #include "base/macros.h"
+#include "chrome/browser/vr/elements/content_element.h"
 #include "chrome/browser/vr/elements/text_input.h"
 #include "chrome/browser/vr/elements/ui_element_name.h"
 #include "chrome/browser/vr/keyboard_delegate.h"
+#include "ui/gfx/geometry/size_f.h"
 
 namespace vr {
 
@@ -32,18 +34,11 @@ class UiSceneCreator {
 
   void CreateScene();
 
-  static std::unique_ptr<TextInput> CreateTextInput(
-      float font_height_meters,
-      Model* model,
-      TextInputInfo* text_input_model,
-      TextInputDelegate* text_input_delegate);
-
  private:
   void Create2dBrowsingSubtreeRoots();
   void CreateWebVrRoot();
   void CreateSystemIndicators();
   void CreateContentQuad();
-  void CreateUnderDevelopmentNotice();
   void CreateBackground();
   void CreateViewportAwareRoot();
   void CreateUrlBar();
@@ -52,9 +47,10 @@ class UiSceneCreator {
   void CreateOmnibox();
   void CreateCloseButton();
   void CreateExitPrompt();
-  void CreateAudioPermissionPrompt();
+  void CreatePrompts();
   void CreateFullscreenToast();
   void CreateVoiceSearchUiGroup();
+  void CreateContentRepositioningAffordance();
   void CreateExitWarning();
   void CreateWebVrSubtree();
   void CreateWebVrOverlayElements();
@@ -62,6 +58,7 @@ class UiSceneCreator {
   void CreateWebVrTimeoutScreen();
   void CreateController();
   void CreateKeyboard();
+  void CreateHostedUi();
 
   UiBrowserInterface* browser_;
   UiScene* scene_;

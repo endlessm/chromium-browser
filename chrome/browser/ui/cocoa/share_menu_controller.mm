@@ -15,6 +15,7 @@
 #include "chrome/browser/ui/browser_window.h"
 #import "chrome/browser/ui/cocoa/accelerators_cocoa.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
+#import "chrome/browser/ui/cocoa/browser_window_views_mac.h"
 #import "chrome/browser/ui/cocoa/fast_resize_view.h"
 #import "chrome/browser/ui/cocoa/last_active_browser_cocoa.h"
 #include "chrome/grit/generated_resources.h"
@@ -155,7 +156,9 @@ NSString* const kRemindersSharingServiceName =
 - (void)saveTransitionDataFromBrowser:(Browser*)browser {
   windowForShare_ = browser->window()->GetNativeWindow();
 
-  NSView* contentsView = [[windowForShare_ windowController] tabContentArea];
+  TabWindowController* tabWindowController =
+      TabWindowControllerForWindow(windowForShare_);
+  NSView* contentsView = [tabWindowController tabContentArea];
   NSRect rectInWindow =
       [[contentsView superview] convertRect:[contentsView frame] toView:nil];
   rectForShare_ = [windowForShare_ convertRectToScreen:rectInWindow];

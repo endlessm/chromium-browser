@@ -4,17 +4,20 @@
 
 #include "mash/test/mash_test_suite.h"
 
+#include <memory>
+
 #include "ash/public/cpp/config.h"
 #include "ash/test/ash_test_helper.h"
+#include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
-#include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "components/viz/common/gpu/context_provider.h"
 #include "components/viz/common/surfaces/frame_sink_id_allocator.h"
 #include "components/viz/service/surfaces/surface_manager.h"
 #include "ui/aura/env.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/base/ui_base_paths.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/compositor/compositor.h"
@@ -37,9 +40,9 @@ void MashTestSuite::Initialize() {
 
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kOverrideUseSoftwareGLForTests);
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(switches::kMus);
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      switches::kMusHostingViz);
+  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+      switches::kEnableFeatures, features::kMash.name);
+  feature_list_.InitAndEnableFeature(features::kMash);
 
   // Load ash mus strings and resources; not 'common' (Chrome) resources.
   base::FilePath resources;
@@ -52,7 +55,7 @@ void MashTestSuite::Initialize() {
   base::DiscardableMemoryAllocator::SetInstance(&discardable_memory_allocator_);
   env_ = aura::Env::CreateInstance(aura::Env::Mode::MUS);
 
-  context_factory_ = base::MakeUnique<ui::FakeContextFactory>();
+  context_factory_ = std::make_unique<ui::FakeContextFactory>();
   env_->set_context_factory(context_factory_.get());
   env_->set_context_factory_private(nullptr);
 }

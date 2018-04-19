@@ -8,12 +8,14 @@
 #include <vector>
 
 #include "ash/public/cpp/shell_window_ids.h"
+#include "ash/public/cpp/vector_icons/vector_icons.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/wm/overview/cleanup_animation_observer.h"
 #include "ash/wm/overview/overview_animation_type.h"
 #include "ash/wm/overview/overview_utils.h"
+#include "ash/wm/overview/overview_window_animation_observer.h"
 #include "ash/wm/overview/overview_window_drag_controller.h"
 #include "ash/wm/overview/rounded_rect_view.h"
 #include "ash/wm/overview/scoped_overview_animation_settings.h"
@@ -51,7 +53,7 @@
 #include "ui/views/window/non_client_view.h"
 #include "ui/wm/core/coordinate_conversion.h"
 #include "ui/wm/core/shadow.h"
-#include "ui/wm/core/window_util.h"
+#include "ui/wm/core/shadow_types.h"
 
 namespace ash {
 
@@ -89,7 +91,7 @@ constexpr int kHorizontalLabelPaddingDp = 12;
 constexpr int kHeaderHeightDp = 40;
 
 // Opacity for dimmed items.
-constexpr float kDimmedItemOpacity = 0.5f;
+constexpr float kDimmedItemOpacity = 0.3f;
 
 // Opacity for fading out during closing a window.
 constexpr float kClosingItemOpacity = 0.8f;
@@ -106,6 +108,10 @@ constexpr int kSelectorFadeInMilliseconds = 350;
 
 // Duration of background opacity transition when exiting overview mode.
 constexpr int kExitFadeInMilliseconds = 30;
+
+// Duration of the header and close button fade in/out when a drag is
+// started/finished on a window selector item;
+constexpr int kDragAnimationMs = 167;
 
 // Before closing a window animate both the window and the caption to shrink by
 // this fraction of size.
@@ -139,6 +145,12 @@ constexpr SkColor kCloseButtonInkDropRippleHighlightColor =
 // The font delta of the overview window title.
 constexpr int kLabelFontDelta = 2;
 
+constexpr int kShadowElevation = 16;
+
+// Values of the backdrop.
+constexpr int kBackdropRoundingDp = 4;
+constexpr SkColor kBackdropColor = SkColorSetARGBMacro(0x24, 0xFF, 0xFF, 0xFF);
+
 // Convenience method to fade in a Window with predefined animation settings.
 // Note: The fade in animation will occur after a delay where the delay is how
 // long the lay out animations take.
@@ -149,6 +161,15 @@ void SetupFadeInAfterLayout(views::Widget* widget) {
       OverviewAnimationType::OVERVIEW_ANIMATION_ENTER_OVERVIEW_MODE_FADE_IN,
       window);
   window->layer()->SetOpacity(1.0f);
+}
+
+std::unique_ptr<views::Widget> CreateBackdropWidget(aura::Window* parent) {
+  auto widget = CreateBackgroundWidget(
+      /*root_window=*/nullptr, ui::LAYER_TEXTURED, kBackdropColor,
+      /*border_thickness=*/0, kBackdropRoundingDp, kBackdropColor,
+      /*initial_opacity=*/1.f, parent,
+      /*stack_on_top=*/false);
+  return widget;
 }
 
 // A Button that has a listener and listens to mouse / gesture events on the
@@ -216,7 +237,7 @@ class ShieldButton : public views::Button {
           listener()->HandleReleaseEvent(location);
           break;
         case ui::ET_GESTURE_TAP:
-          listener()->ActivateDraggedWindow();
+          listener()->ActivateDraggedWindow(location);
           break;
         case ui::ET_GESTURE_END:
           listener()->ResetDraggedWindowGesture();
@@ -308,11 +329,9 @@ class WindowSelectorItem::RoundedContainerView
       public ui::ImplicitAnimationObserver {
  public:
   RoundedContainerView(WindowSelectorItem* item,
-                       aura::Window* item_window,
                        int corner_radius,
                        SkColor background)
       : item_(item),
-        item_window_(item_window),
         corner_radius_(corner_radius),
         initial_color_(background),
         target_color_(background),
@@ -320,19 +339,34 @@ class WindowSelectorItem::RoundedContainerView
         animation_(new gfx::SlideAnimation(this)) {
     SetPaintToLayer();
     layer()->SetFillsBoundsOpaquely(false);
+
+    if (IsNewOverviewUi()) {
+      // Do not animate in the title bar of windows which are maximized in
+      // tablet mode, as their title bars are already hidden.
+      should_animate_ =
+          !(Shell::Get()
+                ->tablet_mode_controller()
+                ->IsTabletModeWindowManagerEnabled() &&
+            wm::GetWindowState(item_->GetWindow())->IsMaximized());
+    }
   }
 
   ~RoundedContainerView() override { StopObservingImplicitAnimations(); }
 
   void OnItemRestored() {
     item_ = nullptr;
-    item_window_ = nullptr;
   }
 
   // Used by tests to set animation state.
   gfx::SlideAnimation* animation() { return animation_.get(); }
 
-  void set_color(SkColor target_color) { target_color_ = target_color; }
+  void set_color(SkColor target_color) {
+    target_color_ = target_color;
+    if (should_animate_)
+      SchedulePaint();
+  }
+
+  bool should_animate() const { return should_animate_; }
 
   // Starts a color animation using |tween_type|. The animation will change the
   // color from |initial_color_| to |target_color_| over |duration| specified
@@ -343,6 +377,9 @@ class WindowSelectorItem::RoundedContainerView
   // and from |kLabelBackgroundColor| back to the original window header color
   // on exit from the overview mode.
   void AnimateColor(gfx::Tween::Type tween_type, int duration) {
+    if (!should_animate_)
+      return;
+
     animation_->SetSlideDuration(duration);
     animation_->SetTweenType(tween_type);
     animation_->Reset(0);
@@ -379,8 +416,8 @@ class WindowSelectorItem::RoundedContainerView
     flags.setAntiAlias(true);
     canvas->ClipPath(path, true);
 
-    SkColor target_color = initial_color_;
-    if (target_color_ != target_color) {
+    SkColor target_color = should_animate_ ? initial_color_ : target_color_;
+    if (should_animate_ && (target_color_ != target_color)) {
       target_color = color_utils::AlphaBlend(target_color_, initial_color_,
                                              current_value_);
     }
@@ -398,9 +435,10 @@ class WindowSelectorItem::RoundedContainerView
     // overview header is fully exposed update stacking to keep the label above
     // the item which prevents input events from reaching the window.
     aura::Window* widget_window = GetWidget()->GetNativeWindow();
-    if (widget_window && item_window_)
-      widget_window->parent()->StackChildAbove(widget_window, item_window_);
-    item_window_ = nullptr;
+    aura::Window* stacking_window =
+        item_ ? item_->GetWindowForStacking() : nullptr;
+    if (widget_window && stacking_window)
+      widget_window->parent()->StackChildAbove(widget_window, stacking_window);
   }
 
   void AnimationProgressed(const gfx::Animation* animation) override {
@@ -409,7 +447,6 @@ class WindowSelectorItem::RoundedContainerView
   }
 
   void AnimationCanceled(const gfx::Animation* animation) override {
-    item_window_ = nullptr;
     initial_color_ = target_color_;
     current_value_ = 255;
     SchedulePaint();
@@ -430,12 +467,12 @@ class WindowSelectorItem::RoundedContainerView
   }
 
   WindowSelectorItem* item_;
-  aura::Window* item_window_;
   int corner_radius_;
   SkColor initial_color_;
   SkColor target_color_;
   int current_value_;
   std::unique_ptr<gfx::SlideAnimation> animation_;
+  bool should_animate_ = true;
 
   DISALLOW_COPY_AND_ASSIGN(RoundedContainerView);
 };
@@ -496,8 +533,23 @@ class WindowSelectorItem::CaptionContainerView : public views::View {
 
   ShieldButton* listener_button() { return listener_button_; }
 
+  gfx::Rect backdrop_bounds() const { return backdrop_bounds_; }
+
+  void SetCloseButtonVisibility(bool visible) {
+    DCHECK(close_button_->layer());
+    AnimateLayerOpacity(close_button_->layer(), visible);
+  }
+
+  void SetTitleLabelVisibility(bool visible) {
+    DCHECK(background_->layer());
+    AnimateLayerOpacity(background_->layer(), visible);
+  }
+
   void SetCannotSnapLabelVisibility(bool visible) {
-    AnimateSplitviewLabelOpacity(cannot_snap_container_->layer(), visible);
+    DoSplitviewOpacityAnimation(
+        cannot_snap_container_->layer(),
+        visible ? SPLITVIEW_ANIMATION_SELECTOR_ITEM_FADE_IN
+                : SPLITVIEW_ANIMATION_SELECTOR_ITEM_FADE_OUT);
   }
 
  protected:
@@ -522,11 +574,16 @@ class WindowSelectorItem::CaptionContainerView : public views::View {
     label_size.set_height(
         std::max(label_size.height(), kSplitviewLabelPreferredHeightDp));
 
+    const int visible_height = close_button_->GetPreferredSize().height();
+    backdrop_bounds_ = bounds;
+    backdrop_bounds_.Inset(0, visible_height, 0, 0);
+
+    // Center the cannot snap label in the middle of the item, minus the title.
     gfx::Rect cannot_snap_bounds = GetLocalBounds();
+    cannot_snap_bounds.Inset(0, visible_height, 0, 0);
     cannot_snap_bounds.ClampToCenteredSize(label_size);
     cannot_snap_container_->SetBoundsRect(cannot_snap_bounds);
 
-    const int visible_height = close_button_->GetPreferredSize().height();
     gfx::Rect background_bounds(gfx::Rect(bounds.size()));
     background_bounds.set_height(visible_height);
     background_->SetBoundsRect(background_bounds);
@@ -561,6 +618,34 @@ class WindowSelectorItem::CaptionContainerView : public views::View {
   const char* GetClassName() const override { return "CaptionContainerView"; }
 
  private:
+  // Animates |layer| from 0 -> 1 opacity if |visible| and 1 -> 0 opacity
+  // otherwise. The tween type differs for |visible| and if |visible| is true
+  // there is a slight delay before the animation begins. Does not animate if
+  // opacity matches |visible|.
+  void AnimateLayerOpacity(ui::Layer* layer, bool visible) {
+    float target_opacity = visible ? 1.f : 0.f;
+    if (layer->GetTargetOpacity() == target_opacity)
+      return;
+
+    layer->SetOpacity(1.f - target_opacity);
+    {
+      ui::LayerAnimator* animator = layer->GetAnimator();
+      ui::ScopedLayerAnimationSettings settings(animator);
+      settings.SetPreemptionStrategy(
+          ui::LayerAnimator::REPLACE_QUEUED_ANIMATIONS);
+      if (visible) {
+        animator->SchedulePauseForProperties(
+            base::TimeDelta::FromMilliseconds(kDragAnimationMs),
+            ui::LayerAnimationElement::OPACITY);
+      }
+      settings.SetTransitionDuration(
+          base::TimeDelta::FromMilliseconds(kDragAnimationMs));
+      settings.SetTweenType(visible ? gfx::Tween::LINEAR_OUT_SLOW_IN
+                                    : gfx::Tween::FAST_OUT_LINEAR_IN);
+      layer->SetOpacity(target_opacity);
+    }
+  }
+
   ShieldButton* listener_button_;
   WindowSelectorItem::RoundedContainerView* background_;
   views::ImageView* image_view_;
@@ -568,6 +653,7 @@ class WindowSelectorItem::CaptionContainerView : public views::View {
   views::Label* cannot_snap_label_;
   RoundedRectView* cannot_snap_container_;
   views::ImageButton* close_button_;
+  gfx::Rect backdrop_bounds_;
 
   DISALLOW_COPY_AND_ASSIGN(CaptionContainerView);
 };
@@ -588,6 +674,10 @@ WindowSelectorItem::WindowSelectorItem(aura::Window* window,
       window_grid_(window_grid) {
   CreateWindowLabel(window->GetTitle());
   GetWindow()->AddObserver(this);
+  if (GetWindowDimensionsType() !=
+      ScopedTransformOverviewWindow::GridWindowFillMode::kNormal) {
+    backdrop_widget_ = CreateBackdropWidget(window->parent());
+  }
 }
 
 WindowSelectorItem::~WindowSelectorItem() {
@@ -598,17 +688,25 @@ aura::Window* WindowSelectorItem::GetWindow() {
   return transform_window_.window();
 }
 
-void WindowSelectorItem::RestoreWindow() {
+aura::Window* WindowSelectorItem::GetWindowForStacking() {
+  // If the window is minimized, stack |widget_window| above the minimized
+  // window, otherwise the minimized window will cover |widget_window|. The
+  // minimized is created with the same parent as the original window, just
+  // like |item_widget_|, so there is no need to reparent.
+  return transform_window_.minimized_widget()
+             ? transform_window_.minimized_widget()->GetNativeWindow()
+             : GetWindow();
+}
+
+void WindowSelectorItem::RestoreWindow(bool reset_transform) {
   caption_container_view_->listener_button()->ResetListener();
   close_button_->ResetListener();
-  transform_window_.RestoreWindow();
+  transform_window_.RestoreWindow(reset_transform);
   if (background_view_) {
     background_view_->OnItemRestored();
     background_view_ = nullptr;
   }
-  UpdateHeaderLayout(
-      HeaderFadeInMode::EXIT,
-      OverviewAnimationType::OVERVIEW_ANIMATION_LAY_OUT_SELECTOR_ITEMS);
+  UpdateHeaderLayout(HeaderFadeInMode::EXIT, GetExitOverviewAnimationType());
 }
 
 void WindowSelectorItem::EnsureVisible() {
@@ -663,6 +761,8 @@ void WindowSelectorItem::SetBounds(const gfx::Rect& target_bounds,
   // SetItemBounds is called before UpdateHeaderLayout so the header can
   // properly use the updated windows bounds.
   UpdateHeaderLayout(HeaderFadeInMode::UPDATE, animation_type);
+
+  UpdateBackdropBounds();
 }
 
 void WindowSelectorItem::SetSelected(bool selected) {
@@ -672,7 +772,7 @@ void WindowSelectorItem::SetSelected(bool selected) {
 
 void WindowSelectorItem::SendAccessibleSelectionEvent() {
   caption_container_view_->listener_button()->NotifyAccessibilityEvent(
-      ui::AX_EVENT_SELECTION, true);
+      ax::mojom::Event::kSelection, true);
 }
 
 void WindowSelectorItem::CloseWindow() {
@@ -709,6 +809,67 @@ void WindowSelectorItem::UpdateCannotSnapWarningVisibility() {
   const bool visible = state == SplitViewController::LEFT_SNAPPED ||
                        state == SplitViewController::RIGHT_SNAPPED;
   caption_container_view_->SetCannotSnapLabelVisibility(visible);
+}
+
+void WindowSelectorItem::OnSelectorItemDragStarted(WindowSelectorItem* item) {
+  if (!IsNewOverviewUi())
+    return;
+  caption_container_view_->SetCloseButtonVisibility(false);
+  if (item == this)
+    caption_container_view_->SetTitleLabelVisibility(false);
+}
+
+void WindowSelectorItem::OnSelectorItemDragEnded() {
+  if (!IsNewOverviewUi())
+    return;
+  caption_container_view_->SetCloseButtonVisibility(true);
+  caption_container_view_->SetTitleLabelVisibility(true);
+}
+
+ScopedTransformOverviewWindow::GridWindowFillMode
+WindowSelectorItem::GetWindowDimensionsType() const {
+  return transform_window_.type();
+}
+
+void WindowSelectorItem::UpdateWindowDimensionsType() {
+  transform_window_.UpdateWindowDimensionsType();
+  if (GetWindowDimensionsType() ==
+      ScopedTransformOverviewWindow::GridWindowFillMode::kNormal) {
+    // Delete the backdrop widget, if it exists for normal windows.
+    if (backdrop_widget_)
+      backdrop_widget_.reset();
+  } else {
+    // Create the backdrop widget if needed.
+    if (!backdrop_widget_) {
+      backdrop_widget_ =
+          CreateBackdropWidget(transform_window_.window()->parent());
+    }
+  }
+}
+
+void WindowSelectorItem::EnableBackdropIfNeeded() {
+  if (GetWindowDimensionsType() ==
+      ScopedTransformOverviewWindow::GridWindowFillMode::kNormal) {
+    DisableBackdrop();
+    return;
+  }
+
+  UpdateBackdropBounds();
+}
+
+void WindowSelectorItem::DisableBackdrop() {
+  if (backdrop_widget_)
+    backdrop_widget_->Hide();
+}
+
+void WindowSelectorItem::UpdateBackdropBounds() {
+  if (!backdrop_widget_)
+    return;
+
+  gfx::Rect backdrop_bounds = caption_container_view_->backdrop_bounds();
+  ::wm::ConvertRectToScreen(item_widget_->GetNativeWindow(), &backdrop_bounds);
+  backdrop_widget_->SetBounds(backdrop_bounds);
+  backdrop_widget_->Show();
 }
 
 void WindowSelectorItem::SetDimmed(bool dimmed) {
@@ -759,28 +920,120 @@ float WindowSelectorItem::GetItemScale(const gfx::Size& size) {
 
 void WindowSelectorItem::HandlePressEvent(
     const gfx::Point& location_in_screen) {
+  // Check the y position instead of using GetBoundsInScreen().Contains() so
+  // that it includes the image, close button and invisible margins.
+  tap_down_event_on_title_ = base::nullopt;
+  if (IsNewOverviewUi() &&
+      location_in_screen.y() < background_view_->GetBoundsInScreen().bottom()) {
+    tap_down_event_on_title_ = base::make_optional(location_in_screen);
+    return;
+  }
+
   StartDrag();
   window_selector_->InitiateDrag(this, location_in_screen);
 }
 
 void WindowSelectorItem::HandleReleaseEvent(
     const gfx::Point& location_in_screen) {
+  if (tap_down_event_on_title_) {
+    SelectWindowIfBelowDistanceThreshold(location_in_screen);
+    return;
+  }
+
   EndDrag();
   window_selector_->CompleteDrag(this, location_in_screen);
 }
 
 void WindowSelectorItem::HandleDragEvent(const gfx::Point& location_in_screen) {
+  if (tap_down_event_on_title_)
+    return;
+
   window_selector_->Drag(this, location_in_screen);
 }
 
-void WindowSelectorItem::ActivateDraggedWindow() {
+void WindowSelectorItem::ActivateDraggedWindow(
+    const gfx::Point& location_in_screen) {
+  if (tap_down_event_on_title_) {
+    SelectWindowIfBelowDistanceThreshold(location_in_screen);
+    return;
+  }
+
   DCHECK_EQ(this, window_selector_->window_drag_controller()->item());
   window_selector_->ActivateDraggedWindow();
 }
 
 void WindowSelectorItem::ResetDraggedWindowGesture() {
+  OnSelectorItemDragEnded();
+
+  if (tap_down_event_on_title_)
+    return;
+
   DCHECK_EQ(this, window_selector_->window_drag_controller()->item());
   window_selector_->ResetDraggedWindowGesture();
+}
+
+void WindowSelectorItem::SetShadowBounds(
+    base::Optional<gfx::Rect> bounds_in_screen) {
+  if (!IsNewOverviewUi())
+    return;
+
+  DCHECK(shadow_);
+
+  if (bounds_in_screen == base::nullopt) {
+    shadow_->layer()->SetVisible(false);
+    return;
+  }
+
+  shadow_->layer()->SetVisible(true);
+  gfx::Rect bounds_in_item = caption_container_view_->GetLocalBounds();
+  bounds_in_item.Inset(kWindowSelectorMargin, kWindowSelectorMargin);
+  bounds_in_item.Inset(0, close_button_->GetPreferredSize().height(), 0, 0);
+  bounds_in_item.ClampToCenteredSize(bounds_in_screen.value().size());
+  shadow_->SetContentBounds(bounds_in_item);
+}
+
+bool WindowSelectorItem::ShouldAnimateWhenEntering() const {
+  if (!IsNewOverviewAnimationsEnabled())
+    return true;
+  return should_animate_when_entering_;
+}
+
+bool WindowSelectorItem::ShouldAnimateWhenExiting() const {
+  if (!IsNewOverviewAnimationsEnabled())
+    return true;
+  return should_animate_when_exiting_;
+}
+
+bool WindowSelectorItem::ShouldBeObservedWhenExiting() const {
+  if (!IsNewOverviewAnimationsEnabled())
+    return false;
+  return should_be_observed_when_exiting_;
+}
+
+void WindowSelectorItem::ResetAnimationStates() {
+  should_animate_when_entering_ = true;
+  should_animate_when_exiting_ = true;
+  should_be_observed_when_exiting_ = false;
+}
+
+OverviewAnimationType WindowSelectorItem::GetExitOverviewAnimationType() {
+  return ShouldAnimateWhenExiting()
+             ? OverviewAnimationType::OVERVIEW_ANIMATION_LAY_OUT_SELECTOR_ITEMS
+             : OverviewAnimationType::OVERVIEW_ANIMATION_NONE;
+}
+
+OverviewAnimationType WindowSelectorItem::GetExitTransformAnimationType() {
+  return ShouldAnimateWhenExiting()
+             ? OverviewAnimationType::OVERVIEW_ANIMATION_RESTORE_WINDOW
+             : OverviewAnimationType::OVERVIEW_ANIMATION_NONE;
+}
+
+float WindowSelectorItem::GetCloseButtonOpacityForTesting() {
+  return close_button_->layer()->opacity();
+}
+
+float WindowSelectorItem::GetTitlebarOpacityForTesting() {
+  return background_view_->layer()->opacity();
 }
 
 gfx::Rect WindowSelectorItem::GetTargetBoundsInScreen() const {
@@ -800,7 +1053,7 @@ void WindowSelectorItem::SetItemBounds(const gfx::Rect& target_bounds,
   const int top_view_inset = transform_window_.GetTopInset();
   const int title_height = close_button_->GetPreferredSize().height();
   gfx::Rect selector_item_bounds =
-      ScopedTransformOverviewWindow::ShrinkRectToFitPreservingAspectRatio(
+      transform_window_.ShrinkRectToFitPreservingAspectRatio(
           screen_rect, target_bounds, top_view_inset, title_height);
   gfx::Transform transform = ScopedTransformOverviewWindow::GetTransformForRect(
       screen_rect, selector_item_bounds);
@@ -819,8 +1072,7 @@ void WindowSelectorItem::SetOpacity(float opacity) {
 }
 
 void WindowSelectorItem::CreateWindowLabel(const base::string16& title) {
-  background_view_ = new RoundedContainerView(this, transform_window_.window(),
-                                              kLabelBackgroundRadius,
+  background_view_ = new RoundedContainerView(this, kLabelBackgroundRadius,
                                               transform_window_.GetTopColor());
   if (IsNewOverviewUi())
     background_view_->set_color(SK_ColorTRANSPARENT);
@@ -841,9 +1093,11 @@ void WindowSelectorItem::CreateWindowLabel(const base::string16& title) {
   item_widget_->set_focus_on_creation(false);
   item_widget_->Init(params_label);
   aura::Window* widget_window = item_widget_->GetNativeWindow();
-  if (transform_window_.GetTopInset()) {
+  if (transform_window_.GetTopInset() || !background_view_->should_animate()) {
     // For windows with headers the overview header fades in above the
-    // original window header.
+    // original window header. Windows that should not animate their headers
+    // (maximized tablet mode windows have no headers) should initially be
+    // stacked above as well.
     widget_window->parent()->StackChildAbove(widget_window,
                                              transform_window_.window());
   } else {
@@ -878,6 +1132,10 @@ void WindowSelectorItem::CreateWindowLabel(const base::string16& title) {
   if (IsNewOverviewUi()) {
     label_view_->SetFontList(gfx::FontList().Derive(
         kLabelFontDelta, gfx::Font::NORMAL, gfx::Font::Weight::MEDIUM));
+
+    shadow_ = std::make_unique<::wm::Shadow>();
+    shadow_->Init(kShadowElevation);
+    item_widget_->GetLayer()->Add(shadow_->layer());
   }
 
   cannot_snap_label_view_ = new views::Label(
@@ -902,7 +1160,9 @@ void WindowSelectorItem::CreateWindowLabel(const base::string16& title) {
 void WindowSelectorItem::UpdateHeaderLayout(
     HeaderFadeInMode mode,
     OverviewAnimationType animation_type) {
-  gfx::Rect transformed_window_bounds(transform_window_.GetTransformedBounds());
+  gfx::Rect transformed_window_bounds =
+      transform_window_.window_selector_bounds().value_or(
+          transform_window_.GetTransformedBounds());
   ::wm::ConvertRectFromScreen(root_window_, &transformed_window_bounds);
 
   gfx::Rect label_rect(close_button_->GetPreferredSize());
@@ -927,8 +1187,11 @@ void WindowSelectorItem::UpdateHeaderLayout(
       } else if (mode == HeaderFadeInMode::EXIT) {
         // Make the header visible above the window. It will be faded out when
         // the Shutdown() is called.
-        background_view_->AnimateColor(gfx::Tween::EASE_OUT,
-                                       kExitFadeInMilliseconds);
+        background_view_->AnimateColor(
+            gfx::Tween::EASE_OUT,
+            animation_type == OverviewAnimationType::OVERVIEW_ANIMATION_NONE
+                ? 0
+                : kExitFadeInMilliseconds);
         if (!IsNewOverviewUi())
           background_view_->set_color(kLabelExitColor);
       }
@@ -999,6 +1262,16 @@ void WindowSelectorItem::FadeOut(std::unique_ptr<views::Widget> widget) {
   widget_ptr->SetOpacity(0.f);
 }
 
+void WindowSelectorItem::SelectWindowIfBelowDistanceThreshold(
+    const gfx::Point& event_location) {
+  DCHECK(tap_down_event_on_title_.has_value());
+
+  const gfx::Vector2d distance =
+      event_location - tap_down_event_on_title_.value();
+  if (distance.Length() < OverviewWindowDragController::kMinimumDragOffset)
+    window_selector_->SelectWindow(this);
+}
+
 gfx::SlideAnimation* WindowSelectorItem::GetBackgroundViewAnimation() {
   return background_view_ ? background_view_->animation() : nullptr;
 }
@@ -1018,11 +1291,25 @@ void WindowSelectorItem::StartDrag() {
   SetBounds(scaled_bounds, animation_type);
 
   aura::Window* widget_window = item_widget_->GetNativeWindow();
-  if (widget_window && widget_window->parent() == GetWindow()->parent()) {
+  aura::Window* window = GetWindowForStacking();
+  if (widget_window && widget_window->parent() == window->parent()) {
     // TODO(xdai): This might not work if there is an always on top window.
     // See crbug.com/733760.
     widget_window->parent()->StackChildAtTop(widget_window);
-    widget_window->parent()->StackChildBelow(GetWindow(), widget_window);
+    widget_window->parent()->StackChildBelow(window, widget_window);
+  }
+
+  // If split view mode is actvie and there is already a snapped window, stack
+  // this item's window below the snapped window. Note: this should be temporary
+  // for M66, see https://crbug.com/809298 for details.
+  if (Shell::Get()->IsSplitViewModeActive()) {
+    aura::Window* snapped_window =
+        Shell::Get()->split_view_controller()->GetDefaultSnappedWindow();
+    if (widget_window && widget_window->parent() == window->parent() &&
+        widget_window->parent() == snapped_window->parent()) {
+      widget_window->parent()->StackChildBelow(widget_window, snapped_window);
+      widget_window->parent()->StackChildBelow(window, widget_window);
+    }
   }
 }
 
@@ -1031,7 +1318,7 @@ void WindowSelectorItem::EndDrag() {
 
   // First stack this item's window below the snapped window if split view mode
   // is active.
-  aura::Window* dragged_window = GetWindow();
+  aura::Window* dragged_window = GetWindowForStacking();
   aura::Window* dragged_widget_window = item_widget_->GetNativeWindow();
   aura::Window* parent_window = dragged_widget_window->parent();
   if (Shell::Get()->IsSplitViewModeActive()) {

@@ -16,21 +16,21 @@ namespace syncer {
 // MockModelTypeStore is implementation of ModelTypeStore that does nothing.
 // Use it when testing components that depend on ModelTypeStore.
 //
-// By default all methods return SUCCESS and empty results. It is possible to
+// By default all methods return success and empty results. It is possible to
 // register custom handlers for certain functions to override behavior. It is
 // responsibility of handler to post callback with result.
 // Here is an example:
 // ===
 // void OnReadData(const ModelTypeStore::IdList& id_list,
-//                 const ModelTypeStore::ReadAllDataCallback& callback) {
+//                 ModelTypeStore::ReadAllDataCallback callback) {
 //   // Verify id_list here.
 //   // Prepare fake response.
 //   std::unique_ptr<ModelTypeStore::RecordList> record_list(
 //       new ModelTypeStore::RecordList);
 //   record_list->push_back(ModelTypeStore::Record("id1", "value1"));
 //   base::ThreadTaskRunnerHandle::Get()->PostTask(
-//       FROM_HERE, base::Bind(callback, Result::SUCCESS,
-//                             base::Passed(record_list)));
+//       FROM_HERE, base::BindOnce(callback, /*error=*/base::nullopt,
+//                                 std::move(record_list)));
 // }
 //
 // MockModelTypeStore mock_model_type_store;
@@ -44,33 +44,34 @@ namespace syncer {
 class MockModelTypeStore : public ModelTypeStore {
  public:
   // Signatures for all ModelTypeStore virtual functions.
-  using ReadAllDataSignature = base::Callback<void(const ReadAllDataCallback&)>;
+  using ReadAllDataSignature =
+      base::RepeatingCallback<void(ReadAllDataCallback)>;
   using ReadDataSignature =
-      base::Callback<void(const IdList&, const ReadDataCallback&)>;
+      base::RepeatingCallback<void(const IdList&, ReadDataCallback)>;
   using ReadAllMetadataSignature =
-      base::Callback<void(const ReadMetadataCallback& callback)>;
+      base::RepeatingCallback<void(ReadMetadataCallback callback)>;
   using CommitWriteBatchSignature =
-      base::Callback<void(std::unique_ptr<WriteBatch>, CallbackWithResult)>;
-  using WriteRecordSignature =
-      base::Callback<void(WriteBatch*, const std::string&, const std::string&)>;
+      base::RepeatingCallback<void(std::unique_ptr<WriteBatch>,
+                                   CallbackWithResult)>;
+  using WriteRecordSignature = base::RepeatingCallback<
+      void(WriteBatch*, const std::string&, const std::string&)>;
   using WriteGlobalMetadataSignature =
-      base::Callback<void(WriteBatch*, const std::string&)>;
+      base::RepeatingCallback<void(WriteBatch*, const std::string&)>;
   using DeleteRecordSignature =
-      base::Callback<void(WriteBatch*, const std::string&)>;
+      base::RepeatingCallback<void(WriteBatch*, const std::string&)>;
   using DeleteGlobalMetadataSignature = base::Callback<void(WriteBatch*)>;
 
   MockModelTypeStore();
   ~MockModelTypeStore() override;
 
   // ModelTypeStore implementation.
-  void ReadData(const IdList& id_list,
-                const ReadDataCallback& callback) override;
-  void ReadAllData(const ReadAllDataCallback& callback) override;
-  void ReadAllMetadata(const ReadMetadataCallback& callback) override;
+  void ReadData(const IdList& id_list, ReadDataCallback callback) override;
+  void ReadAllData(ReadAllDataCallback callback) override;
+  void ReadAllMetadata(ReadMetadataCallback callback) override;
 
   std::unique_ptr<WriteBatch> CreateWriteBatch() override;
   void CommitWriteBatch(std::unique_ptr<WriteBatch> write_batch,
-                        const CallbackWithResult& callback) override;
+                        CallbackWithResult callback) override;
 
   // Register handler functions.
   void RegisterReadDataHandler(const ReadDataSignature& handler);

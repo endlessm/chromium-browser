@@ -19,6 +19,7 @@
 #include "chromeos/components/tether/ble_advertiser.h"
 #include "chromeos/components/tether/ble_scanner.h"
 #include "chromeos/components/tether/connection_priority.h"
+#include "chromeos/components/tether/connection_reason.h"
 #include "chromeos/components/tether/proto/tether.pb.h"
 #include "components/cryptauth/secure_channel.h"
 
@@ -62,8 +63,6 @@ class TimerFactory;
 // been unregistered for the device.
 class BleConnectionManager : public BleScanner::Observer {
  public:
-  static std::string MessageTypeToString(const MessageType& reason);
-
   // Extra data about a state change which is passed to observers in
   // OnSecureChannelStatusChanged(). If no extra data applies to the state
   // change, STATE_CHANGE_DETAIL_NONE is used.
@@ -104,13 +103,14 @@ class BleConnectionManager : public BleScanner::Observer {
   // instance will continue to attempt to connect and authenticate to that
   // device until the device is unregistered.
   virtual void RegisterRemoteDevice(const std::string& device_id,
-                                    const MessageType& connection_reason);
+                                    const ConnectionReason& connection_reason);
 
   // Unregisters |device_id| for |connection_reason|. Once registered, a device
-  // will continue trying to connect until *ALL* of its MessageTypes have been
-  // unregistered.
-  virtual void UnregisterRemoteDevice(const std::string& device_id,
-                                      const MessageType& connection_reason);
+  // will continue trying to connect until *ALL* of its ConnectionReasons have
+  // been unregistered.
+  virtual void UnregisterRemoteDevice(
+      const std::string& device_id,
+      const ConnectionReason& connection_reason);
 
   // Sends |message| to the device with ID |device_id|. This function can only
   // be called if the given device is authenticated. This function returns a
@@ -162,8 +162,8 @@ class BleConnectionManager : public BleScanner::Observer {
                        base::WeakPtr<BleConnectionManager> manager);
     ~ConnectionMetadata();
 
-    void RegisterConnectionReason(const MessageType& connection_reason);
-    void UnregisterConnectionReason(const MessageType& connection_reason);
+    void RegisterConnectionReason(const ConnectionReason& connection_reason);
+    void UnregisterConnectionReason(const ConnectionReason& connection_reason);
     ConnectionPriority GetConnectionPriority();
     bool HasReasonForConnection() const;
 
@@ -176,6 +176,7 @@ class BleConnectionManager : public BleScanner::Observer {
     void SetSecureChannel(
         std::unique_ptr<cryptauth::SecureChannel> secure_channel);
     int SendMessage(const std::string& payload);
+    void Disconnect();
 
     // cryptauth::SecureChannel::Observer:
     void OnSecureChannelStatusChanged(
@@ -195,7 +196,7 @@ class BleConnectionManager : public BleScanner::Observer {
     void OnConnectionAttemptTimeout();
 
     std::string device_id_;
-    std::set<MessageType> active_connection_reasons_;
+    std::set<ConnectionReason> active_connection_reasons_;
     std::unique_ptr<cryptauth::SecureChannel> secure_channel_;
     std::unique_ptr<base::Timer> connection_attempt_timeout_timer_;
     base::WeakPtr<BleConnectionManager> manager_;
@@ -222,7 +223,7 @@ class BleConnectionManager : public BleScanner::Observer {
       StateChangeDetail state_change_detail);
   void OnGattCharacteristicsNotAvailable(const std::string& device_id);
 
-  void SetTestDoubles(std::unique_ptr<base::Clock> test_clock,
+  void SetTestDoubles(base::Clock* test_clock,
                       std::unique_ptr<TimerFactory> test_timer_factory);
 
   // Record various operation durations. These need to be separate methods
@@ -239,7 +240,7 @@ class BleConnectionManager : public BleScanner::Observer {
   AdHocBleAdvertiser* ad_hoc_ble_advertisement_;
 
   std::unique_ptr<TimerFactory> timer_factory_;
-  std::unique_ptr<base::Clock> clock_;
+  base::Clock* clock_;
 
   bool has_registered_observer_;
   std::map<std::string, std::unique_ptr<ConnectionMetadata>>

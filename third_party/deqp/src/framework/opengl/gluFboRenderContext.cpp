@@ -180,7 +180,7 @@ FboRenderContext::FboRenderContext (const ContextFactory& factory, const RenderC
 		nativeRenderConfig.type				= config.type;
 		nativeRenderConfig.windowVisibility	= config.windowVisibility;
 		// \note All other properties are defaults, mostly DONT_CARE
-		m_context = factory.createContext(nativeRenderConfig, cmdLine);
+		m_context = factory.createContext(nativeRenderConfig, cmdLine, DE_NULL);
 		createFramebuffer(config);
 	}
 	catch (...)
@@ -200,6 +200,11 @@ void FboRenderContext::postIterate (void)
 {
 	// \todo [2012-11-27 pyry] Blit to default framebuffer in ES3?
 	m_context->getFunctions().finish();
+}
+
+void FboRenderContext::makeCurrent(void)
+{
+	m_context->makeCurrent();
 }
 
 void FboRenderContext::createFramebuffer (const RenderConfig& config)

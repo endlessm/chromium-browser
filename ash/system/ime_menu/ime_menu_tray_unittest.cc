@@ -5,7 +5,7 @@
 #include "ash/system/ime_menu/ime_menu_tray.h"
 
 #include "ash/accelerators/accelerator_controller.h"
-#include "ash/accessibility/accessibility_delegate.h"
+#include "ash/accessibility/accessibility_controller.h"
 #include "ash/ime/ime_controller.h"
 #include "ash/public/interfaces/ime_info.mojom.h"
 #include "ash/shell.h"
@@ -110,9 +110,9 @@ class ImeMenuTrayTest : public AshTestBase {
       // Tests that the checked IME is the current IME.
       ui::AXNodeData node_data;
       ime.first->GetAccessibleNodeData(&node_data);
-      const auto checked_state = static_cast<ui::AXCheckedState>(
-          node_data.GetIntAttribute(ui::AX_ATTR_CHECKED_STATE));
-      if (checked_state == ui::AX_CHECKED_STATE_TRUE)
+      const auto checked_state = static_cast<ax::mojom::CheckedState>(
+          node_data.GetIntAttribute(ax::mojom::IntAttribute::kCheckedState));
+      if (checked_state == ax::mojom::CheckedState::kTrue)
         EXPECT_EQ(expected_current_ime.id, ime.second);
     }
   }
@@ -294,39 +294,39 @@ TEST_F(ImeMenuTrayTest, ShowEmojiKeyset) {
   EXPECT_TRUE(IsTrayBackgroundActive());
   EXPECT_TRUE(IsBubbleShown());
 
-  AccessibilityDelegate* accessibility_delegate =
-      Shell::Get()->accessibility_delegate();
+  AccessibilityController* accessibility_controller =
+      Shell::Get()->accessibility_controller();
 
-  accessibility_delegate->SetVirtualKeyboardEnabled(true);
-  EXPECT_TRUE(accessibility_delegate->IsVirtualKeyboardEnabled());
+  accessibility_controller->SetVirtualKeyboardEnabled(true);
+  EXPECT_TRUE(accessibility_controller->IsVirtualKeyboardEnabled());
 
   GetTray()->ShowKeyboardWithKeyset("emoji");
   // The menu should be hidden.
   EXPECT_FALSE(IsBubbleShown());
   // The virtual keyboard should be enabled.
-  EXPECT_TRUE(accessibility_delegate->IsVirtualKeyboardEnabled());
+  EXPECT_TRUE(accessibility_controller->IsVirtualKeyboardEnabled());
 
   // Hides the keyboard.
   GetTray()->OnKeyboardHidden();
   // The keyboard should still be enabled.
-  EXPECT_TRUE(accessibility_delegate->IsVirtualKeyboardEnabled());
+  EXPECT_TRUE(accessibility_controller->IsVirtualKeyboardEnabled());
 }
 
 TEST_F(ImeMenuTrayTest, ForceToShowEmojiKeyset) {
-  AccessibilityDelegate* accessibility_delegate =
-      Shell::Get()->accessibility_delegate();
-  accessibility_delegate->SetVirtualKeyboardEnabled(false);
-  ASSERT_FALSE(accessibility_delegate->IsVirtualKeyboardEnabled());
+  AccessibilityController* accessibility_controller =
+      Shell::Get()->accessibility_controller();
+  accessibility_controller->SetVirtualKeyboardEnabled(false);
+  ASSERT_FALSE(accessibility_controller->IsVirtualKeyboardEnabled());
 
   GetTray()->ShowKeyboardWithKeyset("emoji");
   // The virtual keyboard should be enabled.
-  EXPECT_TRUE(accessibility_delegate->IsVirtualKeyboardEnabled());
+  EXPECT_TRUE(accessibility_controller->IsVirtualKeyboardEnabled());
 
   // Hides the keyboard.
   GetTray()->OnKeyboardHidden();
   // The keyboard should still be disabled, which is a posted task.
   base::RunLoop().RunUntilIdle();
-  EXPECT_FALSE(accessibility_delegate->IsVirtualKeyboardEnabled());
+  EXPECT_FALSE(accessibility_controller->IsVirtualKeyboardEnabled());
 }
 
 // Tests that tapping the emoji button does not crash. http://crbug.com/739630

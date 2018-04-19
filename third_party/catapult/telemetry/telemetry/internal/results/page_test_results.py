@@ -22,11 +22,11 @@ from telemetry.internal.results import chart_json_output_formatter
 from telemetry.internal.results import html_output_formatter
 from telemetry.internal.results import progress_reporter as reporter_module
 from telemetry.internal.results import story_run
-from telemetry.value import failure
 from telemetry.value import skip
 from telemetry.value import trace
 
 from tracing.value import convert_chart_json
+from tracing.value import histogram
 from tracing.value import histogram_set
 from tracing.value.diagnostics import reserved_infos
 
@@ -35,6 +35,7 @@ class TelemetryInfo(object):
     self._benchmark_name = None
     self._benchmark_start_epoch = None
     self._benchmark_interrupted = False
+    self._benchmark_descriptions = None
     self._label = None
     self._story_name = ''
     self._story_tags = set()
@@ -69,6 +70,16 @@ class TelemetryInfo(object):
     assert self.benchmark_start_epoch is None, (
         'benchmark_start_epoch must be set exactly once')
     self._benchmark_start_epoch = benchmark_start_epoch
+
+  @property
+  def benchmark_descriptions(self):
+    return self._benchmark_descriptions
+
+  @benchmark_descriptions.setter
+  def benchmark_descriptions(self, benchmark_descriptions):
+    assert self._benchmark_descriptions is None, (
+        'benchmark_descriptions must be set exactly once')
+    self._benchmark_descriptions = benchmark_descriptions
 
   @property
   def trace_start_ms(self):
@@ -161,6 +172,9 @@ class TelemetryInfo(object):
     d = {}
     d[reserved_infos.BENCHMARKS.name] = [self.benchmark_name]
     d[reserved_infos.BENCHMARK_START.name] = self.benchmark_start_epoch * 1000
+    if self.benchmark_descriptions:
+      d[reserved_infos.BENCHMARK_DESCRIPTIONS.name] = [
+          self.benchmark_descriptions]
     if self.label:
       d[reserved_infos.LABELS.name] = [self.label]
     d[reserved_infos.STORIES.name] = [self._story_name]
@@ -175,7 +189,7 @@ class TelemetryInfo(object):
 class PageTestResults(object):
   def __init__(self, output_formatters=None,
                progress_reporter=None, trace_tag='', output_dir=None,
-               value_can_be_added_predicate=lambda v, is_first: True,
+               should_add_value=lambda v, is_first: True,
                benchmark_enabled=True, upload_bucket=None,
                artifact_results=None):
     """
@@ -189,11 +203,10 @@ class PageTestResults(object):
           used for buildbot.
       output_dir: A string specified the directory where to store the test
           artifacts, e.g: trace, videos,...
-      value_can_be_added_predicate: A function that takes two arguments:
-          a value.Value instance (except failure.FailureValue, skip.SkipValue
-          or trace.TraceValue) and a boolean (True when the value is part of
-          the first result for the story). It returns True if the value
-          can be added to the test results and False otherwise.
+      should_add_value: A function that takes two arguments: a value name and
+          a boolean (True when the value belongs to the first run of the
+          corresponding story). It returns True if the value should be added
+          to the test results and False otherwise.
       artifact_results: An artifact results object. This is used to contain
           any artifacts from tests. Stored so that clients can call AddArtifact.
     """
@@ -207,7 +220,7 @@ class PageTestResults(object):
         output_formatters if output_formatters is not None else [])
     self._trace_tag = trace_tag
     self._output_dir = output_dir
-    self._value_can_be_added_predicate = value_can_be_added_predicate
+    self._should_add_value = should_add_value
 
     self._current_page_run = None
     self._all_page_runs = []
@@ -232,20 +245,15 @@ class PageTestResults(object):
   def telemetry_info(self):
     return self._telemetry_info
 
-  @property
-  def histograms(self):
-    return self._histograms
-
   def AsHistogramDicts(self):
-    return self.histograms.AsDicts()
+    return self._histograms.AsDicts()
 
   def PopulateHistogramSet(self, benchmark_metadata):
-    if len(self.histograms):
+    if len(self._histograms):
       return
 
     chart_json = chart_json_output_formatter.ResultsAsChartDict(
-        benchmark_metadata, self.all_page_specific_values,
-        self.all_summary_values)
+        benchmark_metadata, self)
     info = self.telemetry_info
     chart_json['label'] = info.label
     chart_json['benchmarkStartMs'] = info.benchmark_start_epoch * 1000.0
@@ -262,8 +270,8 @@ class PageTestResults(object):
       logging.error('Error converting chart json to Histograms:\n' +
                     vinn_result.stdout)
       return []
-    self.histograms.ImportDicts(json.loads(vinn_result.stdout))
-    self.histograms.ResolveRelatedHistograms()
+    self._histograms.ImportDicts(json.loads(vinn_result.stdout))
+    self._histograms.ResolveRelatedHistograms()
 
   def __copy__(self):
     cls = self.__class__
@@ -343,9 +351,17 @@ class PageTestResults(object):
     return failed_pages
 
   @property
+  def had_failures(self):
+    return any(run.failed for run in self.all_page_runs)
+
+  @property
+  def num_failed(self):
+    return sum(1 for run in self.all_page_runs if run.failed)
+
+  # TODO(#4229): Remove this once tools/perf is migrated.
+  @property
   def failures(self):
-    values = self.all_page_specific_values
-    return [v for v in values if isinstance(v, failure.FailureValue)]
+    return [None] * self.num_failed
 
   @property
   def skipped_values(self):
@@ -395,6 +411,33 @@ class PageTestResults(object):
     self._all_stories.add(self._current_page_run.story)
     self._current_page_run = None
 
+  def AddDurationHistogram(self, duration_in_milliseconds):
+    hist = histogram.Histogram(
+        'benchmark_total_duration', 'ms_smallerIsBetter')
+    hist.AddSample(duration_in_milliseconds)
+    self._histograms.AddHistogram(hist)
+
+  def AddHistogram(self, hist):
+    assert self._current_page_run, 'Not currently running test.'
+    is_first_result = (
+        self._current_page_run.story not in self._all_stories)
+    # TODO(eakuefner): Stop doing this once AddValue doesn't exist
+    stat_names = [
+        '%s_%s' % (hist.name, s) for  s in hist.statistics_scalars.iterkeys()]
+    if any(self._should_add_value(s, is_first_result) for s in stat_names):
+      self._histograms.AddHistogram(hist)
+
+  def ImportHistogramDicts(self, histogram_dicts):
+    assert self._current_page_run, 'Not currently running test.'
+    is_first_result = (
+        self._current_page_run.story not in self._all_stories)
+    dicts_to_add = []
+    for d in histogram_dicts:
+      # If there's a type field, it's a diagnostic.
+      if 'type' in d or self._should_add_value(d['name'], is_first_result):
+        dicts_to_add.append(d)
+    self._histograms.ImportDicts(dicts_to_add)
+
   def AddValue(self, value):
     assert self._current_page_run, 'Not currently running test.'
     assert self._benchmark_enabled, 'Cannot add value to disabled results'
@@ -421,13 +464,37 @@ class PageTestResults(object):
         value.tir_label = story_keys_label
 
     if not (isinstance(value, skip.SkipValue) or
-            isinstance(value, failure.FailureValue) or
             isinstance(value, trace.TraceValue) or
-            self._value_can_be_added_predicate(value, is_first_result)):
+            self._should_add_value(value.name, is_first_result)):
       return
     # TODO(eakuefner/chrishenry): Add only one skip per pagerun assert here
     self._current_page_run.AddValue(value)
     self._progress_reporter.DidAddValue(value)
+
+  def AddSharedDiagnostic(self, name, diagnostic):
+    self._histograms.AddSharedDiagnostic(name, diagnostic)
+
+  def Fail(self, failure):
+    """Mark the current story run as failed.
+
+    This method will print a GTest-style failure annotation and mark the
+    current story run as failed.
+
+    Args:
+      failure: A string or exc_info describing the reason for failure.
+    """
+    # TODO(#4258): Relax this assertion.
+    assert self._current_page_run, 'Not currently running test.'
+    self.current_page_run.SetFailed()
+    if isinstance(failure, basestring):
+      failure_str = 'Failure recorded: %s' % failure
+    else:
+      failure_str = ''.join(traceback.format_exception(*failure))
+    self._progress_reporter.DidFail(failure_str)
+
+  def Skip(self, reason):
+    assert self._current_page_run, 'Not currently running test.'
+    self.AddValue(skip.SkipValue(self.current_page, reason))
 
   def CreateArtifact(self, story, name):
     return self._artifact_results.CreateArtifact(story, name)

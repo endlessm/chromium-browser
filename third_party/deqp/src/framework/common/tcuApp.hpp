@@ -41,6 +41,13 @@ class TestSessionExecutor;
 class CommandLine;
 class TestLog;
 class TestPackageRoot;
+class TestRunStatus;
+
+enum
+{
+	WATCHDOG_TOTAL_TIME_LIMIT_SECS		= 300,
+	WATCHDOG_INTERVAL_TIME_LIMIT_SECS	= 30
+};
 
 /*--------------------------------------------------------------------*//*!
  * \brief Test application
@@ -65,14 +72,15 @@ public:
 	virtual					~App				(void);
 
 	bool					iterate				(void);
+	const TestRunStatus&	getResult			(void) const;
 
 protected:
 	void					cleanup				(void);
 
-	void					onWatchdogTimeout	(void);
+	void					onWatchdogTimeout	(qpTimeoutReason reason);
 	void					onCrash				(void);
 
-	static void				onWatchdogTimeout	(qpWatchDog* watchDog, void* userPtr);
+	static void				onWatchdogTimeout	(qpWatchDog* watchDog, void* userPtr, qpTimeoutReason reason);
 	static void				onCrash				(qpCrashHandler* crashHandler, void* userPtr);
 
 	Platform&				m_platform;

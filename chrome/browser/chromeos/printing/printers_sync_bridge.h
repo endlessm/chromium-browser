@@ -28,7 +28,7 @@ namespace chromeos {
 // Sync Service for printers.
 class PrintersSyncBridge : public syncer::ModelTypeSyncBridge {
  public:
-  PrintersSyncBridge(const syncer::ModelTypeStoreFactory& callback,
+  PrintersSyncBridge(syncer::OnceModelTypeStoreFactory callback,
                      const base::RepeatingClosure& error_callback);
   ~PrintersSyncBridge() override;
 
@@ -61,6 +61,8 @@ class PrintersSyncBridge : public syncer::ModelTypeSyncBridge {
   // Returns the printer with |id| from storage if it could be found.
   base::Optional<sync_pb::PrinterSpecifics> GetPrinter(
       const std::string& id) const;
+  // Returns whether or not the printer with |id| is contained in the storage.
+  bool HasPrinter(const std::string& id) const;
 
   class Observer {
    public:

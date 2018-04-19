@@ -154,7 +154,6 @@ public:
 
 	tcu::TestStatus iterate (void)
 	{
-		const DeviceInterface&		vk				= m_context.getDeviceInterface();
 		const InstanceInterface&	vki				= m_context.getInstanceInterface();
 		const VkPhysicalDevice		physDevice		= m_context.getPhysicalDevice();
 		const Queue*				sparseQueue		= DE_NULL;
@@ -182,6 +181,8 @@ public:
 			}
 		}
 
+		const DeviceInterface&				vk = getDeviceInterface();
+
 		std::vector<SemaphoreSp>			allSemaphores;
 		std::vector<VkSemaphore>			waitSemaphores;
 		std::vector<VkSemaphore>			signalSemaphores;
@@ -190,13 +191,13 @@ public:
 
 		for (deUint32 i = 0; i < m_params.numWaitSemaphores; ++i)
 		{
-			allSemaphores.push_back(makeVkSharedPtr(makeSemaphore(vk, getDevice())));
+			allSemaphores.push_back(makeVkSharedPtr(createSemaphore(vk, getDevice())));
 			waitSemaphores.push_back(**allSemaphores.back());
 		}
 
 		for (deUint32 i = 0; i < m_params.numSignalSemaphores; ++i)
 		{
-			allSemaphores.push_back(makeVkSharedPtr(makeSemaphore(vk, getDevice())));
+			allSemaphores.push_back(makeVkSharedPtr(createSemaphore(vk, getDevice())));
 			signalSemaphores.push_back(**allSemaphores.back());
 			signalSemaphoresWaitDstStageMask.push_back(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
 		}
@@ -276,7 +277,7 @@ public:
 
 					if (m_params.bindSparseUseFence)
 					{
-						bindSparseFences.push_back(makeVkSharedPtr(makeFence(vk, getDevice())));
+						bindSparseFences.push_back(makeVkSharedPtr(createFence(vk, getDevice())));
 						fence = **bindSparseFences.back();
 					}
 
@@ -287,7 +288,7 @@ public:
 				}
 				else
 				{
-					regularFences.push_back(makeVkSharedPtr(makeFence(vk, getDevice())));
+					regularFences.push_back(makeVkSharedPtr(createFence(vk, getDevice())));
 					VK_CHECK(vk.queueSubmit(submissionIter->queue->queueHandle, 1u, &submissionIter->info.regular, **regularFences.back()));
 				}
 			}

@@ -16,7 +16,6 @@ from dashboard.common import utils
 from dashboard.services import crrev_service
 from dashboard.services import pinpoint_service
 
-_BOT_CONFIGURATIONS = 'bot_configurations'
 _PINPOINT_REPOSITORIES = 'repositories'
 _ISOLATE_TARGETS = [
     'angle_perftests', 'cc_perftests', 'gpu_perftests',
@@ -46,7 +45,17 @@ class PinpointNewBisectRequestHandler(request_handler.RequestHandler):
       self.response.write(json.dumps({'error': e.message}))
       return
 
-    self.response.write(json.dumps(pinpoint_service.NewJob(pinpoint_params)))
+    results = pinpoint_service.NewJob(pinpoint_params)
+
+    alert_keys = job_params.get('alerts')
+    if 'jobId' in results and alert_keys:
+      alerts = json.loads(alert_keys)
+      for alert_urlsafe_key in alerts:
+        alert = ndb.Key(urlsafe=alert_urlsafe_key).get()
+        alert.pinpoint_bisects.append(results['jobId'])
+        alert.put()
+
+    self.response.write(json.dumps(results))
 
 
 class PinpointNewPerfTryRequestHandler(request_handler.RequestHandler):
@@ -114,14 +123,6 @@ def ParseTIRLabelChartNameAndTraceName(test_path_parts):
   return tir_label, chart_name, trace_name
 
 
-def _BotDimensionsFromBotName(bot_name):
-  bot_configurations = namespaced_stored_object.Get(_BOT_CONFIGURATIONS)
-  config = bot_configurations.get(bot_name)
-  if not config:
-    raise InvalidParamsError('No dimensions for bot %s defined.' % bot_name)
-  return config['dimensions']
-
-
 def ParseStatisticNameFromChart(chart_name):
   statistic_types = [
       'avg', 'min', 'max', 'sum', 'std', 'count'
@@ -159,13 +160,10 @@ def PinpointParamsFromPerfTryParams(params):
     user = users.get_current_user()
     raise InvalidParamsError('User "%s" not authorized.' % user)
 
-  # Pinpoint takes swarming dimensions, so we need to map bot name to those.
   test_path = params['test_path']
   test_path_parts = test_path.split('/')
   bot_name = test_path_parts[1]
   suite = test_path_parts[2]
-
-  dimensions = _BotDimensionsFromBotName(bot_name)
 
   # Pinpoint also requires you specify which isolate target to run the
   # test, so we derive that from the suite name. Eventually, this would
@@ -202,11 +200,8 @@ def PinpointParamsFromPerfTryParams(params):
   email = users.get_current_user().email()
   job_name = 'Job on [%s/%s] for [%s]' % (bot_name, suite, email)
 
-  browser = start_try_job.GuessBrowserName(bot_name)
-
   return {
       'configuration': bot_name,
-      'browser': browser,
       'benchmark': suite,
       'trace': '',
       'chart': '',
@@ -220,7 +215,6 @@ def PinpointParamsFromPerfTryParams(params):
       'bug_id': '',
       'auto_explore': '0',
       'target': target,
-      'dimensions': json.dumps(dimensions),
       'email': email,
       'name': job_name
   }
@@ -249,7 +243,6 @@ def PinpointParamsFromBisectParams(params):
     user = users.get_current_user()
     raise InvalidParamsError('User "%s" not authorized.' % user)
 
-  # Pinpoint takes swarming dimensions, so we need to map bot name to those.
   test_path = params['test_path']
   test_path_parts = test_path.split('/')
   bot_name = test_path_parts[1]
@@ -268,8 +261,6 @@ def PinpointParamsFromBisectParams(params):
   if bisect_mode == 'performance':
     tir_label, chart_name, trace_name = ParseTIRLabelChartNameAndTraceName(
         test_path_parts)
-
-  dimensions = _BotDimensionsFromBotName(bot_name)
 
   # Pinpoint also requires you specify which isolate target to run the
   # test, so we derive that from the suite name. Eventually, this would
@@ -304,14 +295,17 @@ def PinpointParamsFromBisectParams(params):
   email = users.get_current_user().email()
   job_name = 'Job on [%s/%s/%s] for [%s]' % (bot_name, suite, chart_name, email)
 
-  browser = start_try_job.GuessBrowserName(bot_name)
-
   # Histogram names don't include the statistic, so split these
   chart_name, statistic_name = ParseStatisticNameFromChart(chart_name)
 
+  alert_key = ''
+  if params.get('alerts'):
+    alert_keys = json.loads(params.get('alerts'))
+    if alert_keys:
+      alert_key = alert_keys[0]
+
   return {
       'configuration': bot_name,
-      'browser': browser,
       'benchmark': suite,
       'trace': trace_name,
       'chart': chart_name,
@@ -325,7 +319,10 @@ def PinpointParamsFromBisectParams(params):
       'bug_id': params['bug_id'],
       'auto_explore': '1',
       'target': target,
-      'dimensions': json.dumps(dimensions),
       'email': email,
-      'name': job_name
+      'name': job_name,
+      'tags': json.dumps({
+          'test_path': test_path,
+          'alert': alert_key
+      }),
   }

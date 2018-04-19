@@ -21,6 +21,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/sys_info.h"
 #include "components/autofill/core/common/autofill_features.h"
+#include "components/autofill/ios/browser/autofill_switches.h"
 #include "components/dom_distiller/core/dom_distiller_switches.h"
 #include "components/feature_engagement/public/feature_constants.h"
 #include "components/feature_engagement/public/feature_list.h"
@@ -36,19 +37,20 @@
 #include "components/security_state/core/features.h"
 #include "components/signin/core/browser/signin_switches.h"
 #include "components/strings/grit/components_strings.h"
-#include "ios/chrome/browser/bookmarks/bookmark_new_generation_features.h"
+#include "ios/chrome/browser/browsing_data/browsing_data_features.h"
 #include "ios/chrome/browser/chrome_switches.h"
 #include "ios/chrome/browser/drag_and_drop/drag_and_drop_flag.h"
 #include "ios/chrome/browser/ios_chrome_flag_descriptions.h"
+#include "ios/chrome/browser/mailto/features.h"
 #include "ios/chrome/browser/ssl/captive_portal_features.h"
 #include "ios/chrome/browser/ui/activity_services/canonical_url_feature.h"
 #include "ios/chrome/browser/ui/external_search/features.h"
-#include "ios/chrome/browser/ui/fullscreen/fullscreen_features.h"
 #import "ios/chrome/browser/ui/history/history_base_feature.h"
 #include "ios/chrome/browser/ui/main/main_feature_flags.h"
-#import "ios/chrome/browser/ui/omnibox/omnibox_clipping_feature.h"
+#import "ios/chrome/browser/ui/ntp/recent_tabs/recent_tabs_feature.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
-#import "ios/chrome/browser/ui/toolbar/toolbar_private_base_feature.h"
+#include "ios/chrome/browser/ui/ui_feature_flags.h"
+#include "ios/chrome/browser/ui/user_feedback_features.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
 #include "ios/web/public/features.h"
@@ -111,6 +113,18 @@ const FeatureEntry::Choice kUseDdljsonApiChoices[] = {
      "https://www.gstatic.com/chrome/ntp/doodle_test/ddljson_ios4.json"},
 };
 
+const FeatureEntry::Choice kAutofillIOSDelayBetweenFieldsChoices[] = {
+    {flags_ui::kGenericExperimentChoiceDefault, "", ""},
+    {"0", autofill::switches::kAutofillIOSDelayBetweenFields, "0"},
+    {"10", autofill::switches::kAutofillIOSDelayBetweenFields, "10"},
+    {"20", autofill::switches::kAutofillIOSDelayBetweenFields, "20"},
+    {"50", autofill::switches::kAutofillIOSDelayBetweenFields, "50"},
+    {"100", autofill::switches::kAutofillIOSDelayBetweenFields, "100"},
+    {"200", autofill::switches::kAutofillIOSDelayBetweenFields, "200"},
+    {"500", autofill::switches::kAutofillIOSDelayBetweenFields, "500"},
+    {"1000", autofill::switches::kAutofillIOSDelayBetweenFields, "1000"},
+};
+
 // To add a new entry, add to the end of kFeatureEntries. There are four
 // distinct types of entries:
 // . ENABLE_DISABLE_VALUE: entry is either enabled, disabled, or uses the
@@ -150,6 +164,9 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
     {"ios-captive-portal", flag_descriptions::kCaptivePortalName,
      flag_descriptions::kCaptivePortalDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(kCaptivePortalFeature)},
+    {"ios-captive-portal-metrics", flag_descriptions::kCaptivePortalMetricsName,
+     flag_descriptions::kCaptivePortalMetricsDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(kCaptivePortalMetrics)},
     {"in-product-help-demo-mode-choice",
      flag_descriptions::kInProductHelpDemoModeName,
      flag_descriptions::kInProductHelpDemoModeDescription, flags_ui::kOsIos,
@@ -185,10 +202,6 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kTabSwitcherPresentsBVCName,
      flag_descriptions::kTabSwitcherPresentsBVCDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(kTabSwitcherPresentsBVC)},
-    {"safe_area_compatible_toolbar",
-     flag_descriptions::kSafeAreaCompatibleToolbarName,
-     flag_descriptions::kSafeAreaCompatibleToolbarDescription, flags_ui::kOsIos,
-     FEATURE_VALUE_TYPE(kSafeAreaCompatibleToolbar)},
     {"external-search", flag_descriptions::kExternalSearchName,
      flag_descriptions::kExternalSearchDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(kExternalSearch)},
@@ -202,24 +215,15 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
     {"new-pass-kit-download", flag_descriptions::kNewPassKitDownloadName,
      flag_descriptions::kNewPassKitDownloadDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(web::features::kNewPassKitDownload)},
+    {"new-file-download", flag_descriptions::kNewFileDownloadName,
+     flag_descriptions::kNewFileDownloadDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(web::features::kNewFileDownload)},
     {"ios-share-canonical-url", flag_descriptions::kShareCanonicalURLName,
      flag_descriptions::kShareCanonicalURLDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(activity_services::kShareCanonicalURL)},
     {"memex-tab-switcher", flag_descriptions::kMemexTabSwitcherName,
      flag_descriptions::kMemexTabSwitcherDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(kMemexTabSwitcher)},
-    {"new-fullscreen-controller", flag_descriptions::kNewFullscreenName,
-     flag_descriptions::kNewFullscreenDescription, flags_ui::kOsIos,
-     FEATURE_VALUE_TYPE(fullscreen::features::kNewFullscreen)},
-    {"clean-toolbar", flag_descriptions::kCleanToolbarName,
-     flag_descriptions::kCleanToolbarDescription, flags_ui::kOsIos,
-     FEATURE_VALUE_TYPE(kCleanToolbar)},
-    {"clipping-textfield", flag_descriptions::kClippingTextfieldName,
-     flag_descriptions::kClippingTextfieldDescription, flags_ui::kOsIos,
-     FEATURE_VALUE_TYPE(kClippingTextfield)},
-    {"bookmark-new-edit-page", flag_descriptions::kBookmarkNewEditPageName,
-     flag_descriptions::kBookmarkNewEditPageDescription, flags_ui::kOsIos,
-     FEATURE_VALUE_TYPE(kBookmarkNewEditPage)},
     {"PasswordExport", flag_descriptions::kPasswordExportName,
      flag_descriptions::kPasswordExportDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(password_manager::features::kPasswordExport)},
@@ -232,9 +236,35 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kShowAutofillTypePredictionsDescription,
      flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(autofill::features::kAutofillShowTypePredictions)},
-    {"adaptive-toolbar", flag_descriptions::kAdaptiveToolbarName,
-     flag_descriptions::kAdaptiveToolbarDescription, flags_ui::kOsIos,
-     FEATURE_VALUE_TYPE(kAdaptiveToolbar)},
+    {"autofill-ios-delay-between-fields",
+     flag_descriptions::kAutofillIOSDelayBetweenFieldsName,
+     flag_descriptions::kAutofillIOSDelayBetweenFieldsDescription,
+     flags_ui::kOsIos, MULTI_VALUE_TYPE(kAutofillIOSDelayBetweenFieldsChoices)},
+    {"ui-refresh-phase-1", flag_descriptions::kUIRefreshPhase1Name,
+     flag_descriptions::kUIRefreshPhase1Description, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(kUIRefreshPhase1)},
+    {"recent-tabs-ui-reboot", flag_descriptions::kRecentTabsUIRebootName,
+     flag_descriptions::kRecentTabsUIRebootDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(kRecentTabsUIReboot)},
+    {"context-menu-element-post-message",
+     flag_descriptions::kContextMenuElementPostMessageName,
+     flag_descriptions::kContextMenuElementPostMessageDescription,
+     flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(web::features::kContextMenuElementPostMessage)},
+    {"mailto-handling-google-ui",
+     flag_descriptions::kMailtoHandlingWithGoogleUIName,
+     flag_descriptions::kMailtoHandlingWithGoogleUIDescription,
+     flags_ui::kOsIos, FEATURE_VALUE_TYPE(kMailtoHandledWithGoogleUI)},
+    {"tab-switcher-tab-grid", flag_descriptions::kTabSwitcherTabGridName,
+     flag_descriptions::kTabSwitcherTabGridDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(kTabSwitcherTabGrid)},
+    {"feedback-kit-v2", flag_descriptions::kFeedbackKitV2Name,
+     flag_descriptions::kFeedbackKitV2Description, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(kFeedbackKitV2)},
+    {"new-clear-browsing-data-ui",
+     flag_descriptions::kNewClearBrowsingDataUIName,
+     flag_descriptions::kNewClearBrowsingDataUIDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(kNewClearBrowsingDataUI)},
 };
 
 // Add all switches from experimental flags to |command_line|.

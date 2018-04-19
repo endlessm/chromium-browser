@@ -25,14 +25,17 @@ WIN10_NVIDIA_QUADRO_P400_STABLE_OS = 'Windows-10'
 
 # Current experimental Windows NVIDIA Quadro P400 device/driver/os
 # identifiers.
-WIN_NVIDIA_QUADRO_P400_EXPERIMENTAL_DRIVER = '10de:1cb3-23.21.13.8792'
-WIN_NVIDIA_QUADRO_P400_EXPERIMENTAL_OS = 'Windows-2008ServerR2-SP1'
+WIN10_NVIDIA_QUADRO_P400_EXPERIMENTAL_DRIVER = '10de:1cb3-23.21.13.8816'
+WIN10_NVIDIA_QUADRO_P400_EXPERIMENTAL_OS = 'Windows-10'
 
 # Use this to match all drivers for the NVIDIA Quadro P400.
 NVIDIA_QUADRO_P400_ALL_DRIVERS = '10de:1cb3-*'
 
 # Linux NVIDIA Quadro P400.
 LINUX_QUADRO_P400_STABLE_DRIVER = '10de:1cb3-384.90'
+
+# Intel HD 630 (both Windows and Linux).
+INTEL_HD_630 = '8086:5912'
 
 # "Types" of waterfalls and bots. A bot's type is the union of its own
 # type and the type of its waterfall. Predicates can apply to these
@@ -55,6 +58,9 @@ class Types(object):
   # The experimental try servers are meant to test new driver versions
   # and OS flavors.
   EXPERIMENTAL = 'experimental'
+  # This deliberately doesn't match any predicate, and is used to
+  # completely disable a particular trybot.
+  NOOP = 'noop'
 
 # The predicate functions receive a list of types as input and
 # determine whether the test should run on the given bot.
@@ -66,7 +72,8 @@ class Predicates(object):
     # tryservers, not on the client.v8.fyi waterfall, nor on the Win
     # ANGLE AMD tryserver.
     return Types.DEQP not in x and Types.OPTIONAL not in x and \
-      Types.V8_FYI not in x and Types.WIN_ANGLE_AMD_TRYSERVER not in x
+      Types.V8_FYI not in x and Types.WIN_ANGLE_AMD_TRYSERVER not in x and \
+      Types.NOOP not in x
 
   @staticmethod
   def FYI_ONLY(x):
@@ -74,8 +81,8 @@ class Predicates(object):
     # tryservers and the Win ANGLE AMD tryserver are considered to be
     # on the chromium.gpu.fyi waterfall.
     return Types.GPU_FYI in x and Types.DEQP not in x and \
-      Types.OPTIONAL not in x and \
-      Types.WIN_ANGLE_AMD_TRYSERVER not in x
+      Types.OPTIONAL not in x and Types.WIN_ANGLE_AMD_TRYSERVER not in x and \
+      Types.NOOP not in x
 
   @staticmethod
   def FYI_AND_OPTIONAL(x):
@@ -133,11 +140,11 @@ WATERFALL = {
    },
 
   'testers': {
-    'Win7 Release (NVIDIA)': {
+    'Win10 Release (NVIDIA)': {
       'swarming_dimensions': [
         {
-          'gpu': WIN7_NVIDIA_QUADRO_P400_STABLE_DRIVER,
-          'os': 'Windows-2008ServerR2-SP1',
+          'gpu': WIN10_NVIDIA_QUADRO_P400_STABLE_DRIVER,
+          'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
           'pool': 'Chrome-GPU',
         },
       ],
@@ -146,11 +153,11 @@ WATERFALL = {
       'os_type': 'win',
       'use_gpu_trigger_script': True,
     },
-    'Win7 Debug (NVIDIA)': {
+    'Win10 Debug (NVIDIA)': {
       'swarming_dimensions': [
         {
-          'gpu': WIN7_NVIDIA_QUADRO_P400_STABLE_DRIVER,
-          'os': 'Windows-2008ServerR2-SP1',
+          'gpu': WIN10_NVIDIA_QUADRO_P400_STABLE_DRIVER,
+          'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
           'pool': 'Chrome-GPU',
         },
       ],
@@ -250,23 +257,23 @@ FYI_WATERFALL = {
   'type': Types.GPU_FYI,
 
   'builders': {
-    'GPU Win Builder' : {},
-    'GPU Win Builder (dbg)' : {},
-    'GPU Win dEQP Builder': {},
-    'GPU Win x64 Builder' : {},
-    'GPU Win x64 Builder (dbg)' : {},
-    'GPU Win x64 dEQP Builder' : {},
-    'GPU Mac Builder' : {},
-    'GPU Mac Builder (dbg)' : {},
-    'GPU Mac dEQP Builder' : {},
-    'GPU Linux Builder' : {},
-    'GPU Linux Builder (dbg)' : {},
-    'GPU Linux Ozone Builder' : {},
-    'GPU Linux dEQP Builder' : {},
-  },
+    'GPU FYI Win Builder' : {},
+    'GPU FYI Win Builder (dbg)' : {},
+    'GPU FYI Win dEQP Builder': {},
+    'GPU FYI Win x64 Builder' : {},
+    'GPU FYI Win x64 Builder (dbg)' : {},
+    'GPU FYI Win x64 dEQP Builder' : {},
+    'GPU FYI Mac Builder' : {},
+    'GPU FYI Mac Builder (dbg)' : {},
+    'GPU FYI Mac dEQP Builder' : {},
+    'GPU FYI Linux Builder' : {},
+    'GPU FYI Linux Builder (dbg)' : {},
+    'GPU FYI Linux Ozone Builder' : {},
+    'GPU FYI Linux dEQP Builder' : {},
+},
 
   'testers': {
-    'Win7 Release (NVIDIA)': {
+    'Win7 FYI Release (NVIDIA)': {
       'swarming_dimensions': [
         {
           'gpu': WIN7_NVIDIA_QUADRO_P400_STABLE_DRIVER,
@@ -279,7 +286,7 @@ FYI_WATERFALL = {
       'os_type': 'win',
       'use_gpu_trigger_script': True,
     },
-    'Win7 Debug (NVIDIA)': {
+    'Win7 FYI Debug (NVIDIA)': {
       'swarming_dimensions': [
         {
           'gpu': WIN7_NVIDIA_QUADRO_P400_STABLE_DRIVER,
@@ -291,11 +298,11 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'win',
     },
-    'Win7 dEQP Release (NVIDIA)': {
+    'Win10 FYI dEQP Release (NVIDIA)': {
       'swarming_dimensions': [
         {
-          'gpu': WIN7_NVIDIA_QUADRO_P400_STABLE_DRIVER,
-          'os': WIN7_NVIDIA_QUADRO_P400_STABLE_OS,
+          'gpu': WIN10_NVIDIA_QUADRO_P400_STABLE_DRIVER,
+          'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
           'pool': 'Chrome-GPU',
         },
       ],
@@ -303,13 +310,14 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'win',
       'type': Types.DEQP,
-      'use_gpu_trigger_script': True,
     },
-    'Win7 Experimental Release (NVIDIA)': {
+    # TODO(kbr): "Experimental" caused too-long path names pre-LUCI.
+    # crbug.com/812000
+    'Win10 FYI Exp Release (NVIDIA)': {
       'swarming_dimensions': [
         {
-          'gpu': WIN_NVIDIA_QUADRO_P400_EXPERIMENTAL_DRIVER,
-          'os': WIN_NVIDIA_QUADRO_P400_EXPERIMENTAL_OS,
+          'gpu': WIN10_NVIDIA_QUADRO_P400_EXPERIMENTAL_DRIVER,
+          'os': WIN10_NVIDIA_QUADRO_P400_EXPERIMENTAL_OS,
           'pool': 'Chrome-GPU',
         },
       ],
@@ -318,9 +326,9 @@ FYI_WATERFALL = {
       'os_type': 'win',
       'type': Types.EXPERIMENTAL,
       # This should match another config name specified in this file.
-      'stable_tester_name': 'Win7 Release (NVIDIA)',
+      'stable_tester_name': 'Win10 FYI Release (NVIDIA)',
     },
-    'Win10 Release (NVIDIA)': {
+    'Win10 FYI Release (NVIDIA)': {
       'swarming_dimensions': [
         {
           'gpu': WIN10_NVIDIA_QUADRO_P400_STABLE_DRIVER,
@@ -331,8 +339,9 @@ FYI_WATERFALL = {
       'build_config': 'Release',
       'swarming': True,
       'os_type': 'win',
+      'use_gpu_trigger_script': True,
     },
-    'Win10 Debug (NVIDIA)': {
+    'Win10 FYI Debug (NVIDIA)': {
       'swarming_dimensions': [
         {
           'gpu': WIN10_NVIDIA_QUADRO_P400_STABLE_DRIVER,
@@ -344,7 +353,7 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'win',
     },
-    'Win7 Release (AMD)': {
+    'Win7 FYI Release (AMD)': {
       'swarming_dimensions': [
         {
           'gpu': '1002:6613',
@@ -356,7 +365,7 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'win',
     },
-    'Win7 Debug (AMD)': {
+    'Win7 FYI Debug (AMD)': {
       'swarming_dimensions': [
         {
           'gpu': '1002:6613',
@@ -368,7 +377,7 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'win',
     },
-    'Win7 dEQP Release (AMD)': {
+    'Win7 FYI dEQP Release (AMD)': {
       'swarming_dimensions': [
         {
           'gpu': '1002:6613',
@@ -381,10 +390,10 @@ FYI_WATERFALL = {
       'os_type': 'win',
       'type': Types.DEQP,
     },
-    'Win10 Release (Intel HD 630)': {
+    'Win10 FYI Release (Intel HD 630)': {
       'swarming_dimensions': [
         {
-          'gpu': '8086:5912',
+          'gpu': INTEL_HD_630,
           'os': 'Windows-10',
           'pool': 'Chrome-GPU',
         },
@@ -393,7 +402,7 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'win',
     },
-    'Win7 x64 Release (NVIDIA)': {
+    'Win7 FYI x64 Release (NVIDIA)': {
       'swarming_dimensions': [
         {
           'gpu': WIN7_NVIDIA_QUADRO_P400_STABLE_DRIVER,
@@ -405,7 +414,7 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'win',
     },
-    'Win7 x64 Debug (NVIDIA)': {
+    'Win7 FYI x64 Debug (NVIDIA)': {
       'swarming_dimensions': [
         {
           'gpu': WIN7_NVIDIA_QUADRO_P400_STABLE_DRIVER,
@@ -417,7 +426,7 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'win',
     },
-    'Win7 x64 dEQP Release (NVIDIA)': {
+    'Win7 FYI x64 dEQP Release (NVIDIA)': {
       'swarming_dimensions': [
         {
           'gpu': WIN7_NVIDIA_QUADRO_P400_STABLE_DRIVER,
@@ -430,7 +439,7 @@ FYI_WATERFALL = {
       'os_type': 'win',
       'type': Types.DEQP,
     },
-    'Mac Release (Intel)': {
+    'Mac FYI Release (Intel)': {
       'swarming_dimensions': [
         {
           'gpu': '8086:0a2e',
@@ -441,7 +450,7 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'mac',
     },
-    'Mac Debug (Intel)': {
+    'Mac FYI Debug (Intel)': {
       'swarming_dimensions': [
         {
           'gpu': '8086:0a2e',
@@ -452,33 +461,20 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'mac',
     },
-    'Mac Pro Release (AMD)': {
+    'Mac Pro FYI Release (AMD)': {
       'swarming_dimensions': [
         {
           'gpu': '1002:679e',
-          'os': 'Mac-10.10'
+          'os': 'Mac-10.12',
+          'pool': 'Chrome-GPU',
         },
       ],
       'build_config': 'Release',
-      # This bot is a one-off and doesn't have similar slaves in the
-      # swarming pool.
-      'swarming': False,
+      # Even though this bot is a one-off, it's still in the Swarming pool.
+      'swarming': True,
       'os_type': 'mac',
     },
-    'Mac Pro Debug (AMD)': {
-      'swarming_dimensions': [
-        {
-          'gpu': '1002:679e',
-          'os': 'Mac-10.10'
-        },
-      ],
-      'build_config': 'Debug',
-      # This bot is a one-off and doesn't have similar slaves in the
-      # swarming pool.
-      'swarming': False,
-      'os_type': 'mac',
-    },
-    'Mac Retina Release (NVIDIA)': {
+    'Mac FYI Retina Release (NVIDIA)': {
       'swarming_dimensions': [
         {
           'gpu': '10de:0fe9',
@@ -491,7 +487,7 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'mac',
     },
-    'Mac Retina Debug (NVIDIA)': {
+    'Mac FYI Retina Debug (NVIDIA)': {
       'swarming_dimensions': [
         {
           'gpu': '10de:0fe9',
@@ -504,7 +500,7 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'mac',
     },
-    'Mac Retina Release (AMD)': {
+    'Mac FYI Retina Release (AMD)': {
       'swarming_dimensions': [
         {
           'gpu': '1002:6821',
@@ -517,7 +513,7 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'mac',
     },
-    'Mac Retina Debug (AMD)': {
+    'Mac FYI Retina Debug (AMD)': {
       'swarming_dimensions': [
         {
           'gpu': '1002:6821',
@@ -530,11 +526,11 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'mac',
     },
-    'Mac Experimental Release (Intel)': {
+    'Mac FYI Experimental Release (Intel)': {
       'swarming_dimensions': [
         {
           'gpu': '8086:0a2e',
-          'os': 'Mac-10.13.2',
+          'os': 'Mac-10.13.4',
           'pool': 'Chrome-GPU',
         },
       ],
@@ -542,12 +538,12 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'mac',
     },
-    'Mac Experimental Retina Release (AMD)': {
+    'Mac FYI Experimental Retina Release (AMD)': {
       'swarming_dimensions': [
         {
           'gpu': '1002:6821',
           'hidpi': '1',
-          'os': 'Mac-10.13.2',
+          'os': 'Mac-10.13.4',
           'pool': 'Chrome-GPU',
         },
       ],
@@ -555,21 +551,31 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'mac',
     },
-    'Mac Experimental Retina Release (NVIDIA)': {
+    'Mac FYI Experimental Retina Release (NVIDIA)': {
       'swarming_dimensions': [
         {
           'gpu': '10de:0fe9',
           'hidpi': '1',
-          'os': 'Mac-10.13.2',
+          'os': 'Mac-10.13.4',
           'pool': 'Chrome-GPU',
         },
       ],
+      # TODO(kbr): this separate dictionary is a hack to avoid generalizing the
+      # "swarming_dimensions" handling in this generator script. When merging
+      # this script with the one in src/testing/buildbot/, this will no longer
+      # be necessary.
+      'swarming_settings': {
+        # There's only one bot of this type in the Swarming pool right now, so
+        # we have to increase the default expiration time of 1 hour (3600
+        # seconds) to prevent webgl2_conformance_tests' shards from timing out.
+        'expiration': 10800,
+      },
       'build_config': 'Release',
-      # This bot is a one-off for testing purposes.
-      'swarming': False,
+      # Even though this bot is a one-off, it's still in the Swarming pool.
+      'swarming': True,
       'os_type': 'mac',
     },
-    'Mac GPU ASAN Release': {
+    'Mac FYI GPU ASAN Release': {
       # This bot spawns jobs on multiple GPU types.
       'swarming_dimensions': [
         {
@@ -588,7 +594,7 @@ FYI_WATERFALL = {
       'os_type': 'mac',
       'is_asan': True,
     },
-    'Mac dEQP Release AMD': {
+    'Mac FYI dEQP Release AMD': {
       # This bot spawns jobs on multiple GPU types.
       'swarming_dimensions': [
         {
@@ -603,7 +609,7 @@ FYI_WATERFALL = {
       'os_type': 'mac',
       'type': Types.DEQP,
     },
-    'Mac dEQP Release Intel': {
+    'Mac FYI dEQP Release Intel': {
       # This bot spawns jobs on multiple GPU types.
       'swarming_dimensions': [
         {
@@ -616,7 +622,7 @@ FYI_WATERFALL = {
       'os_type': 'mac',
       'type': Types.DEQP,
     },
-    'Linux Release (NVIDIA)': {
+    'Linux FYI Release (NVIDIA)': {
       'swarming_dimensions': [
         {
           'gpu': LINUX_QUADRO_P400_STABLE_DRIVER,
@@ -628,7 +634,7 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'linux',
     },
-    'Linux Debug (NVIDIA)': {
+    'Linux FYI Debug (NVIDIA)': {
       'swarming_dimensions': [
         {
           'gpu': LINUX_QUADRO_P400_STABLE_DRIVER,
@@ -640,7 +646,7 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'linux',
     },
-    'Linux dEQP Release (NVIDIA)': {
+    'Linux FYI dEQP Release (NVIDIA)': {
       'swarming_dimensions': [
         {
           'gpu': LINUX_QUADRO_P400_STABLE_DRIVER,
@@ -653,10 +659,10 @@ FYI_WATERFALL = {
       'os_type': 'linux',
       'type': Types.DEQP,
     },
-    'Linux Release (Intel HD 630)': {
+    'Linux FYI Release (Intel HD 630)': {
       'swarming_dimensions': [
         {
-          'gpu': '8086:5912',
+          'gpu': INTEL_HD_630,
           'os': 'Ubuntu',
           'pool': 'Chrome-GPU',
         },
@@ -665,20 +671,30 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'linux',
     },
-    'Linux Release (AMD R7 240)': {
+    'Linux FYI Release (AMD R7 240)': {
       'swarming_dimensions': [
         {
           'gpu': '1002:6613',
-          'os': 'Ubuntu'
+          'os': 'Ubuntu',
+          'pool': 'Chrome-GPU',
         },
       ],
+      # TODO(kbr): this separate dictionary is a hack to avoid generalizing the
+      # "swarming_dimensions" handling in this generator script. When merging
+      # this script with the one in src/testing/buildbot/, this will no longer
+      # be necessary.
+      'swarming_settings': {
+        # There's only one bot of this type in the Swarming pool right now, so
+        # we have to increase the default expiration time of 1 hour (3600
+        # seconds) to prevent webgl2_conformance_tests' shards from timing out.
+        'expiration': 10800,
+      },
       'build_config': 'Release',
-      # This bot is a one-off and doesn't have similar slaves in the
-      # swarming pool.
-      'swarming': False,
+      # Even though this bot is a one-off, it's still in the Swarming pool.
+      'swarming': True,
       'os_type': 'linux',
     },
-    'Linux GPU TSAN Release': {
+    'Linux FYI GPU TSAN Release': {
       'swarming_dimensions': [
         {
           'gpu': LINUX_QUADRO_P400_STABLE_DRIVER,
@@ -691,35 +707,33 @@ FYI_WATERFALL = {
       'os_type': 'linux',
       'instrumentation_type': 'tsan',
     },
-    'Linux Ozone (Intel)': {
+    'Linux FYI Ozone (Intel)': {
       'swarming_dimensions': [
         {
           'gpu': '8086:1912',
-          'os': 'Ubuntu'
+          'os': 'Ubuntu',
+          'pool': 'Chrome-GPU',
         },
       ],
       'build_config': 'Release',
-      # This bot is a one-off and doesn't have similar slaves in the
-      # swarming pool.
-      'swarming': False,
+      # Even though this bot is a one-off, it's still in the Swarming pool.
+      'swarming': True,
       'os_type': 'linux',
     },
-    'Android Release (Nexus 5)': {
+    'Android FYI Release (Nexus 5)': {
       'swarming_dimensions': [
         {
-          # There are no PCI IDs on Android.
-          # This is a hack to get the script working.
-          'gpu': '0000:0000',
-          'os': 'Android'
+          'device_type': 'hammerhead',
+          'device_os': 'L',
+          'os': 'Android',
+          'pool': 'Chrome-GPU',
         },
       ],
       'build_config': 'android-chromium',
-      # This bot is a one-off and doesn't have similar slaves in the
-      # swarming pool.
-      'swarming': False,
+      'swarming': True,
       'os_type': 'android',
     },
-    'Android Release (Nexus 5X)': {
+    'Android FYI Release (Nexus 5X)': {
       'swarming_dimensions': [
         {
           'device_type': 'bullhead',
@@ -731,22 +745,20 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'android',
     },
-    'Android Release (Nexus 6)': {
+    'Android FYI Release (Nexus 6)': {
       'swarming_dimensions': [
         {
-          # There are no PCI IDs on Android.
-          # This is a hack to get the script working.
-          'gpu': '0000:0000',
-          'os': 'Android'
+          'device_type': 'shamu',
+          'device_os': 'L',
+          'os': 'Android',
+          'pool': 'Chrome-GPU',
         },
       ],
       'build_config': 'android-chromium',
-      # This bot is a one-off and doesn't have similar slaves in the
-      # swarming pool.
-      'swarming': False,
+      'swarming': True,
       'os_type': 'android',
     },
-    'Android Release (Nexus 6P)': {
+    'Android FYI Release (Nexus 6P)': {
       'swarming_dimensions': [
         {
           'device_type': 'angler',
@@ -759,7 +771,20 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'android',
     },
-    'Android Release (Nexus 9)': {
+    'Android FYI Release (Nexus 9)': {
+      'swarming_dimensions': [
+        {
+          'device_type': 'flounder',
+          'device_os': 'M',
+          'os': 'Android',
+          'pool': 'Chrome-GPU',
+        },
+      ],
+      'build_config': 'android-chromium',
+      'swarming': True,
+      'os_type': 'android',
+    },
+    'Android FYI Release (NVIDIA Shield TV)': {
       'swarming_dimensions': [
         {
           # There are no PCI IDs on Android.
@@ -774,22 +799,7 @@ FYI_WATERFALL = {
       'swarming': False,
       'os_type': 'android',
     },
-    'Android Release (NVIDIA Shield TV)': {
-      'swarming_dimensions': [
-        {
-          # There are no PCI IDs on Android.
-          # This is a hack to get the script working.
-          'gpu': '0000:0000',
-          'os': 'Android'
-        },
-      ],
-      'build_config': 'android-chromium',
-      # This bot is a one-off and doesn't have similar slaves in the
-      # swarming pool.
-      'swarming': False,
-      'os_type': 'android',
-    },
-    'Android dEQP Release (Nexus 5X)': {
+    'Android FYI dEQP Release (Nexus 5X)': {
       'swarming_dimensions': [
         {
           'device_type': 'bullhead',
@@ -808,11 +818,12 @@ FYI_WATERFALL = {
     # tests which aren't on the main tryservers. Unfortunately we need
     # a completely different (redundant) bot specification to handle
     # this.
-    'Optional Win7 Release (NVIDIA)': {
+
+    'Optional Win10 Release (NVIDIA)': {
       'swarming_dimensions': [
         {
-          'gpu': WIN7_NVIDIA_QUADRO_P400_STABLE_DRIVER,
-          'os': 'Windows-2008ServerR2-SP1',
+          'gpu': WIN10_NVIDIA_QUADRO_P400_STABLE_DRIVER,
+          'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
           'pool': 'Chrome-GPU',
         },
       ],
@@ -821,6 +832,19 @@ FYI_WATERFALL = {
       'os_type': 'win',
       'type': Types.OPTIONAL,
       'use_gpu_trigger_script': True,
+    },
+    'Optional Win10 Release (Intel HD 630)': {
+      'swarming_dimensions': [
+        {
+          'gpu': INTEL_HD_630,
+          'os': 'Windows-10',
+          'pool': 'Chrome-GPU',
+        },
+      ],
+      'build_config': 'Release',
+      'swarming': True,
+      'os_type': 'win',
+      'type': Types.OPTIONAL,
     },
     'Optional Mac Release (Intel)': {
       'swarming_dimensions': [
@@ -874,6 +898,32 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'linux',
       'type': Types.OPTIONAL,
+    },
+    'Optional Linux Release (Intel HD 630)': {
+      'swarming_dimensions': [
+        {
+          'gpu': INTEL_HD_630,
+          'os': 'Ubuntu',
+          'pool': 'Chrome-GPU',
+        },
+      ],
+      'build_config': 'Release',
+      'swarming': True,
+      'os_type': 'linux',
+      'type': Types.OPTIONAL,
+    },
+    'Optional Android Release (Nexus 5X)': {
+      'swarming_dimensions': [
+        {
+          'device_type': 'bullhead',
+          'device_os': 'MMB29Q',
+          'os': 'Android'
+        },
+      ],
+      'build_config': 'android-chromium',
+      'swarming': True,
+      'os_type': 'android',
+      'type': Types.NOOP,
     },
     # This tryserver doesn't actually exist; it's a separate
     # configuration from the Win AMD bot on this waterfall because we
@@ -939,9 +989,7 @@ V8_FYI_WATERFALL = {
         "media_unittests",
         "media_blink_unittests",
         "mojo_common_unittests",
-        "mojo_public_bindings_unittests",
-        "mojo_public_system_unittests",
-        "mojo_system_unittests",
+        "mojo_unittests",
         "nacl_loader_unittests",
         "net_unittests",
         "pdf_unittests",
@@ -963,9 +1011,11 @@ V8_FYI_WATERFALL = {
     }
   },
   'testers': {
-    'Win Release (NVIDIA)': {
+    'Win V8 FYI Release (NVIDIA)': {
       'swarming_dimensions': [
         {
+          # TODO(kbr): cut this bot over to Win10, coordinating with
+          # V8 team.
           'gpu': WIN7_NVIDIA_QUADRO_P400_STABLE_DRIVER,
           'os': 'Windows-2008ServerR2-SP1',
           'pool': 'Chrome-GPU',
@@ -975,7 +1025,7 @@ V8_FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'win',
     },
-    'Mac Release (Intel)': {
+    'Mac V8 FYI Release (Intel)': {
       'swarming_dimensions': [
         {
           'gpu': '8086:0a2e',
@@ -986,7 +1036,7 @@ V8_FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'mac',
     },
-    'Linux Release (NVIDIA)': {
+    'Linux V8 FYI Release (NVIDIA)': {
       'swarming_dimensions': [
         {
           'gpu': LINUX_QUADRO_P400_STABLE_DRIVER,
@@ -998,7 +1048,7 @@ V8_FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'linux',
     },
-    'Linux Release - concurrent marking (NVIDIA)': {
+    'Linux V8 FYI Release - concurrent marking (NVIDIA)': {
       'swarming_dimensions': [
         {
           'gpu': LINUX_QUADRO_P400_STABLE_DRIVER,
@@ -1010,7 +1060,7 @@ V8_FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'linux',
     },
-    'Android Release (Nexus 5X)': {
+    'Android V8 FYI Release (Nexus 5X)': {
       'swarming_dimensions': [
         {
           'device_type': 'bullhead',
@@ -1030,7 +1080,7 @@ COMMON_GTESTS = {
     'tester_configs': [
       {
         'predicate': Predicates.DEQP,
-        # Run only on the Win7 Release NVIDIA 32- and 64-bit bots
+        # Run only on the Win10 Release NVIDIA 32- and 64-bit bots
         # (and trybots) for the time being, at least until more capacity is
         # added.
         # TODO(jmadill): Run on the Linux Release NVIDIA bots.
@@ -1038,7 +1088,7 @@ COMMON_GTESTS = {
         'swarming_dimension_sets': [
           {
             'gpu': NVIDIA_QUADRO_P400_ALL_DRIVERS,
-            'os': 'Windows-2008ServerR2-SP1'
+            'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
           }
         ],
       },
@@ -1046,7 +1096,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1063,10 +1113,10 @@ COMMON_GTESTS = {
       {
         'predicate': Predicates.DEQP,
         'swarming_dimension_sets': [
-          # NVIDIA Win 7
+          # NVIDIA Win 10
           {
             'gpu': NVIDIA_QUADRO_P400_ALL_DRIVERS,
-            'os': 'Windows-2008ServerR2-SP1'
+            'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
           },
           # AMD Win 7
           {
@@ -1079,7 +1129,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1120,7 +1170,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1153,7 +1203,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1172,6 +1222,46 @@ COMMON_GTESTS = {
       '--enable-xml-result-parsing',
       '--shard-timeout=500'
     ],
+  },
+
+  'angle_deqp_gles2_vulkan_tests': {
+    'tester_configs': [
+      {
+        'predicate': Predicates.DEQP,
+        'swarming_dimension_sets': [
+          # NVIDIA Win 10
+          {
+            'gpu': NVIDIA_QUADRO_P400_ALL_DRIVERS,
+            'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
+          },
+          # AMD Win 7
+          {
+            'gpu': '1002:6613',
+            'os': 'Windows-2008ServerR2-SP1'
+          },
+          # NVIDIA Linux Quadro P400
+          {
+            'gpu': LINUX_QUADRO_P400_STABLE_DRIVER,
+            'os': 'Ubuntu'
+          },
+        ],
+      },
+    ],
+    'disabled_tester_configs': [
+      {
+        'names': [
+          'Linux FYI Ozone (Intel)',
+        ],
+      },
+    ],
+    'desktop_swarming': {
+      'shards': 4,
+    },
+    'test': 'angle_deqp_gles2_tests',
+    'args': [
+      '--test-launcher-batch-limit=400',
+      '--deqp-egl-display-type=angle-vulkan'
+    ]
   },
 
   'angle_deqp_gles3_gles_tests': {
@@ -1193,7 +1283,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1220,10 +1310,10 @@ COMMON_GTESTS = {
         # TODO(jmadill): Run this on ANGLE roll tryservers.
         'predicate': Predicates.DEQP,
         'swarming_dimension_sets': [
-          # NVIDIA Win 7
+          # NVIDIA Win 10
           {
             'gpu': NVIDIA_QUADRO_P400_ALL_DRIVERS,
-            'os': 'Windows-2008ServerR2-SP1'
+            'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
           },
           # AMD Win 7
           # Temporarily disabled to prevent a recipe engine crash.
@@ -1238,7 +1328,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1280,7 +1370,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1301,7 +1391,7 @@ COMMON_GTESTS = {
         'swarming_dimension_sets': [
           {
             'gpu': NVIDIA_QUADRO_P400_ALL_DRIVERS,
-            'os': 'Windows-2008ServerR2-SP1'
+            'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
           }
         ],
       }
@@ -1309,7 +1399,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1330,7 +1420,7 @@ COMMON_GTESTS = {
         'swarming_dimension_sets': [
           {
             'gpu': NVIDIA_QUADRO_P400_ALL_DRIVERS,
-            'os': 'Windows-2008ServerR2-SP1'
+            'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
           },
           {
             'gpu': LINUX_QUADRO_P400_STABLE_DRIVER,
@@ -1342,7 +1432,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1369,11 +1459,11 @@ COMMON_GTESTS = {
       {
         'names': [
           # TODO(ynovikov) Investigate why the test breaks on older devices.
-          'Android Release (Nexus 5)',
-          'Android Release (Nexus 6)',
-          'Android Release (Nexus 9)',
+          'Android FYI Release (Nexus 5)',
+          'Android FYI Release (Nexus 6)',
+          'Android FYI Release (Nexus 9)',
           # Temporarily disabled due to AMDGPU-PRO issues crbug.com/786219
-          'Linux Release (AMD R7 240)',
+          'Linux FYI Release (AMD R7 240)',
         ],
       },
     ],
@@ -1389,15 +1479,13 @@ COMMON_GTESTS = {
     'tester_configs': [
       {
         'predicate': Predicates.FYI_AND_OPTIONAL_AND_WIN_ANGLE_AMD,
-        # There are only Windows white box tests for now.
-        # Enable on more configs when there will be relevant tests.
-        'os_types': ['win'],
+        'os_types': ['win', 'linux'],
       },
     ],
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1420,10 +1508,11 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
           # On Android, these are already run on the main waterfall.
           # Run them on the one-off Android FYI bots, though.
           'Android Release (Nexus 5X)',
+          'Android FYI Release (Nexus 5X)',
         ],
       },
     ],
@@ -1441,7 +1530,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1455,12 +1544,13 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
           # On Android, these are already run on the main waterfall.
           # Run them on the one-off Android FYI bots, though.
           'Android Release (Nexus 5X)',
+          'Android FYI Release (Nexus 5X)',
           # Temporarily disabled due to AMDGPU-PRO issues crbug.com/786219
-          'Linux Release (AMD R7 240)',
+          'Linux FYI Release (AMD R7 240)',
         ],
       },
     ],
@@ -1481,10 +1571,29 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
+  },
+  # The gles1_conform_tests are closed-source and deliberately only run
+  # on the FYI waterfall.
+  'angle_gles1_conformance_tests': {
+    'tester_configs': [
+      {
+        # Run this on the FYI waterfall and ANGLE tryservers.
+        'predicate': Predicates.FYI_ONLY,
+        'os_types': ['win'],
+      }
+    ],
+    'disabled_tester_configs': [
+      {
+        'names': [
+          'Linux FYI Ozone (Intel)',
+        ],
+      },
+    ],
+    'args': ['--use-gpu-in-tests', ]
   },
   # The gles2_conform_tests are closed-source and deliberately only run
   # on the FYI waterfall and the optional tryservers.
@@ -1499,7 +1608,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
       {
@@ -1519,7 +1628,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1540,7 +1649,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1564,7 +1673,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
       {
@@ -1592,11 +1701,11 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
-          'Mac Experimental Release (Intel)',
-          'Mac Experimental Retina Release (AMD)',
-          'Mac Experimental Retina Release (NVIDIA)',
-          'Mac Pro Release (AMD)',
+          'Linux FYI Ozone (Intel)',
+          'Mac FYI Experimental Release (Intel)',
+          'Mac FYI Experimental Retina Release (AMD)',
+          'Mac FYI Experimental Retina Release (NVIDIA)',
+          'Mac Pro FYI Release (AMD)',
         ],
       },
     ],
@@ -1612,7 +1721,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
         'os_types': ['android'],
       },
@@ -1667,7 +1776,7 @@ COMMON_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Win10 Release (Intel HD 630)',
+          'Win10 FYI Release (Intel HD 630)',
         ],
       },
     ],
@@ -1681,29 +1790,19 @@ COMMON_GTESTS = {
   'vr_browser_tests': {
     'tester_configs': [
       {
-        'predicate': Predicates.FYI_ONLY,
-        'os_types': ['win']
-      },
-    ],
-    # We currently only want to run this on Win10 Release (NVIDIA)
-    'disabled_tester_configs': [
-      {
-        'names': [
-          'Win7 Release (NVIDIA)',
-          'Win7 Debug (NVIDIA)',
-          'Win7 dEQP Release (NVIDIA)',
-          'Win7 Experimental Release (NVIDIA)',
-          'Win10 Debug (NVIDIA)',
-          'Win7 Release (AMD)',
-          'Win7 Debug (AMD)',
-          'Win7 dEQP Release (AMD)',
-          'Win10 Release (Intel HD 630)',
-          'Win10 Release (NVIDIA Quadro P400)',
-          'Win7 x64 Release (NVIDIA)',
-          'Win7 x64 Debug (NVIDIA)',
-          'Win7 x64 dEQP Release (NVIDIA)',
+        'predicate': Predicates.DEFAULT_AND_OPTIONAL,
+        'os_types': ['win'],
+        'swarming_dimension_sets': [
+          {
+            'gpu': NVIDIA_QUADRO_P400_ALL_DRIVERS,
+            'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
+          },
+          {
+            'gpu': INTEL_HD_630,
+            'os': 'Windows-10',
+          }
         ],
-      }
+      },
     ],
     'args': [
       '--enable-gpu',
@@ -1730,7 +1829,7 @@ NON_SWARMED_GTESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
         'os_types': ['android'],
       },
@@ -1762,7 +1861,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1777,7 +1876,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1793,7 +1892,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1808,7 +1907,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1830,11 +1929,11 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
 
           # The Mac ASAN swarming runs on two different GPU types so we can't
           # have one expected vendor ID / device ID
-          'Mac GPU ASAN Release',
+          'Mac FYI GPU ASAN Release',
         ],
       },
     ],
@@ -1859,7 +1958,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1901,7 +2000,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1919,7 +2018,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1934,7 +2033,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1949,7 +2048,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -1991,7 +2090,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -2018,7 +2117,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -2045,7 +2144,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -2071,7 +2170,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
       {
@@ -2125,11 +2224,11 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
 
           # http://crbug.com/599451: this test is currently too slow
           # to run on x64 in Debug mode. Need to shard the tests.
-          'Win7 x64 Debug (NVIDIA)',
+          'Win7 FYI x64 Debug (NVIDIA)',
 
           # The Mac NVIDIA Retina bots don't have the capacity to run
           # this test suite on mac_optional_gpu_tests_rel.
@@ -2186,7 +2285,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -2222,7 +2321,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
         'swarming_dimension_sets': [
           {
             'gpu': NVIDIA_QUADRO_P400_ALL_DRIVERS,
-            'os': 'Windows-2008ServerR2-SP1'
+            'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
           },
         ],
         'disabled_instrumentation_types': ['tsan'],
@@ -2231,7 +2330,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -2266,7 +2365,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
         'swarming_dimension_sets': [
           {
             'gpu': NVIDIA_QUADRO_P400_ALL_DRIVERS,
-            'os': 'Windows-2008ServerR2-SP1'
+            'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
           },
         ],
         'disabled_instrumentation_types': ['tsan'],
@@ -2307,7 +2406,7 @@ NON_TELEMETRY_ISOLATED_SCRIPT_TESTS = {
         'swarming_dimension_sets': [
           {
             'gpu': NVIDIA_QUADRO_P400_ALL_DRIVERS,
-            'os': 'Windows-2008ServerR2-SP1'
+            'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
           },
           {
             'gpu': LINUX_QUADRO_P400_STABLE_DRIVER,
@@ -2332,7 +2431,7 @@ NON_TELEMETRY_ISOLATED_SCRIPT_TESTS = {
     'disabled_tester_configs': [
       {
         'names': [
-          'Linux Ozone (Intel)',
+          'Linux FYI Ozone (Intel)',
         ],
       },
     ],
@@ -2352,7 +2451,7 @@ NON_TELEMETRY_ISOLATED_SCRIPT_TESTS = {
         'swarming_dimension_sets': [
           {
             'gpu': NVIDIA_QUADRO_P400_ALL_DRIVERS,
-            'os': 'Windows-2008ServerR2-SP1'
+            'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
           },
         ],
       },
@@ -2375,7 +2474,7 @@ NON_TELEMETRY_ISOLATED_SCRIPT_TESTS = {
         'swarming_dimension_sets': [
           {
             'gpu': NVIDIA_QUADRO_P400_ALL_DRIVERS,
-            'os': 'Windows-2008ServerR2-SP1'
+            'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
           },
         ],
       },
@@ -2489,7 +2588,7 @@ def is_test_config_experimental_conditionally(test_config):
   if 'tester_configs' in test_config:
     for tc in test_config['tester_configs']:
       pred = tc.get('predicate', Predicates.DEFAULT)
-      if (pred == Predicates.EXPERIMENTAL_CONDITIONALLY):
+      if pred == Predicates.EXPERIMENTAL_CONDITIONALLY:
         return True
   return False
 
@@ -2497,6 +2596,9 @@ def should_run_on_tester(waterfall, tester_name, tester_config, test_config):
   # Special case for experimental tester configs. Don't run tests by default
   # if the experimental config matches the stable config.
   if Types.EXPERIMENTAL in get_tester_type(tester_config):
+    # TODO(kbr): there's a bug here where if the experimental bot
+    # doesn't match the stable bot, it runs too many tests because it
+    # doesn't obey the test's predicate.
     is_conditional = is_test_config_experimental_conditionally(test_config)
     if experimental_config_matches_stable(waterfall, tester_config):
       return is_conditional
@@ -2530,11 +2632,13 @@ def remove_tester_configs_from_result(result):
 def add_common_test_properties(test, tester_config):
   if tester_config.get('use_gpu_trigger_script'):
     test['trigger_script'] = {
-      'script': '//content/test/gpu/trigger_gpu_test.py',
+      'script': '//testing/trigger_scripts/trigger_multiple_dimensions.py',
       'args': [
-        '--gpu-trigger-configs',
+        '--multiple-trigger-configs',
         json.dumps(tester_config['swarming_dimensions'] +
-                   tester_config.get('alternate_swarming_dimensions', []))
+                   tester_config.get('alternate_swarming_dimensions', [])),
+        '--multiple-dimension-script-verbose',
+        'True'
       ],
     }
 
@@ -2663,6 +2767,8 @@ def generate_isolated_test(waterfall, tester_name, tester_config, test,
     'can_use_on_swarming_builders': tester_config['swarming'],
     'dimension_sets': tester_config['swarming_dimensions']
   }
+  if 'swarming_settings' in tester_config:
+    swarming.update(tester_config['swarming_settings'])
   if 'swarming' in test_config:
     swarming.update(test_config['swarming'])
   if 'android_swarming' in test_config and is_android(tester_config):

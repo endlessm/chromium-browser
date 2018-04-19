@@ -89,7 +89,7 @@ static unsigned getBitWidth(Type *Ty, const DataLayout &DL) {
   if (unsigned BitWidth = Ty->getScalarSizeInBits())
     return BitWidth;
 
-  return DL.getPointerTypeSizeInBits(Ty);
+  return DL.getIndexTypeSizeInBits(Ty);
 }
 
 namespace {
@@ -816,6 +816,14 @@ static void computeKnownBitsFromAssume(const Value *V, KnownBits &Known,
       KnownBits RHSKnown(BitWidth);
       computeKnownBits(A, RHSKnown, Depth+1, Query(Q, I));
 
+      // If the RHS is known zero, then this assumption must be wrong (nothing
+      // is unsigned less than zero). Signal a conflict and get out of here.
+      if (RHSKnown.isZero()) {
+        Known.Zero.setAllBits();
+        Known.One.setAllBits();
+        break;
+      }
+
       // Whatever high bits in c are zero are known to be zero (if c is a power
       // of 2, then one more).
       if (isKnownToBeAPowerOfTwo(A, false, Depth + 1, Query(Q, I)))
@@ -1093,7 +1101,10 @@ static void computeKnownBitsFromOperator(const Operator *I, KnownBits &Known,
     unsigned SrcBitWidth;
     // Note that we handle pointer operands here because of inttoptr/ptrtoint
     // which fall through here.
-    SrcBitWidth = Q.DL.getTypeSizeInBits(SrcTy->getScalarType());
+    Type *ScalarTy = SrcTy->getScalarType();
+    SrcBitWidth = ScalarTy->isPointerTy() ?
+      Q.DL.getIndexTypeSizeInBits(ScalarTy) :
+      Q.DL.getTypeSizeInBits(ScalarTy);
 
     assert(SrcBitWidth && "SrcBitWidth can't be zero");
     Known = Known.zextOrTrunc(SrcBitWidth);
@@ -1547,9 +1558,13 @@ void computeKnownBits(const Value *V, KnownBits &Known, unsigned Depth,
   assert((V->getType()->isIntOrIntVectorTy(BitWidth) ||
           V->getType()->isPtrOrPtrVectorTy()) &&
          "Not integer or pointer type!");
-  assert(Q.DL.getTypeSizeInBits(V->getType()->getScalarType()) == BitWidth &&
-         "V and Known should have same BitWidth");
+
+  Type *ScalarTy = V->getType()->getScalarType();
+  unsigned ExpectedWidth = ScalarTy->isPointerTy() ?
+    Q.DL.getIndexTypeSizeInBits(ScalarTy) : Q.DL.getTypeSizeInBits(ScalarTy);
+  assert(ExpectedWidth == BitWidth && "V and Known should have same BitWidth");
   (void)BitWidth;
+  (void)ExpectedWidth;
 
   const APInt *C;
   if (match(V, m_APInt(C))) {
@@ -1646,14 +1661,11 @@ bool isKnownToBeAPowerOfTwo(const Value *V, bool OrZero, unsigned Depth,
                             const Query &Q) {
   assert(Depth <= MaxDepth && "Limit Search Depth");
 
-  if (const Constant *C = dyn_cast<Constant>(V)) {
-    if (C->isNullValue())
-      return OrZero;
-
-    const APInt *ConstIntOrConstSplatInt;
-    if (match(C, m_APInt(ConstIntOrConstSplatInt)))
-      return ConstIntOrConstSplatInt->isPowerOf2();
-  }
+  // Attempt to match against constants.
+  if (OrZero && match(V, m_Power2OrZero()))
+      return true;
+  if (match(V, m_Power2()))
+      return true;
 
   // 1 << X is clearly a power of two if the one is not shifted off the end.  If
   // it is shifted off the end then the result is undefined.
@@ -2189,7 +2201,11 @@ static unsigned ComputeNumSignBitsImpl(const Value *V, unsigned Depth,
   // in V, so for undef we have to conservatively return 1.  We don't have the
   // same behavior for poison though -- that's a FIXME today.
 
-  unsigned TyBits = Q.DL.getTypeSizeInBits(V->getType()->getScalarType());
+  Type *ScalarTy = V->getType()->getScalarType();
+  unsigned TyBits = ScalarTy->isPointerTy() ?
+    Q.DL.getIndexTypeSizeInBits(ScalarTy) :
+    Q.DL.getTypeSizeInBits(ScalarTy);
+
   unsigned Tmp, Tmp2;
   unsigned FirstAnswer = 1;
 
@@ -2264,9 +2280,9 @@ static unsigned ComputeNumSignBitsImpl(const Value *V, unsigned Depth,
     // ashr X, C   -> adds C sign bits.  Vectors too.
     const APInt *ShAmt;
     if (match(U->getOperand(1), m_APInt(ShAmt))) {
-      unsigned ShAmtLimited = ShAmt->getZExtValue();
-      if (ShAmtLimited >= TyBits)
+      if (ShAmt->uge(TyBits))
         break;  // Bad shift.
+      unsigned ShAmtLimited = ShAmt->getZExtValue();
       Tmp += ShAmtLimited;
       if (Tmp > TyBits) Tmp = TyBits;
     }
@@ -2277,9 +2293,9 @@ static unsigned ComputeNumSignBitsImpl(const Value *V, unsigned Depth,
     if (match(U->getOperand(1), m_APInt(ShAmt))) {
       // shl destroys sign bits.
       Tmp = ComputeNumSignBits(U->getOperand(0), Depth + 1, Q);
+      if (ShAmt->uge(TyBits) ||      // Bad shift.
+          ShAmt->uge(Tmp)) break;    // Shifted all sign bits out.
       Tmp2 = ShAmt->getZExtValue();
-      if (Tmp2 >= TyBits ||      // Bad shift.
-          Tmp2 >= Tmp) break;    // Shifted all sign bits out.
       return Tmp - Tmp2;
     }
     break;
@@ -3086,7 +3102,7 @@ Value *llvm::FindInsertedValue(Value *V, ArrayRef<unsigned> idx_range,
 /// pointer plus a constant offset. Return the base and offset to the caller.
 Value *llvm::GetPointerBaseWithConstantOffset(Value *Ptr, int64_t &Offset,
                                               const DataLayout &DL) {
-  unsigned BitWidth = DL.getPointerTypeSizeInBits(Ptr->getType());
+  unsigned BitWidth = DL.getIndexTypeSizeInBits(Ptr->getType());
   APInt ByteOffset(BitWidth, 0);
 
   // We walk up the defs but use a visited set to handle unreachable code. In
@@ -3104,7 +3120,7 @@ Value *llvm::GetPointerBaseWithConstantOffset(Value *Ptr, int64_t &Offset,
       // means when we construct GEPOffset, we need to use the size
       // of GEP's pointer type rather than the size of the original
       // pointer type.
-      APInt GEPOffset(DL.getPointerTypeSizeInBits(Ptr->getType()), 0);
+      APInt GEPOffset(DL.getIndexTypeSizeInBits(Ptr->getType()), 0);
       if (!GEP->accumulateConstantOffset(DL, GEPOffset))
         break;
 
@@ -4161,11 +4177,107 @@ static SelectPatternResult matchClamp(CmpInst::Predicate Pred,
   return {SPF_UNKNOWN, SPNB_NA, false};
 }
 
+/// Recognize variations of:
+///   a < c ? min(a,b) : min(b,c) ==> min(min(a,b),min(b,c))
+static SelectPatternResult matchMinMaxOfMinMax(CmpInst::Predicate Pred,
+                                               Value *CmpLHS, Value *CmpRHS,
+                                               Value *TVal, Value *FVal,
+                                               unsigned Depth) {
+  // TODO: Allow FP min/max with nnan/nsz.
+  assert(CmpInst::isIntPredicate(Pred) && "Expected integer comparison");
+
+  Value *A, *B;
+  SelectPatternResult L = matchSelectPattern(TVal, A, B, nullptr, Depth + 1);
+  if (!SelectPatternResult::isMinOrMax(L.Flavor))
+    return {SPF_UNKNOWN, SPNB_NA, false};
+
+  Value *C, *D;
+  SelectPatternResult R = matchSelectPattern(FVal, C, D, nullptr, Depth + 1);
+  if (L.Flavor != R.Flavor)
+    return {SPF_UNKNOWN, SPNB_NA, false};
+
+  // We have something like: x Pred y ? min(a, b) : min(c, d).
+  // Try to match the compare to the min/max operations of the select operands.
+  // First, make sure we have the right compare predicate.
+  switch (L.Flavor) {
+  case SPF_SMIN:
+    if (Pred == ICmpInst::ICMP_SGT || Pred == ICmpInst::ICMP_SGE) {
+      Pred = ICmpInst::getSwappedPredicate(Pred);
+      std::swap(CmpLHS, CmpRHS);
+    }
+    if (Pred == ICmpInst::ICMP_SLT || Pred == ICmpInst::ICMP_SLE)
+      break;
+    return {SPF_UNKNOWN, SPNB_NA, false};
+  case SPF_SMAX:
+    if (Pred == ICmpInst::ICMP_SLT || Pred == ICmpInst::ICMP_SLE) {
+      Pred = ICmpInst::getSwappedPredicate(Pred);
+      std::swap(CmpLHS, CmpRHS);
+    }
+    if (Pred == ICmpInst::ICMP_SGT || Pred == ICmpInst::ICMP_SGE)
+      break;
+    return {SPF_UNKNOWN, SPNB_NA, false};
+  case SPF_UMIN:
+    if (Pred == ICmpInst::ICMP_UGT || Pred == ICmpInst::ICMP_UGE) {
+      Pred = ICmpInst::getSwappedPredicate(Pred);
+      std::swap(CmpLHS, CmpRHS);
+    }
+    if (Pred == ICmpInst::ICMP_ULT || Pred == ICmpInst::ICMP_ULE)
+      break;
+    return {SPF_UNKNOWN, SPNB_NA, false};
+  case SPF_UMAX:
+    if (Pred == ICmpInst::ICMP_ULT || Pred == ICmpInst::ICMP_ULE) {
+      Pred = ICmpInst::getSwappedPredicate(Pred);
+      std::swap(CmpLHS, CmpRHS);
+    }
+    if (Pred == ICmpInst::ICMP_UGT || Pred == ICmpInst::ICMP_UGE)
+      break;
+    return {SPF_UNKNOWN, SPNB_NA, false};
+  default:
+    return {SPF_UNKNOWN, SPNB_NA, false};
+  }
+
+  // If there is a common operand in the already matched min/max and the other
+  // min/max operands match the compare operands (either directly or inverted),
+  // then this is min/max of the same flavor.
+
+  // a pred c ? m(a, b) : m(c, b) --> m(m(a, b), m(c, b))
+  // ~c pred ~a ? m(a, b) : m(c, b) --> m(m(a, b), m(c, b))
+  if (D == B) {
+    if ((CmpLHS == A && CmpRHS == C) || (match(C, m_Not(m_Specific(CmpLHS))) &&
+                                         match(A, m_Not(m_Specific(CmpRHS)))))
+      return {L.Flavor, SPNB_NA, false};
+  }
+  // a pred d ? m(a, b) : m(b, d) --> m(m(a, b), m(b, d))
+  // ~d pred ~a ? m(a, b) : m(b, d) --> m(m(a, b), m(b, d))
+  if (C == B) {
+    if ((CmpLHS == A && CmpRHS == D) || (match(D, m_Not(m_Specific(CmpLHS))) &&
+                                         match(A, m_Not(m_Specific(CmpRHS)))))
+      return {L.Flavor, SPNB_NA, false};
+  }
+  // b pred c ? m(a, b) : m(c, a) --> m(m(a, b), m(c, a))
+  // ~c pred ~b ? m(a, b) : m(c, a) --> m(m(a, b), m(c, a))
+  if (D == A) {
+    if ((CmpLHS == B && CmpRHS == C) || (match(C, m_Not(m_Specific(CmpLHS))) &&
+                                         match(B, m_Not(m_Specific(CmpRHS)))))
+      return {L.Flavor, SPNB_NA, false};
+  }
+  // b pred d ? m(a, b) : m(a, d) --> m(m(a, b), m(a, d))
+  // ~d pred ~b ? m(a, b) : m(a, d) --> m(m(a, b), m(a, d))
+  if (C == A) {
+    if ((CmpLHS == B && CmpRHS == D) || (match(D, m_Not(m_Specific(CmpLHS))) &&
+                                         match(B, m_Not(m_Specific(CmpRHS)))))
+      return {L.Flavor, SPNB_NA, false};
+  }
+
+  return {SPF_UNKNOWN, SPNB_NA, false};
+}
+
 /// Match non-obvious integer minimum and maximum sequences.
 static SelectPatternResult matchMinMax(CmpInst::Predicate Pred,
                                        Value *CmpLHS, Value *CmpRHS,
                                        Value *TrueVal, Value *FalseVal,
-                                       Value *&LHS, Value *&RHS) {
+                                       Value *&LHS, Value *&RHS,
+                                       unsigned Depth) {
   // Assume success. If there's no match, callers should not use these anyway.
   LHS = TrueVal;
   RHS = FalseVal;
@@ -4174,6 +4286,10 @@ static SelectPatternResult matchMinMax(CmpInst::Predicate Pred,
   if (SPR.Flavor != SelectPatternFlavor::SPF_UNKNOWN)
     return SPR;
 
+  SPR = matchMinMaxOfMinMax(Pred, CmpLHS, CmpRHS, TrueVal, FalseVal, Depth);
+  if (SPR.Flavor != SelectPatternFlavor::SPF_UNKNOWN)
+    return SPR;
+  
   if (Pred != CmpInst::ICMP_SGT && Pred != CmpInst::ICMP_SLT)
     return {SPF_UNKNOWN, SPNB_NA, false};
 
@@ -4234,7 +4350,8 @@ static SelectPatternResult matchSelectPattern(CmpInst::Predicate Pred,
                                               FastMathFlags FMF,
                                               Value *CmpLHS, Value *CmpRHS,
                                               Value *TrueVal, Value *FalseVal,
-                                              Value *&LHS, Value *&RHS) {
+                                              Value *&LHS, Value *&RHS,
+                                              unsigned Depth) {
   LHS = CmpLHS;
   RHS = CmpRHS;
 
@@ -4350,7 +4467,7 @@ static SelectPatternResult matchSelectPattern(CmpInst::Predicate Pred,
   }
 
   if (CmpInst::isIntPredicate(Pred))
-    return matchMinMax(Pred, CmpLHS, CmpRHS, TrueVal, FalseVal, LHS, RHS);
+    return matchMinMax(Pred, CmpLHS, CmpRHS, TrueVal, FalseVal, LHS, RHS, Depth);
 
   // According to (IEEE 754-2008 5.3.1), minNum(0.0, -0.0) and similar
   // may return either -0.0 or 0.0, so fcmp/select pair has stricter
@@ -4471,7 +4588,11 @@ static Value *lookThroughCast(CmpInst *CmpI, Value *V1, Value *V2,
 }
 
 SelectPatternResult llvm::matchSelectPattern(Value *V, Value *&LHS, Value *&RHS,
-                                             Instruction::CastOps *CastOp) {
+                                             Instruction::CastOps *CastOp,
+                                             unsigned Depth) {
+  if (Depth >= MaxDepth)
+    return {SPF_UNKNOWN, SPNB_NA, false};
+
   SelectInst *SI = dyn_cast<SelectInst>(V);
   if (!SI) return {SPF_UNKNOWN, SPNB_NA, false};
 
@@ -4500,7 +4621,7 @@ SelectPatternResult llvm::matchSelectPattern(Value *V, Value *&LHS, Value *&RHS,
         FMF.setNoSignedZeros();
       return ::matchSelectPattern(Pred, FMF, CmpLHS, CmpRHS,
                                   cast<CastInst>(TrueVal)->getOperand(0), C,
-                                  LHS, RHS);
+                                  LHS, RHS, Depth);
     }
     if (Value *C = lookThroughCast(CmpI, FalseVal, TrueVal, CastOp)) {
       // If this is a potential fmin/fmax with a cast to integer, then ignore
@@ -4509,11 +4630,11 @@ SelectPatternResult llvm::matchSelectPattern(Value *V, Value *&LHS, Value *&RHS,
         FMF.setNoSignedZeros();
       return ::matchSelectPattern(Pred, FMF, CmpLHS, CmpRHS,
                                   C, cast<CastInst>(FalseVal)->getOperand(0),
-                                  LHS, RHS);
+                                  LHS, RHS, Depth);
     }
   }
   return ::matchSelectPattern(Pred, FMF, CmpLHS, CmpRHS, TrueVal, FalseVal,
-                              LHS, RHS);
+                              LHS, RHS, Depth);
 }
 
 /// Return true if "icmp Pred LHS RHS" is always true.

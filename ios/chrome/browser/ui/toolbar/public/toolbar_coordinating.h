@@ -7,12 +7,12 @@
 
 #import <UIKit/UIKit.h>
 
-#import "ios/chrome/browser/ui/ntp/incognito_view_controller_delegate.h"
+#import "ios/chrome/browser/ui/ntp/new_tab_page_controller_delegate.h"
 
-@protocol ToolbarCoordinating<IncognitoViewControllerDelegate>
+@protocol ToolbarCoordinating<NewTabPageControllerDelegate>
 
-// ToolbarController public interface.
-- (void)updateToolbarState;
+// Updates the tools menu, changing its content to reflect the current page.
+- (void)updateToolsMenu;
 
 @end
 

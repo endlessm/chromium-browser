@@ -627,20 +627,6 @@ tcu::Matrix<T, Rows, Cols> matrixCompMult (const tcu::Matrix<T, Rows, Cols>& a, 
 	return retVal;
 }
 
-// transpose
-
-template <typename T, int Rows, int Cols>
-tcu::Matrix<T, Cols, Rows> transpose (const tcu::Matrix<T, Rows, Cols>& mat)
-{
-	tcu::Matrix<T, Cols, Rows> retVal;
-
-	for (int r = 0; r < Rows; ++r)
-		for (int c = 0; c < Cols; ++c)
-			retVal(c, r) = mat(r, c);
-
-	return retVal;
-}
-
 // outerProduct
 
 template <typename T, int Rows, int Cols>
@@ -1425,7 +1411,7 @@ ShaderMatrixInstance::ShaderMatrixInstance (Context&				context,
 											const ShaderInput		in0,
 											const ShaderInput		in1,
 											const MatrixOp			op)
-	: ShaderRenderCaseInstance	(context, isVertex, evaluator, DE_NULL, DE_NULL)
+	: ShaderRenderCaseInstance	(context, isVertex, evaluator, DE_NULL, DE_NULL, IMAGE_BACKING_MODE_REGULAR, isVertex && op == OP_INVERSE ? 64 : GRID_SIZE_DEFAULTS)
 	, m_in0						(in0)
 	, m_in1						(in1)
 	, m_op						(op)
@@ -1434,10 +1420,10 @@ ShaderMatrixInstance::ShaderMatrixInstance (Context&				context,
 	for (int attribNdx = 0; attribNdx < 4; attribNdx++)
 	{
 		m_userAttribTransforms[attribNdx] = Mat4(0.0f);
-		m_userAttribTransforms[attribNdx](                  0, 3) = 0.2f;								// !< prevent matrix*vec from going into zero (assuming vec.w != 0)
-		m_userAttribTransforms[attribNdx](                  1, 3) = 0.1f;								// !<
-		m_userAttribTransforms[attribNdx](                  2, 3) = 0.4f + 0.15f * float(attribNdx);	// !<
-		m_userAttribTransforms[attribNdx](                  3, 3) = 0.7f;								// !<
+		m_userAttribTransforms[attribNdx](                  0, 3) = (op == OP_INVERSE ? -0.5f : 0.2f);	// prevent matrix*vec from going into zero (assuming vec.w != 0).
+		m_userAttribTransforms[attribNdx](                  1, 3) = (op == OP_INVERSE ? -1.3f : 0.1f);	// Modified input for OP_INVERSE case, as determinant of final input
+		m_userAttribTransforms[attribNdx](                  2, 3) = 0.4f + 0.15f * float(attribNdx);	// matrix is spanning both sides of 0, so 0 (and division by 0) may happen on mediump.
+		m_userAttribTransforms[attribNdx](                  3, 3) = (op == OP_INVERSE ? -3.0f : 0.7f);	// Modified OP_INVERSE final input matrix is same signed in whole input range.
 		m_userAttribTransforms[attribNdx]((0 + attribNdx) % 4, 0) = 1.0f;
 		m_userAttribTransforms[attribNdx]((1 + attribNdx) % 4, 1) = 1.0f;
 		m_userAttribTransforms[attribNdx]((2 + attribNdx) % 4, 2) = 1.0f;

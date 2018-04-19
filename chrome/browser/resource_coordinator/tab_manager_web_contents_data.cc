@@ -14,8 +14,6 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
-#include "services/metrics/public/cpp/ukm_builders.h"
-#include "services/metrics/public/cpp/ukm_recorder.h"
 #include "services/resource_coordinator/public/cpp/resource_coordinator_features.h"
 
 using base::TimeTicks;
@@ -29,8 +27,10 @@ namespace resource_coordinator {
 TabManager::WebContentsData::WebContentsData(content::WebContents* web_contents)
     : WebContentsObserver(web_contents),
       time_to_purge_(base::TimeDelta::FromMinutes(30)),
-      is_purged_(false),
-      ukm_source_id_(0) {}
+      is_purged_(false) {
+  tab_data_.is_hidden =
+      web_contents->GetVisibility() == content::Visibility::HIDDEN;
+}
 
 TabManager::WebContentsData::~WebContentsData() {}
 
@@ -66,22 +66,6 @@ void TabManager::WebContentsData::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
   SetIsInSessionRestore(false);
   g_browser_process->GetTabManager()->OnDidFinishNavigation(navigation_handle);
-
-  if (!navigation_handle->HasCommitted() || navigation_handle->IsErrorPage() ||
-      navigation_handle->IsSameDocument() ||
-      !navigation_handle->IsInMainFrame()) {
-    return;
-  }
-
-  tab_data_.navigation_time = navigation_handle->NavigationStart();
-  ukm_source_id_ = ukm::ConvertToSourceId(navigation_handle->GetNavigationId(),
-                                          ukm::SourceIdType::NAVIGATION_ID);
-}
-
-void TabManager::WebContentsData::WasShown() {
-  if (tab_data_.last_inactive_time.is_null())
-    return;
-  ReportUKMWhenBackgroundTabIsClosedOrForegrounded(true);
 }
 
 void TabManager::WebContentsData::WebContentsDestroyed() {
@@ -99,11 +83,6 @@ void TabManager::WebContentsData::WebContentsDestroyed() {
                                base::TimeDelta::FromSeconds(1),
                                base::TimeDelta::FromDays(1), 100);
   }
-
-  ReportUKMWhenTabIsClosed();
-
-  if (!web_contents()->IsVisible() && !tab_data_.last_inactive_time.is_null())
-    ReportUKMWhenBackgroundTabIsClosedOrForegrounded(false);
 
   SetTabLoadingState(TAB_IS_NOT_LOADING);
   SetIsInSessionRestore(false);
@@ -185,30 +164,11 @@ void TabManager::WebContentsData::CopyState(
   }
 }
 
-void TabManager::WebContentsData::ReportUKMWhenTabIsClosed() {
-  if (!ukm_source_id_)
-    return;
-  auto duration = NowTicks() - tab_data_.navigation_time;
-  ukm::builders::TabManager_TabLifetime(ukm_source_id_)
-      .SetTimeSinceNavigation(duration.InMilliseconds())
-      .Record(ukm::UkmRecorder::Get());
-}
-
-void TabManager::WebContentsData::
-    ReportUKMWhenBackgroundTabIsClosedOrForegrounded(bool is_foregrounded) {
-  if (!ukm_source_id_)
-    return;
-  auto duration = NowTicks() - tab_data_.last_inactive_time;
-  ukm::builders::TabManager_Background_ForegroundedOrClosed(ukm_source_id_)
-      .SetTimeFromBackgrounded(duration.InMilliseconds())
-      .SetIsForegrounded(is_foregrounded)
-      .Record(ukm::UkmRecorder::Get());
-}
-
 TabManager::WebContentsData::Data::Data()
     : id(0),
       is_discarded(false),
       discard_count(0),
+      is_hidden(true),
       is_recently_audible(false),
       is_auto_discardable(true),
       tab_loading_state(TAB_IS_NOT_LOADING),
@@ -220,6 +180,7 @@ TabManager::WebContentsData::Data::Data()
 
 bool TabManager::WebContentsData::Data::operator==(const Data& right) const {
   return id == right.id && is_discarded == right.is_discarded &&
+         is_hidden == right.is_hidden &&
          is_recently_audible == right.is_recently_audible &&
          last_audio_change_time == right.last_audio_change_time &&
          last_discard_time == right.last_discard_time &&

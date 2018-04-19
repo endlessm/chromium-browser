@@ -52,10 +52,9 @@
 #include "net/http/http_auth_handler_factory.h"
 #include "net/log/file_net_log_observer.h"
 #include "net/log/net_log_util.h"
-#include "net/nqe/external_estimate_provider.h"
 #include "net/nqe/network_quality_estimator_params.h"
-#include "net/proxy/proxy_config_service_android.h"
-#include "net/proxy/proxy_service.h"
+#include "net/proxy_resolution/proxy_config_service_android.h"
+#include "net/proxy_resolution/proxy_service.h"
 #include "net/quic/core/quic_versions.h"
 #include "net/ssl/channel_id_service.h"
 #include "net/url_request/url_request_context.h"
@@ -218,8 +217,8 @@ net::URLRequestContext* CronetURLRequestContextAdapter::GetURLRequestContext() {
 
 void CronetURLRequestContextAdapter::PostTaskToNetworkThread(
     const base::Location& posted_from,
-    const base::Closure& callback) {
-  context_->PostTaskToNetworkThread(posted_from, callback);
+    base::OnceClosure callback) {
+  context_->PostTaskToNetworkThread(posted_from, std::move(callback));
 }
 
 bool CronetURLRequestContextAdapter::IsOnNetworkThread() const {
@@ -287,6 +286,7 @@ static jlong JNI_CronetUrlRequestContext_CreateRequestContextConfig(
       static_cast<URLRequestContextConfig::HttpCacheType>(jhttp_cache_mode),
       jhttp_cache_max_size, jdisable_cache,
       ConvertNullableJavaStringToUTF8(env, jstorage_path),
+      /* accept_languages */ std::string(),
       ConvertNullableJavaStringToUTF8(env, juser_agent),
       ConvertNullableJavaStringToUTF8(env,
                                       jexperimental_quic_connection_options),

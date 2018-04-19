@@ -47,6 +47,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
+#include "url/gurl.h"
 #include "url/url_util.h"
 
 using content::BrowserThread;
@@ -385,7 +386,7 @@ void ChromePasswordProtectionService::MaybeLogPasswordReuseDetectedEvent(
     content::WebContents* web_contents) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  if (!base::FeatureList::IsEnabled(kGaiaPasswordReuseReporting))
+  if (!IsEventLoggingEnabled())
     return;
 
   syncer::UserEventService* user_event_service =
@@ -424,7 +425,7 @@ void ChromePasswordProtectionService::LogPasswordReuseDialogInteraction(
     PasswordReuseDialogInteraction::InteractionResult interaction_result) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  if (!base::FeatureList::IsEnabled(kGaiaPasswordReuseReporting))
+  if (!IsEventLoggingEnabled())
     return;
 
   syncer::UserEventService* user_event_service =
@@ -445,7 +446,7 @@ void ChromePasswordProtectionService::LogPasswordReuseDialogInteraction(
 }
 
 LoginReputationClientRequest::PasswordReuseEvent::SyncAccountType
-ChromePasswordProtectionService::GetSyncAccountType() {
+ChromePasswordProtectionService::GetSyncAccountType() const {
   const AccountInfo account_info = GetAccountInfo();
   if (account_info.account_id.empty() || account_info.hosted_domain.empty()) {
     return LoginReputationClientRequest::PasswordReuseEvent::NOT_SIGNED_IN;
@@ -529,7 +530,7 @@ void ChromePasswordProtectionService::MaybeLogPasswordReuseLookupEvent(
     content::WebContents* web_contents,
     PasswordProtectionService::RequestOutcome outcome,
     const LoginReputationClientResponse* response) {
-  if (!base::FeatureList::IsEnabled(kGaiaPasswordReuseReporting))
+  if (!IsEventLoggingEnabled())
     return;
 
   switch (outcome) {
@@ -552,6 +553,12 @@ void ChromePasswordProtectionService::MaybeLogPasswordReuseLookupEvent(
     case PasswordProtectionService::URL_NOT_VALID_FOR_REPUTATION_COMPUTING:
       LogPasswordReuseLookupResult(web_contents,
                                    PasswordReuseLookup::URL_UNSUPPORTED);
+      break;
+    case PasswordProtectionService::MATCHED_ENTERPRISE_WHITELIST:
+    case PasswordProtectionService::MATCHED_ENTERPRISE_LOGIN_URL:
+    case PasswordProtectionService::MATCHED_ENTERPRISE_CHANGE_PASSWORD_URL:
+      LogPasswordReuseLookupResult(
+          web_contents, PasswordReuseLookup::ENTERPRISE_WHITELIST_HIT);
       break;
     case PasswordProtectionService::CANCELED:
     case PasswordProtectionService::TIMEDOUT:
@@ -619,7 +626,6 @@ void ChromePasswordProtectionService::
         bool all_history,
         const history::URLRows& deleted_rows) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DCHECK(all_history || !deleted_rows.empty());
 
   DictionaryPrefUpdate unhandled_sync_password_reuses(
       profile_->GetPrefs(), prefs::kSafeBrowsingUnhandledSyncPasswordReuses);
@@ -673,7 +679,7 @@ bool ChromePasswordProtectionService::UserClickedThroughSBInterstitial(
          current_threat_type == SB_THREAT_TYPE_URL_CLIENT_SIDE_MALWARE;
 }
 
-AccountInfo ChromePasswordProtectionService::GetAccountInfo() {
+AccountInfo ChromePasswordProtectionService::GetAccountInfo() const {
   SigninManagerBase* signin_manager =
       SigninManagerFactory::GetForProfileIfExists(profile_);
 
@@ -681,7 +687,16 @@ AccountInfo ChromePasswordProtectionService::GetAccountInfo() {
                         : AccountInfo();
 }
 
-GURL ChromePasswordProtectionService::GetChangePasswordURL() {
+GURL ChromePasswordProtectionService::GetChangePasswordURL() const {
+  // If change password URL is specified in preferences, returns the
+  // corresponding pref value.
+  GURL enterprise_change_password_url =
+      GetPasswordProtectionChangePasswordURLPref(*profile_->GetPrefs());
+  if (!enterprise_change_password_url.is_empty()) {
+    return enterprise_change_password_url;
+  }
+
+  // Otherwise, computes the default GAIA change password URL.
   const AccountInfo account_info = GetAccountInfo();
   std::string account_email = account_info.email;
   // This page will prompt for re-auth and then will prompt for a new password.
@@ -803,7 +818,7 @@ ChromePasswordProtectionService::ChromePasswordProtectionService(
 
 std::unique_ptr<PasswordProtectionNavigationThrottle>
 MaybeCreateNavigationThrottle(content::NavigationHandle* navigation_handle) {
-  if (!base::FeatureList::IsEnabled(kGaiaPasswordReuseReporting))
+  if (!base::FeatureList::IsEnabled(kGoogleBrandedPhishingWarning))
     return nullptr;
   Profile* profile = Profile::FromBrowserContext(
       navigation_handle->GetWebContents()->GetBrowserContext());
@@ -812,6 +827,53 @@ MaybeCreateNavigationThrottle(content::NavigationHandle* navigation_handle) {
   // |service| can be null in tests.
   return service ? service->MaybeCreateNavigationThrottle(navigation_handle)
                  : nullptr;
+}
+
+PasswordProtectionTrigger
+ChromePasswordProtectionService::GetPasswordProtectionTriggerPref(
+    const std::string& pref_name) const {
+  if (!base::FeatureList::IsEnabled(kEnterprisePasswordProtectionV1))
+    return PHISHING_REUSE;
+
+  const PrefService::Preference* warning_trigger =
+      profile_->GetPrefs()->FindPreference(pref_name);
+  bool is_policy_managed =
+      (warning_trigger && warning_trigger->IsManaged()) ||
+      GetSyncAccountType() ==
+          LoginReputationClientRequest::PasswordReuseEvent::GSUITE;
+  // TODO(jialiul): Remove the special treatment for GSUITE, when password
+  // protection enterprise control is ready.
+  return is_policy_managed ? static_cast<PasswordProtectionTrigger>(
+                                 profile_->GetPrefs()->GetInteger(pref_name))
+                           : PHISHING_REUSE;
+}
+
+bool ChromePasswordProtectionService::IsURLWhitelistedForPasswordEntry(
+    const GURL& url,
+    RequestOutcome* reason) const {
+  if (!profile_)
+    return false;
+
+  PrefService* prefs = profile_->GetPrefs();
+  if (IsURLWhitelistedByPolicy(url, *prefs)) {
+    *reason = MATCHED_ENTERPRISE_WHITELIST;
+    return true;
+  }
+
+  // Checks if |url| matches the change password url configured in enterprise
+  // policy.
+  if (MatchesPasswordProtectionChangePasswordURL(url, *prefs)) {
+    *reason = MATCHED_ENTERPRISE_CHANGE_PASSWORD_URL;
+    return true;
+  }
+
+  // Checks if |url| matches any login url configured in enterprise policy.
+  if (MatchesPasswordProtectionLoginURL(url, *prefs)) {
+    *reason = MATCHED_ENTERPRISE_LOGIN_URL;
+    return true;
+  }
+
+  return false;
 }
 
 }  // namespace safe_browsing

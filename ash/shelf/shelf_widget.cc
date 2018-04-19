@@ -165,7 +165,6 @@ void ShelfWidget::DelegateView::UpdateShelfBackground(SkColor color) {
 
 ShelfWidget::ShelfWidget(aura::Window* shelf_container, Shelf* shelf)
     : shelf_(shelf),
-      status_area_widget_(nullptr),
       delegate_view_(new DelegateView(this)),
       shelf_view_(new ShelfView(Shell::Get()->shelf_model(), shelf_, this)),
       login_shelf_view_(
@@ -228,12 +227,11 @@ ShelfWidget::~ShelfWidget() {
 void ShelfWidget::CreateStatusAreaWidget(aura::Window* status_container) {
   DCHECK(status_container);
   DCHECK(!status_area_widget_);
-  status_area_widget_ = new StatusAreaWidget(status_container, shelf_);
-  status_area_widget_->CreateTrayViews();
-  // NOTE: Container may be hidden depending on login/display state.
-  status_area_widget_->Show();
-  Shell::Get()->focus_cycler()->AddWidget(status_area_widget_);
-  background_animator_.AddObserver(status_area_widget_);
+  status_area_widget_ =
+      std::make_unique<StatusAreaWidget>(status_container, shelf_);
+  status_area_widget_->Initialize();
+  Shell::Get()->focus_cycler()->AddWidget(status_area_widget_.get());
+  background_animator_.AddObserver(status_area_widget_.get());
   status_container->SetLayoutManager(new StatusAreaLayoutManager(this));
 }
 
@@ -301,10 +299,9 @@ void ShelfWidget::Shutdown() {
     shelf_layout_manager_->PrepareForShutdown();
 
   if (status_area_widget_) {
-    background_animator_.RemoveObserver(status_area_widget_);
-    Shell::Get()->focus_cycler()->RemoveWidget(status_area_widget_);
-    status_area_widget_->Shutdown();
-    status_area_widget_ = nullptr;
+    background_animator_.RemoveObserver(status_area_widget_.get());
+    Shell::Get()->focus_cycler()->RemoveWidget(status_area_widget_.get());
+    status_area_widget_.reset();
   }
 
   CloseNow();
@@ -368,18 +365,20 @@ void ShelfWidget::WillDeleteShelfLayoutManager() {
 }
 
 void ShelfWidget::OnSessionStateChanged(session_manager::SessionState state) {
-  // Do not show widget in UNKNOWN state - it might be called before shelf was
-  // initialized.
-  if (!IsUsingViewsShelf() || state == session_manager::SessionState::UNKNOWN) {
+  // Do not show shelf widget:
+  // * when views based shelf is disabled
+  // * in UNKNOWN state - it might be called before shelf was initialized
+  // * on secondary screens in states other than ACTIVE
+  bool using_views_shelf = IsUsingViewsShelf();
+  bool unknown_state = state == session_manager::SessionState::UNKNOWN;
+  bool hide_on_secondary_screen = shelf_->ShouldHideOnSecondaryDisplay(state);
+  if (!using_views_shelf || unknown_state || hide_on_secondary_screen) {
     HideIfShown();
   } else {
     switch (state) {
       case session_manager::SessionState::ACTIVE:
         login_shelf_view_->SetVisible(false);
         shelf_view_->SetVisible(true);
-        // TODO(wzang): Combine with the codes specific to SessionState::ACTIVE
-        // in PostCreateShelf() when view-based shelf on login screen is
-        // supported.
         break;
       case session_manager::SessionState::LOCKED:
       case session_manager::SessionState::LOGIN_SECONDARY:

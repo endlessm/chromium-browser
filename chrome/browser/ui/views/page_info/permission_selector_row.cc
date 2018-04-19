@@ -9,9 +9,9 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/page_info/page_info_ui.h"
 #include "chrome/browser/ui/page_info/permission_menu_model.h"
+#include "chrome/browser/ui/views/accessibility/non_accessible_image_view.h"
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/harmony/chrome_typography.h"
-#include "chrome/browser/ui/views/page_info/non_accessible_image_view.h"
 #include "chrome/browser/ui/views/page_info/page_info_bubble_view.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -275,7 +275,10 @@ PermissionSelectorRow::PermissionSelectorRow(
     const GURL& url,
     const PageInfoUI::PermissionInfo& permission,
     views::GridLayout* layout)
-    : profile_(profile), icon_(NULL), menu_button_(NULL), combobox_(NULL) {
+    : profile_(profile),
+      icon_(nullptr),
+      menu_button_(nullptr),
+      combobox_(nullptr) {
   const int list_item_padding = ChromeLayoutProvider::Get()->GetDistanceMetric(
                                     DISTANCE_CONTROL_LIST_VERTICAL) /
                                 2;
@@ -317,19 +320,36 @@ PermissionSelectorRow::PermissionSelectorRow(
   if (!reason.empty()) {
     layout->StartRow(1, PageInfoBubbleView::kPermissionColumnSetId);
     layout->SkipColumns(1);
-    views::Label* permission_decision_reason = new views::Label(reason);
-    permission_decision_reason->SetEnabledColor(
-        PageInfoUI::GetPermissionDecisionTextColor());
+    views::Label* secondary_label = new views::Label(reason);
+    secondary_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+    secondary_label->SetEnabledColor(PageInfoUI::GetSecondaryTextColor());
+    // The |secondary_label| should wrap when it's too long instead of
+    // stretching its parent view horizontally, but also ensure long strings
+    // aren't wrapped too early.
+    int preferred_width = secondary_label->GetPreferredSize().width();
+    secondary_label->SetMultiLine(true);
 
     views::ColumnSet* column_set =
         layout->GetColumnSet(PageInfoBubbleView::kPermissionColumnSetId);
     DCHECK(column_set);
-    // Long labels should span the remaining width of the row (minus the end
-    // margin). This includes the permission label, combobox, and space between
-    // them (3 columns total).
-    constexpr int kColumnSpan = 3;
-    layout->AddView(permission_decision_reason, kColumnSpan, 1,
-                    views::GridLayout::LEADING, views::GridLayout::CENTER);
+    // Secondary labels in Harmony may not overlap into space shared with the
+    // combobox column.
+    const int column_span =
+        ui::MaterialDesignController::IsSecondaryUiMaterial() ? 1 : 3;
+
+    // In Harmony, long labels that cannot fit in the existing space under the
+    // permission label should be allowed to use up to |kMaxSecondaryLabelWidth|
+    // for display.
+    constexpr int kMaxSecondaryLabelWidth = 140;
+    if (ui::MaterialDesignController::IsSecondaryUiMaterial() &&
+        preferred_width > kMaxSecondaryLabelWidth) {
+      layout->AddView(secondary_label, column_span, 1,
+                      views::GridLayout::LEADING, views::GridLayout::CENTER,
+                      kMaxSecondaryLabelWidth, 0);
+    } else {
+      layout->AddView(secondary_label, column_span, 1, views::GridLayout::FILL,
+                      views::GridLayout::CENTER);
+    }
   }
   layout->AddPaddingRow(0,
                         CalculatePaddingBeneathPermissionRow(!reason.empty()));
@@ -396,9 +416,8 @@ void PermissionSelectorRow::InitializeComboboxView(
 void PermissionSelectorRow::PermissionChanged(
     const PageInfoUI::PermissionInfo& permission) {
   // Change the permission icon to reflect the selected setting.
-  icon_->SetImage(PageInfoUI::GetPermissionIcon(
-      permission,
-      color_utils::DeriveDefaultIconColor(label_->enabled_color())));
+  icon_->SetImage(
+      PageInfoUI::GetPermissionIcon(permission, label_->enabled_color()));
 
   // Update the menu button text to reflect the new setting.
   if (menu_button_) {

@@ -65,17 +65,18 @@ class PreviewsServiceTest : public testing::Test {
       : field_trial_list_(nullptr), scoped_feature_list_() {}
 
   void SetUp() override {
-    io_data_ = base::MakeUnique<TestPreviewsIOData>();
+    io_data_ = std::make_unique<TestPreviewsIOData>();
 
-    service_ = base::MakeUnique<PreviewsService>();
+    service_ = std::make_unique<PreviewsService>();
     base::FilePath file_path;
     service_->Initialize(io_data_.get(),
                          nullptr /* optimization_guide_service */,
                          content::BrowserThread::GetTaskRunnerForThread(
                              content::BrowserThread::UI),
                          file_path);
-    scoped_feature_list_.InitAndDisableFeature(
-        data_reduction_proxy::features::kDataReductionProxyDecidesTransform);
+    scoped_feature_list_.InitWithFeatures(
+        {previews::features::kPreviews},
+        {data_reduction_proxy::features::kDataReductionProxyDecidesTransform});
   }
 
   void TearDown() override { variations::testing::ClearAllVariationParams(); }
@@ -100,7 +101,7 @@ TEST_F(PreviewsServiceTest, TestOfflineFieldTrialNotSet) {
 
 TEST_F(PreviewsServiceTest, TestOfflineFeatureDisabled) {
   std::unique_ptr<base::FeatureList> feature_list =
-      base::MakeUnique<base::FeatureList>();
+      std::make_unique<base::FeatureList>();
 
   // The feature is explicitly enabled on the command-line.
   feature_list->InitializeFromCommandLine("", "OfflinePreviews");
@@ -111,45 +112,63 @@ TEST_F(PreviewsServiceTest, TestOfflineFeatureDisabled) {
   base::FeatureList::ClearInstanceForTesting();
 }
 
-TEST_F(PreviewsServiceTest, TestClientLoFiFieldTrialEnabled) {
+TEST_F(PreviewsServiceTest, TestClientLoFiFeatureEnabled) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitWithFeatures(
+      {previews::features::kPreviews,
+       previews::features::kClientLoFi} /* enabled features */,
+      {data_reduction_proxy::features::
+           kDataReductionProxyDecidesTransform} /* disabled features */);
+
   base::FieldTrialList::CreateFieldTrial("PreviewsClientLoFi", "Enabled");
   EXPECT_TRUE(io_data()->IsPreviewEnabled(previews::PreviewsType::LOFI));
 }
 
-TEST_F(PreviewsServiceTest, TestClientLoFiFieldTrialDisabled) {
-  base::FieldTrialList::CreateFieldTrial("PreviewsClientLoFi", "Disabled");
-  EXPECT_FALSE(io_data()->IsPreviewEnabled(previews::PreviewsType::LOFI));
-}
-
-TEST_F(PreviewsServiceTest, TestClientLoFiFieldTrialNotSet) {
-  EXPECT_FALSE(io_data()->IsPreviewEnabled(previews::PreviewsType::LOFI));
-}
-
-TEST_F(PreviewsServiceTest, TestServerLoFiNotEnabled) {
+TEST_F(PreviewsServiceTest, TestClientLoFiAndServerLoFiEnabled) {
   base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(
-      data_reduction_proxy::features::kDataReductionProxyDecidesTransform);
+  scoped_feature_list.InitWithFeatures(
+      {previews::features::kPreviews, previews::features::kClientLoFi,
+       data_reduction_proxy::features::
+           kDataReductionProxyDecidesTransform} /* enabled features */,
+      {} /* disabled features */);
+
+  EXPECT_TRUE(io_data()->IsPreviewEnabled(previews::PreviewsType::LOFI));
+}
+
+TEST_F(PreviewsServiceTest, TestClientLoFiAndServerLoFiNotEnabled) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitWithFeatures(
+      {previews::features::kPreviews} /* enabled features */,
+      {previews::features::kClientLoFi,
+       data_reduction_proxy::features::
+           kDataReductionProxyDecidesTransform} /* disabled features */);
   EXPECT_FALSE(io_data()->IsPreviewEnabled(previews::PreviewsType::LOFI));
 }
 
 TEST_F(PreviewsServiceTest, TestLitePageNotEnabled) {
   base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(
-      data_reduction_proxy::features::kDataReductionProxyDecidesTransform);
+  scoped_feature_list.InitWithFeatures(
+      {previews::features::kPreviews} /* enabled features */,
+      {data_reduction_proxy::features::
+           kDataReductionProxyDecidesTransform} /* disabled features */);
   EXPECT_FALSE(io_data()->IsPreviewEnabled(previews::PreviewsType::LITE_PAGE));
 }
 
 TEST_F(PreviewsServiceTest, TestServerLoFiProxyDecidesTransform) {
   base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      data_reduction_proxy::features::kDataReductionProxyDecidesTransform);
+  scoped_feature_list.InitWithFeatures(
+      {previews::features::kPreviews,
+       data_reduction_proxy::features::kDataReductionProxyDecidesTransform},
+      {});
   EXPECT_TRUE(io_data()->IsPreviewEnabled(previews::PreviewsType::LOFI));
 }
 
 TEST_F(PreviewsServiceTest, TestLitePageProxyDecidesTransform) {
   base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      data_reduction_proxy::features::kDataReductionProxyDecidesTransform);
+  scoped_feature_list.InitWithFeatures(
+      {previews::features::kPreviews,
+       data_reduction_proxy::features::kDataReductionProxyDecidesTransform},
+      {});
   EXPECT_TRUE(io_data()->IsPreviewEnabled(previews::PreviewsType::LITE_PAGE));
 }
 

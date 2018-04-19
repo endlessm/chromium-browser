@@ -9,8 +9,7 @@
 #include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/suggestions/image_decoder_impl.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
-#include "chrome/browser/signin/signin_manager_factory.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
 #include "components/image_fetcher/core/image_decoder.h"
 #include "components/image_fetcher/core/image_fetcher.h"
 #include "components/image_fetcher/core/image_fetcher_impl.h"
@@ -20,8 +19,6 @@
 #include "components/ntp_snippets/remote/cached_image_fetcher.h"
 #include "components/ntp_snippets/remote/remote_suggestions_database.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/browser/profile_oauth2_token_service.h"
-#include "components/signin/core/browser/signin_manager.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/common/service_manager_connection.h"
 #include "services/data_decoder/public/cpp/safe_json_parser.h"
@@ -75,8 +72,7 @@ ContextualContentSuggestionsServiceFactory::
     : BrowserContextKeyedServiceFactory(
           "ContextualContentSuggestionsService",
           BrowserContextDependencyManager::GetInstance()) {
-  DependsOn(ProfileOAuth2TokenServiceFactory::GetInstance());
-  DependsOn(SigninManagerFactory::GetInstance());
+  DependsOn(IdentityManagerFactory::GetInstance());
 }
 
 ContextualContentSuggestionsServiceFactory::
@@ -92,15 +88,13 @@ ContextualContentSuggestionsServiceFactory::BuildServiceInstanceFor(
   }
 
   PrefService* pref_service = profile->GetPrefs();
-  SigninManagerBase* signin_manager =
-      SigninManagerFactory::GetForProfile(profile);
-  OAuth2TokenService* token_service =
-      ProfileOAuth2TokenServiceFactory::GetForProfile(profile);
+  identity::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(profile);
   scoped_refptr<net::URLRequestContextGetter> request_context =
       profile->GetRequestContext();
   auto contextual_suggestions_fetcher =
-      base::MakeUnique<ContextualSuggestionsFetcherImpl>(
-          signin_manager, token_service, request_context, pref_service,
+      std::make_unique<ContextualSuggestionsFetcherImpl>(
+          identity_manager, request_context, pref_service,
           base::Bind(&data_decoder::SafeJsonParser::Parse,
                      content::ServiceManagerConnection::GetForProcess()
                          ->GetConnector()));
@@ -108,11 +102,11 @@ ContextualContentSuggestionsServiceFactory::BuildServiceInstanceFor(
       FILE_PATH_LITERAL("contextualSuggestionsDatabase");
   base::FilePath database_dir(profile->GetPath().Append(kDatabaseFolder));
   auto contextual_suggestions_database =
-      base::MakeUnique<RemoteSuggestionsDatabase>(database_dir);
+      std::make_unique<RemoteSuggestionsDatabase>(database_dir);
   auto cached_image_fetcher =
-      base::MakeUnique<ntp_snippets::CachedImageFetcher>(
-          base::MakeUnique<image_fetcher::ImageFetcherImpl>(
-              base::MakeUnique<suggestions::ImageDecoderImpl>(),
+      std::make_unique<ntp_snippets::CachedImageFetcher>(
+          std::make_unique<image_fetcher::ImageFetcherImpl>(
+              std::make_unique<suggestions::ImageDecoderImpl>(),
               request_context.get()),
           pref_service, contextual_suggestions_database.get());
   auto* service = new ContextualContentSuggestionsService(

@@ -224,7 +224,7 @@ TabManager::TabManager()
       is_session_restore_loading_tabs_(false),
       restored_tab_count_(0u),
       background_tab_loading_mode_(BackgroundTabLoadingMode::kStaggered),
-      force_load_timer_(base::MakeUnique<base::OneShotTimer>(GetTickClock())),
+      force_load_timer_(std::make_unique<base::OneShotTimer>(GetTickClock())),
       loading_slots_(kNumOfLoadingSlots),
       weak_ptr_factory_(this) {
 #if defined(OS_CHROMEOS)
@@ -381,8 +381,8 @@ bool TabManager::CanDiscardTab(const TabStats& tab_stats,
     return false;
 
   // Do not discard PDFs as they might contain entry that is not saved and they
-  // don't remember their scrolling positions. See crbug.com/547286 and
-  // crbug.com/65244.
+  // don't remember their scrolling positions. See https://crbug.com/547286 and
+  // https://crbug.com/65244.
   // TODO(georgesak): Remove this workaround when the bugs are fixed.
   if (web_contents->GetContentsMimeType() == "application/pdf")
     return false;
@@ -646,8 +646,7 @@ void TabManager::PurgeBrowserMemory() {
   // function therefore only targets large blocks of memory in the browser.
   // Note that other objects will listen to MemoryPressureListener events
   // to release memory.
-  for (TabContentsIterator it; !it.done(); it.Next()) {
-    WebContents* web_contents = *it;
+  for (auto* web_contents : AllTabContentses()) {
     // Screenshots can consume ~5 MB per web contents for platforms that do
     // touch back/forward.
     web_contents->GetController().ClearAllScreenshots();
@@ -1062,7 +1061,8 @@ void TabManager::OnWillRestoreTab(WebContents* contents) {
   WebContentsData* data = GetWebContentsData(contents);
   DCHECK(!data->is_in_session_restore());
   data->SetIsInSessionRestore(true);
-  data->SetIsRestoredInForeground(contents->IsVisible());
+  data->SetIsRestoredInForeground(contents->GetVisibility() !=
+                                  content::Visibility::HIDDEN);
   restored_tab_count_++;
 
   // TabUIHelper is initialized in TabHelpers::AttachTabHelpers. But this place
@@ -1076,7 +1076,7 @@ content::NavigationThrottle::ThrottleCheckResult
 TabManager::MaybeThrottleNavigation(BackgroundTabNavigationThrottle* throttle) {
   content::WebContents* contents =
       throttle->navigation_handle()->GetWebContents();
-  DCHECK(!contents->IsVisible());
+  DCHECK_EQ(contents->GetVisibility(), content::Visibility::HIDDEN);
 
   // Skip delaying the navigation if this tab is in session restore, whose
   // loading is already controlled by TabLoader.

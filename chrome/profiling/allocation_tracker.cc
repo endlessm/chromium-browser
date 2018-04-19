@@ -17,6 +17,14 @@ AllocationTracker::AllocationTracker(CompleteCallback complete_cb,
       backtrace_storage_(backtrace_storage) {}
 
 AllocationTracker::~AllocationTracker() {
+  for (auto& pair : registered_snapshot_callbacks_) {
+    RunnerSnapshotCallbackPair& rsc_pair = pair.second;
+    rsc_pair.first->PostTask(
+        FROM_HERE,
+        base::BindOnce(std::move(rsc_pair.second), false, AllocationCountMap(),
+                       ContextMap(), AddressToStringMap()));
+  }
+
   std::vector<const Backtrace*> to_free;
   to_free.reserve(live_allocs_.size());
   for (const auto& cur : live_allocs_)
@@ -32,9 +40,15 @@ void AllocationTracker::OnAlloc(const AllocPacket& alloc_packet,
   // Compute the context ID for this allocation, 0 means no context.
   int context_id = 0;
   if (!context.empty()) {
-    auto inserted_record = context_.emplace(
-        std::piecewise_construct, std::forward_as_tuple(std::move(context)),
-        std::forward_as_tuple(next_context_id_));
+    // Escape the strings before saving them, to simplify exporting a heap dump.
+    std::string escaped_context;
+    base::EscapeJSONString(context, false /* put_in_quotes */,
+                           &escaped_context);
+
+    auto inserted_record =
+        context_.emplace(std::piecewise_construct,
+                         std::forward_as_tuple(std::move(escaped_context)),
+                         std::forward_as_tuple(next_context_id_));
     context_id = inserted_record.first->second;
     if (inserted_record.second)
       next_context_id_++;

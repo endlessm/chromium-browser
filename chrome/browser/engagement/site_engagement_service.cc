@@ -35,7 +35,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
-#include "third_party/WebKit/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
 #include "url/gurl.h"
 
 #if defined(OS_ANDROID)
@@ -118,12 +118,12 @@ bool SiteEngagementService::IsEnabled() {
 double SiteEngagementService::GetScoreFromSettings(
     HostContentSettingsMap* settings,
     const GURL& origin) {
-  auto clock = base::MakeUnique<base::DefaultClock>();
+  auto clock = std::make_unique<base::DefaultClock>();
   return SiteEngagementScore(clock.get(), origin, settings).GetTotalScore();
 }
 
 SiteEngagementService::SiteEngagementService(Profile* profile)
-    : SiteEngagementService(profile, base::MakeUnique<base::DefaultClock>()) {
+    : SiteEngagementService(profile, std::make_unique<base::DefaultClock>()) {
   content::BrowserThread::PostAfterStartupTask(
       FROM_HERE,
       content::BrowserThread::GetTaskRunnerForThread(
@@ -137,7 +137,11 @@ SiteEngagementService::SiteEngagementService(Profile* profile)
   }
 }
 
-SiteEngagementService::~SiteEngagementService() = default;
+SiteEngagementService::~SiteEngagementService() {
+  // Clear any observers to avoid dangling pointers back to this object.
+  for (auto& observer : observer_list_)
+    observer.Observe(nullptr);
+}
 
 void SiteEngagementService::Shutdown() {
   history::HistoryService* history = HistoryServiceFactory::GetForProfile(

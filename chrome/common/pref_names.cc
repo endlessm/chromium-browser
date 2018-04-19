@@ -6,7 +6,7 @@
 
 #include "base/macros.h"
 #include "build/build_config.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/pref_font_webkit_names.h"
 #include "extensions/features/features.h"
 #include "media/media_features.h"
@@ -189,11 +189,7 @@ const char kSupervisedUserWhitelists[] = "profile.managed.whitelists";
 const char kRlzPingDelaySeconds[] = "rlz_ping_delay";
 #endif  // BUILDFLAG(ENABLE_RLZ)
 
-// The application locale.
-// For OS_CHROMEOS we maintain the kApplicationLocale property in both local
-// state and the user's profile.  The global property determines the locale of
-// the login screen, while the user's profile determines their personal locale
-// preference.
+// Important: Refer to header file for how to use this.
 const char kApplicationLocale[] = "intl.app_locale";
 #if defined(OS_CHROMEOS)
 // Locale preference of device' owner.  ChromeOS device appears in this locale
@@ -915,6 +911,11 @@ const char kCastReceiverEnabled[] = "cast_receiver.enabled";
 // be applied. See base::Version for exact string format.
 const char kMinimumAllowedChromeVersion[] = "minimum_req.version";
 
+// Boolean preference that triggers chrome://settings/syncSetup to be opened
+// on user session start.
+const char kShowSyncSettingsOnSessionStart[] =
+    "start_sync_settings_on_session_start";
+
 #endif  // defined(OS_CHROMEOS)
 
 // A boolean pref set to true if a Home button to open the Home pages should be
@@ -1089,15 +1090,6 @@ const char kEnableDoNotTrack[] = "enable_do_not_track";
 // non-webkit-prefixed string.
 const char kEnableEncryptedMedia[] = "webkit.webprefs.encrypted_media_enabled";
 
-// GL_VENDOR string.
-const char kGLVendorString[] = "gl_vendor_string";
-
-// GL_RENDERER string.
-const char kGLRendererString[] = "gl_renderer_string";
-
-// GL_VERSION string.
-const char kGLVersionString[] = "gl_version_string";
-
 // Boolean that specifies whether to import the form data for autofill from the
 // default browser on first run.
 const char kImportAutofillFormData[] = "import_autofill_form_data";
@@ -1248,15 +1240,6 @@ const char kNotificationsVibrateEnabled[] = "notifications.vibrate_enabled";
 // permission, so any existing permissions must be migrated).
 const char kMigratedToSiteNotificationChannels[] =
     "notifications.migrated_to_channels";
-
-// Cached information about GPU driver.
-const char kGLExtensionsString[] = "gl_extensions_string";
-const char kGpuDriverInfoMaxSamples[] = "gpu_driver_info_max_samples";
-const char kGpuDriverInfoResetNotificationStrategy[] =
-    "gpu_driver_info_reset_notification_strategy";
-const char kGpuDriverInfoShaderVersion[] = "gpu_driver_info_shader_version";
-const char kGpuDriverInfoBuildFingerPrint[] =
-    "gpu_driver_info_build_finder_print";
 #endif
 
 // Maps from app ids to origin + Service Worker registration ID.
@@ -1310,6 +1293,11 @@ const char kHasSeenWelcomePage[] = "browser.has_seen_welcome_page";
 #if defined(OS_WIN)
 // Whether or not this profile has been shown the Win10 promo page.
 const char kHasSeenWin10PromoPage[] = "browser.has_seen_win10_promo_page";
+
+// Whether or not the kHasSeenWin10PromoPage pref should be reset to its default
+// value. Used to trigger a one-time reset of the Win10 promo.
+const char kResetHasSeenWin10PromoPage[] =
+    "browser.reset_has_seen_win10_promo_page";
 #endif
 
 // *************** LOCAL STATE ***************
@@ -1411,6 +1399,12 @@ const char kOpenPdfDownloadInSystemReader[] =
     "download.open_pdf_in_system_reader";
 #endif
 
+#if defined(OS_ANDROID)
+// Int (as defined by DownloadPromptStatus) which specifies whether we should
+// ask the user where they want to download the file (only for Android).
+const char kPromptForDownloadAndroid[] = "download.prompt_for_download_android";
+#endif
+
 // String which specifies where to save html files to by default.
 const char kSaveFileDefaultDirectory[] = "savefile.default_directory";
 
@@ -1446,10 +1440,6 @@ const char kExcludedSchemes[] = "protocol_handler.excluded_schemes";
 // Integer that specifies the index of the tab the user was on when they
 // last visited the options window.
 const char kOptionsWindowLastTabIndex[] = "options_window.last_tab_index";
-
-// Integer that specifies if the first run bubble should be shown.
-// This preference is only registered by the first-run procedure.
-const char kShowFirstRunBubbleOption[] = "show-first-run-bubble-option";
 
 // String containing the last known intranet redirect URL, if any.  See
 // intranet_redirect_detector.h for more information.
@@ -1569,6 +1559,10 @@ const char kDevToolsRemoteEnabled[] = "devtools.remote_enabled";
 const char kGoogleServicesPasswordHash[] = "google.services.password_hash";
 
 #if !defined(OS_ANDROID)
+// Tracks the number of times the dice signin promo has been shown in the user
+// menu.
+const char kDiceSigninUserMenuPromoCount[] = "sync_promo.user_menu_show_count";
+
 // Tracks the number of times that we have shown the sign in promo at startup.
 const char kSignInPromoStartupCount[] = "sync_promo.startup_count";
 
@@ -1693,6 +1687,12 @@ const char kNtlmV2Enabled[] = "auth.ntlm_v2_enabled";
 
 // Boolean that specifies whether the built-in asynchronous DNS client is used.
 const char kBuiltInDnsClientEnabled[] = "async_dns.enabled";
+
+// String containing list of DNS over HTTPS servers to be used.
+const char kDnsOverHttpsServers[] = "dns_over_https.servers";
+// String contianing list of methods (GET or POST) to use with DNS over HTTPS
+// servers, in the same order of the above pref.
+const char kDnsOverHttpsServerMethods[] = "dns_over_https.methods";
 
 // A pref holding the value of the policy used to explicitly allow or deny
 // access to audio capture devices.  When enabled or not set, the user is
@@ -1875,6 +1875,9 @@ const char kPowerMetricsIdleSuspendCount[] = "power.metrics.idle_suspend_count";
 const char kPowerMetricsLidClosedSuspendCount[] =
     "power.metrics.lid_closed_suspend_count";
 
+// Key for list of users that should be reported.
+const char kReportingUsers[] = "reporting_users";
+
 #endif  // defined(OS_CHROMEOS)
 
 // Whether there is a Flash version installed that supports clearing LSO data.
@@ -1950,6 +1953,19 @@ const char kEnableMediaRouter[] = "media_router.enable_media_router";
 // Pref name for the policy controlling whether to force the Cast icon to be
 // shown in the toolbar/overflow menu.
 const char kShowCastIconInToolbar[] = "media_router.show_cast_icon_in_toolbar";
+#endif  // !defined(OS_ANDROID)
+
+#if !defined(OS_ANDROID)
+#if !defined(OS_CHROMEOS)
+// Pref name for the policy controlling the way in which users are notified of
+// the need to relaunch the browser for a pending update.
+const char kRelaunchNotification[] = "browser.relaunch_notification";
+#endif  // !defined(OS_CHROMEOS)
+// Pref name for the policy controlling the time period over which users are
+// notified of the need to relaunch the browser for a pending update. Values
+// are in milliseconds.
+const char kRelaunchNotificationPeriod[] =
+    "browser.relaunch_notification_period";
 #endif  // !defined(OS_ANDROID)
 
 // *************** SERVICE PREFS ***************
@@ -2435,7 +2451,17 @@ const char kNumberHistoryPageIOSPromoShown[] =
 
 // True if the user has dismissed the "desktop to iOS" history page promotion.
 const char kHistoryPageIOSPromoDismissed[] = "history_page_ios_promo_dismissed";
-#endif
+
+#if defined(GOOGLE_CHROME_BUILD)
+// Acts as a cache to remember problematic programs through restarts. Used for
+// the third-party conflicts warning.
+const char kProblematicPrograms[] = "problematic_programs";
+
+// A boolean value, controlling whether third party software is allowed to
+// inject into Chrome's processes.
+const char kThirdPartyBlockingEnabled[] = "third_party_blocking_enabled";
+#endif  // defined(GOOGLE_CHROME_BUILD)
+#endif  // defined(OS_WIN)
 
 // An integer that keeps track of prompt waves for the settings reset
 // prompt. Users will be prompted to reset settings at most once per prompt wave
@@ -2552,10 +2578,9 @@ const char kSitePerProcess[] = "site_isolation.site_per_process";
 const char kWebDriverOverridesIncompatiblePolicies[] =
     "webdriver.override_incompatible_policy";
 
-#if defined(OS_WIN)
-// A boolean value, controlling whether third party software is allowed to
-// inject into Chrome's processes.
-const char kThirdPartyBlockingEnabled[] = "third_party_blocking_enabled";
-#endif
+#if !defined(OS_ANDROID)
+// Boolean that specifies whether media (audio/video) autoplay is allowed.
+const char kAutoplayAllowed[] = "media.autoplay_allowed";
+#endif  // !defined(OS_ANDROID)
 
 }  // namespace prefs

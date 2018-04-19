@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">1 adreso eil.</translation>
 <translation id="1545749641540134597">Nuskaitykite QR kodą</translation>
 <translation id="1580783302095112590">El. laiškas išsiųstas.</translation>
+<translation id="1582732959743469162">Bus sustabdytas dabartinis atsisiuntimas.</translation>
 <translation id="1612730193129642006">Rodyti skirtuko tinklelį</translation>
+<translation id="1644574205037202324">Istorija</translation>
 <translation id="1646446875146297738">Įgalinus „Nestebėti“, į naršymo srautą bus įtraukta užklausa. Bet koks poveikis priklauso nuo to, ar svetainė atsako į užklausą ir kaip ji interpretuojama.
 
 Pvz., kai kurios svetainės gali atsakyti į šią užklausą parodydamos skelbimus, nepagrįstus kitomis svetainėmis, kuriose lankėtės. Daugybė svetainių vis tiek rinks ir naudos jūsų naršymo duomenis, pvz., siekdamos pagerinti saugumą, teikti svetainėse turinį, paslaugas, skelbimus ir rekomendacijas bei generuoti ataskaitų statistiką. <ph name="BEGIN_LINK" />Sužinokite daugiau<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@ Pvz., kai kurios svetainės gali atsakyti į šią užklausą parodydamos skelbi
 <translation id="3175081911749765310">Žin. pasl.</translation>
 <translation id="3207960819495026254">Pažymėta</translation>
 <translation id="3210163015918861891">Sinchronizavimas išjungtas</translation>
+<translation id="3224641773458703735">Jei norite eksportuoti slaptažodžius, pirmiausia turite nustatyti įrenginio slaptažodį.</translation>
 <translation id="3240426699337459095">Nuoroda nukopijuota</translation>
 <translation id="3244271242291266297">MM</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> iš <ph name="NUM_SUGGESTIONS" /></translation>
@@ -153,6 +156,7 @@ Pvz., kai kurios svetainės gali atsakyti į šią užklausą parodydamos skelbi
 <translation id="3771033907050503522">Inkognito skirt.</translation>
 <translation id="3779810277399252432">Nėra interneto ryšio.</translation>
 <translation id="3783017676699494206">Išsaugoti vaizdą</translation>
+<translation id="3789841737615482174">Įdiegti</translation>
 <translation id="385051799172605136">Grįžti</translation>
 <translation id="3897092660631435901">Meniu</translation>
 <translation id="3928666092801078803">Sujungti duomenis</translation>
@@ -220,7 +224,6 @@ Duomenys užšifruoti naudojant slaptafrazę. Įveskite ją, kad pradėtumėte s
 <translation id="5300589172476337783">Rodyti</translation>
 <translation id="5317780077021120954">Išsaugoti</translation>
 <translation id="5327248766486351172">Pavadinimas</translation>
-<translation id="533632423981297619">Slaptažodžiai bus matomi visiems, kas gali peržiūrėti eksportuotą failą. Nebendrinkite šio failo su niekuo.</translation>
 <translation id="5388358297987318779">Atidaryti vaizdą</translation>
 <translation id="5409365236829784218">Nėra įdiegtų pr., kurias naudojant galima atidaryti failą.</translation>
 <translation id="5433691172869980887">Naudotojo vardas nukopijuotas</translation>
@@ -249,6 +252,7 @@ Be to, reikia įgalinti „Handoff“ nustatymų skiltyje „Bendrieji“, o įr
 <translation id="5871497086027727873">Perkelta elementų: 1</translation>
 <translation id="5911030830365207728">„Google“ vertėjas</translation>
 <translation id="5916664084637901428">Įjungta</translation>
+<translation id="5938160824633642847">Jūsų įrenginys beveik pilnas. Atlaisvinkite vietos ir bandykite dar kartą.</translation>
 <translation id="5948291296578561264">Taip galėsite išsaugoti nuotraukas nuotraukų bibliotekoje.</translation>
 <translation id="5955891643922670672">Peržiūros neprisijungus versija</translation>
 <translation id="5964480694698977962">Kurti naują inkognito skirtuką.</translation>
@@ -280,7 +284,9 @@ Be to, reikia įgalinti „Handoff“ nustatymų skiltyje „Bendrieji“, o įr
 <translation id="633809752005859102">Kažkas tikrai nepavyko. Pasistengsime tai ištaisyti.</translation>
 <translation id="6342069812937806050">Ką tik</translation>
 <translation id="6344783595350022745">Išvalyti tekstą</translation>
+<translation id="6346549652287021269">Pradėti naują atsisiuntimą?</translation>
 <translation id="6362362396625799311">Nėra inkognito skirtukų</translation>
+<translation id="6374469231428023295">Bandyti dar kartą</translation>
 <translation id="6380866119319257197">Jei pamiršote slaptafr. arba norite pakeisti šį nust., <ph name="BEGIN_LINK" />iš naujo nust. sinchr.<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">Vardas kortel.</translation>
 <translation id="6406506848690869874">Sinchronizavimas</translation>
@@ -289,6 +295,7 @@ Be to, reikia įgalinti „Handoff“ nustatymų skiltyje „Bendrieji“, o įr
 
 <ph name="TIME" /> duomenys buvo užšifruoti naudojant sinchronizavimo slaptafrazę. Įveskite ją, kad pradėtumėte sinchronizuoti.</translation>
 <translation id="6418346271604475326">Ruošiamas PDF</translation>
+<translation id="6434591244308415567">Įvyko klaida. Vėliau bandykite dar kartą.</translation>
 <translation id="6445051938772793705">Šalis</translation>
 <translation id="6445981559479772097">Pran. išsiųstas.</translation>
 <translation id="6464071786529933911">Atid. nauj. ink. skirtuk.</translation>
@@ -299,6 +306,7 @@ Be to, reikia įgalinti „Handoff“ nustatymų skiltyje „Bendrieji“, o įr
 <translation id="6657585470893396449">Slaptažodis</translation>
 <translation id="667999046851023355">Dokumentas</translation>
 <translation id="6713747756340119864">Google Apps</translation>
+<translation id="6730682669179532099">Negalima eksportuoti slaptažodžių</translation>
 <translation id="6762156594045689028">Kad pakeistumėte šį nustatymą, <ph name="BEGIN_LINK" />iš naujo nustatykite sinchronizavimą<ph name="END_LINK" /></translation>
 <translation id="6780034285637185932">Pašto kodas</translation>
 <translation id="6785453220513215166">Siunčiama strigties ataskaita...</translation>
@@ -308,13 +316,16 @@ Be to, reikia įgalinti „Handoff“ nustatymų skiltyje „Bendrieji“, o įr
 <translation id="681368974849482173">Elementas sukurtas</translation>
 <translation id="6896758677409633944">Kopijuoti</translation>
 <translation id="6903907808598579934">Įjungti sinchronizavimą</translation>
+<translation id="6914783257214138813">Jūsų slaptažodžiai bus matomi visiems, kurie gali peržiūrėti eksportuotą failą.</translation>
 <translation id="6945221475159498467">Pasirinkti</translation>
 <translation id="6973630695168034713">Aplankai</translation>
 <translation id="7004499039102548441">Naujausi skirtukai</translation>
 <translation id="7006788746334555276">Turinio nustatymai</translation>
+<translation id="7029809446516969842">Slaptažodžiai</translation>
 <translation id="7031882061095297553">Sinchronizavimas su</translation>
 <translation id="7053983685419859001">Blokuoti</translation>
 <translation id="7062545763355031412">Sutikti ir perjungti paskyras</translation>
+<translation id="7102005569666697658">Atsisiunčiama… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">Slėpti</translation>
 <translation id="7133798577887235672">Vardas ir pav.</translation>
 <translation id="7136892417564438900">Fotoaparatas nepasiekiamas</translation>
@@ -325,6 +336,7 @@ Be to, reikia įgalinti „Handoff“ nustatymų skiltyje „Bendrieji“, o įr
 <translation id="7203585745079012652">Sakyti atsakymus</translation>
 <translation id="722055596168483966">„Google“ paslaugų suasmeninimas</translation>
 <translation id="7272437679830969316">Nepavyko patvirtinti tapatybės. Slaptažodis nenukopijuotas.</translation>
+<translation id="7291368939935408496">Ruošiami slaptažodžiai…</translation>
 <translation id="7336264872878993241">Atsisiųsta <ph name="PERCENT" /> proc.</translation>
 <translation id="7346909386216857016">Gerai, supratau</translation>
 <translation id="7400418766976504921">URL adresas</translation>
@@ -349,6 +361,7 @@ Be to, reikia įgalinti „Handoff“ nustatymų skiltyje „Bendrieji“, o įr
 <translation id="7769602470925380267">Sutikti ir atsijungti</translation>
 <translation id="7772032839648071052">Patvirtinti slaptafrazę</translation>
 <translation id="780301667611848630">Ačiū, ne</translation>
+<translation id="7856733331829174190">Nepavyko atsisiųsti</translation>
 <translation id="7859704718976024901">Naršymo istorija</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">Eksportuoti slaptažodžius...</translation>
@@ -409,6 +422,7 @@ Be to, reikia įgalinti „Handoff“ nustatymų skiltyje „Bendrieji“, o įr
 <translation id="9083392325882095631">Elementų: 1</translation>
 <translation id="9100610230175265781">Būtina slaptafrazė</translation>
 <translation id="9148126808321036104">Prisijungti dar kartą</translation>
+<translation id="915371508759614899">Atšaukti atsisiuntimą?</translation>
 <translation id="9157836665414082580">Nerod. dialogo langų</translation>
 <translation id="9188680907066685419">Atsijungimas nuo valdomos paskyros</translation>
 <translation id="9203116392574189331">Handoff</translation>

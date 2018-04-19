@@ -10,6 +10,7 @@
 #include "components/sync/protocol/app_setting_specifics.pb.h"
 #include "components/sync/protocol/app_specifics.pb.h"
 #include "components/sync/protocol/arc_package_specifics.pb.h"
+#include "components/sync/protocol/attachments.pb.h"
 #include "components/sync/protocol/autofill_specifics.pb.h"
 #include "components/sync/protocol/bookmark_specifics.pb.h"
 #include "components/sync/protocol/dictionary_specifics.pb.h"
@@ -135,10 +136,6 @@ VISIT_PROTO_FIELDS(const sync_pb::ArcPackageSpecifics& proto) {
   VISIT(last_backup_time);
 }
 
-VISIT_PROTO_FIELDS(const sync_pb::ArticleAttachments& proto) {
-  VISIT(distilled_article);
-}
-
 VISIT_PROTO_FIELDS(const sync_pb::ArticlePage& proto) {
   VISIT(url);
 }
@@ -147,7 +144,6 @@ VISIT_PROTO_FIELDS(const sync_pb::ArticleSpecifics& proto) {
   VISIT(entry_id);
   VISIT(title);
   VISIT_REP(pages);
-  VISIT(attachments);
 }
 
 VISIT_PROTO_FIELDS(const sync_pb::AttachmentIdProto& proto) {
@@ -348,6 +344,7 @@ VISIT_PROTO_FIELDS(const sync_pb::DeviceInfoSpecifics& proto) {
   VISIT(sync_user_agent);
   VISIT(chrome_version);
   VISIT(signin_scoped_device_id);
+  VISIT(last_updated_timestamp);
 }
 
 VISIT_PROTO_FIELDS(const sync_pb::DictionarySpecifics& proto) {
@@ -701,6 +698,8 @@ VISIT_PROTO_FIELDS(const sync_pb::ReadingListSpecifics& proto) {
   VISIT(creation_time_us);
   VISIT(update_time_us);
   VISIT_ENUM(status);
+  VISIT(first_read_time_us);
+  VISIT(update_title_time_us);
 }
 
 VISIT_PROTO_FIELDS(const sync_pb::SearchEngineSpecifics& proto) {
@@ -794,7 +793,6 @@ VISIT_PROTO_FIELDS(const sync_pb::SyncEntity& proto) {
   VISIT(specifics);
   VISIT(folder);
   VISIT(client_defined_unique_tag);
-  VISIT_REP(attachment_id);
   VISIT_BYTES(ordinal_in_parent);
   VISIT(bookmarkdata);
 }
@@ -890,9 +888,9 @@ VISIT_PROTO_FIELDS(const sync_pb::UserEventSpecifics::Translation& proto) {
 }
 
 VISIT_PROTO_FIELDS(const sync_pb::UserEventSpecifics::UserConsent& proto) {
-  VISIT(feature);
-  VISIT_REP(consent_grd_ids);
-  VISIT_REP(placeholder_replacements);
+  VISIT_ENUM(feature);
+  VISIT_REP(description_grd_ids);
+  VISIT(confirmation_grd_id);
   VISIT(locale);
   VISIT_ENUM(status);
 }

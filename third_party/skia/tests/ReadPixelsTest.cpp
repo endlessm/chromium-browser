@@ -7,7 +7,6 @@
 
 #include "SkCanvas.h"
 #include "SkColorData.h"
-#include "SkColorSpace_Base.h"
 #include "SkHalf.h"
 #include "SkImageInfoPriv.h"
 #include "SkMathPriv.h"
@@ -469,7 +468,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ReadPixels_Texture, reporter, ctxInfo) {
                                                                             bmp.rowBytes());
 
             sk_sp<GrSurfaceContext> sContext = context->contextPriv().makeWrappedSurfaceContext(
-                                                                        std::move(proxy), nullptr);
+                                                                                std::move(proxy));
 
             test_readpixels_texture(reporter, std::move(sContext));
         }

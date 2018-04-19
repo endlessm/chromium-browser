@@ -72,3 +72,87 @@ TEST_F(HLSL30VertexOutputTest, RewriteElseBlockReturningStruct)
     EXPECT_FALSE(foundInCode("(foo)"));
     EXPECT_FALSE(foundInCode(" foo"));
 }
+
+// Test that having an array constructor as a statement doesn't trigger an assert in HLSL output.
+// This test has a constant array constructor statement.
+TEST_F(HLSLOutputTest, ConstArrayConstructorStatement)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+        void main()
+        {
+            int[1](0);
+        })";
+    compile(shaderString);
+}
+
+// Test that having an array constructor as a statement doesn't trigger an assert in HLSL output.
+TEST_F(HLSLOutputTest, ArrayConstructorStatement)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+        precision mediump float;
+        out vec4 outColor;
+        void main()
+        {
+            outColor = vec4(0.0, 0.0, 0.0, 1.0);
+            float[1](outColor[1]++);
+        })";
+    compile(shaderString);
+}
+
+// Test an array of arrays constructor as a statement.
+TEST_F(HLSLOutputTest, ArrayOfArraysStatement)
+{
+    const std::string &shaderString =
+        R"(#version 310 es
+        precision mediump float;
+        out vec4 outColor;
+        void main()
+        {
+            outColor = vec4(0.0, 0.0, 0.0, 1.0);
+            float[2][2](float[2](outColor[1]++, 0.0), float[2](1.0, 2.0));
+        })";
+    compile(shaderString);
+}
+
+// Test dynamic indexing of a vector. This makes sure that helper functions added for dynamic
+// indexing have correct data that subsequent traversal steps rely on.
+TEST_F(HLSLOutputTest, VectorDynamicIndexing)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+        precision mediump float;
+        out vec4 outColor;
+        uniform int i;
+        void main()
+        {
+            vec4 foo = vec4(0.0, 0.0, 0.0, 1.0);
+            foo[i] = foo[i + 1];
+            outColor = foo;
+        })";
+    compile(shaderString);
+}
+
+// Test returning an array from a user-defined function. This makes sure that function symbols are
+// changed consistently when the user-defined function is changed to have an array out parameter.
+TEST_F(HLSLOutputTest, ArrayReturnValue)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+        precision mediump float;
+        uniform float u;
+        out vec4 outColor;
+
+        float[2] getArray(float f)
+        {
+            return float[2](f, f + 1.0);
+        }
+
+        void main()
+        {
+            float[2] arr = getArray(u);
+            outColor = vec4(arr[0], arr[1], 0.0, 1.0);
+        })";
+    compile(shaderString);
+}

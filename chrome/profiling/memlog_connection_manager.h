@@ -14,6 +14,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/process/process_handle.h"
 #include "base/synchronization/lock.h"
+#include "base/threading/thread.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/common/profiling/profiling_service.mojom.h"
@@ -21,7 +22,7 @@
 #include "chrome/profiling/allocation_tracker.h"
 #include "chrome/profiling/backtrace_storage.h"
 #include "mojo/edk/embedder/scoped_platform_handle.h"
-#include "services/resource_coordinator/public/interfaces/memory_instrumentation/memory_instrumentation.mojom.h"
+#include "services/resource_coordinator/public/mojom/memory_instrumentation/memory_instrumentation.mojom.h"
 
 namespace base {
 
@@ -31,6 +32,10 @@ class SequencedTaskRunner;
 
 namespace profiling {
 
+using VmRegions =
+    std::unordered_map<base::ProcessId,
+                       std::vector<memory_instrumentation::mojom::VmRegionPtr>>;
+
 // Manages all connections and logging for each process. Pipes are supplied by
 // the pipe server and this class will connect them to a parser and logger.
 //
@@ -39,7 +44,9 @@ namespace profiling {
 // This object is constructed on the UI thread, but the rest of the usage
 // (including deletion) is on the IO thread.
 class MemlogConnectionManager {
- private:
+  using DumpProcessesForTracingCallback = memory_instrumentation::mojom::
+      HeapProfiler::DumpProcessesForTracingCallback;
+
  public:
   MemlogConnectionManager();
   ~MemlogConnectionManager();
@@ -63,20 +70,19 @@ class MemlogConnectionManager {
   // Dumping is asynchronous so will not be complete when this function
   // returns. The dump is complete when the callback provided in the args is
   // fired.
-  void DumpProcessesForTracing(
-      bool keep_small_allocations,
-      bool strip_path_from_mapped_files,
-      mojom::ProfilingService::DumpProcessesForTracingCallback callback,
-      memory_instrumentation::mojom::GlobalMemoryDumpPtr dump);
+  void DumpProcessesForTracing(bool keep_small_allocations,
+                               bool strip_path_from_mapped_files,
+                               DumpProcessesForTracingCallback callback,
+                               VmRegions vm_regions);
 
   void OnNewConnection(base::ProcessId pid,
                        mojom::ProfilingClientPtr client,
-                       mojo::ScopedHandle sender_pipe_end,
                        mojo::ScopedHandle receiver_pipe_end,
                        mojom::ProcessType process_type,
-                       profiling::mojom::StackMode stack_mode);
+                       mojom::ProfilingParamsPtr params);
 
   std::vector<base::ProcessId> GetConnectionPids();
+  std::vector<base::ProcessId> GetConnectionPidsThatNeedVmRegions();
 
  private:
   struct Connection;
@@ -88,6 +94,7 @@ class MemlogConnectionManager {
       mojom::ProcessType process_type,
       bool keep_small_allocations,
       bool strip_path_from_mapped_files,
+      uint32_t sampling_rate,
       bool success,
       AllocationCountMap counts,
       AllocationTracker::ContextMap context,
@@ -114,12 +121,22 @@ class MemlogConnectionManager {
   // to ensure barrier IDs are unique.
   uint32_t next_barrier_id_ = 1;
 
+  // The next ID to use when exporting a heap dump.
+  size_t next_id_ = 1;
+
   // Maps process ID to the connection information for it.
   base::flat_map<base::ProcessId, std::unique_ptr<Connection>> connections_;
   base::Lock connections_lock_;
 
   // Every 24-hours, reports the types of profiled processes.
   base::RepeatingTimer metrics_timer_;
+
+  // To avoid deadlock, synchronous calls to the browser are made on a dedicated
+  // thread that does nothing else. Both the IO thread and connection-specific
+  // threads could potentially be processing messages from the browser process,
+  // which in turn could be blocked on sending more messages over the memlog
+  // pipe.
+  base::Thread blocking_thread_;
 
   // Must be last.
   base::WeakPtrFactory<MemlogConnectionManager> weak_factory_;

@@ -727,20 +727,6 @@ static int getOutputFileName(StringRef InFilename, bool TempOutFile,
   return FD;
 }
 
-static CodeGenOpt::Level getCGOptLevel() {
-  switch (options::OptLevel) {
-  case 0:
-    return CodeGenOpt::None;
-  case 1:
-    return CodeGenOpt::Less;
-  case 2:
-    return CodeGenOpt::Default;
-  case 3:
-    return CodeGenOpt::Aggressive;
-  }
-  llvm_unreachable("Invalid optimization level");
-}
-
 /// Parse the thinlto_prefix_replace option into the \p OldPrefix and
 /// \p NewPrefix strings, if it was specified.
 static void getThinLTOOldAndNewPrefix(std::string &OldPrefix,
@@ -750,7 +736,7 @@ static void getThinLTOOldAndNewPrefix(std::string &OldPrefix,
   std::tie(OldPrefix, NewPrefix) = PrefixReplace.split(';');
 }
 
-static std::unique_ptr<LTO> createLTO() {
+static std::unique_ptr<LTO> createLTO(IndexWriteCallback OnIndexWrite) {
   Config Conf;
   ThinBackend Backend;
 
@@ -767,7 +753,6 @@ static std::unique_ptr<LTO> createLTO() {
 
   Conf.MAttrs = MAttrs;
   Conf.RelocModel = RelocationModel;
-  Conf.CGOptLevel = getCGOptLevel();
   Conf.DisableVerify = options::DisableVerify;
   Conf.OptLevel = options::OptLevel;
   if (options::Parallelism)
@@ -777,7 +762,7 @@ static std::unique_ptr<LTO> createLTO() {
     getThinLTOOldAndNewPrefix(OldPrefix, NewPrefix);
     Backend = createWriteIndexesThinBackend(
         OldPrefix, NewPrefix, options::thinlto_emit_imports_files,
-        options::thinlto_linked_objects_file);
+        options::thinlto_linked_objects_file, OnIndexWrite);
   }
 
   Conf.OverrideTriple = options::triple;
@@ -799,7 +784,7 @@ static std::unique_ptr<LTO> createLTO() {
       raw_fd_ostream OS(output_name, EC, sys::fs::OpenFlags::F_None);
       if (EC)
         message(LDPL_FATAL, "Failed to write the output file.");
-      WriteBitcodeToFile(&M, OS, /* ShouldPreserveUseListOrder */ false);
+      WriteBitcodeToFile(M, OS, /* ShouldPreserveUseListOrder */ false);
       return false;
     };
     break;
@@ -826,9 +811,14 @@ static std::unique_ptr<LTO> createLTO() {
 // final link. Frequently the distributed build system will want to
 // confirm that all expected outputs are created based on all of the
 // modules provided to the linker.
-static void writeEmptyDistributedBuildOutputs(std::string &ModulePath,
-                                              std::string &OldPrefix,
-                                              std::string &NewPrefix) {
+// If SkipModule is true then .thinlto.bc should contain just
+// SkipModuleByDistributedBackend flag which requests distributed backend
+// to skip the compilation of the corresponding module and produce an empty
+// object file.
+static void writeEmptyDistributedBuildOutputs(const std::string &ModulePath,
+                                              const std::string &OldPrefix,
+                                              const std::string &NewPrefix,
+                                              bool SkipModule) {
   std::string NewModulePath =
       getThinLTOOutputFile(ModulePath, OldPrefix, NewPrefix);
   std::error_code EC;
@@ -838,6 +828,12 @@ static void writeEmptyDistributedBuildOutputs(std::string &ModulePath,
     if (EC)
       message(LDPL_FATAL, "Failed to write '%s': %s",
               (NewModulePath + ".thinlto.bc").c_str(), EC.message().c_str());
+
+    if (SkipModule) {
+      ModuleSummaryIndex Index(false);
+      Index.setSkipModuleByDistributedBackend();
+      WriteIndexToFile(Index, OS, nullptr);
+    }
   }
   if (options::thinlto_emit_imports_files) {
     raw_fd_ostream OS(NewModulePath + ".imports", EC,
@@ -865,7 +861,13 @@ static ld_plugin_status allSymbolsReadHook() {
   // through Lto->run().
   DenseMap<void *, std::unique_ptr<PluginInputFile>> HandleToInputFile;
 
-  std::unique_ptr<LTO> Lto = createLTO();
+  // Owns string objects and tells if index file was already created.
+  StringMap<bool> ObjectToIndexFileState;
+
+  std::unique_ptr<LTO> Lto =
+      createLTO([&ObjectToIndexFileState](const std::string &Identifier) {
+        ObjectToIndexFileState[Identifier] = true;
+      });
 
   std::string OldPrefix, NewPrefix;
   if (options::thinlto_index_only)
@@ -873,29 +875,25 @@ static ld_plugin_status allSymbolsReadHook() {
 
   std::string OldSuffix, NewSuffix;
   getThinLTOOldAndNewSuffix(OldSuffix, NewSuffix);
-  // Set for owning string objects used as buffer identifiers.
-  StringSet<> ObjectFilenames;
 
   for (claimed_file &F : Modules) {
     if (options::thinlto && !HandleToInputFile.count(F.leader_handle))
       HandleToInputFile.insert(std::make_pair(
           F.leader_handle, llvm::make_unique<PluginInputFile>(F.handle)));
-    const void *View = getSymbolsAndView(F);
     // In case we are thin linking with a minimized bitcode file, ensure
     // the module paths encoded in the index reflect where the backends
     // will locate the full bitcode files for compiling/importing.
     std::string Identifier =
         getThinLTOObjectFileName(F.name, OldSuffix, NewSuffix);
-    auto ObjFilename = ObjectFilenames.insert(Identifier);
+    auto ObjFilename = ObjectToIndexFileState.insert({Identifier, false});
     assert(ObjFilename.second);
-    if (!View) {
-      if (options::thinlto_index_only)
-        // Write empty output files that may be expected by the distributed
-        // build system.
-        writeEmptyDistributedBuildOutputs(Identifier, OldPrefix, NewPrefix);
-      continue;
+    if (const void *View = getSymbolsAndView(F))
+      addModule(*Lto, F, View, ObjFilename.first->first());
+    else if (options::thinlto_index_only) {
+      ObjFilename.first->second = true;
+      writeEmptyDistributedBuildOutputs(Identifier, OldPrefix, NewPrefix,
+                                        /* SkipModule */ true);
     }
-    addModule(*Lto, F, View, ObjFilename.first->first());
   }
 
   SmallString<128> Filename;
@@ -913,17 +911,14 @@ static ld_plugin_status allSymbolsReadHook() {
   auto AddStream =
       [&](size_t Task) -> std::unique_ptr<lto::NativeObjectStream> {
     IsTemporary[Task] = !SaveTemps;
-    int FD = getOutputFileName(Filename, /*TempOutFile=*/!SaveTemps,
+    int FD = getOutputFileName(Filename, /* TempOutFile */ !SaveTemps,
                                Filenames[Task], Task);
     return llvm::make_unique<lto::NativeObjectStream>(
         llvm::make_unique<llvm::raw_fd_ostream>(FD, true));
   };
 
-  auto AddBuffer = [&](size_t Task, std::unique_ptr<MemoryBuffer> MB,
-                       StringRef Path) {
-    // Note that this requires that the memory buffers provided to AddBuffer are
-    // backed by a file.
-    Filenames[Task] = Path;
+  auto AddBuffer = [&](size_t Task, std::unique_ptr<MemoryBuffer> MB) {
+    *AddStream(Task)->OS << MB->getBuffer();
   };
 
   NativeObjectCache Cache;
@@ -931,6 +926,14 @@ static ld_plugin_status allSymbolsReadHook() {
     Cache = check(localCache(options::cache_dir, AddBuffer));
 
   check(Lto->run(AddStream, Cache));
+
+  // Write empty output files that may be expected by the distributed build
+  // system.
+  if (options::thinlto_index_only)
+    for (auto &Identifier : ObjectToIndexFileState)
+      if (!Identifier.getValue())
+        writeEmptyDistributedBuildOutputs(Identifier.getKey(), OldPrefix,
+                                          NewPrefix, /* SkipModule */ false);
 
   if (options::TheOutputType == options::OT_DISABLE ||
       options::TheOutputType == options::OT_BC_ONLY)

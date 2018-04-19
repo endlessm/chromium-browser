@@ -13,7 +13,6 @@
 #include "base/logging.h"
 #include "base/process/process.h"
 #include "build/build_config.h"
-#include "content/network/network_context.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/test_host_resolver.h"
@@ -23,7 +22,9 @@
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/test_data_directory.h"
-#include "services/network/public/interfaces/network_change_manager.mojom.h"
+#include "services/network/network_context.h"
+#include "services/network/public/cpp/features.h"
+#include "services/network/public/mojom/network_change_manager.mojom.h"
 #include "services/service_manager/sandbox/sandbox_type.h"
 
 #if defined(OS_ANDROID)
@@ -40,12 +41,13 @@ class NetworkServiceTestHelper::NetworkServiceTestImpl
     if (base::CommandLine::ForCurrentProcess()->HasSwitch(
             switches::kUseMockCertVerifierForTesting)) {
       mock_cert_verifier_ = std::make_unique<net::MockCertVerifier>();
-      NetworkContext::SetCertVerifierForTesting(mock_cert_verifier_.get());
+      network::NetworkContext::SetCertVerifierForTesting(
+          mock_cert_verifier_.get());
     }
   }
 
   ~NetworkServiceTestImpl() override {
-    NetworkContext::SetCertVerifierForTesting(nullptr);
+    network::NetworkContext::SetCertVerifierForTesting(nullptr);
   }
 
   // network::mojom::NetworkServiceTest:
@@ -67,11 +69,11 @@ class NetworkServiceTestHelper::NetworkServiceTestImpl
   }
 
   void SimulateCrash() override {
-    LOG(ERROR) << "Intentionally issuing kill signal to current process to"
-               << " simulate NetworkService crash for testing.";
-    // Use |Process::Terminate()| instead of |CHECK()| to avoid 'Fatal error'
-    // dialog on Windows debug.
-    base::Process::Current().Terminate(1, false);
+    LOG(ERROR) << "Intentionally terminating current process to simulate"
+                  " NetworkService crash for testing.";
+    // Use |TerminateCurrentProcessImmediately()| instead of |CHECK()| to avoid
+    // 'Fatal error' dialog on Windows debug.
+    base::Process::TerminateCurrentProcessImmediately(1);
   }
 
   void MockCertVerifierSetDefaultResult(
@@ -111,7 +113,7 @@ NetworkServiceTestHelper::~NetworkServiceTestHelper() = default;
 
 void NetworkServiceTestHelper::RegisterNetworkBinders(
     service_manager::BinderRegistry* registry) {
-  if (!base::FeatureList::IsEnabled(features::kNetworkService))
+  if (!base::FeatureList::IsEnabled(network::features::kNetworkService))
     return;
 
   registry->AddInterface(

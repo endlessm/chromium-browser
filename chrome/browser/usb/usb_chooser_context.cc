@@ -14,7 +14,7 @@
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
 #include "device/base/device_client.h"
-#include "device/usb/public/interfaces/device.mojom.h"
+#include "device/usb/public/mojom/device.mojom.h"
 #include "device/usb/usb_device.h"
 
 using device::UsbDevice;
@@ -101,7 +101,7 @@ UsbChooserContext::GetAllGrantedObjects() {
       base::DictionaryValue object;
       object.SetString(kDeviceNameKey, device->product_string());
       object.SetString(kGuidKey, device->guid());
-      objects.push_back(base::MakeUnique<ChooserContextBase::Object>(
+      objects.push_back(std::make_unique<ChooserContextBase::Object>(
           requesting_origin, embedding_origin, &object, "preference",
           is_incognito_));
     }

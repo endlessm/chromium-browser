@@ -17,7 +17,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -29,8 +28,8 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/glue/sync_start_util.h"
 #include "chrome/browser/ui/profile_error_dialog.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_constants.h"
-#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/chromium_strings.h"
@@ -361,7 +360,7 @@ std::unique_ptr<ProfilePrefStoreManager> CreateProfilePrefStoreManager(
              .GetRawDataResource(IDR_PREF_HASH_SEED_BIN)
              .as_string();
 #endif
-  return base::MakeUnique<ProfilePrefStoreManager>(profile_path, seed,
+  return std::make_unique<ProfilePrefStoreManager>(profile_path, seed,
                                                    legacy_device_id);
 }
 
@@ -370,7 +369,7 @@ void PrepareFactory(sync_preferences::PrefServiceSyncableFactory* factory,
                     policy::PolicyService* policy_service,
                     SupervisedUserSettingsService* supervised_user_settings,
                     scoped_refptr<PersistentPrefStore> user_pref_store,
-                    const scoped_refptr<PrefStore>& extension_prefs,
+                    scoped_refptr<PrefStore> extension_prefs,
                     bool async) {
   policy::BrowserPolicyConnector* policy_connector =
       g_browser_process->browser_policy_connector();
@@ -387,12 +386,12 @@ void PrepareFactory(sync_preferences::PrefServiceSyncableFactory* factory,
 #endif
 
   factory->set_async(async);
-  factory->set_extension_prefs(extension_prefs);
+  factory->set_extension_prefs(std::move(extension_prefs));
   factory->set_command_line_prefs(
       base::MakeRefCounted<ChromeCommandLinePrefStore>(
           base::CommandLine::ForCurrentProcess()));
   factory->set_read_error_callback(base::Bind(&HandleReadError, pref_filename));
-  factory->set_user_prefs(user_pref_store);
+  factory->set_user_prefs(std::move(user_pref_store));
   factory->SetPrefModelAssociatorClient(
       ChromePrefModelAssociatorClient::GetInstance());
 }
@@ -441,17 +440,17 @@ std::unique_ptr<PrefService> CreateLocalState(
     const base::FilePath& pref_filename,
     base::SequencedTaskRunner* pref_io_task_runner,
     policy::PolicyService* policy_service,
-    const scoped_refptr<PrefRegistry>& pref_registry,
+    scoped_refptr<PrefRegistry> pref_registry,
     bool async,
     std::unique_ptr<PrefValueStore::Delegate> delegate) {
   sync_preferences::PrefServiceSyncableFactory factory;
   PrepareFactory(&factory, pref_filename, policy_service,
-                 NULL,  // supervised_user_settings
+                 nullptr,  // supervised_user_settings
                  new JsonPrefStore(pref_filename, pref_io_task_runner,
                                    std::unique_ptr<PrefFilter>()),
-                 NULL,  // extension_prefs
+                 nullptr,  // extension_prefs
                  async);
-  return factory.Create(pref_registry.get(), std::move(delegate));
+  return factory.Create(std::move(pref_registry), std::move(delegate));
 }
 
 std::unique_ptr<sync_preferences::PrefServiceSyncable> CreateProfilePrefs(
@@ -459,8 +458,8 @@ std::unique_ptr<sync_preferences::PrefServiceSyncable> CreateProfilePrefs(
     prefs::mojom::TrackedPreferenceValidationDelegatePtr validation_delegate,
     policy::PolicyService* policy_service,
     SupervisedUserSettingsService* supervised_user_settings,
-    const scoped_refptr<PrefStore>& extension_prefs,
-    const scoped_refptr<user_prefs::PrefRegistrySyncable>& pref_registry,
+    scoped_refptr<PrefStore> extension_prefs,
+    scoped_refptr<user_prefs::PrefRegistrySyncable> pref_registry,
     bool async,
     scoped_refptr<base::SequencedTaskRunner> io_task_runner,
     std::unique_ptr<PrefValueStore::Delegate> delegate) {
@@ -469,22 +468,19 @@ std::unique_ptr<sync_preferences::PrefServiceSyncable> CreateProfilePrefs(
 
   prefs::mojom::ResetOnLoadObserverPtr reset_on_load_observer;
   mojo::MakeStrongBinding(
-      base::MakeUnique<ResetOnLoadObserverImpl>(profile_path),
+      std::make_unique<ResetOnLoadObserverImpl>(profile_path),
       mojo::MakeRequest(&reset_on_load_observer));
   sync_preferences::PrefServiceSyncableFactory factory;
-  scoped_refptr<PersistentPrefStore> user_pref_store(
+  scoped_refptr<PersistentPrefStore> user_pref_store =
       CreateProfilePrefStoreManager(profile_path)
           ->CreateProfilePrefStore(
               GetTrackingConfiguration(), kTrackedPrefsReportingIDsCount,
               std::move(io_task_runner), std::move(reset_on_load_observer),
-              std::move(validation_delegate)));
+              std::move(validation_delegate));
   PrepareFactory(&factory, profile_path, policy_service,
-                 supervised_user_settings, user_pref_store, extension_prefs,
-                 async);
-  std::unique_ptr<sync_preferences::PrefServiceSyncable> pref_service =
-      factory.CreateSyncable(pref_registry.get(), std::move(delegate));
-
-  return pref_service;
+                 supervised_user_settings, std::move(user_pref_store),
+                 std::move(extension_prefs), async);
+  return factory.CreateSyncable(std::move(pref_registry), std::move(delegate));
 }
 
 void DisableDomainCheckForTesting() {

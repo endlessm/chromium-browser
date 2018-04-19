@@ -38,14 +38,14 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/sys_info.h"
+#include "base/task_scheduler/post_task.h"
+#include "base/task_scheduler/task_scheduler.h"
 #include "base/test/gtest_util.h"
 #include "base/test/launcher/test_launcher_tracer.h"
 #include "base/test/launcher/test_results_tracker.h"
-#include "base/test/sequenced_worker_pool_owner.h"
 #include "base/test/test_switches.h"
 #include "base/test/test_timeouts.h"
-#include "base/threading/sequenced_worker_pool.h"
-#include "base/threading/thread.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -123,6 +123,27 @@ std::map<ProcessHandle, CommandLine>* GetLiveProcesses() {
 TestLauncherTracer* GetTestLauncherTracer() {
   static auto* tracer = new TestLauncherTracer;
   return tracer;
+}
+
+// Creates and starts a TaskScheduler with |num_parallel_jobs| dedicated to
+// foreground blocking tasks (corresponds to the traits used to launch and wait
+// for child processes).
+void CreateAndStartTaskScheduler(int num_parallel_jobs) {
+  // These values are taken from TaskScheduler::StartWithDefaultParams(), which
+  // is not used directly to allow a custom number of threads in the foreground
+  // blocking pool.
+  constexpr int kMaxBackgroundThreads = 1;
+  constexpr int kMaxBackgroundBlockingThreads = 2;
+  const int max_foreground_threads =
+      std::max(1, base::SysInfo::NumberOfProcessors());
+  constexpr base::TimeDelta kSuggestedReclaimTime =
+      base::TimeDelta::FromSeconds(30);
+  base::TaskScheduler::Create("TestLauncher");
+  base::TaskScheduler::GetInstance()->Start(
+      {{kMaxBackgroundThreads, kSuggestedReclaimTime},
+       {kMaxBackgroundBlockingThreads, kSuggestedReclaimTime},
+       {max_foreground_threads, kSuggestedReclaimTime},
+       {num_parallel_jobs, kSuggestedReclaimTime}});
 }
 
 // TODO(fuchsia): Fuchsia does not have POSIX signals, but equivalent
@@ -358,7 +379,14 @@ int LaunchChildTestProcessWithOptions(const CommandLine& command_line,
     observer->OnLaunched(process.Handle(), process.Pid());
 
   int exit_code = 0;
-  if (!process.WaitForExitWithTimeout(timeout, &exit_code)) {
+  bool did_exit = false;
+
+  {
+    base::ScopedAllowBaseSyncPrimitivesForTesting allow_base_sync_primitives;
+    did_exit = process.WaitForExitWithTimeout(timeout, &exit_code);
+  }
+
+  if (!did_exit) {
     if (observer)
       observer->OnTimedOut(command_line);
 
@@ -382,8 +410,11 @@ int LaunchChildTestProcessWithOptions(const CommandLine& command_line,
     threads_options.wait = true;
     LaunchProcess(threads_cmdline, threads_options);
 #endif  // OS_FUCHSIA
-    // Ensure that the process terminates.
-    process.Terminate(-1, true);
+    {
+      base::ScopedAllowBaseSyncPrimitivesForTesting allow_base_sync_primitives;
+      // Ensure that the process terminates.
+      process.Terminate(-1, true);
+    }
   }
 
   {
@@ -545,7 +576,9 @@ TestLauncher::TestLauncher(TestLauncherDelegate* launcher_delegate,
                       &TestLauncher::OnOutputTimeout),
       parallel_jobs_(parallel_jobs) {}
 
-TestLauncher::~TestLauncher() = default;
+TestLauncher::~TestLauncher() {
+  base::TaskScheduler::GetInstance()->Shutdown();
+}
 
 bool TestLauncher::Run() {
   if (!Init())
@@ -607,11 +640,11 @@ void TestLauncher::LaunchChildGTestProcess(
   // JSON summary.
   bool redirect_stdio = (parallel_jobs_ > 1) || BotModeEnabled();
 
-  GetTaskRunner()->PostTask(
-      FROM_HERE,
+  PostTaskWithTraits(
+      FROM_HERE, {MayBlock(), TaskShutdownBehavior::BLOCK_SHUTDOWN},
       BindOnce(&DoLaunchChildTestProcess, new_command_line, timeout, options,
                redirect_stdio, RetainedRef(ThreadTaskRunnerHandle::Get()),
-               base::Passed(std::move(observer))));
+               std::move(observer)));
 }
 
 void TestLauncher::OnTestFinished(const TestResult& original_result) {
@@ -803,6 +836,13 @@ bool LoadFilterFile(const FilePath& file_path,
         TrimWhitespaceASCII(filter_line.substr(0, hash_pos), TRIM_ALL)
             .as_string();
 
+    if (trimmed_line.substr(0, 2) == "//") {
+      LOG(ERROR) << "Line " << line_num << " in " << file_path
+                 << " starts with //, use # for comments.";
+      return false;
+    }
+
+    // Treat a line starting with '//' as a comment.
     if (trimmed_line.empty())
       continue;
 
@@ -893,18 +933,8 @@ bool TestLauncher::Init() {
 
   fprintf(stdout, "Using %" PRIuS " parallel jobs.\n", parallel_jobs_);
   fflush(stdout);
-  if (parallel_jobs_ > 1U) {
-    // Allow usage of SequencedWorkerPool to launch test processes.
-    // TODO(fdoray): Remove this once the SequencedWorkerPool to TaskScheduler
-    // redirection experiment concludes https://crbug.com/622400.
-    SequencedWorkerPool::EnableForProcess();
 
-    worker_pool_owner_ = std::make_unique<SequencedWorkerPoolOwner>(
-        parallel_jobs_, "test_launcher");
-  } else {
-    worker_thread_ = std::make_unique<Thread>("test_launcher");
-    worker_thread_->Start();
-  }
+  CreateAndStartTaskScheduler(static_cast<int>(parallel_jobs_));
 
   std::vector<std::string> positive_file_filter;
   std::vector<std::string> positive_gtest_filter;
@@ -943,7 +973,8 @@ bool TestLauncher::Init() {
     return false;
   }
 
-  CombinePositiveTestFilters(positive_gtest_filter, positive_file_filter);
+  CombinePositiveTestFilters(std::move(positive_gtest_filter),
+                             std::move(positive_file_filter));
 
   if (!results_tracker_.Init(*command_line)) {
     LOG(ERROR) << "Failed to initialize test results tracker.";
@@ -1045,9 +1076,9 @@ void TestLauncher::CombinePositiveTestFilters(
       }
     }
   } else if (!filter_a.empty()) {
-    positive_test_filter_ = filter_a;
+    positive_test_filter_ = std::move(filter_a);
   } else {
-    positive_test_filter_ = filter_b;
+    positive_test_filter_ = std::move(filter_b);
   }
 }
 
@@ -1256,17 +1287,6 @@ void TestLauncher::OnOutputTimeout() {
 
   // Arm the timer again - otherwise it would fire only once.
   watchdog_timer_.Reset();
-}
-
-scoped_refptr<TaskRunner> TestLauncher::GetTaskRunner() {
-  // One and only one of |worker_pool_owner_| or |worker_thread_| should be
-  // ready.
-  DCHECK_NE(!!worker_pool_owner_, !!worker_thread_);
-
-  if (worker_pool_owner_)
-    return worker_pool_owner_->pool();
-  DCHECK(worker_thread_->IsRunning());
-  return worker_thread_->task_runner();
 }
 
 size_t NumParallelJobs() {

@@ -40,9 +40,11 @@ void SetNavigationItemInWKItem(WKBackForwardListItem* wk_item,
 
 web::NavigationItemImpl* GetNavigationItemFromWKItem(
     WKBackForwardListItem* wk_item) {
-  return wk_item ? [[CRWNavigationItemHolder
-                       holderForBackForwardListItem:wk_item] navigationItem]
-                 : nullptr;
+  if (!wk_item)
+    return nullptr;
+
+  return [[CRWNavigationItemHolder holderForBackForwardListItem:wk_item]
+      navigationItem];
 }
 
 }  // namespace
@@ -125,10 +127,6 @@ void WKBasedNavigationManagerImpl::AddPendingItem(
       last_committed_item ? last_committed_item->GetURL() : GURL::EmptyGURL(),
       &transient_url_rewriters_);
   RemoveTransientURLRewriters();
-  // Ignore URL rewrite if this is a placeholder URL
-  if (placeholder_navigation_util::IsPlaceholderUrl(url)) {
-    pending_item_->SetURL(url);
-  }
   UpdatePendingItemUserAgentType(user_agent_override_option,
                                  GetLastCommittedNonAppSpecificItem(),
                                  pending_item_.get());
@@ -434,8 +432,8 @@ void WKBasedNavigationManagerImpl::Restore(
   params.transition_type = ui::PAGE_TRANSITION_RELOAD;
   LoadURLWithParams(params);
 
-  GetPendingItemImpl()->SetVirtualURL(
-      items[last_committed_item_index]->GetVirtualURL());
+  // This pending item will become the first item in the restored history.
+  GetPendingItemImpl()->SetVirtualURL(items[0]->GetVirtualURL());
 }
 
 NavigationItemImpl* WKBasedNavigationManagerImpl::GetNavigationItemImplAtIndex(

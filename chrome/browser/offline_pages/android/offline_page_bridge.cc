@@ -23,6 +23,7 @@
 #include "chrome/browser/android/tab_android.h"
 #include "chrome/browser/offline_pages/offline_page_mhtml_archiver.h"
 #include "chrome/browser/offline_pages/offline_page_model_factory.h"
+#include "chrome/browser/offline_pages/offline_page_tab_helper.h"
 #include "chrome/browser/offline_pages/offline_page_utils.h"
 #include "chrome/browser/offline_pages/prefetch/prefetched_pages_notifier.h"
 #include "chrome/browser/offline_pages/recent_tab_helper.h"
@@ -205,10 +206,13 @@ ScopedJavaLocalRef<jobjectArray> JNI_SavePageRequest_CreateJavaSavePageRequests(
         ConvertUTF8ToJavaString(env, request.client_id().id);
     ScopedJavaLocalRef<jstring> url =
         ConvertUTF8ToJavaString(env, request.url().spec());
+    ScopedJavaLocalRef<jstring> origin =
+        ConvertUTF8ToJavaString(env, request.request_origin());
 
     ScopedJavaLocalRef<jobject> j_save_page_request =
         Java_SavePageRequest_create(env, (int)request.request_state(),
-                                    request.request_id(), url, name_space, id);
+                                    request.request_id(), url, name_space, id,
+                                    origin);
     env->SetObjectArrayElement(joa, i, j_save_page_request.obj());
   }
 
@@ -448,6 +452,22 @@ void OfflinePageBridge::DeletePagesByClientId(
       getClientIdsFromObjectArrays(env, j_namespaces_array, j_ids_array);
   offline_page_model_->DeletePagesByClientIds(
       client_ids, base::Bind(&DeletePageCallback, j_callback_ref));
+}
+
+void OfflinePageBridge::DeletePagesByClientIdAndOrigin(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& obj,
+    const base::android::JavaParamRef<jobjectArray>& j_namespaces_array,
+    const base::android::JavaParamRef<jobjectArray>& j_ids_array,
+    const base::android::JavaParamRef<jstring>& j_origin,
+    const base::android::JavaParamRef<jobject>& j_callback_obj) {
+  ScopedJavaGlobalRef<jobject> j_callback_ref;
+  j_callback_ref.Reset(env, j_callback_obj);
+  std::vector<ClientId> client_ids =
+      getClientIdsFromObjectArrays(env, j_namespaces_array, j_ids_array);
+  offline_page_model_->DeletePagesByClientIdsAndOrigin(
+      client_ids, ConvertJavaStringToUTF8(j_origin),
+      base::Bind(&DeletePageCallback, j_callback_ref));
 }
 
 void OfflinePageBridge::DeletePagesByOfflineId(
@@ -806,6 +826,18 @@ void OfflinePageBridge::GetLaunchUrlByOfflineId(
   offline_page_model_->GetPageByOfflineId(
       j_offline_id, base::Bind(&OfflinePageBridge::GetPageByOfflineIdDone,
                                weak_ptr_factory_.GetWeakPtr(), j_callback_ref));
+}
+
+jboolean OfflinePageBridge::IsShowingTrustedOfflinePage(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& obj,
+    const base::android::JavaParamRef<jobject>& j_web_contents) {
+  content::WebContents* web_contents =
+      content::WebContents::FromJavaWebContents(j_web_contents);
+  if (!web_contents)
+    return false;
+  return offline_pages::OfflinePageUtils::IsShowingTrustedOfflinePage(
+      web_contents);
 }
 
 void OfflinePageBridge::GetPageByOfflineIdDone(

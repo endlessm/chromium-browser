@@ -187,15 +187,13 @@ class PrerenderContents::WebContentsDelegateImpl
 
 PrerenderContents::Observer::~Observer() {}
 
-PrerenderContents::PrerenderContents(
-    PrerenderManager* prerender_manager,
-    Profile* profile,
-    const GURL& url,
-    const content::Referrer& referrer,
-    Origin origin)
+PrerenderContents::PrerenderContents(PrerenderManager* prerender_manager,
+                                     Profile* profile,
+                                     const GURL& url,
+                                     const content::Referrer& referrer,
+                                     Origin origin)
     : prerender_mode_(FULL_PRERENDER),
       prerendering_has_started_(false),
-      session_storage_namespace_id_(-1),
       prerender_canceler_binding_(this),
       prerender_manager_(prerender_manager),
       prerender_url_(url),
@@ -708,7 +706,7 @@ void PrerenderContents::CommitHistory(WebContents* tab) {
 std::unique_ptr<base::DictionaryValue> PrerenderContents::GetAsValue() const {
   if (!prerender_contents_)
     return nullptr;
-  auto dict_value = base::MakeUnique<base::DictionaryValue>();
+  auto dict_value = std::make_unique<base::DictionaryValue>();
   dict_value->SetString("url", prerender_url_.spec());
   base::TimeTicks current_time = base::TimeTicks::Now();
   base::TimeDelta duration = current_time - load_start_time_;

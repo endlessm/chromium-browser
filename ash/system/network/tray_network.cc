@@ -28,7 +28,7 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/message_center/message_center.h"
-#include "ui/message_center/notification.h"
+#include "ui/message_center/public/cpp/notification.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/link.h"
 #include "ui/views/controls/link_listener.h"
@@ -104,7 +104,7 @@ class NetworkTrayView : public TrayItemView,
   // views::View:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
     node_data->SetName(connection_status_string_);
-    node_data->role = ui::AX_ROLE_BUTTON;
+    node_data->role = ax::mojom::Role::kButton;
   }
 
   // network_icon::AnimationObserver:
@@ -155,7 +155,7 @@ class NetworkTrayView : public TrayItemView,
     if (new_connection_status_string != connection_status_string_) {
       connection_status_string_ = new_connection_status_string;
       if (notify_a11y && !connection_status_string_.empty())
-        NotifyAccessibilityEvent(ui::AX_EVENT_ALERT, true);
+        NotifyAccessibilityEvent(ax::mojom::Event::kAlert, true);
     }
   }
 

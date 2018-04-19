@@ -62,7 +62,7 @@
 #include "extensions/common/constants.h"
 #include "extensions/common/features/feature_channel.h"
 #include "extensions/common/manifest_url_handlers.h"
-#include "ui/message_center/notifier_id.h"
+#include "ui/message_center/public/cpp/notifier_id.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/app_mode/app_mode_utils.h"
@@ -454,6 +454,16 @@ void ExtensionSystemImpl::InstallUpdate(
   installer->set_installer_callback(std::move(install_update_callback));
   installer->UpdateExtensionFromUnpackedCrx(extension_id, public_key,
                                             unpacked_dir);
+}
+
+bool ExtensionSystemImpl::FinishDelayedInstallationIfReady(
+    const std::string& extension_id,
+    bool install_immediately) {
+  ExtensionService* service = extension_service();
+  DCHECK(service);
+  return service->GetPendingExtensionUpdate(extension_id) &&
+         service->FinishDelayedInstallationIfReady(extension_id,
+                                                   install_immediately);
 }
 
 void ExtensionSystemImpl::RegisterExtensionWithRequestContexts(

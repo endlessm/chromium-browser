@@ -31,7 +31,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/WebKit/public/platform/WebString.h"
 #include "third_party/WebKit/public/platform/WebVector.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
@@ -236,6 +236,16 @@ const char kTwoNoUsernameFormsHTML[] =
     "  <INPUT type='submit' value='Login'/>"
     "</FORM>";
 
+const char kDivWrappedFormHTML[] =
+    "<DIV id='outer'>"
+    "  <DIV id='inner'>"
+    "    <FORM id='form' action='http://www.bidule.com'>"
+    "      <INPUT type='text' id='username'/>"
+    "      <INPUT type='password' id='password'/>"
+    "    </FORM>"
+    "  </DIV>"
+    "</DIV>";
+
 // Sets the "readonly" attribute of |element| to the value given by |read_only|.
 void SetElementReadOnly(WebInputElement& element, bool read_only) {
   element.SetAttribute(WebString::FromUTF8("readonly"),
@@ -244,7 +254,7 @@ void SetElementReadOnly(WebInputElement& element, bool read_only) {
 
 enum PasswordFormSourceType {
   PasswordFormSubmitted,
-  PasswordFormInPageNavigation,
+  PasswordFormSameDocumentNavigation,
 };
 
 enum class FieldChangeSource { USER, AUTOFILL, USER_AUTOFILL };
@@ -591,11 +601,11 @@ class PasswordAutofillAgentTest : public ChromeRenderViewTest {
       ASSERT_TRUE(static_cast<bool>(fake_driver_.password_form_submitted()));
       form = *(fake_driver_.password_form_submitted());
     } else {
-      ASSERT_EQ(PasswordFormInPageNavigation, expected_type);
-      ASSERT_TRUE(fake_driver_.called_inpage_navigation());
-      ASSERT_TRUE(
-          static_cast<bool>(fake_driver_.password_form_inpage_navigation()));
-      form = *(fake_driver_.password_form_inpage_navigation());
+      ASSERT_EQ(PasswordFormSameDocumentNavigation, expected_type);
+      ASSERT_TRUE(fake_driver_.called_same_document_navigation());
+      ASSERT_TRUE(static_cast<bool>(
+          fake_driver_.password_form_same_document_navigation()));
+      form = *(fake_driver_.password_form_same_document_navigation());
     }
 
     size_t unchecked_masks = expected_properties_masks.size();
@@ -611,17 +621,17 @@ class PasswordAutofillAgentTest : public ChromeRenderViewTest {
         << "Some expected masks are missed in FormData";
   }
 
-  void ExpectInPageNavigationWithUsernameAndPasswords(
+  void ExpectSameDocumentNavigationWithUsernameAndPasswords(
       const std::string& username_value,
       const std::string& password_value,
       const std::string& new_password_value,
       PasswordForm::SubmissionIndicatorEvent event) {
     base::RunLoop().RunUntilIdle();
-    ASSERT_TRUE(fake_driver_.called_inpage_navigation());
-    ASSERT_TRUE(
-        static_cast<bool>(fake_driver_.password_form_inpage_navigation()));
+    ASSERT_TRUE(fake_driver_.called_same_document_navigation());
+    ASSERT_TRUE(static_cast<bool>(
+        fake_driver_.password_form_same_document_navigation()));
     const autofill::PasswordForm& form =
-        *(fake_driver_.password_form_inpage_navigation());
+        *(fake_driver_.password_form_same_document_navigation());
     EXPECT_EQ(ASCIIToUTF16(username_value), form.username_value);
     EXPECT_EQ(ASCIIToUTF16(password_value), form.password_value);
     EXPECT_EQ(ASCIIToUTF16(new_password_value), form.new_password_value);
@@ -1892,7 +1902,8 @@ TEST_F(PasswordAutofillAgentTest, RememberFieldPropertiesOnSubmit) {
   ExpectFieldPropertiesMasks(PasswordFormSubmitted, expected_properties_masks);
 }
 
-TEST_F(PasswordAutofillAgentTest, RememberFieldPropertiesOnInPageNavigation) {
+TEST_F(PasswordAutofillAgentTest,
+       RememberFieldPropertiesOnSameDocumentNavigation) {
   LoadHTML(kNoFormHTML);
   UpdateUsernameAndPasswordElements();
 
@@ -1914,11 +1925,12 @@ TEST_F(PasswordAutofillAgentTest, RememberFieldPropertiesOnInPageNavigation) {
   expected_properties_masks[ASCIIToUTF16("password")] =
       FieldPropertiesFlags::USER_TYPED | FieldPropertiesFlags::HAD_FOCUS;
 
-  ExpectFieldPropertiesMasks(PasswordFormInPageNavigation,
+  ExpectFieldPropertiesMasks(PasswordFormSameDocumentNavigation,
                              expected_properties_masks);
 }
 
-TEST_F(PasswordAutofillAgentTest, RememberFieldPropertiesOnInPageNavigation_2) {
+TEST_F(PasswordAutofillAgentTest,
+       RememberFieldPropertiesOnSameDocumentNavigation_2) {
   LoadHTML(kNoFormHTML);
   UpdateUsernameAndPasswordElements();
 
@@ -1942,7 +1954,7 @@ TEST_F(PasswordAutofillAgentTest, RememberFieldPropertiesOnInPageNavigation_2) {
   expected_properties_masks[ASCIIToUTF16("password")] =
       FieldPropertiesFlags::USER_TYPED | FieldPropertiesFlags::HAD_FOCUS;
 
-  ExpectFieldPropertiesMasks(PasswordFormInPageNavigation,
+  ExpectFieldPropertiesMasks(PasswordFormSameDocumentNavigation,
                              expected_properties_masks);
 }
 
@@ -2505,7 +2517,7 @@ TEST_F(PasswordAutofillAgentTest, NoForm_PromptForAJAXSubmitWithoutNavigation) {
 
   FireAjaxSucceeded();
 
-  ExpectInPageNavigationWithUsernameAndPasswords(
+  ExpectSameDocumentNavigationWithUsernameAndPasswords(
       "Bob", "mypassword", "",
       PasswordForm::SubmissionIndicatorEvent::XHR_SUCCEEDED);
 }
@@ -2529,7 +2541,57 @@ TEST_F(PasswordAutofillAgentTest,
 
   base::RunLoop().RunUntilIdle();
 
-  ExpectInPageNavigationWithUsernameAndPasswords(
+  ExpectSameDocumentNavigationWithUsernameAndPasswords(
+      "Bob", "mypassword", "",
+      PasswordForm::SubmissionIndicatorEvent::DOM_MUTATION_AFTER_XHR);
+}
+
+// In this test, a <div> wrapping a form is hidden via display:none after an
+// Ajax request. The test verifies that we offer to save the password, as hiding
+// the <div> also hiding the <form>.
+TEST_F(PasswordAutofillAgentTest, PromptForAJAXSubmitAfterHidingParentElement) {
+  LoadHTML(kDivWrappedFormHTML);
+  UpdateUsernameAndPasswordElements();
+
+  SimulateUsernameTyping("Bob");
+  SimulatePasswordTyping("mypassword");
+
+  FireAjaxSucceeded();
+
+  std::string hide_element =
+      "var outerDiv = document.getElementById('outer');"
+      "outerDiv.style = 'display:none';";
+  ExecuteJavaScriptForTests(hide_element.c_str());
+
+  base::RunLoop().RunUntilIdle();
+
+  ExpectSameDocumentNavigationWithUsernameAndPasswords(
+      "Bob", "mypassword", "",
+      PasswordForm::SubmissionIndicatorEvent::DOM_MUTATION_AFTER_XHR);
+}
+
+// In this test, a <div> wrapping a form is removed from the DOM after an Ajax
+// request. The test verifies that we offer to save the password, as removing
+// the <div> also removes the <form>.
+TEST_F(PasswordAutofillAgentTest,
+       PromptForAJAXSubmitAfterDeletingParentElement) {
+  LoadHTML(kDivWrappedFormHTML);
+  UpdateUsernameAndPasswordElements();
+
+  SimulateUsernameTyping("Bob");
+  SimulatePasswordTyping("mypassword");
+
+  FireAjaxSucceeded();
+
+  std::string delete_element =
+      "var outerDiv = document.getElementById('outer');"
+      "var innerDiv = document.getElementById('inner');"
+      "outerDiv.removeChild(innerDiv);";
+  ExecuteJavaScriptForTests(delete_element.c_str());
+
+  base::RunLoop().RunUntilIdle();
+
+  ExpectSameDocumentNavigationWithUsernameAndPasswords(
       "Bob", "mypassword", "",
       PasswordForm::SubmissionIndicatorEvent::DOM_MUTATION_AFTER_XHR);
 }
@@ -2575,7 +2637,7 @@ TEST_F(PasswordAutofillAgentTest,
   FireAjaxSucceeded();
 
   base::RunLoop().RunUntilIdle();
-  EXPECT_FALSE(fake_driver_.called_inpage_navigation());
+  EXPECT_FALSE(fake_driver_.called_same_document_navigation());
   EXPECT_FALSE(fake_driver_.called_password_form_submitted());
 }
 
@@ -2604,7 +2666,7 @@ TEST_F(PasswordAutofillAgentTest,
   ExecuteJavaScriptForTests(show_captcha.c_str());
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_FALSE(fake_driver_.called_inpage_navigation());
+  EXPECT_FALSE(fake_driver_.called_same_document_navigation());
   EXPECT_FALSE(fake_driver_.called_password_form_submitted());
 }
 
@@ -2637,7 +2699,7 @@ TEST_F(PasswordAutofillAgentTest,
   FireAjaxSucceeded();
 
   base::RunLoop().RunUntilIdle();
-  EXPECT_FALSE(fake_driver_.called_inpage_navigation());
+  EXPECT_FALSE(fake_driver_.called_same_document_navigation());
   EXPECT_FALSE(fake_driver_.called_password_form_submitted());
 }
 
@@ -2668,7 +2730,7 @@ TEST_F(PasswordAutofillAgentTest,
   captcha_element.SetAttribute("style", "display:inline;");
 
   base::RunLoop().RunUntilIdle();
-  EXPECT_FALSE(fake_driver_.called_inpage_navigation());
+  EXPECT_FALSE(fake_driver_.called_same_document_navigation());
   EXPECT_FALSE(fake_driver_.called_password_form_submitted());
 }
 
@@ -2730,6 +2792,14 @@ TEST_F(PasswordAutofillAgentTest,
       "  <INPUT type='submit' />"
       "</FORM>";
 
+  const char kFormWithMultipleAnonymousTextFields[] =
+      "<FORM action='http://www.bidule.com'>"
+      "<INPUT type='text' placeholder='username'/>"
+      "<INPUT type='password' placeholder='password'/>"
+      "<INPUT type='text' placeholder='captcha'/>"
+      "<INPUT type='text' placeholder='fakefield'/>"
+      "</FORM>";
+
   const struct {
     const char* html_form;
     bool is_possible_change_password_form;
@@ -2776,6 +2846,10 @@ TEST_F(PasswordAutofillAgentTest,
       {kChangePasswordFormButNoAutocompleteAttribute, true, true,
        kDummyUsernameField, kDummyPasswordField, kAliceUsername, kAlicePassword,
        true, true},
+
+      // Sign-in form with multiple anonymous text fields.
+      {kFormWithMultipleAnonymousTextFields, false, true, kDummyUsernameField,
+       kDummyPasswordField, kAliceUsername, kAlicePassword, true, true},
   };
 
   for (const auto& test_case : test_cases) {
@@ -2893,7 +2967,7 @@ TEST_F(PasswordAutofillAgentTest,
 
     FireAjaxSucceeded();
 
-    ExpectInPageNavigationWithUsernameAndPasswords(
+    ExpectSameDocumentNavigationWithUsernameAndPasswords(
         "Alice", "mypassword", "",
         PasswordForm::SubmissionIndicatorEvent::XHR_SUCCEEDED);
   }
@@ -2919,7 +2993,7 @@ TEST_F(PasswordAutofillAgentTest,
   ExecuteJavaScriptForTests(hide_elements.c_str());
   base::RunLoop().RunUntilIdle();
 
-  ExpectInPageNavigationWithUsernameAndPasswords(
+  ExpectSameDocumentNavigationWithUsernameAndPasswords(
       "Alice", "mypassword", "",
       PasswordForm::SubmissionIndicatorEvent::DOM_MUTATION_AFTER_XHR);
 }
@@ -3073,7 +3147,8 @@ TEST_F(PasswordAutofillAgentTest, SuggestWhenJavaScriptUpdatesFieldNames) {
 
 // Checks that a same-document navigation form submission could have an empty
 // username.
-TEST_F(PasswordAutofillAgentTest, InPageNavigationSubmissionUsernameIsEmpty) {
+TEST_F(PasswordAutofillAgentTest,
+       SameDocumentNavigationSubmissionUsernameIsEmpty) {
   username_element_.SetValue(WebString());
   SimulatePasswordTyping("random");
 
@@ -3086,7 +3161,7 @@ TEST_F(PasswordAutofillAgentTest, InPageNavigationSubmissionUsernameIsEmpty) {
 
   FireDidCommitProvisionalLoad();
 
-  ExpectInPageNavigationWithUsernameAndPasswords(
+  ExpectSameDocumentNavigationWithUsernameAndPasswords(
       std::string(), "random", std::string(),
       PasswordForm::SubmissionIndicatorEvent::SAME_DOCUMENT_NAVIGATION);
 }

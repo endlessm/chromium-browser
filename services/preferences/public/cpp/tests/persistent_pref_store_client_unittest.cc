@@ -19,7 +19,7 @@
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "services/preferences/public/cpp/dictionary_value_update.h"
 #include "services/preferences/public/cpp/scoped_pref_update.h"
-#include "services/preferences/public/interfaces/preferences.mojom.h"
+#include "services/preferences/public/mojom/preferences.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace prefs {
@@ -27,8 +27,6 @@ namespace {
 
 constexpr char kDictionaryKey[] = "path.to.key";
 constexpr char kUninitializedDictionaryKey[] = "path.to.an.uninitialized.dict";
-
-void DoNothingWithReadError(::PersistentPrefStore::PrefReadError read_error) {}
 
 class PersistentPrefStoreClientTest : public testing::Test,
                                       public mojom::PersistentPrefStore {
@@ -57,7 +55,7 @@ class PersistentPrefStoreClientTest : public testing::Test,
     pref_service_ = std::make_unique<PrefService>(
         std::move(pref_notifier), std::move(pref_value_store),
         persistent_pref_store_client.get(), pref_registry.get(),
-        base::Bind(&DoNothingWithReadError), false);
+        base::DoNothing(), false);
   }
 
   void TearDown() override {

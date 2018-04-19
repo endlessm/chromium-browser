@@ -26,10 +26,9 @@ constexpr char kBlockTabUnderFormatMessage[] =
 //
 // Currently, navigations are considered tab-unders if:
 // 1. It is a navigation that is "suspicious"
-//    a. It starts when the tab is in the background.
-//    b. It has no user gesture.
-//    c. It is renderer-initiated.
-//    d. It is cross origin to the last committed URL in the tab.
+//    a. It has no user gesture.
+//    b. It is renderer-initiated.
+//    c. It is cross origin to the last committed URL in the tab.
 // 2. The tab has opened a popup and hasn't received a user gesture since then.
 //    This information is tracked by the PopupOpenerTabHelper.
 class TabUnderNavigationThrottle : public content::NavigationThrottle {
@@ -70,17 +69,14 @@ class TabUnderNavigationThrottle : public content::NavigationThrottle {
 
   // This method is described at the top of this file.
   //
-  // Note: Pass in |started_in_background| because depending on the state the
-  // navigation is in, we need additional data to determine whether it started
-  // in the background.
-  //
   // Note: This method should be robust to navigations at any stage.
   static bool IsSuspiciousClientRedirect(
-      content::NavigationHandle* navigation_handle,
-      bool started_in_background);
+      content::NavigationHandle* navigation_handle);
 
   content::NavigationThrottle::ThrottleCheckResult MaybeBlockNavigation();
   void ShowUI();
+
+  bool HasOpenedPopupSinceLastUserGesture() const;
 
   // content::NavigationThrottle:
   content::NavigationThrottle::ThrottleCheckResult WillStartRequest() override;
@@ -90,13 +86,15 @@ class TabUnderNavigationThrottle : public content::NavigationThrottle {
 
   // Store whether we're off the record as a member to avoid looking it up all
   // the time.
-  bool off_the_record_ = false;
-
-  bool started_in_background_ = false;
+  const bool off_the_record_ = false;
 
   // True if the experiment is turned on and the class should actually attempt
   // to block tab-unders.
-  bool block_ = false;
+  const bool block_ = false;
+
+  // Tracks whether this WebContents has opened a popup since the last user
+  // gesture, at the time this navigation is starting.
+  const bool has_opened_popup_since_last_user_gesture_at_start_ = false;
 
   // True if the throttle has seen a tab under.
   bool seen_tab_under_ = false;

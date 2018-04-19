@@ -31,8 +31,8 @@
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/themes/theme_syncable_service.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_constants.h"
-#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/theme_resources.h"
 #include "components/grit/components_scaled_resources.h"
@@ -47,6 +47,7 @@
 #include "extensions/common/extension_set.h"
 #include "extensions/features/features.h"
 #include "ui/base/layout.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/image/image_skia.h"
@@ -457,6 +458,12 @@ SkColor ThemeService::GetDefaultColor(int id, bool incognito) const {
           0x4D);
     }
     case ThemeProperties::COLOR_BACKGROUND_TAB: {
+      // Touch optimized color design uses different tab background colors.
+      // TODO(malaykeshav) - This will break custom themes on touch optimized
+      // UI. Use tint shift instead.
+      if (ui::MaterialDesignController::IsTouchOptimizedUiEnabled())
+        break;
+
       // The tints here serve a different purpose than TINT_BACKGROUND_TAB.
       // That tint is used to create background tab images for custom themes by
       // lightening the frame images.  The tints here create solid colors for
@@ -485,7 +492,7 @@ SkColor ThemeService::GetDefaultColor(int id, bool incognito) const {
     case ThemeProperties::COLOR_DETACHED_BOOKMARK_BAR_SEPARATOR:
       // Use a faint version of the text color as the separator color.
       return SkColorSetA(
-          GetColor(ThemeProperties::COLOR_BOOKMARK_TEXT, incognito), 0x20);
+          GetColor(ThemeProperties::COLOR_BOOKMARK_TEXT, incognito), 0x26);
     case ThemeProperties::COLOR_NTP_TEXT_LIGHT:
       return IncreaseLightness(GetColor(kNtpText, incognito), 0.40);
     case ThemeProperties::COLOR_TAB_THROBBER_SPINNING:
@@ -801,7 +808,7 @@ void ThemeService::OnExtensionServiceReady() {
   }
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-  theme_observer_ = base::MakeUnique<ThemeObserver>(this);
+  theme_observer_ = std::make_unique<ThemeObserver>(this);
 #endif
 
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(

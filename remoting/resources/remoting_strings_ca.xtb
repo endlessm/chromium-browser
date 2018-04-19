@@ -121,6 +121,7 @@ Per obtenir informació sobre la privadesa, vegeu la Política de privadesa de G
 <translation id="3581045510967524389">No s'ha pogut connectar a la xarxa. Comproveu que el dispositiu estigui connectat a Internet.</translation>
 <translation id="3596628256176442606">Aquest servei permet les connexions entrants dels clients de Chromoting.</translation>
 <translation id="3606997049964069799">No heu iniciat la sessió a Chromium. Inicieu-hi la sessió i torneu-ho a provar.</translation>
+<translation id="3608841044971751032">Accedeix al teu ordinador de manera segura</translation>
 <translation id="3649256019230929621">Minimitza la finestra</translation>
 <translation id="369442766917958684">Sense connexió</translation>
 <translation id="3695446226812920698">Més informació</translation>
@@ -290,6 +291,7 @@ PC</translation>
 <translation id="7672203038394118626">S'han desactivat les connexions remotes en aquest ordinador.</translation>
 <translation id="7678209621226490279">Fixa a l'esquerra</translation>
 <translation id="7693372326588366043">Actualitza la llista d'amfitrions</translation>
+<translation id="7714222945760997814">Informa'n</translation>
 <translation id="7782471917492991422">Comproveu la configuració de gestió d'energia de l'ordinador i assegureu-vos que no s'hagi configurat per estar en mode de baix consum quan estigui inactiu.</translation>
 <translation id="7810127880729796595">Mostra les estadístiques (connexió: <ph name="QUALITY" />)</translation>
 <translation id="7836926030608666805">Falten alguns components necessaris. Assegureu-vos que executeu la versió més recent de Chrome i torneu-ho a provar.</translation>

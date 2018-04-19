@@ -37,7 +37,7 @@ void IconLoader::ReadIcon() {
 
   if (icon_size_ == ALL) {
     // The NSImage already has all sizes.
-    image = base::MakeUnique<gfx::Image>([icon retain]);
+    image = std::make_unique<gfx::Image>([icon retain]);
   } else {
     NSSize size = NSZeroSize;
     switch (icon_size_) {
@@ -53,11 +53,12 @@ void IconLoader::ReadIcon() {
     gfx::ImageSkia image_skia(gfx::ImageSkiaFromResizedNSImage(icon, size));
     if (!image_skia.isNull()) {
       image_skia.MakeThreadSafe();
-      image = base::MakeUnique<gfx::Image>(image_skia);
+      image = std::make_unique<gfx::Image>(image_skia);
     }
   }
 
   target_task_runner_->PostTask(
-      FROM_HERE, base::Bind(callback_, base::Passed(&image), group_));
+      FROM_HERE,
+      base::BindOnce(std::move(callback_), std::move(image), group_));
   delete this;
 }

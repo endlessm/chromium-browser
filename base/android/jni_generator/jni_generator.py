@@ -127,12 +127,14 @@ def JavaDataTypeToC(java_type):
   java_type_map = {
       'void': 'void',
       'String': 'jstring',
+      'Class': 'jclass',
       'Throwable': 'jthrowable',
       'java/lang/String': 'jstring',
       'java/lang/Class': 'jclass',
       'java/lang/Throwable': 'jthrowable',
   }
 
+  java_type = _StripGenerics(java_type)
   if java_type in java_pod_type_map:
     return java_pod_type_map[java_type]
   elif java_type in java_type_map:
@@ -141,10 +143,6 @@ def JavaDataTypeToC(java_type):
     if java_type[:-2] in java_pod_type_map:
       return java_pod_type_map[java_type[:-2]] + 'Array'
     return 'jobjectArray'
-  elif java_type.startswith('Class'):
-    # Checking just the start of the name, rather than a direct comparison,
-    # in order to handle generics.
-    return 'jclass'
   else:
     return 'jobject'
 
@@ -497,6 +495,8 @@ def GetRegistrationFunctionName(fully_qualified_class):
 def GetStaticCastForReturnType(return_type):
   type_map = { 'String' : 'jstring',
                'java/lang/String' : 'jstring',
+               'Class': 'jclass',
+               'java/lang/Class': 'jclass',
                'Throwable': 'jthrowable',
                'java/lang/Throwable': 'jthrowable',
                'boolean[]': 'jbooleanArray',
@@ -507,6 +507,7 @@ def GetStaticCastForReturnType(return_type):
                'long[]': 'jlongArray',
                'float[]': 'jfloatArray',
                'double[]': 'jdoubleArray' }
+  return_type = _StripGenerics(return_type)
   ret = type_map.get(return_type, None)
   if ret:
     return ret
@@ -599,15 +600,15 @@ RE_SCOPED_JNI_TYPES = re.compile('jobject|jclass|jstring|jthrowable|.*Array')
 
 # Regex to match a string like "@CalledByNative public void foo(int bar)".
 RE_CALLED_BY_NATIVE = re.compile(
-    '@CalledByNative(?P<Unchecked>(Unchecked)*?)(?:\("(?P<annotation>.*)"\))?'
-    '\s+(?P<prefix>('
-    '(private|protected|public|static|abstract|final|default|synchronized)'
-    '\s*)*)'
-    '(:?\s*@\w+)?'  # Ignore annotations in return types.
-    '\s*(?P<return_type>\S*?)'
-    '\s*(?P<name>\w+)'
-    '\s*\((?P<params>[^\)]*)\)')
-
+    r'@CalledByNative(?P<Unchecked>(?:Unchecked)?)(?:\("(?P<annotation>.*)"\))?'
+    r'(?:\s+@\w+(?:\(.*\))?)*'  # Ignore any other annotations.
+    r'\s+(?P<prefix>('
+    r'(private|protected|public|static|abstract|final|default|synchronized)'
+    r'\s*)*)'
+    r'(?:\s*@\w+)?'  # Ignore annotations in return types.
+    r'\s*(?P<return_type>\S*?)'
+    r'\s*(?P<name>\w+)'
+    r'\s*\((?P<params>[^\)]*)\)')
 
 # Removes empty lines that are indented (i.e. start with 2x spaces).
 def RemoveIndentedEmptyLines(string):

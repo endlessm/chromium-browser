@@ -22,9 +22,9 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/devicetype_utils.h"
 #include "ui/gfx/image/image.h"
-#include "ui/message_center/notification.h"
-#include "ui/message_center/notification_types.h"
-#include "ui/message_center/notifier_id.h"
+#include "ui/message_center/public/cpp/notification.h"
+#include "ui/message_center/public/cpp/notification_types.h"
+#include "ui/message_center/public/cpp/notifier_id.h"
 #include "url/gurl.h"
 
 namespace arc {
@@ -93,7 +93,7 @@ void ArcProvisionNotificationService::ShowNotification() {
       gfx::Image(ui::ResourceBundle::GetSharedInstance().GetImageNamed(
           IDR_ARC_PLAY_STORE_OPTIN_IN_PROGRESS_NOTIFICATION)),
       l10n_util::GetStringUTF16(IDS_ARC_NOTIFICATION_DISPLAY_SOURCE), GURL(),
-      notifier_id, optional_fields, nullptr);
+      notifier_id, optional_fields, new message_center::NotificationDelegate());
 
   NotificationDisplayService::GetForProfile(profile)->Display(
       NotificationHandler::Type::TRANSIENT, notification);

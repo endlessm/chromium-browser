@@ -318,7 +318,7 @@ class GClientSmokeGIT(GClientSmokeBase):
     # Test unversioned checkout.
     self.parseGclient(
         ['sync', '--deps', 'mac', '--jobs', '1'],
-        ['running', 'running'])
+        ['running', 'running', 'running'])
     # TODO(maruel): http://crosbug.com/3582 hooks run even if not matching, must
     # add sync parsing to get the list of updated files.
     tree = self.mangle_git_tree(('repo_1@2', 'src'),
@@ -383,7 +383,7 @@ class GClientSmokeGIT(GClientSmokeBase):
     self.parseGclient(
         ['sync', '--deps', 'mac', '--jobs', '1',
          '--revision', 'invalid@' + self.githash('repo_1', 1)],
-        ['running', 'running'],
+        ['running', 'running', 'running'],
         'Please fix your script, having invalid --revision flags '
         'will soon considered an error.\n')
     tree = self.mangle_git_tree(('repo_1@2', 'src'),
@@ -401,7 +401,7 @@ class GClientSmokeGIT(GClientSmokeBase):
     self.parseGclient(
         ['sync', '--deps', 'mac', '--jobs', '1',
          '--revision', self.githash('repo_1', 1)],
-        [])
+        ['running'])
     tree = self.mangle_git_tree(('repo_1@1', 'src'),
                                 ('repo_2@2', 'src/repo2'),
                                 ('repo_3@1', 'src/repo2/repo3'),
@@ -424,7 +424,7 @@ class GClientSmokeGIT(GClientSmokeBase):
     # Test unversioned checkout.
     self.parseGclient(
         ['sync', '--deps', 'mac', '--jobs', '8'],
-        ['running', 'running'],
+        ['running', 'running', 'running'],
         untangle=True)
     # TODO(maruel): http://crosbug.com/3582 hooks run even if not matching, must
     # add sync parsing to get the list of updated files.
@@ -554,13 +554,15 @@ class GClientSmokeGIT(GClientSmokeBase):
       return
     self.gclient(['config', self.git_base + 'repo_5', '--name', 'src'])
     expectation = [
+        ('running', self.root_dir),                 # git clone
         ('running', self.root_dir),                 # pre-deps hook
     ]
     out = self.parseGclient(['sync', '--deps', 'mac', '--jobs=1',
                              '--revision', 'src@' + self.githash('repo_5', 2)],
                             expectation)
-    self.assertEquals(2, len(out[0]))
-    self.assertEquals('pre-deps hook', out[0][1])
+    self.assertEquals('Cloning into ', out[0][1][:13])
+    self.assertEquals(2, len(out[1]))
+    self.assertEquals('pre-deps hook', out[1][1])
     tree = self.mangle_git_tree(('repo_5@2', 'src'),
                                 ('repo_1@2', 'src/repo1'),
                                 ('repo_2@1', 'src/repo2')
@@ -604,6 +606,7 @@ class GClientSmokeGIT(GClientSmokeBase):
       return
     self.gclient(['config', self.git_base + 'repo_5', '--name', 'src'])
     expectated_stdout = [
+        ('running', self.root_dir),                 # git clone
         ('running', self.root_dir),                 # pre-deps hook
         ('running', self.root_dir),                 # pre-deps hook (fails)
     ]
@@ -650,7 +653,12 @@ class GClientSmokeGIT(GClientSmokeBase):
     output_deps = os.path.join(self.root_dir, 'DEPS.flattened')
     self.assertFalse(os.path.exists(output_deps))
 
-    self.gclient(['config', self.git_base + 'repo_6', '--name', 'src'])
+    self.gclient(['config', self.git_base + 'repo_6', '--name', 'src',
+                  # This should be ignored because 'custom_true_var' isn't
+                  # defined in the DEPS.
+                  '--custom-var', 'custom_true_var=True',
+                  # This should override 'true_var=True' from the DEPS.
+                  '--custom-var', 'true_var="0"'])
     self.gclient(['sync'])
     self.gclient(['flatten', '-v', '-v', '-v', '--output-deps', output_deps])
 
@@ -670,6 +678,7 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  # src -> src/repo2 -> foo/bar',
         '  "foo/bar": {',
         '    "url": "/repo_3",',
+        '    "condition": \'true_str_var\',',
         '  },',
         '',
         '  # src',
@@ -681,7 +690,7 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  "src/repo2": {',
         '    "url": "{git_base}repo_2@%s",' % (
                  self.githash('repo_2', 1)[:7]),
-        '    "condition": \'True\',',
+        '    "condition": \'true_str_var\',',
         '  },',
         '',
         '  # src -> src/repo4',
@@ -807,8 +816,8 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  # src',
         '  "true_str_var": \'True\',',
         '',
-        '  # src',
-        '  "true_var": True,',
+        '  # src [custom_var override]',
+        '  "true_var": \'0\',',
         '',
         '}',
         '',
@@ -832,6 +841,7 @@ class GClientSmokeGIT(GClientSmokeBase):
     with open(output_deps) as f:
       deps_contents = f.read()
 
+    self.maxDiff = None
     self.assertEqual([
         'gclient_gn_args_file = "src/repo2/gclient.args"',
         'gclient_gn_args = [\'false_var\', \'false_str_var\', \'true_var\', '
@@ -844,6 +854,7 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  # src -> src/repo2 -> foo/bar',
         '  "foo/bar": {',
         '    "url": "/repo_3@%s",' % (self.githash('repo_3', 2)),
+        '    "condition": \'true_str_var\',',
         '  },',
         '',
         '  # src',
@@ -856,7 +867,7 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  "src/repo2": {',
         '    "url": "{git_base}repo_2@%s",' % (
                  self.githash('repo_2', 1)),
-        '    "condition": \'True\',',
+        '    "condition": \'true_str_var\',',
         '  },',
         '',
         '  # src -> src/repo4',
@@ -1104,6 +1115,43 @@ class GClientSmokeGIT(GClientSmokeBase):
       {'url': 'git://127.0.0.1:20000/git/repo_8', 'deps_file': 'DEPS'},
       {'url': 'git://127.0.0.1:20000/git/repo_9', 'deps_file': 'DEPS'},
     ], deps_files_contents)
+
+  def testFlattenCipd(self):
+    if not self.enabled:
+      return
+
+    output_deps = os.path.join(self.root_dir, 'DEPS.flattened')
+    self.assertFalse(os.path.exists(output_deps))
+
+    self.gclient(['config', self.git_base + 'repo_14', '--name', 'src'])
+    self.gclient(['sync'])
+    self.gclient(['flatten', '-v', '-v', '-v', '--output-deps', output_deps])
+
+    with open(output_deps) as f:
+      deps_contents = f.read()
+
+    self.maxDiff = None
+    self.assertEqual([
+        'deps = {',
+        '  # src',
+        '  "src": {',
+        '    "url": "git://127.0.0.1:20000/git/repo_14",',
+        '  },',
+        '',
+        '  # src -> src/cipd_dep:package0',
+        '  "src/cipd_dep:package0": {',
+        '    "packages": [',
+        '      {',
+        '        "package": "package0",',
+        '        "version": "0.1",',
+        '      },',
+        '    ],',
+        '    "dep_type": "cipd",',
+        '  },',
+        '',
+        '}',
+        ''
+    ], deps_contents.splitlines())
 
 
 class GClientSmokeGITMutates(GClientSmokeBase):

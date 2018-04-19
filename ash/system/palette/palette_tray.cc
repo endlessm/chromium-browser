@@ -25,7 +25,6 @@
 #include "ash/system/tray/tray_bubble_wrapper.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_container.h"
-#include "ash/system/tray/tray_popup_header_button.h"
 #include "ash/system/tray/tray_popup_item_style.h"
 #include "ash/system/tray/tray_popup_utils.h"
 #include "base/metrics/histogram_macros.h"
@@ -99,12 +98,10 @@ class TitleView : public views::View, public views::ButtonListener {
     TrayPopupItemStyle style(TrayPopupItemStyle::FontStyle::TITLE);
     style.SetupLabel(title_label);
     layout_ptr->SetFlexForView(title_label, 1);
-    help_button_ =
-        new SystemMenuButton(this, TrayPopupInkDropStyle::HOST_CENTERED,
-                             kSystemMenuHelpIcon, IDS_ASH_STATUS_TRAY_HELP);
-    settings_button_ =
-        new SystemMenuButton(this, TrayPopupInkDropStyle::HOST_CENTERED,
-                             kSystemMenuSettingsIcon, IDS_ASH_PALETTE_SETTINGS);
+    help_button_ = new SystemMenuButton(this, kSystemMenuHelpIcon,
+                                        IDS_ASH_STATUS_TRAY_HELP);
+    settings_button_ = new SystemMenuButton(this, kSystemMenuSettingsIcon,
+                                            IDS_ASH_PALETTE_SETTINGS);
 
     AddChildView(help_button_);
     AddChildView(TrayPopupUtils::CreateVerticalSeparator());
@@ -288,9 +285,8 @@ void PaletteTray::OnStylusStateChanged(ui::StylusState stylus_state) {
   if (!stylus_utils::HasStylusInput())
     return;
 
-  // Don't do anything if the palette should not be shown or if the user has
-  // disabled it all-together.
-  if (!palette_utils::IsInUserSession() || !is_palette_enabled_)
+  // Don't do anything if the palette tray is not shown.
+  if (!visible())
     return;
 
   // Auto show/hide the palette if allowed by the user.

@@ -153,7 +153,6 @@ BufferSparseMemoryAliasingInstance::BufferSparseMemoryAliasingInstance (Context&
 tcu::TestStatus BufferSparseMemoryAliasingInstance::iterate (void)
 {
 	const InstanceInterface&		instance		= m_context.getInstanceInterface();
-	const DeviceInterface&			deviceInterface	= m_context.getDeviceInterface();
 	const VkPhysicalDevice			physicalDevice	= m_context.getPhysicalDevice();
 
 	if (!getPhysicalDeviceFeatures(instance, physicalDevice).sparseBinding)
@@ -171,8 +170,9 @@ tcu::TestStatus BufferSparseMemoryAliasingInstance::iterate (void)
 		createDeviceSupportingQueues(queueRequirements);
 	}
 
-	const Queue& sparseQueue	= getQueue(VK_QUEUE_SPARSE_BINDING_BIT, 0);
-	const Queue& computeQueue	= getQueue(VK_QUEUE_COMPUTE_BIT, 0);
+	const DeviceInterface&	deviceInterface	= getDeviceInterface();
+	const Queue&			sparseQueue		= getQueue(VK_QUEUE_SPARSE_BINDING_BIT, 0);
+	const Queue&			computeQueue	= getQueue(VK_QUEUE_COMPUTE_BIT, 0);
 
 	VkBufferCreateInfo bufferCreateInfo =
 	{
@@ -202,7 +202,7 @@ tcu::TestStatus BufferSparseMemoryAliasingInstance::iterate (void)
 	const Unique<VkBuffer> sparseBufferRead	(createBuffer(deviceInterface, getDevice(), &bufferCreateInfo));
 
 	// Create sparse buffers memory bind semaphore
-	const Unique<VkSemaphore> bufferMemoryBindSemaphore(makeSemaphore(deviceInterface, getDevice()));
+	const Unique<VkSemaphore> bufferMemoryBindSemaphore(createSemaphore(deviceInterface, getDevice()));
 
 	const VkMemoryRequirements	bufferMemRequirements = getBufferMemoryRequirements(deviceInterface, getDevice(), *sparseBufferWrite);
 
@@ -263,7 +263,7 @@ tcu::TestStatus BufferSparseMemoryAliasingInstance::iterate (void)
 
 	// Create command buffer for compute and data transfer oparations
 	const Unique<VkCommandPool>	  commandPool(makeCommandPool(deviceInterface, getDevice(), computeQueue.queueFamilyIndex));
-	const Unique<VkCommandBuffer> commandBuffer(makeCommandBuffer(deviceInterface, getDevice(), *commandPool));
+	const Unique<VkCommandBuffer> commandBuffer(allocateCommandBuffer(deviceInterface, getDevice(), *commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY));
 
 	// Start recording commands
 	beginCommandBuffer(deviceInterface, *commandBuffer);

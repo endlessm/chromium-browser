@@ -76,6 +76,8 @@ class PasswordManagerBrowserTestWarning
   PasswordManagerBrowserTestWarning() {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
+    PasswordManagerBrowserTestBase::SetUpCommandLine(command_line);
+
     // We need to set the feature state before the render process is created,
     // in order for it to inherit the feature state from the browser process.
     // SetUp() runs too early, and SetUpOnMainThread() runs too late.
@@ -296,7 +298,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
 }
 
 IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
-                       PromptForSubmitWithInPageNavigation) {
+                       PromptForSubmitWithSameDocumentNavigation) {
   NavigateToFile("/password/password_navigate_before_submit.html");
 
   // Fill a form and submit through a <input type="submit"> button. Nothing
@@ -480,7 +482,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
   NavigateToFile("/password/password_form.html");
 
   NavigationObserver observer(WebContents());
-  auto prompt_observer = base::MakeUnique<BubbleObserver>(WebContents());
+  auto prompt_observer = std::make_unique<BubbleObserver>(WebContents());
   std::string fill_and_submit =
       "document.getElementById('username_different_action').value = 'temp';"
       "document.getElementById('password_different_action').value = 'random';"
@@ -491,6 +493,27 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
 }
 
 IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
+                       NoPromptForActionMutation) {
+  NavigateToFile("/password/password_form_action_mutation.html");
+
+  // Need to pay attention for a message that XHR has finished since there
+  // is no navigation to wait for.
+  content::DOMMessageQueue message_queue;
+  BubbleObserver prompt_observer(WebContents());
+  std::string fill_and_submit =
+      "document.getElementById('username_action_mutation').value = 'temp';"
+      "document.getElementById('password_action_mutation').value = 'random';"
+      "document.getElementById('submit_action_mutation').click()";
+  ASSERT_TRUE(content::ExecuteScript(RenderViewHost(), fill_and_submit));
+  std::string message;
+  while (message_queue.WaitForMessage(&message)) {
+    if (message == "\"XHR_FINISHED\"")
+      break;
+  }
+  EXPECT_FALSE(prompt_observer.IsSavePromptShownAutomatically());
+}
+
+IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
                        NoPromptForFormWithEnteredUsername) {
   // Log in, see a form on the landing page. That form is not related to the
   // login form but has the same username as was entered previously, so we
@@ -498,7 +521,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
   NavigateToFile("/password/password_form.html");
 
   NavigationObserver observer(WebContents());
-  auto prompt_observer = base::MakeUnique<BubbleObserver>(WebContents());
+  auto prompt_observer = std::make_unique<BubbleObserver>(WebContents());
   std::string fill_and_submit =
       "document.getElementById('username_contains_username').value = 'temp';"
       "document.getElementById('password_contains_username').value = 'random';"
@@ -506,6 +529,24 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
   ASSERT_TRUE(content::ExecuteScript(RenderViewHost(), fill_and_submit));
   observer.Wait();
   EXPECT_FALSE(prompt_observer->IsSavePromptShownAutomatically());
+}
+
+IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
+                       PromptForDifferentFormWithEmptyAction) {
+  // Log in, see a form on the landing page. That form is not related to the
+  // signin form. The signin and the form on the landing page have empty
+  // actions, so we should offer saving the password.
+  NavigateToFile("/password/navigate_to_same_url_empty_actions.html");
+
+  NavigationObserver observer(WebContents());
+  auto prompt_observer = std::make_unique<BubbleObserver>(WebContents());
+  std::string fill_and_submit =
+      "document.getElementById('username').value = 'temp';"
+      "document.getElementById('password').value = 'random';"
+      "document.getElementById('submit-button').click()";
+  ASSERT_TRUE(content::ExecuteScript(RenderViewHost(), fill_and_submit));
+  observer.Wait();
+  EXPECT_TRUE(prompt_observer->IsSavePromptShownAutomatically());
 }
 
 IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
@@ -536,7 +577,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
 
 IN_PROC_BROWSER_TEST_F(
     PasswordManagerBrowserTestBase,
-    NoPromptForFailedLoginFromMainFrameWithMultiFramesInPage) {
+    NoPromptForFailedLoginFromMainFrameWithMultiFramesSameDocument) {
   NavigateToFile("/password/multi_frames.html");
 
   // Make sure that we don't prompt to save the password for a failed login
@@ -556,7 +597,7 @@ IN_PROC_BROWSER_TEST_F(
 
 IN_PROC_BROWSER_TEST_F(
     PasswordManagerBrowserTestBase,
-    NoPromptForFailedLoginFromSubFrameWithMultiFramesInPage) {
+    NoPromptForFailedLoginFromSubFrameWithMultiFramesSameDocument) {
   NavigateToFile("/password/multi_frames.html");
 
   // Make sure that we don't prompt to save the password for a failed login
@@ -1884,8 +1925,16 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_FALSE(prompt_observer->IsSavePromptShownAutomatically());
 }
 
+// https://crbug.com/814845 Flaky on macOS ASan.
+#if defined(ADDRESS_SANITIZER) && defined(OS_MACOSX)
+#define MAYBE_InFrameNavigationDoesNotClearPopupState \
+  DISABLED_InFrameNavigationDoesNotClearPopupState
+#else
+#define MAYBE_InFrameNavigationDoesNotClearPopupState \
+  InFrameNavigationDoesNotClearPopupState
+#endif
 IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
-                       InFrameNavigationDoesNotClearPopupState) {
+                       MAYBE_InFrameNavigationDoesNotClearPopupState) {
   scoped_refptr<password_manager::TestPasswordStore> password_store =
       static_cast<password_manager::TestPasswordStore*>(
           PasswordStoreFactory::GetForProfile(
@@ -2955,8 +3004,9 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
                       "mypassword");
 }
 
-// Flaky on Linux ASAN: http://crbug.com/803155
-#if defined(OS_LINUX) && defined(ADDRESS_SANITIZER)
+
+// Flaky on Linux. http://crbug.com/804398
+#if defined(OS_LINUX)
 #define MAYBE_InternalsPage_Renderer DISABLED_InternalsPage_Renderer
 #else
 #define MAYBE_InternalsPage_Renderer InternalsPage_Renderer
@@ -2964,7 +3014,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
 
 // Check that the internals page contains logs from the renderer.
 IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
-                       MAYBE_InternalsPage_Renderer) {
+    MAYBE_InternalsPage_Renderer) {
   // Open the internals page.
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), GURL("chrome://password-manager-internals"),
@@ -3621,6 +3671,7 @@ class SitePerProcessPasswordManagerBrowserTest
   SitePerProcessPasswordManagerBrowserTest() {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
+    PasswordManagerBrowserTestBase::SetUpCommandLine(command_line);
     content::IsolateAllSitesForTesting(command_line);
   }
 

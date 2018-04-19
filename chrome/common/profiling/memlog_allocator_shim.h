@@ -16,10 +16,9 @@ namespace profiling {
 // TLS slot, which is the entity that's supposed to prevent re-entrancy.
 void InitTLSSlot();
 
-// Begin profiling all allocations in the process. Send the results to
-// |sender_pipe|.
+// Begin profiling all allocations in the process.
 void InitAllocatorShim(MemlogSenderPipe* sender_pipe,
-                       mojom::StackMode stack_mode);
+                       mojom::ProfilingParamsPtr params);
 
 // Stop profiling allocations by dropping shim callbacks. There is no way to
 // consistently, synchronously stop the allocator shim without negatively
@@ -61,9 +60,6 @@ void SetGCHeapAllocationHookFunctions(SetGCAllocHookFunction hook_alloc,
 void SetOnInitAllocatorShimCallbackForTesting(
     base::OnceClosure callback,
     scoped_refptr<base::TaskRunner> task_runner);
-
-void DisableAllocationTrackingForCurrentThreadForTesting();
-void EnableAllocationTrackingForCurrentThreadForTesting();
 
 }  // namespace profiling
 

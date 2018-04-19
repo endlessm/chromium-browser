@@ -27,6 +27,7 @@
 #include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/child/child_profiling.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_content_client.h"
@@ -35,7 +36,6 @@
 #include "chrome/common/chrome_result_codes.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/crash_keys.h"
-#include "chrome/common/features.h"
 #include "chrome/common/logging_chrome.h"
 #include "chrome/common/profiling.h"
 #include "chrome/common/profiling/memlog_allocator_shim.h"
@@ -50,7 +50,7 @@
 #include "components/crash/content/app/crash_reporter_client.h"
 #include "components/crash/core/common/crash_key.h"
 #include "components/crash/core/common/crash_keys.h"
-#include "components/nacl/common/features.h"
+#include "components/nacl/common/buildflags.h"
 #include "components/version_info/version_info.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_paths.h"
@@ -149,7 +149,7 @@
 
 #if BUILDFLAG(ENABLE_PLUGINS) && (defined(CHROME_MULTIPLE_DLL_CHILD) || \
     !defined(CHROME_MULTIPLE_DLL_BROWSER))
-#include "pdf/pdf.h"
+#include "pdf/pdf_ppapi.h"
 #endif
 
 #if !defined(CHROME_MULTIPLE_DLL_CHILD)

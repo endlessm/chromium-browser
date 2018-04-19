@@ -3,6 +3,7 @@
 --min-version 1.0.3 angle-d3d11-compiler-error.html
 --min-version 1.0.3 angle-dx-variable-bug.html
 --min-version 1.0.3 array-of-struct-with-int-first-position.html
+--min-version 1.0.4 assign-to-swizzled-twice-in-function.html
 --min-version 1.0.4 bool-type-cast-bug-int-float.html
 --min-version 1.0.3 compare-loop-index-to-uniform.html
 --min-version 1.0.3 complex-glsl-does-not-crash.html
@@ -17,8 +18,10 @@
 --min-version 1.0.3 fragcoord-linking-bug.html
 --min-version 1.0.4 gl-fragcoord-multisampling-bug.html
 --min-version 1.0.4 global-invariant-does-not-leak-across-shaders.html
+--min-version 1.0.4 if-return-and-elseif.html
 --min-version 1.0.4 init-array-with-loop.html
 --min-version 1.0.4 invariant-does-not-leak-across-shaders.html
+--min-version 1.0.4 in-parameter-passed-as-inout-argument-and-global.html
 --min-version 1.0.4 logic-inside-block-without-braces.html
 --min-version 1.0.3 long-expressions-should-not-crash.html
 --min-version 1.0.4 loop-if-loop-gradient.html

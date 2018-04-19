@@ -121,6 +121,7 @@ Informace ohledně ochrany soukromí naleznete v zásadách ochrany soukromí sp
 <translation id="3581045510967524389">Nelze se připojit k síti. Zkontrolujte prosím, zda je zařízení online.</translation>
 <translation id="3596628256176442606">Tato služba umožňuje příchozí připojení od klientů funkce Chromoting.</translation>
 <translation id="3606997049964069799">Nejste do prohlížeče Chromium přihlášeni. Přihlaste se a zkuste to znovu.</translation>
+<translation id="3608841044971751032">Zabezpečte přístup ke svému počítači</translation>
 <translation id="3649256019230929621">Minimalizovat okno</translation>
 <translation id="369442766917958684">Offline.</translation>
 <translation id="3695446226812920698">Postup</translation>
@@ -262,7 +263,7 @@ PC</translation>
 <translation id="6930242544192836755">Délka</translation>
 <translation id="6939719207673461467">Zobrazit či skrýt klávesnici</translation>
 <translation id="6944854424004126054">Obnovit okno</translation>
-<translation id="6948905685698011662">Vzdálená plocha Chrome je nyní na webu. Vyzkoušejte naši <ph name="LINK_BEGIN" />bezplatnou webovou aplikaci<ph name="LINK_END" />.</translation>
+<translation id="6948905685698011662">Vzdálená plocha Chrome je teď na webu. Vyzkoušejte naši <ph name="LINK_BEGIN" />bezplatnou webovou aplikaci<ph name="LINK_END" />.</translation>
 <translation id="6963936880795878952">Připojení ke vzdálenému počítači jsou dočasně zablokována, protože došlo k několika pokusům o připojení s nesprávným kódem PIN. Zkuste to znovu později.</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="6985691951107243942">Opravdu chcete zakázat vzdálená připojení k počítači <ph name="HOSTNAME" />? Pokud později své rozhodnutí změníte, bude nutné připojení povolit přímo z uvedeného počítače.</translation>
@@ -290,6 +291,7 @@ PC</translation>
 <translation id="7672203038394118626">Vzdálená připojení k tomuto počítači byla zakázána.</translation>
 <translation id="7678209621226490279">Ukotvit vlevo</translation>
 <translation id="7693372326588366043">Obnovit seznam hostitelů</translation>
+<translation id="7714222945760997814">Nahlásit selhání</translation>
 <translation id="7782471917492991422">Zkontrolujte prosím nastavení řízení spotřeby svého počítače a ujistěte se, zda není nastaven na přechod do režimu spánku při nečinnosti.</translation>
 <translation id="7810127880729796595">Zobrazit statistiky (připojení: <ph name="QUALITY" />)</translation>
 <translation id="7836926030608666805">Chybí některé povinné komponenty. Zkontrolujte, zda máte nejnovější verzi Chromu, a zkuste to znovu.</translation>

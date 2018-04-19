@@ -3,7 +3,6 @@
 # found in the LICENSE file.
 
 import base64
-import copy
 import json
 import mock
 import sys
@@ -25,6 +24,7 @@ from dashboard.models import histogram
 from dashboard.models import sheriff
 from tracing.value import histogram as histogram_module
 from tracing.value import histogram_set
+from tracing.value.diagnostics import breakdown
 from tracing.value.diagnostics import generic_set
 from tracing.value.diagnostics import reserved_infos
 
@@ -93,24 +93,79 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
     mock_oauth = oauth_patcher.start()
     SetGooglerOAuth(mock_oauth)
 
+  def _CreateHistogram(
+      self, master=None, bot=None, benchmark=None, commit_position=None,
+      device=None, owner=None, stories=None, benchmark_description=None,
+      samples=None, max_samples=None, is_ref=False):
+    hists = [histogram_module.Histogram('hist', 'count')]
+    if max_samples:
+      hists[0].max_num_sample_values = max_samples
+    if samples:
+      for s in samples:
+        hists[0].AddSample(s)
+
+    histograms = histogram_set.HistogramSet(hists)
+    if master:
+      histograms.AddSharedDiagnostic(
+          reserved_infos.MASTERS.name,
+          generic_set.GenericSet([master]))
+    if bot:
+      histograms.AddSharedDiagnostic(
+          reserved_infos.BOTS.name,
+          generic_set.GenericSet([bot]))
+    if commit_position:
+      histograms.AddSharedDiagnostic(
+          reserved_infos.CHROMIUM_COMMIT_POSITIONS.name,
+          generic_set.GenericSet([commit_position]))
+    if benchmark:
+      histograms.AddSharedDiagnostic(
+          reserved_infos.BENCHMARKS.name,
+          generic_set.GenericSet([benchmark]))
+    if benchmark_description:
+      histograms.AddSharedDiagnostic(
+          reserved_infos.BENCHMARK_DESCRIPTIONS.name,
+          generic_set.GenericSet([benchmark_description]))
+    if owner:
+      histograms.AddSharedDiagnostic(
+          reserved_infos.OWNERS.name,
+          generic_set.GenericSet([owner]))
+    if device:
+      histograms.AddSharedDiagnostic(
+          reserved_infos.DEVICE_IDS.name,
+          generic_set.GenericSet([device]))
+    if stories:
+      histograms.AddSharedDiagnostic(
+          reserved_infos.STORIES.name,
+          generic_set.GenericSet(stories))
+    if is_ref:
+      histograms.AddSharedDiagnostic(
+          reserved_infos.IS_REFERENCE_BUILD.name,
+          generic_set.GenericSet([True]))
+    return histograms
+
   @mock.patch.object(
       add_histograms_queue.graph_revisions, 'AddRowsToCacheAsync')
   @mock.patch.object(add_histograms_queue.find_anomalies, 'ProcessTestsAsync')
   def testPost_Succeeds(self, mock_process_test, mock_graph_revisions):
-    data = json.dumps(_SAMPLE_HISTOGRAM_END_TO_END)
+    hs = self._CreateHistogram(
+        master='master', bot='bot', benchmark='benchmark', commit_position=123,
+        benchmark_description='Benchmark description.', samples=[1, 2, 3])
+    data = json.dumps(hs.AsDicts())
     sheriff.Sheriff(
         id='my_sheriff1', email='a@chromium.org', patterns=[
-            '*/*/*/foo2', '*/*/*/foo2_avg']).put()
+            '*/*/*/hist', '*/*/*/hist_avg']).put()
 
     self.testapp.post('/add_histograms', {'data': data})
     self.ExecuteTaskQueueTasks('/add_histograms_queue',
                                add_histograms.TASK_QUEUE_NAME)
     diagnostics = histogram.SparseDiagnostic.query().fetch()
-    self.assertEqual(3, len(diagnostics))
+    self.assertEqual(4, len(diagnostics))
     histograms = histogram.Histogram.query().fetch()
     self.assertEqual(1, len(histograms))
 
     tests = graph_data.TestMetadata.query().fetch()
+
+    self.assertEqual('Benchmark description.', tests[0].description)
 
     # Verify that an anomaly processing was called.
     mock_process_test.assert_called_once_with([tests[1].key, tests[2].key])
@@ -122,6 +177,24 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
     mock_graph_revisions.assert_called_once()
     self.assertEqual(len(mock_graph_revisions.mock_calls[0][1][0]), len(rows))
 
+  def testPost_PurgesBinData(self):
+    hs = self._CreateHistogram(
+        master='m', bot='b', benchmark='s', commit_position=1)
+    b = breakdown.Breakdown()
+    dm = histogram_module.DiagnosticMap()
+    dm['breakdown'] = b
+    hs.GetFirstHistogram().AddSample(0, dm)
+    data = json.dumps(hs.AsDicts())
+
+    self.testapp.post('/add_histograms', {'data': data})
+    self.ExecuteTaskQueueTasks('/add_histograms_queue',
+                               add_histograms.TASK_QUEUE_NAME)
+
+    histograms = histogram.Histogram.query().fetch()
+    hist = histogram_module.Histogram.FromDict(histograms[0].data)
+    for b in hist.bins:
+      for dm in b.diagnostic_maps:
+        self.assertEqual(0, len(dm))
 
   @mock.patch.object(
       add_histograms_queue.graph_revisions, 'AddRowsToCacheAsync')
@@ -141,34 +214,49 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
     self.assertFalse(mock_process_test.called)
     self.assertFalse(mock_graph_revisions.called)
 
-  def _SetupRefTest(self, ref_name):
-    sheriff.Sheriff(
-        id='ref_sheriff', email='a@chromium.org', patterns=['*/*/*/*']).put()
-    data = copy.deepcopy(_SAMPLE_HISTOGRAM_END_TO_END)
-    data[4]['name'] = ref_name
-    data = json.dumps(data)
-    self.testapp.post('/add_histograms', {'data': data})
-    self.ExecuteTaskQueueTasks('/add_histograms_queue',
-                               add_histograms.TASK_QUEUE_NAME)
-
   @mock.patch.object(add_histograms_queue.find_anomalies, 'ProcessTestsAsync')
   def testPost_TestNameEndsWithUnderscoreRef_ProcessTestIsNotCalled(
       self, mock_process_test):
     """Tests that Tests ending with "_ref" aren't analyzed for Anomalies."""
-    self._SetupRefTest('abcd_ref')
+    sheriff.Sheriff(
+        id='ref_sheriff', email='a@chromium.org', patterns=['*/*/*/*']).put()
+    hs = self._CreateHistogram(
+        master='master', bot='bot', benchmark='benchmark',
+        commit_position=424242, stories=['abcd'], samples=[1, 2, 3],
+        is_ref=True)
+    data = json.dumps(hs.AsDicts())
+    self.testapp.post('/add_histograms', {'data': data})
+    self.ExecuteTaskQueueTasks('/add_histograms_queue',
+                               add_histograms.TASK_QUEUE_NAME)
     mock_process_test.assert_called_once_with([])
 
   @mock.patch.object(add_histograms_queue.find_anomalies, 'ProcessTestsAsync')
   def testPost_TestNameEndsWithSlashRef_ProcessTestIsNotCalled(
       self, mock_process_test):
     """Tests that leaf tests named ref aren't added to the task queue."""
-    self._SetupRefTest('ref')
+    sheriff.Sheriff(
+        id='ref_sheriff', email='a@chromium.org', patterns=['*/*/*/*']).put()
+    hs = self._CreateHistogram(
+        master='master', bot='bot', benchmark='benchmark',
+        commit_position=424242, stories=['ref'], samples=[1, 2, 3])
+    data = json.dumps(hs.AsDicts())
+    self.testapp.post('/add_histograms', {'data': data})
+    self.ExecuteTaskQueueTasks('/add_histograms_queue',
+                               add_histograms.TASK_QUEUE_NAME)
     mock_process_test.assert_called_once_with([])
 
   @mock.patch.object(add_histograms_queue.find_anomalies, 'ProcessTestsAsync')
   def testPost_TestNameEndsContainsButDoesntEndWithRef_ProcessTestIsCalled(
       self, mock_process_test):
-    self._SetupRefTest('_ref_abcd')
+    sheriff.Sheriff(
+        id='ref_sheriff', email='a@chromium.org', patterns=['*/*/*/*']).put()
+    hs = self._CreateHistogram(
+        master='master', bot='bot', benchmark='benchmark',
+        commit_position=424242, stories=['_ref_abcd'], samples=[1, 2, 3])
+    data = json.dumps(hs.AsDicts())
+    self.testapp.post('/add_histograms', {'data': data})
+    self.ExecuteTaskQueueTasks('/add_histograms_queue',
+                               add_histograms.TASK_QUEUE_NAME)
     self.assertTrue(mock_process_test.called)
 
   @mock.patch.object(
@@ -178,33 +266,11 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
       add_histograms_queue.find_anomalies, 'ProcessTestsAsync',
       mock.MagicMock())
   def testPost_DeduplicateByName(self):
-    def _CreateHistogram(revision, device, owner):
-      hists = [histogram_module.Histogram('hist', 'count')]
-      histograms = histogram_set.HistogramSet(hists)
-      histograms.AddSharedDiagnostic(
-          reserved_infos.MASTERS.name,
-          generic_set.GenericSet(['master']))
-      histograms.AddSharedDiagnostic(
-          reserved_infos.BOTS.name,
-          generic_set.GenericSet(['bot']))
-      histograms.AddSharedDiagnostic(
-          reserved_infos.CHROMIUM_COMMIT_POSITIONS.name,
-          generic_set.GenericSet([revision]))
-      histograms.AddSharedDiagnostic(
-          reserved_infos.BENCHMARKS.name,
-          generic_set.GenericSet(['benchmark']))
-      histograms.AddSharedDiagnostic(
-          reserved_infos.OWNERS.name,
-          generic_set.GenericSet([owner]))
-      histograms.AddSharedDiagnostic(
-          reserved_infos.DEVICE_IDS.name,
-          generic_set.GenericSet([device]))
-      histograms.AddSharedDiagnostic(
-          reserved_infos.STORIES.name,
-          generic_set.GenericSet(['story1', 'story2']))
-      return histograms
 
-    hs = _CreateHistogram(1111, 'device1', 'owner1')
+
+    hs = self._CreateHistogram(
+        master='m', bot='b', benchmark='s', stories=['s1', 's2'],
+        commit_position=1111, device='device1', owner='owner1')
     self.testapp.post(
         '/add_histograms', {'data': json.dumps(hs.AsDicts())})
     self.ExecuteTaskQueueTasks('/add_histograms_queue',
@@ -214,7 +280,9 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
     diagnostics = histogram.SparseDiagnostic.query().fetch()
     self.assertEqual(6, len(diagnostics))
 
-    hs = _CreateHistogram(1112, 'device1', 'owner1')
+    hs = self._CreateHistogram(
+        master='m', bot='b', benchmark='s', stories=['s1', 's2'],
+        commit_position=1112, device='device1', owner='owner1')
     self.testapp.post(
         '/add_histograms', {'data': json.dumps(hs.AsDicts())})
     self.ExecuteTaskQueueTasks('/add_histograms_queue',
@@ -224,7 +292,9 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
     diagnostics = histogram.SparseDiagnostic.query().fetch()
     self.assertEqual(6, len(diagnostics))
 
-    hs = _CreateHistogram(1113, 'device2', 'owner1')
+    hs = self._CreateHistogram(
+        master='m', bot='b', benchmark='s', stories=['s1', 's2'],
+        commit_position=1113, device='device2', owner='owner1')
     self.testapp.post(
         '/add_histograms', {'data': json.dumps(hs.AsDicts())})
     self.ExecuteTaskQueueTasks('/add_histograms_queue',
@@ -234,7 +304,9 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
     diagnostics = histogram.SparseDiagnostic.query().fetch()
     self.assertEqual(7, len(diagnostics))
 
-    hs = _CreateHistogram(1114, 'device2', 'owner2')
+    hs = self._CreateHistogram(
+        master='m', bot='b', benchmark='s', stories=['s1', 's2'],
+        commit_position=1114, device='device2', owner='owner2')
     self.testapp.post(
         '/add_histograms', {'data': json.dumps(hs.AsDicts())})
     self.ExecuteTaskQueueTasks('/add_histograms_queue',
@@ -244,7 +316,9 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
     diagnostics = histogram.SparseDiagnostic.query().fetch()
     self.assertEqual(8, len(diagnostics))
 
-    hs = _CreateHistogram(1115, 'device2', 'owner2')
+    hs = self._CreateHistogram(
+        master='m', bot='b', benchmark='s', stories=['s1', 's2'],
+        commit_position=1115, device='device2', owner='owner2')
     self.testapp.post(
         '/add_histograms', {'data': json.dumps(hs.AsDicts())})
     self.ExecuteTaskQueueTasks('/add_histograms_queue',
@@ -1154,6 +1228,15 @@ class AddHistogramsTest(testing_common.TestCase):
     histograms.AddSharedDiagnostic(
         reserved_infos.CHROMIUM_COMMIT_POSITIONS.name, chromium_commit)
     self.assertEqual(424242, add_histograms.ComputeRevision(histograms))
+
+  def testComputeRevision_NotInteger_Raises(self):
+    hist = histogram_module.Histogram('hist', 'count')
+    histograms = histogram_set.HistogramSet([hist])
+    chromium_commit = generic_set.GenericSet(['123'])
+    histograms.AddSharedDiagnostic(
+        reserved_infos.CHROMIUM_COMMIT_POSITIONS.name, chromium_commit)
+    with self.assertRaises(api_request_handler.BadRequestError):
+      add_histograms.ComputeRevision(histograms)
 
   def testComputeRevision_RaisesOnError(self):
     hist = histogram_module.Histogram('hist', 'count')

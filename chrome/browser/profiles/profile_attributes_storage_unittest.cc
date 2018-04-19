@@ -791,21 +791,17 @@ TEST_F(ProfileAttributesStorageTest, NothingToDownloadHighResAvatarTest) {
   EXPECT_EQ(0U, storage()->avatar_images_downloads_in_progress_.size());
 }
 
-// Flaky on Linux ASAN. http://crbug.com/794821.
-#if defined(OS_LINUX) && defined(ADDRESS_SANITIZER)
-#define MAYBE_LoadAvatarFromDiskTest DISABLED_LoadAvatarFromDiskTest
-#else
-#define MAYBE_LoadAvatarFromDiskTest LoadAvatarFromDiskTest
-#endif
-
-TEST_F(ProfileAttributesStorageTest, MAYBE_LoadAvatarFromDiskTest) {
+TEST_F(ProfileAttributesStorageTest, LoadAvatarFromDiskTest) {
   const size_t kIconIndex = 0;
   base::FilePath icon_path =
       profiles::GetPathOfHighResAvatarAtIndex(kIconIndex);
 
   // Create the avatar on the disk, which is a valid 1x1 transparent png.
+  base::FilePath dir = icon_path.DirName();
+  ASSERT_FALSE(base::DirectoryExists(dir));
+  ASSERT_TRUE(base::CreateDirectory(dir));
   ASSERT_FALSE(base::PathExists(icon_path));
-  const char* bitmap =
+  const char bitmap[] =
       "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A\x00\x00\x00\x0D\x49\x48\x44\x52"
       "\x00\x00\x00\x01\x00\x00\x00\x01\x01\x00\x00\x00\x00\x37\x6E\xF9"
       "\x24\x00\x00\x00\x0A\x49\x44\x41\x54\x08\x1D\x63\x60\x00\x00\x00"

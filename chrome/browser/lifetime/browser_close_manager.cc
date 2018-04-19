@@ -23,7 +23,7 @@
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "content/public/browser/web_contents.h"
 
 namespace {
@@ -184,5 +184,8 @@ void BrowserCloseManager::CloseBrowsers() {
     }
   }
 
-  g_browser_process->notification_ui_manager()->CancelAll();
+  NotificationUIManager* notification_manager =
+      g_browser_process->notification_ui_manager();
+  if (notification_manager)
+    notification_manager->CancelAll();
 }

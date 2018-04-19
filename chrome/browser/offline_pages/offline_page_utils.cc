@@ -31,8 +31,14 @@
 #include "components/offline_pages/core/request_header/offline_page_header.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/mime_util.h"
+
+#if defined(OS_ANDROID)
+#include "chrome/browser/android/download/download_controller_base.h"
+#endif  // defined(OS_ANDROID)
 
 namespace offline_pages {
 namespace {
@@ -139,7 +145,53 @@ void DoCalculateSizeBetween(
   callback.Run(total_size);
 }
 
+content::WebContents* GetWebContentsByFrameID(int render_process_id,
+                                              int render_frame_id) {
+  content::RenderFrameHost* render_frame_host =
+      content::RenderFrameHost::FromID(render_process_id, render_frame_id);
+  if (!render_frame_host)
+    return NULL;
+  return content::WebContents::FromRenderFrameHost(render_frame_host);
+}
+
+content::ResourceRequestInfo::WebContentsGetter GetWebContentsGetter(
+    content::WebContents* web_contents) {
+  // PlzNavigate: The FrameTreeNode ID should be used to access the WebContents.
+  int frame_tree_node_id = web_contents->GetMainFrame()->GetFrameTreeNodeId();
+  if (frame_tree_node_id != -1) {
+    return base::Bind(content::WebContents::FromFrameTreeNodeId,
+                      frame_tree_node_id);
+  }
+
+  // In other cases, use the RenderProcessHost ID + RenderFrameHost ID to get
+  // the WebContents.
+  return base::Bind(&GetWebContentsByFrameID,
+                    web_contents->GetMainFrame()->GetProcess()->GetID(),
+                    web_contents->GetMainFrame()->GetRoutingID());
+}
+
+void AcquireFileAccessPermissionDoneForScheduleDownload(
+    content::WebContents* web_contents,
+    const std::string& name_space,
+    const GURL& url,
+    OfflinePageUtils::DownloadUIActionFlags ui_action,
+    const std::string& request_origin,
+    bool granted) {
+  if (!granted)
+    return;
+  OfflinePageTabHelper* tab_helper =
+      OfflinePageTabHelper::FromWebContents(web_contents);
+  if (!tab_helper)
+    return;
+  tab_helper->ScheduleDownloadHelper(web_contents, name_space, url, ui_action,
+                                     request_origin);
+}
+
 }  // namespace
+
+// static
+const base::FilePath::CharType OfflinePageUtils::kMHTMLExtension[] =
+    FILE_PATH_LITERAL("mhtml");
 
 // static
 void OfflinePageUtils::SelectPagesForURL(
@@ -173,10 +225,6 @@ const OfflinePageItem* OfflinePageUtils::GetOfflinePageFromWebContents(
     return nullptr;
   const OfflinePageItem* offline_page = tab_helper->offline_page();
   if (!offline_page)
-    return nullptr;
-  // TODO(jianli): Remove this when the UI knows how to handle untrusted
-  // offline pages.
-  if (!tab_helper->IsShowingTrustedOfflinePage())
     return nullptr;
 
   // If a pending navigation that hasn't committed yet, don't return the cached
@@ -289,12 +337,19 @@ void OfflinePageUtils::ScheduleDownload(content::WebContents* web_contents,
                                         const std::string& request_origin) {
   DCHECK(web_contents);
 
-  OfflinePageTabHelper* tab_helper =
-      OfflinePageTabHelper::FromWebContents(web_contents);
-  if (!tab_helper)
-    return;
-  tab_helper->ScheduleDownloadHelper(web_contents, name_space, url, ui_action,
-                                     request_origin);
+// Ensure that the storage permission is granted since the archive file is
+// going to be placed in the public directory.
+#if defined(OS_ANDROID)
+  content::ResourceRequestInfo::WebContentsGetter web_contents_getter =
+      GetWebContentsGetter(web_contents);
+  DownloadControllerBase::Get()->AcquireFileAccessPermission(
+      web_contents_getter,
+      base::Bind(&AcquireFileAccessPermissionDoneForScheduleDownload,
+                 web_contents, name_space, url, ui_action, request_origin));
+#else
+  AcquireFileAccessPermissionDoneForScheduleDownload(
+      web_contents, name_space, url, ui_action, origin, true /*granted*/);
+#endif  // defined(OS_ANDROID)
 }
 
 // static
@@ -350,6 +405,14 @@ std::string OfflinePageUtils::ExtractOfflineHeaderValueFromNavigationEntry(
     return std::string();
 
   return header_value;
+}
+
+// static
+bool OfflinePageUtils::IsShowingTrustedOfflinePage(
+    content::WebContents* web_contents) {
+  OfflinePageTabHelper* tab_helper =
+      OfflinePageTabHelper::FromWebContents(web_contents);
+  return tab_helper && tab_helper->IsShowingTrustedOfflinePage();
 }
 
 }  // namespace offline_pages

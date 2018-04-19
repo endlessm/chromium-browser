@@ -4,7 +4,7 @@
 
 #include "chrome/test/base/tracing.h"
 
-#include "base/allocator/features.h"
+#include "base/allocator/buildflags.h"
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/run_loop.h"
@@ -114,7 +114,13 @@ class MemoryTracingBrowserTest : public InProcessBrowserTest {
   bool should_test_memory_dump_success_;
 };
 
-IN_PROC_BROWSER_TEST_F(MemoryTracingBrowserTest, TestMemoryInfra) {
+// TODO(crbug.com/806988): Disabled due to excessive output on lsan bots.
+#if defined(LEAK_SANITIZER)
+#define MAYBE_TestMemoryInfra DISABLED_TestMemoryInfra
+#else
+#define MAYBE_TestMemoryInfra TestMemoryInfra
+#endif
+IN_PROC_BROWSER_TEST_F(MemoryTracingBrowserTest, MAYBE_TestMemoryInfra) {
   // TODO(ssid): Test for dump success once the on start tracing done callback
   // is fixed to be called after enable tracing is acked by all processes,
   // crbug.com/709524. The test still tests if dumping does not crash.
@@ -127,7 +133,14 @@ IN_PROC_BROWSER_TEST_F(MemoryTracingBrowserTest, TestMemoryInfra) {
       base::trace_event::MemoryDumpLevelOfDetail::DETAILED, &json_events);
 }
 
-IN_PROC_BROWSER_TEST_F(MemoryTracingBrowserTest, TestBackgroundMemoryInfra) {
+// crbug.com/808152: This test is flakily failing on LSAN.
+#if defined(LEAK_SANITIZER)
+#define MAYBE_TestBackgroundMemoryInfra DISABLED_TestBackgroundMemoryInfra
+#else
+#define MAYBE_TestBackgroundMemoryInfra TestBackgroundMemoryInfra
+#endif
+IN_PROC_BROWSER_TEST_F(MemoryTracingBrowserTest,
+                       MAYBE_TestBackgroundMemoryInfra) {
   // TODO(ssid): Test for dump success once the on start tracing done callback
   // is fixed to be called after enable tracing is acked by all processes,
   // crbug.com/709524. The test still tests if dumping does not crash.
@@ -141,7 +154,13 @@ IN_PROC_BROWSER_TEST_F(MemoryTracingBrowserTest, TestBackgroundMemoryInfra) {
 }
 
 #if BUILDFLAG(USE_ALLOCATOR_SHIM) && !defined(OS_NACL)
-IN_PROC_BROWSER_TEST_F(MemoryTracingBrowserTest, TestHeapProfilingPseudo) {
+#if defined(OS_MACOSX)
+#define MAYBE_TestHeapProfilingPseudo DISABLED_TestHeapProfilingPseudo
+#else
+#define MAYBE_TestHeapProfilingPseudo TestHeapProfilingPseudo
+#endif
+IN_PROC_BROWSER_TEST_F(MemoryTracingBrowserTest,
+                       MAYBE_TestHeapProfilingPseudo) {
   should_test_memory_dump_success_ = true;
   // TODO(ssid): Enable heap profiling on all processes once the
   // memory_instrumentation api is available, crbug.com/757747.

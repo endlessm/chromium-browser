@@ -18,17 +18,14 @@
 #include "ash/host/root_window_transformer.h"
 #include "ash/magnifier/magnification_controller.h"
 #include "ash/magnifier/partial_magnification_controller.h"
-#include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/config.h"
 #include "ash/root_window_controller.h"
 #include "ash/root_window_settings.h"
 #include "ash/shell.h"
 #include "ash/system/tray/system_tray.h"
 #include "ash/wm/window_util.h"
-#include "base/command_line.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/sys_info.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "ui/aura/client/capture_client.h"
 #include "ui/aura/client/focus_client.h"
@@ -41,6 +38,7 @@
 #include "ui/base/class_property.h"
 #include "ui/base/ime/input_method_factory.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/base/ui_base_switches_util.h"
 #include "ui/compositor/compositor.h"
 #include "ui/display/display.h"
@@ -100,7 +98,7 @@ aura::Window* GetWindow(AshWindowTreeHost* ash_host) {
 
 bool ShouldUpdateMirrorWindowController() {
   return aura::Env::GetInstance()->mode() == aura::Env::Mode::LOCAL ||
-         !::switches::IsMusHostingViz();
+         !base::FeatureList::IsEnabled(features::kMash);
 }
 
 }  // namespace
@@ -824,11 +822,8 @@ AshWindowTreeHost* WindowTreeHostManager::AddWindowTreeHostForDisplay(
   window_tree_hosts_[display.id()] = ash_host;
   SetDisplayPropertiesOnHost(ash_host, display);
 
-  if (base::SysInfo::IsRunningOnChromeOS() ||
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kAshConstrainPointerToRoot)) {
-    ash_host->ConfineCursorToRootWindow();
-  }
+  ash_host->ConfineCursorToRootWindow();
+
   return ash_host;
 }
 

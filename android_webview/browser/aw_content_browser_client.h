@@ -50,8 +50,11 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
       const content::MainFunctionParams& parameters) override;
   content::WebContentsViewDelegate* GetWebContentsViewDelegate(
       content::WebContents* web_contents) override;
-  void RenderProcessWillLaunch(content::RenderProcessHost* host) override;
+  void RenderProcessWillLaunch(
+      content::RenderProcessHost* host,
+      service_manager::mojom::ServiceRequest* service_request) override;
   bool IsHandledURL(const GURL& url) override;
+  bool ForceSniffingFileUrlsForHtml() override;
   void AppendExtraCommandLineSwitches(base::CommandLine* command_line,
                                       int child_process_id) override;
   std::string GetApplicationLocale() override;
@@ -151,8 +154,11 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
       content::RenderProcessHost* render_process_host) override;
   std::vector<std::unique_ptr<content::URLLoaderThrottle>>
   CreateURLLoaderThrottles(
-      const base::Callback<content::WebContents*()>& wc_getter,
-      content::NavigationUIData* navigation_ui_data) override;
+      const network::ResourceRequest& request,
+      content::ResourceContext* resource_context,
+      const base::RepeatingCallback<content::WebContents*()>& wc_getter,
+      content::NavigationUIData* navigation_ui_data,
+      int frame_tree_node_id) override;
   bool ShouldOverrideUrlLoading(int frame_tree_node_id,
                                 bool browser_initiated,
                                 const GURL& gurl,
@@ -162,6 +168,14 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
                                 bool is_main_frame,
                                 ui::PageTransition transition) override;
   bool ShouldCreateTaskScheduler() override;
+  content::ResourceDispatcherHostLoginDelegate* CreateLoginDelegate(
+      net::AuthChallengeInfo* auth_info,
+      content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
+      bool is_main_frame,
+      const GURL& url,
+      bool first_auth_attempt,
+      const base::Callback<void(const base::Optional<net::AuthCredentials>&)>&
+          auth_required_callback) override;
 
   static void DisableCreatingTaskScheduler();
 
@@ -179,6 +193,8 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
 
   scoped_refptr<safe_browsing::UrlCheckerDelegate>
       safe_browsing_url_checker_delegate_;
+
+  bool sniff_file_urls_;
 
   DISALLOW_COPY_AND_ASSIGN(AwContentBrowserClient);
 };

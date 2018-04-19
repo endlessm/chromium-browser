@@ -10,11 +10,13 @@
 
 #include "base/feature_list.h"
 #include "build/build_config.h"
-#include "chrome/common/features.h"
+#include "build/buildflag.h"
+#include "chrome/common/buildflags.h"
 #include "device/vr/features/features.h"
 #include "extensions/features/features.h"
 #include "ppapi/features/features.h"
 #include "printing/features/features.h"
+#include "ui/base/ui_features.h"
 
 namespace features {
 
@@ -30,6 +32,9 @@ extern const base::Feature kAllowAutoplayUnmutedInWebappManifestScope;
 #if defined(OS_MACOSX)
 extern const base::Feature kAppleScriptExecuteJavaScriptMenuItem;
 extern const base::Feature kShow10_9ObsoleteInfobar;
+#if BUILDFLAG(MAC_VIEWS_BROWSER)
+extern const base::Feature kViewsBrowserWindows;
+#endif
 extern const base::Feature kViewsProfileChooser;
 extern const base::Feature kViewsTaskManager;
 #endif  // defined(OS_MACOSX)
@@ -66,6 +71,11 @@ extern const base::Feature kBrowserHangFixesExperiment;
 
 #if defined(OS_MACOSX)
 extern const base::Feature kBrowserTouchBar;
+#endif
+
+extern const base::Feature kBundledConnectionHelpFeature;
+
+#if defined(OS_MACOSX)
 extern const base::Feature kDialogTouchBar;
 extern const base::Feature kTabStripKeyboardFocus;
 #endif  // defined(OS_MACOSX)
@@ -75,8 +85,6 @@ extern const base::Feature kCaptureThumbnailDependingOnTransitionType;
 extern const base::Feature kCaptureThumbnailOnNavigatingAway;
 
 extern const base::Feature kChangePictureVideoMode;
-
-extern const base::Feature kCheckInstallabilityForBannerOnLoad;
 
 #if defined(OS_ANDROID)
 extern const base::Feature kClearOldBrowsingData;
@@ -90,8 +98,8 @@ extern const base::Feature kClipboardContentSetting;
 extern const base::Feature kContentFullscreen;
 #endif
 
-#if defined(OS_ANDROID)
-extern const base::Feature kCopylessPaste;
+#if defined(OS_CHROMEOS)
+extern const base::Feature kCrostini;
 #endif
 
 #if defined(OS_WIN)
@@ -99,6 +107,8 @@ extern const base::Feature kDesktopIOSPromotion;
 #endif  // defined(OS_WIN)
 
 extern const base::Feature kDesktopPWAWindowing;
+
+extern const base::Feature kDesktopPWAsLinkCapturing;
 
 #if !defined(OS_ANDROID)
 extern const base::Feature kDoodlesOnLocalNtp;
@@ -112,9 +122,19 @@ extern const base::Feature kDownloadsForeground;
 extern const base::Feature kDownloadsLocationChange;
 #endif
 
+#if defined(OS_CHROMEOS)
+extern const base::Feature kEnableUnifiedMultiDeviceSettings;
+extern const base::Feature kEnableUnifiedMultiDeviceSetup;
+#endif
+
 extern const base::Feature kExpectCTReporting;
 
 extern const base::Feature kExperimentalAppBanners;
+
+#if defined(OS_CHROMEOS)
+extern const base::Feature kExperimentalCrostiniUI;
+#endif
+
 extern const base::Feature kExperimentalKeyboardLockUI;
 
 // Android expects this string from Java code, so it is always needed.
@@ -126,6 +146,10 @@ extern const base::Feature kVrBrowsing;
 extern const base::Feature kVrBrowserKeyboard;
 extern const base::Feature kVrBrowsingExperimentalFeatures;
 extern const base::Feature kVrBrowsingExperimentalRendering;
+
+#if BUILDFLAG(ENABLE_OCULUS_VR)
+extern const base::Feature kOculusVR;
+#endif  // ENABLE_OCULUS_VR
 
 #if BUILDFLAG(ENABLE_OPENVR)
 extern const base::Feature kOpenVR;
@@ -154,6 +178,10 @@ extern const base::Feature kHappinessTrackingSystem;
 extern const base::Feature kImportantSitesInCbd;
 
 extern const base::Feature kImprovedRecoveryComponent;
+
+#if defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
+extern const base::Feature kIncompatibleApplicationsWarning;
+#endif
 
 #if !defined(OS_ANDROID)
 extern const base::Feature kLocalScreenCasting;
@@ -192,6 +220,7 @@ extern const base::Feature kModuleDatabase;
 
 #if defined(OS_CHROMEOS)
 extern const base::Feature kMultidevice;
+extern const base::Feature kMultiDeviceApi;
 #endif
 
 #if BUILDFLAG(ENABLE_NATIVE_NOTIFICATIONS)
@@ -218,6 +247,8 @@ extern const base::Feature kUseNewAcceptLanguageHeader;
 
 extern const base::Feature kPermissionsBlacklist;
 
+extern const base::Feature kPermissionDelegation;
+
 #if defined(OS_WIN)
 extern const base::Feature kDisablePostScriptPrinting;
 #endif
@@ -236,6 +267,7 @@ extern const base::Feature kPreloadLockScreen;
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 extern const base::Feature kNewPrintPreview;
+extern const base::Feature kNupPrinting;
 #endif
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW) && !defined(OS_WIN) && !defined(OS_MACOSX)
@@ -274,6 +306,8 @@ extern const base::Feature kSoundContentSetting;
 
 extern const base::Feature kSupervisedUserCreation;
 
+extern const base::Feature kSupervisedUserCommittedInterstitials;
+
 #if defined(OS_CHROMEOS)
 extern const base::Feature kSysInternals;
 #endif
@@ -286,9 +320,9 @@ extern const base::Feature kSyzyasanDeferredFree;
 extern const base::Feature kTabMetricsLogging;
 #endif
 
-extern const base::Feature kTabsInCbd;
-
 extern const base::Feature kTopSitesFromSiteEngagement;
+
+extern const base::Feature kUnifiedConsent;
 
 extern const base::Feature kUseGoogleLocalNtp;
 
@@ -299,10 +333,6 @@ extern const base::Feature kUserActivityEventLogging;
 #if !defined(OS_ANDROID)
 extern const base::Feature kVoiceSearchOnLocalNtp;
 #endif
-
-#if defined(OS_WIN)
-extern const base::Feature kWin10AcceleratedDefaultBrowserFlow;
-#endif  // defined(OS_WIN)
 
 #if defined(OS_CHROMEOS)
 extern const base::Feature kOptInImeMenu;
@@ -329,6 +359,10 @@ extern const base::Feature kEasyUnlockPromotions;
 
 extern const base::Feature kTPMFirmwareUpdate;
 #endif  // defined(OS_CHROMEOS)
+
+#if defined(OS_WIN)
+extern const base::Feature kWin10AcceleratedDefaultBrowserFlow;
+#endif  // defined(OS_WIN)
 
 bool PrefServiceEnabled();
 

@@ -126,16 +126,17 @@ TabUnderNavigationThrottle::TabUnderNavigationThrottle(
     : content::NavigationThrottle(handle),
       off_the_record_(
           handle->GetWebContents()->GetBrowserContext()->IsOffTheRecord()),
-      block_(base::FeatureList::IsEnabled(kBlockTabUnders)) {}
+      block_(base::FeatureList::IsEnabled(kBlockTabUnders)),
+      has_opened_popup_since_last_user_gesture_at_start_(
+          HasOpenedPopupSinceLastUserGesture()) {}
 
 // static
 bool TabUnderNavigationThrottle::IsSuspiciousClientRedirect(
-    content::NavigationHandle* navigation_handle,
-    bool started_in_background) {
+    content::NavigationHandle* navigation_handle) {
   // Some browser initiated navigations have HasUserGesture set to false. This
   // should eventually be fixed in crbug.com/617904. In the meantime, just dont
   // block browser initiated ones.
-  if (!started_in_background || !navigation_handle->IsInMainFrame() ||
+  if (!navigation_handle->IsInMainFrame() ||
       navigation_handle->HasUserGesture() ||
       !navigation_handle->IsRendererInitiated()) {
     return false;
@@ -162,29 +163,29 @@ bool TabUnderNavigationThrottle::IsSuspiciousClientRedirect(
 
 content::NavigationThrottle::ThrottleCheckResult
 TabUnderNavigationThrottle::MaybeBlockNavigation() {
+  if (seen_tab_under_ || !has_opened_popup_since_last_user_gesture_at_start_ ||
+      !IsSuspiciousClientRedirect(navigation_handle())) {
+    return content::NavigationThrottle::PROCEED;
+  }
+
+  seen_tab_under_ = true;
   content::WebContents* contents = navigation_handle()->GetWebContents();
   auto* popup_opener = PopupOpenerTabHelper::FromWebContents(contents);
+  DCHECK(popup_opener);
+  popup_opener->OnDidTabUnder();
 
-  if (!seen_tab_under_ && popup_opener &&
-      popup_opener->has_opened_popup_since_last_user_gesture() &&
-      IsSuspiciousClientRedirect(navigation_handle(), started_in_background_)) {
-    seen_tab_under_ = true;
-    popup_opener->OnDidTabUnder();
+  LogTabUnderAttempt(navigation_handle(),
+                     popup_opener->last_committed_source_id(), off_the_record_);
 
-    LogTabUnderAttempt(navigation_handle(),
-                       popup_opener->last_committed_source_id(),
-                       off_the_record_);
-
-    if (block_) {
-      const std::string error =
-          base::StringPrintf(kBlockTabUnderFormatMessage,
-                             navigation_handle()->GetURL().spec().c_str());
-      contents->GetMainFrame()->AddMessageToConsole(
-          content::CONSOLE_MESSAGE_LEVEL_ERROR, error.c_str());
-      LogAction(Action::kBlocked, off_the_record_);
-      ShowUI();
-      return content::NavigationThrottle::CANCEL;
-    }
+  if (block_) {
+    const std::string error =
+        base::StringPrintf(kBlockTabUnderFormatMessage,
+                           navigation_handle()->GetURL().spec().c_str());
+    contents->GetMainFrame()->AddMessageToConsole(
+        content::CONSOLE_MESSAGE_LEVEL_ERROR, error.c_str());
+    LogAction(Action::kBlocked, off_the_record_);
+    ShowUI();
+    return content::NavigationThrottle::CANCEL;
   }
   return content::NavigationThrottle::PROCEED;
 }
@@ -207,10 +208,16 @@ void TabUnderNavigationThrottle::ShowUI() {
 #endif
 }
 
+bool TabUnderNavigationThrottle::HasOpenedPopupSinceLastUserGesture() const {
+  content::WebContents* contents = navigation_handle()->GetWebContents();
+  auto* popup_opener = PopupOpenerTabHelper::FromWebContents(contents);
+  return popup_opener &&
+         popup_opener->has_opened_popup_since_last_user_gesture();
+}
+
 content::NavigationThrottle::ThrottleCheckResult
 TabUnderNavigationThrottle::WillStartRequest() {
   LogAction(Action::kStarted, off_the_record_);
-  started_in_background_ = !navigation_handle()->GetWebContents()->IsVisible();
   return MaybeBlockNavigation();
 }
 

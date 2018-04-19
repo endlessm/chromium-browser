@@ -23,8 +23,9 @@ namespace vr {
 class UiScene;
 class UiElement;
 struct ControllerModel;
+struct RenderInfo;
 struct ReticleModel;
-struct TextInputInfo;
+struct EditedText;
 
 using GestureList = std::vector<std::unique_ptr<blink::WebGestureEvent>>;
 
@@ -50,6 +51,7 @@ class UiInputManager {
   ~UiInputManager();
   // TODO(tiborg): Use generic gesture type instead of blink::WebGestureEvent.
   void HandleInput(base::TimeTicks current_time,
+                   const RenderInfo& render_info,
                    const ControllerModel& controller_model,
                    ReticleModel* reticle_model,
                    GestureList* gesture_list);
@@ -57,11 +59,14 @@ class UiInputManager {
   // Text input related.
   void RequestFocus(int element_id);
   void RequestUnfocus(int element_id);
-  void OnInputEdited(const TextInputInfo& info);
-  void OnInputCommitted(const TextInputInfo& info);
+  void OnInputEdited(const EditedText& info);
+  void OnInputCommitted(const EditedText& info);
   void OnKeyboardHidden();
 
   bool controller_quiescent() const { return controller_quiescent_; }
+  bool controller_resting_in_viewport() const {
+    return controller_resting_in_viewport_;
+  }
 
   void set_hit_test_strategy(HitTestStrategy strategy) {
     hit_test_strategy_ = strategy;
@@ -89,6 +94,9 @@ class UiInputManager {
                               ReticleModel* reticle_model) const;
   void UpdateQuiescenceState(base::TimeTicks current_time,
                              const ControllerModel& controller_model);
+  void UpdateControllerFocusState(base::TimeTicks current_time,
+                                  const RenderInfo& render_info,
+                                  const ControllerModel& controller_model);
 
   void UnfocusFocusedElement();
 
@@ -110,6 +118,9 @@ class UiInputManager {
   base::TimeTicks last_significant_controller_update_time_;
   gfx::Transform last_significant_controller_transform_;
   bool controller_quiescent_ = false;
+
+  base::TimeTicks last_controller_outside_viewport_time_;
+  bool controller_resting_in_viewport_ = false;
 };
 
 }  // namespace vr

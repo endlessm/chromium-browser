@@ -302,6 +302,11 @@ T alignToPowerOfTwo (T value, T align)
 	return (value + align - T(1)) & ~(align - T(1));
 }
 
+inline bool hasDeviceExtension (Context& context, const string& name)
+{
+	return de::contains(context.getDeviceExtensions().begin(), context.getDeviceExtensions().end(), name);
+}
+
 VkDeviceSize getPageTableSize (const PlatformMemoryLimits& limits, VkDeviceSize allocationSize)
 {
 	VkDeviceSize	totalSize	= 0;
@@ -316,8 +321,6 @@ VkDeviceSize getPageTableSize (const PlatformMemoryLimits& limits, VkDeviceSize 
 
 	return totalSize;
 }
-
-
 
 size_t getCurrentSystemMemoryUsage (const AllocationCallbackRecorder& allocRecoder)
 {
@@ -416,6 +419,7 @@ enum
 	MAX_CONCURRENT_INSTANCES		= 32,
 	MAX_CONCURRENT_DEVICES			= 32,
 	MAX_CONCURRENT_SYNC_PRIMITIVES	= 100,
+	MAX_CONCURRENT_PIPELINE_CACHES	= 128,
 	DEFAULT_MAX_CONCURRENT_OBJECTS	= 16*1024,
 };
 
@@ -1128,7 +1132,7 @@ struct PipelineCache
 
 	static deUint32 getMaxConcurrent (Context& context, const Parameters& params)
 	{
-		return getSafeObjectCount<PipelineCache>(context, params, DEFAULT_MAX_CONCURRENT_OBJECTS);
+		return getSafeObjectCount<PipelineCache>(context, params, MAX_CONCURRENT_PIPELINE_CACHES);
 	}
 
 	static Move<VkPipelineCache> create (const Environment& env, const Resources&, const Parameters&)
@@ -2258,6 +2262,7 @@ tcu::TestStatus createMaxConcurrentTest (Context& context, typename Object::Para
 			context.getTestContext().touchWatchdog();
 	}
 
+	context.getTestContext().touchWatchdog();
 	objects.clear();
 
 	return tcu::TestStatus::pass("Ok");
@@ -2308,10 +2313,13 @@ private:
 template<typename Object>
 tcu::TestStatus multithreadedCreateSharedResourcesTest (Context& context, typename Object::Parameters params)
 {
+	TestLog&							log			= context.getTestContext().getLog();
 	const deUint32						numThreads	= getDefaultTestThreadCount();
 	const Environment					env			(context, numThreads);
 	const typename Object::Resources	res			(env, params);
 	ThreadGroup							threads;
+
+	log << TestLog::Message << "numThreads = " << numThreads << TestLog::EndMessage;
 
 	for (deUint32 ndx = 0; ndx < numThreads; ndx++)
 		threads.add(MovePtr<ThreadGroupThread>(new CreateThread<Object>(env, res, params)));
@@ -2324,10 +2332,13 @@ tcu::TestStatus multithreadedCreatePerThreadResourcesTest (Context& context, typ
 {
 	typedef SharedPtr<typename Object::Resources>	ResPtr;
 
+	TestLog&			log			= context.getTestContext().getLog();
 	const deUint32		numThreads	= getDefaultTestThreadCount();
 	const Environment	env			(context, 1u);
 	vector<ResPtr>		resources	(numThreads);
 	ThreadGroup			threads;
+
+	log << TestLog::Message << "numThreads = " << numThreads << TestLog::EndMessage;
 
 	for (deUint32 ndx = 0; ndx < numThreads; ndx++)
 	{
@@ -2366,12 +2377,15 @@ tcu::TestStatus multithreadedCreatePerThreadDeviceTest (Context& context, typena
 	typedef SharedPtr<EnvClone>						EnvPtr;
 	typedef SharedPtr<typename Object::Resources>	ResPtr;
 
+	TestLog&					log				= context.getTestContext().getLog();
 	const deUint32				numThreads		= getDefaultTestThreadCount();
 	const Device::Parameters	deviceParams	= getDefaulDeviceParameters(context);
 	const Environment			sharedEnv		(context, numThreads);			// For creating Device's
 	vector<EnvPtr>				perThreadEnv	(numThreads);
 	vector<ResPtr>				resources		(numThreads);
 	ThreadGroup					threads;
+
+	log << TestLog::Message << "numThreads = " << numThreads << TestLog::EndMessage;
 
 	for (deUint32 ndx = 0; ndx < numThreads; ndx++)
 	{
@@ -2464,8 +2478,8 @@ tcu::TestStatus allocCallbackFailTest (Context& context, typename Object::Parame
 		for (; numPassingAllocs < maxTries; ++numPassingAllocs)
 		{
 			DeterministicFailAllocator			objAllocator(getSystemAllocator(),
-															 numPassingAllocs,
-															 DeterministicFailAllocator::MODE_COUNT_AND_FAIL);
+															 DeterministicFailAllocator::MODE_COUNT_AND_FAIL,
+															 numPassingAllocs);
 			AllocationCallbackRecorder			recorder	(objAllocator.getCallbacks(), 128);
 			const Environment					objEnv		(resEnv.env.vkp,
 															 resEnv.env.vkd,
@@ -2513,17 +2527,25 @@ tcu::TestStatus allocCallbackFailTest (Context& context, typename Object::Parame
 	if (numPassingAllocs == 0)
 		return tcu::TestStatus(QP_TEST_RESULT_QUALITY_WARNING, "Allocation callbacks not called");
 	else if (numPassingAllocs == maxTries)
-		return tcu::TestStatus(QP_TEST_RESULT_COMPATIBILITY_WARNING, "Max iter count reached; OOM testing incomplete");
+	{
+		context.getTestContext().getLog()
+			<< TestLog::Message << "WARNING: Maximum iteration count (" << maxTries << ") reached without object construction passing. "
+								<< "OOM testing incomplete, use --deqp-test-iteration-count= to test with higher limit." << TestLog::EndMessage;
+		return tcu::TestStatus(QP_TEST_RESULT_PASS, "Max iter count reached");
+	}
 	else
 		return tcu::TestStatus::pass("Ok");
 }
 
 // Determine whether an API call sets the invalid handles to NULL (true) or leaves them undefined or not modified (false)
-template<typename T>
-inline bool isNullHandleOnAllocationFailure				(void)	{ return false; }
+template<typename T> inline bool isNullHandleOnAllocationFailure				  (Context&)		 { return false; }
+template<>			 inline bool isNullHandleOnAllocationFailure<VkCommandBuffer> (Context& context) { return hasDeviceExtension(context, "VK_KHR_maintenance1"); }
+template<>			 inline bool isNullHandleOnAllocationFailure<VkDescriptorSet> (Context& context) { return hasDeviceExtension(context, "VK_KHR_maintenance1"); }
+template<>			 inline bool isNullHandleOnAllocationFailure<VkPipeline>	  (Context&)		 { return true;  }
 
-template<>
-inline bool isNullHandleOnAllocationFailure<VkPipeline>	(void)	{ return true; }
+template<typename T> inline bool isPooledObject					 (void) { return false; };
+template<>			 inline bool isPooledObject<VkCommandBuffer> (void) { return true;  };
+template<>			 inline bool isPooledObject<VkDescriptorSet> (void) { return true;  };
 
 template<typename Object>
 tcu::TestStatus allocCallbackFailMultipleObjectsTest (Context& context, typename Object::Parameters params)
@@ -2531,7 +2553,7 @@ tcu::TestStatus allocCallbackFailMultipleObjectsTest (Context& context, typename
 	typedef SharedPtr<Move<typename Object::Type> >	ObjectTypeSp;
 
 	static const deUint32	numObjects			= 4;
-	const bool				expectNullHandles	= isNullHandleOnAllocationFailure<typename Object::Type>();
+	const bool				expectNullHandles	= isNullHandleOnAllocationFailure<typename Object::Type>(context);
 	deUint32				numPassingAllocs	= 0;
 
 	{
@@ -2544,7 +2566,7 @@ tcu::TestStatus allocCallbackFailMultipleObjectsTest (Context& context, typename
 
 			// \note We have to use the same allocator for both resource dependencies and the object under test,
 			//       because pooled objects take memory from the pool.
-			DeterministicFailAllocator			objAllocator(getSystemAllocator(), numPassingAllocs, DeterministicFailAllocator::MODE_DO_NOT_COUNT);
+			DeterministicFailAllocator			objAllocator(getSystemAllocator(), DeterministicFailAllocator::MODE_DO_NOT_COUNT, 0);
 			AllocationCallbackRecorder			recorder	(objAllocator.getCallbacks(), 128);
 			const Environment					objEnv		(context.getPlatformInterface(),
 															 context.getDeviceInterface(),
@@ -2562,7 +2584,7 @@ tcu::TestStatus allocCallbackFailMultipleObjectsTest (Context& context, typename
 			{
 				const typename Object::Resources res (objEnv, params);
 
-				objAllocator.setMode(DeterministicFailAllocator::MODE_COUNT_AND_FAIL);
+				objAllocator.reset(DeterministicFailAllocator::MODE_COUNT_AND_FAIL, numPassingAllocs);
 				const vector<ObjectTypeSp> scopedHandles = Object::createMultiple(objEnv, res, params, &handles, &result);
 			}
 
@@ -2592,7 +2614,12 @@ tcu::TestStatus allocCallbackFailMultipleObjectsTest (Context& context, typename
 	}
 
 	if (numPassingAllocs == 0)
-		return tcu::TestStatus(QP_TEST_RESULT_QUALITY_WARNING, "Allocation callbacks not called");
+	{
+		if (isPooledObject<typename Object::Type>())
+			return tcu::TestStatus::pass("Not validated: pooled objects didn't seem to use host memory");
+		else
+			return tcu::TestStatus(QP_TEST_RESULT_QUALITY_WARNING, "Allocation callbacks not called");
+	}
 	else
 		return tcu::TestStatus::pass("Ok");
 }
@@ -2714,12 +2741,12 @@ tcu::TestCaseGroup* createObjectManagementTests (tcu::TestContext& testCtx)
 
 	const DescriptorSetLayout::Parameters	singleUboDescLayout	= DescriptorSetLayout::Parameters::single(0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1u, VK_SHADER_STAGE_VERTEX_BIT);
 
-	static NamedParameters<Instance>				s_instanceCases[]			=
+	static const NamedParameters<Instance>					s_instanceCases[]				=
 	{
 		{ "instance",					Instance::Parameters() },
 	};
 	// \note Device index may change - must not be static
-	const NamedParameters<Device>					s_deviceCases[]				=
+	const NamedParameters<Device>				s_deviceCases[]					=
 	{
 		{ "device",						Device::Parameters(testCtx.getCommandLine().getVKDeviceId()-1u, VK_QUEUE_GRAPHICS_BIT)	},
 	};
@@ -2830,7 +2857,7 @@ tcu::TestCaseGroup* createObjectManagementTests (tcu::TestContext& testCtx)
 		{ "command_buffer_secondary",	CommandBuffer::Parameters(CommandPool::Parameters((VkCommandPoolCreateFlags)0u), VK_COMMAND_BUFFER_LEVEL_SECONDARY)	}
 	};
 
-	static const CaseDescriptions	s_createSingleGroup	=
+	const CaseDescriptions	s_createSingleGroup	=
 	{
 		CASE_DESC(createSingleTest	<Instance>,					s_instanceCases),
 		CASE_DESC(createSingleTest	<Device>,					s_deviceCases),
@@ -2859,7 +2886,7 @@ tcu::TestCaseGroup* createObjectManagementTests (tcu::TestContext& testCtx)
 	};
 	objectMgmtTests->addChild(createGroup(testCtx, "single", "Create single object", s_createSingleGroup));
 
-	static const CaseDescriptions	s_createMultipleUniqueResourcesGroup	=
+	const CaseDescriptions	s_createMultipleUniqueResourcesGroup	=
 	{
 		CASE_DESC(createMultipleUniqueResourcesTest	<Instance>,					s_instanceCases),
 		CASE_DESC(createMultipleUniqueResourcesTest	<Device>,					s_deviceCases),
@@ -2888,7 +2915,7 @@ tcu::TestCaseGroup* createObjectManagementTests (tcu::TestContext& testCtx)
 	};
 	objectMgmtTests->addChild(createGroup(testCtx, "multiple_unique_resources", "Multiple objects with per-object unique resources", s_createMultipleUniqueResourcesGroup));
 
-	static const CaseDescriptions	s_createMultipleSharedResourcesGroup	=
+	const CaseDescriptions	s_createMultipleSharedResourcesGroup	=
 	{
 		EMPTY_CASE_DESC(Instance), // No resources used
 		CASE_DESC(createMultipleSharedResourcesTest	<Device>,					s_deviceCases),
@@ -2917,7 +2944,7 @@ tcu::TestCaseGroup* createObjectManagementTests (tcu::TestContext& testCtx)
 	};
 	objectMgmtTests->addChild(createGroup(testCtx, "multiple_shared_resources", "Multiple objects with shared resources", s_createMultipleSharedResourcesGroup));
 
-	static const CaseDescriptions	s_createMaxConcurrentGroup	=
+	const CaseDescriptions	s_createMaxConcurrentGroup	=
 	{
 		CASE_DESC(createMaxConcurrentTest	<Instance>,					s_instanceCases),
 		CASE_DESC(createMaxConcurrentTest	<Device>,					s_deviceCases),
@@ -2946,7 +2973,7 @@ tcu::TestCaseGroup* createObjectManagementTests (tcu::TestContext& testCtx)
 	};
 	objectMgmtTests->addChild(createGroup(testCtx, "max_concurrent", "Maximum number of concurrently live objects", s_createMaxConcurrentGroup));
 
-	static const CaseDescriptions	s_multithreadedCreatePerThreadDeviceGroup	=
+	const CaseDescriptions	s_multithreadedCreatePerThreadDeviceGroup	=
 	{
 		EMPTY_CASE_DESC(Instance),	// Does not make sense
 		EMPTY_CASE_DESC(Device),	// Does not make sense
@@ -2975,7 +3002,7 @@ tcu::TestCaseGroup* createObjectManagementTests (tcu::TestContext& testCtx)
 	};
 	objectMgmtTests->addChild(createGroup(testCtx, "multithreaded_per_thread_device", "Multithreaded object construction with per-thread device ", s_multithreadedCreatePerThreadDeviceGroup));
 
-	static const CaseDescriptions	s_multithreadedCreatePerThreadResourcesGroup	=
+	const CaseDescriptions	s_multithreadedCreatePerThreadResourcesGroup	=
 	{
 		CASE_DESC(multithreadedCreatePerThreadResourcesTest	<Instance>,					s_instanceCases),
 		CASE_DESC(multithreadedCreatePerThreadResourcesTest	<Device>,					s_deviceCases),
@@ -3004,7 +3031,7 @@ tcu::TestCaseGroup* createObjectManagementTests (tcu::TestContext& testCtx)
 	};
 	objectMgmtTests->addChild(createGroup(testCtx, "multithreaded_per_thread_resources", "Multithreaded object construction with per-thread resources", s_multithreadedCreatePerThreadResourcesGroup));
 
-	static const CaseDescriptions	s_multithreadedCreateSharedResourcesGroup	=
+	const CaseDescriptions	s_multithreadedCreateSharedResourcesGroup	=
 	{
 		EMPTY_CASE_DESC(Instance),
 		CASE_DESC(multithreadedCreateSharedResourcesTest	<Device>,					s_deviceCases),
@@ -3033,7 +3060,7 @@ tcu::TestCaseGroup* createObjectManagementTests (tcu::TestContext& testCtx)
 	};
 	objectMgmtTests->addChild(createGroup(testCtx, "multithreaded_shared_resources", "Multithreaded object construction with shared resources", s_multithreadedCreateSharedResourcesGroup));
 
-	static const CaseDescriptions	s_createSingleAllocCallbacksGroup	=
+	const CaseDescriptions	s_createSingleAllocCallbacksGroup	=
 	{
 		CASE_DESC(createSingleAllocCallbacksTest	<Instance>,					s_instanceCases),
 		CASE_DESC(createSingleAllocCallbacksTest	<Device>,					s_deviceCases),
@@ -3062,7 +3089,8 @@ tcu::TestCaseGroup* createObjectManagementTests (tcu::TestContext& testCtx)
 	};
 	objectMgmtTests->addChild(createGroup(testCtx, "single_alloc_callbacks", "Create single object", s_createSingleAllocCallbacksGroup));
 
-	static const CaseDescriptions	s_allocCallbackFailGroup	=
+	// \note Skip pooled objects in this test group. They are properly handled by the "multiple" group farther down below.
+	const CaseDescriptions	s_allocCallbackFailGroup	=
 	{
 		CASE_DESC(allocCallbackFailTest	<Instance>,					s_instanceCases),
 		CASE_DESC(allocCallbackFailTest	<Device>,					s_deviceCases),
@@ -3084,15 +3112,15 @@ tcu::TestCaseGroup* createObjectManagementTests (tcu::TestContext& testCtx)
 		CASE_DESC(allocCallbackFailTest	<DescriptorSetLayout>,		s_descriptorSetLayoutCases),
 		CASE_DESC(allocCallbackFailTest	<Sampler>,					s_samplerCases),
 		CASE_DESC(allocCallbackFailTest	<DescriptorPool>,			s_descriptorPoolCases),
-		CASE_DESC(allocCallbackFailTest	<DescriptorSet>,			s_descriptorSetCases),
+		EMPTY_CASE_DESC(DescriptorSet),
 		CASE_DESC(allocCallbackFailTest	<Framebuffer>,				s_framebufferCases),
 		CASE_DESC(allocCallbackFailTest	<CommandPool>,				s_commandPoolCases),
-		CASE_DESC(allocCallbackFailTest	<CommandBuffer>,			s_commandBufferCases),
+		EMPTY_CASE_DESC(CommandBuffer),
 	};
 	objectMgmtTests->addChild(createGroup(testCtx, "alloc_callback_fail", "Allocation callback failure", s_allocCallbackFailGroup));
 
 	// \note Test objects that can be created in bulk
-	static const CaseDescriptions	s_allocCallbackFailMultipleObjectsGroup	=
+	const CaseDescriptions	s_allocCallbackFailMultipleObjectsGroup	=
 	{
 		EMPTY_CASE_DESC(Instance),			// most objects can be created one at a time only
 		EMPTY_CASE_DESC(Device),

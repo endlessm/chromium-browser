@@ -9,6 +9,7 @@
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "mojo/public/cpp/bindings/binding.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 
 namespace ash {
 
@@ -30,20 +31,26 @@ class TestAccessibilityControllerClient
   void TriggerAccessibilityAlert(mojom::AccessibilityAlert alert) override;
   void PlayEarcon(int32_t sound_key) override;
   void PlayShutdownSound(PlayShutdownSoundCallback callback) override;
-  void HandleAccessibilityGesture(const std::string& gesture) override;
+  void HandleAccessibilityGesture(ax::mojom::Gesture gesture) override;
   void ToggleDictation() override;
+  void SilenceSpokenFeedback() override;
+  void OnTwoFingerTouchStart() override;
+  void OnTwoFingerTouchStop() override;
+  void ShouldToggleSpokenFeedbackViaTouch(
+      ShouldToggleSpokenFeedbackViaTouchCallback callback) override;
+  void PlaySpokenFeedbackToggleCountdown(int tick_count) override;
 
   int32_t GetPlayedEarconAndReset();
 
   mojom::AccessibilityAlert last_a11y_alert() const { return last_a11y_alert_; }
-  std::string last_a11y_gesture() const { return last_a11y_gesture_; }
+  ax::mojom::Gesture last_a11y_gesture() const { return last_a11y_gesture_; }
 
  private:
   mojom::AccessibilityAlert last_a11y_alert_ = mojom::AccessibilityAlert::NONE;
 
   int32_t sound_key_ = -1;
 
-  std::string last_a11y_gesture_;
+  ax::mojom::Gesture last_a11y_gesture_ = ax::mojom::Gesture::kNone;
 
   mojo::Binding<mojom::AccessibilityControllerClient> binding_;
 

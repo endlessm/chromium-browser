@@ -59,10 +59,7 @@ class PopupOpenerTabHelperTest : public ChromeRenderViewHostTestHarness {
 
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();
-    auto tick_clock = std::make_unique<base::SimpleTestTickClock>();
-    raw_clock_ = tick_clock.get();
-    PopupOpenerTabHelper::CreateForWebContents(web_contents(),
-                                               std::move(tick_clock));
+    PopupOpenerTabHelper::CreateForWebContents(web_contents(), &raw_clock_);
     InfoBarService::CreateForWebContents(web_contents());
     TabSpecificContentSettings::CreateForWebContents(web_contents());
 #if !defined(OS_ANDROID)
@@ -71,9 +68,9 @@ class PopupOpenerTabHelperTest : public ChromeRenderViewHostTestHarness {
 
     // The tick clock needs to be advanced manually so it isn't set to null,
     // which the code uses to determine if it is set yet.
-    raw_clock_->Advance(base::TimeDelta::FromMilliseconds(1));
+    raw_clock_.Advance(base::TimeDelta::FromMilliseconds(1));
 
-    EXPECT_TRUE(web_contents()->IsVisible());
+    EXPECT_EQ(web_contents()->GetVisibility(), content::Visibility::VISIBLE);
   }
 
   void TearDown() override {
@@ -106,13 +103,13 @@ class PopupOpenerTabHelperTest : public ChromeRenderViewHostTestHarness {
     return raw_popup;
   }
 
-  base::SimpleTestTickClock* raw_clock() { return raw_clock_; }
+  base::SimpleTestTickClock* raw_clock() { return &raw_clock_; }
 
   base::HistogramTester* histogram_tester() { return &histogram_tester_; }
 
  private:
   base::HistogramTester histogram_tester_;
-  base::SimpleTestTickClock* raw_clock_ = nullptr;
+  base::SimpleTestTickClock raw_clock_;
 
   std::vector<std::unique_ptr<content::WebContents>> popups_;
 
@@ -201,14 +198,14 @@ TEST_F(PopupOpenerTabHelperTest, FirstNavigation_NoLogging) {
   histogram_tester()->ExpectTotalCount(kTabUnderVisibleTime, 0);
 }
 
-TEST_F(PopupOpenerTabHelperTest, VisibleNavigation_NoLogging) {
+TEST_F(PopupOpenerTabHelperTest, VisibleNavigation_LogsMetrics) {
   NavigateAndCommitWithoutGesture(GURL("https://first.test/"));
   SimulatePopup();
   web_contents()->WasShown();
   NavigateAndCommitWithoutGesture(GURL("https://example.test/"));
   raw_clock()->Advance(base::TimeDelta::FromMinutes(1));
   DeleteContents();
-  histogram_tester()->ExpectTotalCount(kTabUnderVisibleTime, 0);
+  histogram_tester()->ExpectTotalCount(kTabUnderVisibleTime, 1);
 }
 
 // This is counter intuitive, but we want to log metrics in the dry-run state if
@@ -478,35 +475,6 @@ TEST_F(BlockTabUnderTest, TabUnderCrossOriginRedirect_IsBlocked) {
   ExpectUIShown(true);
 }
 
-// Ensure that even though the *redirect* occurred in the background, if the
-// navigation started in the foreground there is no blocking.
-TEST_F(BlockTabUnderTest,
-       TabUnderCrossOriginRedirectFromForeground_IsNotBlocked) {
-  EXPECT_TRUE(NavigateAndCommitWithoutGesture(GURL("https://first.test/")));
-  SimulatePopup();
-
-  web_contents()->WasShown();
-
-  // Navigate to a same-origin URL that redirects cross origin.
-  const GURL same_origin("https://first.test/path");
-  const GURL cross_origin("https://example.test/");
-  std::unique_ptr<content::NavigationSimulator> simulator =
-      content::NavigationSimulator::CreateRendererInitiated(same_origin,
-                                                            main_rfh());
-  simulator->SetHasUserGesture(false);
-  simulator->Start();
-  EXPECT_EQ(content::NavigationThrottle::PROCEED,
-            simulator->GetLastThrottleCheckResult());
-
-  web_contents()->WasHidden();
-
-  simulator->Redirect(cross_origin);
-  EXPECT_EQ(content::NavigationThrottle::PROCEED,
-            simulator->GetLastThrottleCheckResult());
-  simulator->Commit();
-  ExpectUIShown(false);
-}
-
 // There is no time limit to this intervention. Explicitly test that navigations
 // will be blocked for even days until the tab receives another user gesture.
 TEST_F(BlockTabUnderTest, TabUnderWithLongWait_IsBlocked) {
@@ -695,4 +663,26 @@ TEST_F(BlockTabUnderTest, LogsToConsole) {
   std::string expected_message = base::StringPrintf(kBlockTabUnderFormatMessage,
                                                     blocked_url.spec().c_str());
   EXPECT_EQ(expected_message, messages.front());
+}
+
+// 1. Navigate to a.com
+// 2. Start a navigation without a user gesture to b.com
+// 3. Open a popup
+// 4. Navigation from (2) redirects and should not be blocked.
+TEST_F(BlockTabUnderTest, SlowRedirectAfterPopup_IsNotBlocked) {
+  NavigateAndCommit(GURL("https://a.com"));
+
+  std::unique_ptr<content::NavigationSimulator> candidate_navigation =
+      content::NavigationSimulator::CreateRendererInitiated(
+          GURL("https://b.com"), main_rfh());
+  candidate_navigation->SetHasUserGesture(false);
+  candidate_navigation->Start();
+
+  SimulatePopup();
+
+  candidate_navigation->Redirect(GURL("https://b.com/redirect"));
+  EXPECT_EQ(content::NavigationThrottle::PROCEED,
+            candidate_navigation->GetLastThrottleCheckResult());
+  candidate_navigation->Commit();
+  EXPECT_EQ(main_rfh(), candidate_navigation->GetFinalRenderFrameHost());
 }

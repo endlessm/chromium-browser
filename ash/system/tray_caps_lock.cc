@@ -30,8 +30,7 @@
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/message_center/message_center.h"
-#include "ui/message_center/notification.h"
-#include "ui/message_center/public/cpp/message_center_switches.h"
+#include "ui/message_center/public/cpp/notification.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
@@ -152,7 +151,7 @@ class CapsLockDefaultView : public ActionableView {
 
  private:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
-    node_data->role = ui::AX_ROLE_BUTTON;
+    node_data->role = ax::mojom::Role::kButton;
     node_data->SetName(text_label_->text());
   }
 

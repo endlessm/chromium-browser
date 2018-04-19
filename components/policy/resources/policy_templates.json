@@ -146,7 +146,7 @@
 #   persistent IDs for all fields (but not for groups!) are needed. These are
 #   specified by the 'id' keys of each policy. NEVER CHANGE EXISTING IDs,
 #   because doing so would break the deployed wire format!
-#   For your editing convenience: highest ID currently used: 414
+#   For your editing convenience: highest ID currently used: 430
 #   And don't forget to also update the EnterprisePolicies enum of
 #   histograms.xml (run 'python tools/metrics/histograms/update_policies.py').
 #
@@ -588,6 +588,21 @@
         'CastReceiverEnabled',
         'CastReceiverName',
       ]
+    },
+    {
+      'name': 'SafeBrowsing',
+      'type': 'group',
+      'caption': '''Safe Browsing settings''',
+      'desc': '''Configure Safe Browsing related policies.''',
+      'policies': [
+        'SafeBrowsingEnabled',
+        'SafeBrowsingExtendedReportingOptInAllowed',
+        'SafeBrowsingWhitelistDomains',
+        'PasswordProtectionWarningTrigger',
+        'PasswordProtectionRiskTrigger',
+        'PasswordProtectionLoginURLs',
+        'PasswordProtectionChangePasswordURL',
+      ],
     },
     {
       'name': 'HomepageLocation',
@@ -1612,7 +1627,9 @@
 
       If this policy is left not set, this will be enabled but the user will be able to change it.
 
-      See https://developers.google.com/safe-browsing for more info on SafeBrowsing.''',
+      See https://developers.google.com/safe-browsing for more info on SafeBrowsing.
+
+      This policy is not available on Windows instances that are not joined to a <ph name="MS_AD_NAME">Microsoft® Active Directory®</ph> domain.''',
     },
     {
       'name': 'MetricsReportingEnabled',
@@ -2632,7 +2649,7 @@
 
           All recent versions of Samba and Windows servers support NTLMv2. This should only be disabled for backwards compatibility and reduces the security of authentication.
 
-          The default value when this policy is not defined is currently false for backwards compatibility, but will change to true in the future.''',
+          If this policy is not set, the default is true and NTLMv2 is enabled.''',
     },
     {
       'name': 'ExtensionInstallBlacklist',
@@ -4512,7 +4529,9 @@
 
       If this policy is unset or set to true, the default behavior will be used: signing in to a different account from the browser content area will be allowed, except for child accounts where it will be blocked for non-Incognito content area.
 
-      In case signing in to a different account shouldn't be allowed via the Incognito mode, consider blocking that mode using the IncognitoModeAvailability policy.''',
+      In case signing in to a different account shouldn't be allowed via the Incognito mode, consider blocking that mode using the IncognitoModeAvailability policy.
+
+      Note that users will be able to access Google services in an unauthenticated state by blocking their cookies.''',
     },
     {
       'name': 'InstantEnabled',
@@ -4720,7 +4739,6 @@
       'example_value': ['https://example.com'],
       'id': 402,
       'caption': '''URLs/domains automatically permitted direct Security Key attestation''',
-      'tags': [],
       'desc': '''Specifies URLs and domains for which no prompt will be shown when attestation certificates from Security Keys are requested. Additionally, a signal will be sent to the Security Key indicating that individual attestation may be used. Without this, users will be prompted in Chrome 65+ when sites request attestation of Security Keys.
 
       URLs (like https://example.com/some/path) will only match as U2F appIDs. Domains (like example.com) only match as webauthn RP IDs. Thus, to cover both U2F and webauthn APIs for a given site, both the appID URL and domain would need to be listed.''',
@@ -5031,6 +5049,116 @@
       'arc_support': 'Android apps can use the network configurations and CA certificates set via this policy, but do not have access to some configuration options.',
     },
     {
+      'name': 'DeviceKerberosEncryptionTypes',
+      'type': 'int-enum',
+      'schema': {
+        'type': 'integer',
+        'enum': [ 0, 1, 2 ],
+      },
+      'items': [
+        {
+          'name': 'All',
+          'value': 0,
+          'caption': '''All (insecure)''',
+        },
+        {
+          'name': 'Strong',
+          'value': 1,
+          'caption': '''Strong''',
+        },
+        {
+          'name': 'Legacy',
+          'value': 2,
+          'caption': '''Legacy (insecure)''',
+        },
+      ],
+      'supported_on': ['chrome_os:66-'],
+      'supported_chrome_os_management': ['active_directory'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'example_value': 1,
+      'id': 415,
+      'caption': '''Allowed Kerberos encryption types''',
+      'tags': ['system-security'],
+      'desc': '''Sets encryption types that are allowed when requesting Kerberos tickets from an <ph name="MS_AD_NAME">Microsoft® Active Directory®</ph> server.
+
+      If the policy is set to 'All', both the AES encryption types 'aes256-cts-hmac-sha1-96' and 'aes128-cts-hmac-sha1-96' as well as the RC4 encryption type 'rc4-hmac' are allowed. AES encryption takes preference if the server supports both types. Note that RC4 is insecure and the server should be reconfigured if possible to support AES encryption.
+
+      If the policy is set to 'Strong' or if it is unset, only the AES encryption types are allowed.
+
+      If the policy is set to 'Legacy', only the RC4 encryption type is allowed. This option is insecure and should only be needed in very specific circumstances.
+
+      See also https://wiki.samba.org/index.php/Samba_4.6_Features_added/changed#Kerberos_client_encryption_types.''',
+    },
+    {
+      'name': 'DeviceUserPolicyLoopbackProcessingMode',
+      'type': 'int-enum',
+      'schema': {
+        'type': 'integer',
+        'enum': [ 0, 1, 2 ],
+      },
+      'items': [
+        {
+          'name': 'Default',
+          'value': 0,
+          'caption': '''Default''',
+        },
+        {
+          'name': 'Merge',
+          'value': 1,
+          'caption': '''Merge''',
+        },
+        {
+          'name': 'Replace',
+          'value': 2,
+          'caption': '''Replace''',
+        },
+      ],
+      'supported_on': ['chrome_os:66-'],
+      'supported_chrome_os_management': ['active_directory'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'example_value': 0,
+      'id': 416,
+      'caption': '''User policy loopback processing mode''',
+      'tags': [],
+      'desc': '''Specifies whether and how user policy from computer GPO is processed.
+
+      If the policy is set to 'Default' or if it is unset, user policy is read only from user GPOs (computer GPOs are ignored).
+
+      If the policy is set to 'Merge', user policy in user GPOs is merged with user policy in computer GPOs (computer GPOs take preference).
+
+      If the policy is set to 'Replace', user policy in user GPOs is replaced by user policy in computer GPOs (user GPOs are ignored).''',
+    },
+    {
+      'name': 'DeviceMachinePasswordChangeRate',
+      'type': 'int',
+      'schema': { 'type': 'integer', 'minimum': 0, 'maximum': 9999 },
+      'supported_on': ['chrome_os:66-'],
+      'supported_chrome_os_management': ['active_directory'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'example_value': 0,
+      'id': 425,
+      'caption': '''Machine password change rate''',
+      'tags': ['system-security'],
+      'desc': '''Specifies the rate (in days) at which a client changes their machine account password. The password is randomly generated by the client and not visible to the user.
+
+      Just like user passwords, machine passwords should be changed regularly. Disabling this policy or setting a high number of days can have a negative impact on security since it gives potential attackers more time to find the machine account password and use it.
+
+      If the policy is unset, the machine account password is changed every 30 days.
+
+      If the policy is set to 0, machine account password change is disabled.
+
+      Note that passwords might get older than the specified number of days if the client has been offline for a longer period of time.''',
+    },
+    {
       'name': 'CloudPrintSubmitEnabled',
       'type': 'main',
       'schema': { 'type': 'boolean' },
@@ -5270,6 +5398,7 @@
         'dynamic_refresh': True,
         'per_profile': False,
       },
+      'deprecated': True,
       'example_value': False,
       'id': 366,
       'caption': '''Whether to allow certificates issued by local trust anchors that are missing the subjectAlternativeName extension''',
@@ -5279,6 +5408,27 @@
       Note that this is not recommended, as this may allow bypassing the nameConstraints extension that restricts the hostnames that a given certificate can be authorized for.
 
       If this policy is not set, or is set to false, server certificates that lack a subjectAlternativeName extension containing either a DNS name or IP address will not be trusted.''',
+    },
+    {
+      'name': 'EnableSymantecLegacyInfrastructure',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome.*:66-', 'chrome_os:66-', 'android:66-'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': False,
+      },
+      'example_value': False,
+      'id': 413,
+      'caption': '''Whether to enable trust in Symantec Corporation's Legacy PKI Infrastructure''',
+      'tags': ['system-security'],
+      'desc': '''When this setting is enabled, <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> allows certificates issued by Symantec Corporation's Legacy PKI operations to be trusted if they otherwise successfully validate and chain to a recognized CA certificate.
+
+      Note that this policy depends on the operating system still recognizing certificates from Symantec's legacy infrastructure. If an OS update changes the OS handling of such certificates, this policy no longer has effect.  Further, this policy is intended as a temporary workaround to give enterprises more time to transition away from legacy Symantec certificates.  This policy will be removed on or around January 1st 2019.
+
+      If this policy is not set, or it is set to false, then <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> follows the publicly announced deprecation schedule.
+
+      See https://g.co/chrome/symantecpkicerts for more details on this deprecation.''',
     },
     {
       'name': 'ForceEphemeralProfiles',
@@ -5728,7 +5878,14 @@
       'id': 127,
       'caption': '''Enable metrics reporting''',
       'tags': ['admin-sharing'],
-      'desc': '''Controls whether usage metrics and diagnostic data, including crash reports, are reported back to Google. If set to true, <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> will report usage metrics and diagnostic data. If not configured or set to false, metrics and diagnostic data reporting will be disabled.''',
+      'desc': '''Controls whether usage metrics and diagnostic data, including crash reports, are reported back to Google.
+
+      If set to true, <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> will report usage metrics and diagnostic data.
+
+      If set to false, metrics and diagnostic data reporting will be disabled.
+
+      If not configured, metrics and diagnostic data reporting will be disabled on unmanaged devices and enabled on managed devices.''',
+
       'arc_support': 'This policy also controls Android usage and diagnostic data collection.',
     },
     {
@@ -5949,6 +6106,65 @@
       'desc': '''Specifies whether p2p is to be used for OS update payloads. If set to True, devices will share and attempt to consume update payloads on the LAN, potentially reducing Internet bandwidth usage and congestion. If the update payload is not available on the LAN, the device will fall back to downloading from an update server. If set to False or not configured, p2p will not be used.''',
     },
     {
+      'name': 'DeviceRollbackAllowedMilestones',
+      'type': 'int',
+      'schema': {
+        'type': 'integer',
+        'minimum': 0,
+        'maximum': 8,
+      },
+      'supported_on': ['chrome_os:67-'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'example_value': 4,
+      'id': 426,
+      'caption': '''Number of milestones rollback is allowed''',
+      'tags': ['system-security'],
+      'desc': '''Specifies the minimum number of <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> milestones rollback should be allowed starting from the stable version at any time.
+
+      Default is 0 for consumer, 8 (approx. 1 year) for enterprise enrolled devices.
+
+      Setting this policy prevents rollback protection to apply for at least this number of milestones.
+
+      Setting this policy to a lower value has a permanent effect: the device MAY not be able to roll back to earlier versions even after the policy is reset to a larger value.
+
+      Actual rollback possibilities may also depend on the board and critical vulnerability patches.''',
+    },
+    {
+      'name': 'DeviceRollbackToTargetVersion',
+      'type': 'int-enum',
+      'schema': {
+        'type': 'integer',
+        'enum': [ 1, 2 ],
+      },
+      'items': [
+        {
+          'name': 'RollbackDisabled',
+          'value': 1,
+          'caption': '''Do not roll back to target version if OS version is newer than target. Updates are also disabled.''',
+        },
+        {
+          'name': 'RollbackWithFullPowerwash',
+          'value': 2,
+          'caption': '''Roll back and stay on target version if OS version is newer than target. Do a full powerwash during the process.''',
+        },
+      ],
+      'supported_on': ['chrome_os:67-'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'example_value': 1,
+      'id': 427,
+      'caption': '''Rollback to target version''',
+      'tags': ['system-security'],
+      'desc': '''Specifies whether the device should roll back to the version set by <ph name="DEVICE_TARGET_VERSION_PREFIX_POLICY_NAME">DeviceTargetVersionPrefix</ph> if it's already running a later version.
+
+      Default is RollbackDisabled.''',
+    },
+    {
       'name': 'DeviceTargetVersionPrefix',
       'type': 'string',
       'schema': { 'type': 'string' },
@@ -5963,7 +6179,7 @@
       'tags': ['system-security'],
       'desc': '''Sets a target version for Auto Updates.
 
-      Specifies the prefix of a target version <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> should update to. If the device is running a version that's before the specified prefix, it will update to the latest version with the given prefix. If the device is already on a later version, there is no effect (i.e. no downgrades are performed) and the device will remain on the current version. The prefix format works component-wise as is demonstrated in the following example:
+      Specifies the prefix of a target version <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> should update to. If the device is running a version that's before the specified prefix, it will update to the latest version with the given prefix. If the device is already on a later version, effects depend on the value of <ph name="DEVICE_ROLLBACK_TO_TARGET_VERSION_POLICY_NAME">DeviceRollbackToTargetVersion</ph>. The prefix format works component-wise as is demonstrated in the following example:
 
       "" (or not configured): update to latest version available.
       "1412.": update to any minor version of 1412 (e.g. 1412.24.34 or 1412.60.2)
@@ -6284,7 +6500,10 @@
       'id': 299,
       'caption': '''Allow users to opt in to Safe Browsing extended reporting''',
       'tags': [],
-      'desc': '''Setting this policy to false stops users from choosing to send some system information and page content to Google servers. If this setting is true or not configured, then users will be allowed to send some system information and page content to Safe Browsing to help detect dangerous apps and sites.
+      'deprecated': True,
+      'desc': '''This setting is deprecated, use SafeBrowsingExtendedReportingEnabled instead. Enabling or disabling SafeBrowsingExtendedReportingEnabled is equivalent to setting SafeBrowsingExtendedReportingOptInAllowed to False.
+
+      Setting this policy to false stops users from choosing to send some system information and page content to Google servers. If this setting is true or not configured, then users will be allowed to send some system information and page content to Safe Browsing to help detect dangerous apps and sites.
 
       See https://developers.google.com/safe-browsing for more info on SafeBrowsing.''',
     },
@@ -7840,16 +8059,19 @@
         'type': 'array',
         'items': { 'type': 'string' },
       },
-      'supported_on': ['chrome_os:27-'],
+      'supported_on': ['chrome_os:27-65'],
       'device_only': True,
       'features': {
         'dynamic_refresh': False,
       },
+      'deprecated': True,
       'example_value': [ "enable-managed-mode", "my-cool-flag" ],
       'id': 191,
       'caption': '''System wide flags to be applied on <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> start-up''',
       'tags': [],
-      'desc': '''Specifies the flags that should be applied to <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> when it starts. The specified flags are applied on the login screen only. Flags set via this policy do not propagate into user sessions.''',
+      'desc': '''This policy is deprecated and removed in M66, because it was used only for internal testing and it is a security liability.
+
+      Specifies the flags that should be applied to <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> when it starts. The specified flags are applied on the login screen only. Flags set via this policy do not propagate into user sessions.''',
     },
     {
       'name': 'UptimeLimit',
@@ -8505,7 +8727,7 @@
       'name': 'ForceBrowserSignin',
       'type': 'main',
       'schema': { 'type': 'boolean' },
-      'supported_on': ['chrome.win:64-', 'android:65-'],
+      'supported_on': ['chrome.win:64-', 'chrome.mac:66-', 'android:65-'],
       'features': {
         'dynamic_refresh': False,
         'per_profile': False,
@@ -8524,18 +8746,12 @@
       'schema': {
         'type': 'string',
         'enum': [
-          'ssl3',
           'tls1',
           'tls1.1',
           'tls1.2',
         ],
       },
       'items': [
-        {
-          'name': 'SSLv3',
-          'value': 'ssl3',
-          'caption': 'SSL 3.0',
-        },
         {
           'name': 'TLSv1',
           'value': 'tls1',
@@ -8553,26 +8769,21 @@
         },
       ],
       'supported_on': [
-        'chrome.*:39-43',
-        'chrome_os:39-43',
-        'android:39-43',
+        'chrome.*:66-',
+        'chrome_os:66-',
+        'android:66-',
       ],
       'features': {
         'dynamic_refresh': True,
         'per_profile': False,
       },
-      'deprecated': True,
-      'example_value': 'ssl3',
+      'example_value': 'tls1',
       'id': 279,
       'caption': '''Minimum SSL version enabled''',
       'tags': [],
-      'desc': '''Warning: SSLv3 support will be entirely removed from <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> after version 43 (around July 2015) and this policy will be removed at the same time.
+      'desc': '''If this policy is not configured then <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> uses a default minimum version which is TLS 1.0.
 
-      If this policy is not configured then <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> uses a default minimum version which is SSLv3 in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> 39 and TLS 1.0 in later versions.
-
-      Otherwise it may be set to one of the following values: "sslv3", "tls1", "tls1.1" or "tls1.2". When set, <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> will not use SSL/TLS versions less than the specified version. An unrecognized value will be ignored.
-
-      Note that, despite the number, "sslv3" is an earlier version than "tls1".''',
+      Otherwise it may be set to one of the following values: "tls1", "tls1.1" or "tls1.2". When set, <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> will not use SSL/TLS versions less than the specified version. An unrecognized value will be ignored.''',
     },
     {
       'name': 'SSLVersionFallbackMin',
@@ -9760,7 +9971,7 @@
           'hash': { 'type': 'string' }
         },
       },
-      'supported_on': ['chrome_os:62-'],
+      'supported_on': ['chrome_os:65-'],
       'features': {
         'dynamic_refresh': True,
         'per_profile': True,
@@ -9788,7 +9999,7 @@
     {
       'name': 'NativePrintersBulkAccessMode',
       'id': 383,
-      'supported_on': ['chrome_os:62-'],
+      'supported_on': ['chrome_os:65-'],
       'type': 'int-enum',
       'schema': {
         'type': 'integer',
@@ -9823,12 +10034,12 @@
 
       Designates which access policy is used for bulk printer configuration. If <ph name="PRINTERS_ALLOW_ALL">AllowAll</ph> is selected, all printers are shown. If <ph name="PRINTERS_BLACKLIST">BlacklistRestriction</ph> is selected, <ph name="BULK_PRINTERS_BLACKLIST">NativePrintersBulkBlacklist</ph> is used to restrict access to the specified printers.  If <ph name="PRINTERS_WHITELIST">WhitelistPrintersOnly</ph> is selected, <ph name="BULK_PRINTERS_WHITELIST">NativePrintersBulkWhitelist</ph> designates only those printers which are selectable.
 
-      If this policy is not set, <ph name="PRINTERS_BLACKLIST">BlacklistRestriction</ph> is assumed.
+      If this policy is not set, <ph name="PRINTERS_ALLOW_ALL">AllowAll</ph> is assumed.
       ''',
     },
     {
       'name': 'NativePrintersBulkBlacklist',
-      'supported_on': ['chrome_os:62-'],
+      'supported_on': ['chrome_os:65-'],
       'id': 384,
       'type': 'list',
       'schema': {
@@ -9851,7 +10062,7 @@
     },
     {
       'name': 'NativePrintersBulkWhitelist',
-      'supported_on': ['chrome_os:62-'],
+      'supported_on': ['chrome_os:65-'],
       'id': 385,
       'type': 'list',
       'schema': {
@@ -9884,7 +10095,7 @@
           'hash': { 'type': 'string' }
         },
       },
-      'supported_on': ['chrome_os:63-'],
+      'supported_on': ['chrome_os:66-'],
       'features': {
         'dynamic_refresh': True,
         'per_profile': False,
@@ -9914,7 +10125,7 @@
       'name': 'DeviceNativePrintersAccessMode',
       'id': 387,
       'device_only': True,
-      'supported_on': ['chrome_os:63-'],
+      'supported_on': ['chrome_os:66-'],
       'type': 'int-enum',
       'schema': {
         'type': 'integer',
@@ -9948,12 +10159,12 @@
 
       Designates which access policy is used for bulk printer configuration. If <ph name="PRINTERS_ALLOW_ALL">AllowAll</ph> is selected, all printers are shown. If <ph name="PRINTERS_BLACKLIST">BlacklistRestriction</ph> is selected, <ph name="DEVICE_PRINTERS_BLACKLIST">DeviceNativePrintersBlacklist</ph> is used to restrict access to the specified printers.  If <ph name="PRINTERS_WHITELIST">WhitelistPrintersOnly</ph> is selected, <ph name="DEVICE_PRINTERS_WHITELIST">DeviceNativePrintersWhitelist</ph> designates only those printers which are selectable.
 
-      If this policy is not set, <ph name="PRINTERS_BLACKLIST">BlacklistRestriction</ph> is assumed.
+      If this policy is not set, <ph name="PRINTERS_ALLOW_ALL">AllowAll</ph> is assumed.
       ''',
     },
     {
       'name': 'DeviceNativePrintersBlacklist',
-      'supported_on': ['chrome_os:63-'],
+      'supported_on': ['chrome_os:66-'],
       'device_only': True,
       'id': 388,
       'type': 'list',
@@ -9976,7 +10187,7 @@
     },
     {
       'name': 'DeviceNativePrintersWhitelist',
-      'supported_on': ['chrome_os:63-'],
+      'supported_on': ['chrome_os:66-'],
       'device_only': True,
       'id': 389,
       'type': 'list',
@@ -10684,14 +10895,14 @@
       'caption': '''Enable Site Isolation for specified origins''',
       'tags': ['system-security'],
       'desc': '''
-      NOTE: This policy is experimental and may break functionality!
       If the policy is enabled, each of the named origins in a
       comma-separated list will run in its own process. This will also isolate
       origins named by subdomains; e.g. specifying https://example.com/ will
       also cause https://foo.example.com/ to be isolated as part of the
       https://example.com/ site.
-      If the policy is disabled, the pre-Site Isolation process management logic will take effect.
+      If the policy is disabled, the pre-Site Isolation process management logic will take effect, and field trials of IsolateOrigins and SitePerProcess will be disabled. Users will still be able to enable IsolateOrigins manually.
       If the policy is not configured, the user will be able to change this setting.
+      On <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph>, it is recommended to also set the <ph name="DEVICE_LOGIN_SCREEN_ISOLATE_ORIGINS_POLICY_NAME">DeviceLoginScreenIsolateOrigins</ph> device policy to the same value. If the values specified by the two policies don't match, a delay may be incurred when entering a user session while the value specified by user policy is being applied.
       ''',
     },
     {
@@ -10709,13 +10920,63 @@
       'caption': '''Enable Site Isolation for every site''',
       'tags': ['system-security'],
       'desc': '''
-      NOTE: This policy is experimental and may break functionality!
       You might want to look at the IsolateOrigins policy setting to get the
       best of both worlds, isolation and limited impact for users, by using
       IsolateOrigins with a list of the sites you want to isolate. This setting,
       SitePerProcess, isolates all sites.
       If the policy is enabled, each site will run in its own process.
-      If the policy is disabled, the pre-Site Isolation process management logic will take effect.
+      If the policy is disabled, the pre-Site Isolation process management logic will take effect, and field trials of IsolateOrigins and SitePerProcess will be disabled. Users will still be able to enable SitePerProcess manually.
+      If the policy is not configured, the user will be able to change this setting.
+      On <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph>, it is recommended to also set the <ph name="DEVICE_LOGIN_SCREEN_SITE_PER_PROCESS_POLICY_NAME">DeviceLoginScreenSitePerProcess</ph> device policy to the same value. If the values specified by the two policies don't match, a delay may be incurred when entering a user session while the value specified by user policy is being applied.
+      ''',
+    },
+    {
+      'name': 'DeviceLoginScreenIsolateOrigins',
+      'type': 'string',
+      'schema': { 'type': 'string' },
+      'supported_on': ['chrome_os:66-'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': False,
+        'per_profile': False,
+      },
+      'example_value': 'https://example.com/,https://othersite.org/',
+      'id': 417,
+      'caption': '''Enable Site Isolation for specified origins''',
+      'tags': ['system-security'],
+      'desc': '''
+      This policy applies to the sign-in screen. Please see also the <ph name="ISOLATE_ORIGINS_POLICY_NAME">IsolateOrigins</ph> policy which applies to the user session. It is recommended to set both policies to the same value. If the values don't match, a delay may be incurred when entering a user session while the value specified by user policy is being applied.
+      If the policy is enabled, each of the named origins in a
+      comma-separated list will run in its own process. This will also isolate
+      origins named by subdomains; e.g. specifying https://example.com/ will
+      also cause https://foo.example.com/ to be isolated as part of the
+      https://example.com/ site.
+      If the policy is disabled, the pre-Site Isolation process management logic will take effect, and field trials of IsolateOrigins and SitePerProcess will be disabled. Users will still be able to enable IsolateOrigins manually.
+      If the policy is not configured, the platform default site isolation settings will be used for the sign-in screen.
+      ''',
+    },
+    {
+      'name': 'DeviceLoginScreenSitePerProcess',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome_os:66-'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': False,
+        'per_profile': False,
+      },
+      'example_value': True,
+      'id': 418,
+      'caption': '''Enable Site Isolation for every site''',
+      'tags': ['system-security'],
+      'desc': '''
+      This policy applies to the sign-in screen. Please see also the <ph name="SITE_PER_PROCESS_POLICY_NAME">SitePerProcess</ph> policy which applies to the user session. It is recommended to set both policies to the same value. If the values don't match, a delay may be incurred when entering a user session while the value specified by user policy is being applied.
+      You might want to look at the IsolateOrigins policy setting to get the
+      best of both worlds, isolation and limited impact for users, by using
+      IsolateOrigins with a list of the sites you want to isolate. This setting,
+      SitePerProcess, isolates all sites.
+      If the policy is enabled, each site will run in its own process.
+      If the policy is disabled, the pre-Site Isolation process management logic will take effect, and field trials of IsolateOrigins and SitePerProcess will be disabled. Users will still be able to enable SitePerProcess manually.
       If the policy is not configured, the user will be able to change this setting.
       ''',
     },
@@ -10946,12 +11207,299 @@
       'tags': [],
       'desc': '''Contains a list of patterns which are used to control the visiblity of accounts in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>.
 
-      Account on the device will be visible in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> if its name matches any pattern from the list. Otherwise account will be filtered out and hidden.
+      Each Google account on the device will be compared to patterns stored in this policy to determine the account visibility in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>. The account will be visible if its name matches any pattern on the list. Otherwise, the account will be hidden.
 
-      The wildcard character '*' can be used to match zero or more arbitrary characters. The escape character is '\\', so to match actual '*' or '\\' characters, you can put a '\\' in front of them.
+      Use the wildcard character '*' to match zero or more arbitrary characters. The escape character is '\\', so to match actual '*' or '\\' characters, put a '\\' in front of them.
 
-      If this policy is left not set then all Google accounts on the device will be visible in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>.''',
+      If this policy is not set, all Google accounts on the device will be visible in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>.''',
     },
+    {
+      'name': 'PasswordProtectionWarningTrigger',
+      'type': 'int-enum',
+      'schema': {
+        'type': 'integer',
+        'enum': [ 0, 1, 2 ],
+      },
+      'items': [
+        {
+          'name': 'PasswordProtectionWarningOff',
+          'value': 0,
+          'caption': '''Password protection warning is off''',
+        },
+        {
+          'name': 'PasswordProtectionWarningOnPasswordReuse',
+          'value': 1,
+          'caption': '''Password protection warning is triggered by password reuse''',
+        },
+        {
+          'name': 'PasswordProtectionWarningOnPhishingReuse',
+          'value': 2,
+          'caption': '''Password protection warning is triggered by password reuse on phishing page''',
+        },
+      ],
+      'supported_on': ['chrome.*:67-', 'chrome_os:67-'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': True,
+      },
+      'example_value': 1,
+      'id': 411,
+      'caption': '''Password protection warning trigger''',
+      'tags': [],
+      'desc': '''Allows you to control the triggering of passwore protection warning. Password protection alerts users when they reuse their protected password on potentially suspicious sites.
+
+      If this policy is set to 'PasswordProtectionWarningOff', no password protection warning will be shown.
+      If this policy is set to 'PasswordProtectionWarningOnPasswordReuse', password protection warning will be shown when the user reuses their Google password on a non-whitelisted site.
+      If this policy is set to 'PasswordProtectionWarningOnPhishingReuse', password protection warning will be shown when the user reuses their Google password on a phishing site.
+      If this policy is left unset, password protection warning will be triggered when the user reuses their Google password on a phishing site but the user will be able to change this setting.''',
+    },
+    {
+      'name': 'PasswordProtectionRiskTrigger',
+      'type': 'int-enum',
+      'schema': {
+        'type': 'integer',
+        'enum': [ 0, 1, 2 ],
+      },
+      'items': [
+        {
+          'name': 'PasswordProtectionRiskOff',
+          'value': 0,
+          'caption': '''Password protection at-risk account flagging is off''',
+        },
+        {
+          'name': 'PasswordProtectionRiskOnPasswordReuse',
+          'value': 1,
+          'caption': '''Password protection at-risk account flagging is triggered by password reuse''',
+        },
+        {
+          'name': 'PasswordProtectionRiskOnPhishingReuse',
+          'value': 2,
+          'caption': '''Password protection at-risk account flagging is triggered by password reuse on phishing page''',
+        },
+      ],
+      'supported_on': ['chrome.*:67-', 'chrome_os:67-'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': True,
+      },
+      'example_value': 1,
+      'id': 412,
+      'caption': '''Password protection at-risk account flagging trigger''',
+      'tags': [],
+      'desc': '''Allows you to control the triggering of password protection at-risk account flagging. Password protection at-risk account flagging means informing Google that this account is at-risk of being hijacked.
+
+      If this policy is set to 'PasswordProtectionRiskOff', no password protection at-risk account flagging will be triggered.
+      If this policy is set to 'PasswordProtectionRiskOnPasswordReuse', password protection at-risk account flagging will be triggered when the user reuses their Google password on a non-whitelisted site.
+      If this policy is set to 'PasswordProtectionRiskOnPhishingReuse', password protection at-risk account flagging will be triggered when the user reuses their Google password on a phishing site.
+      If this policy is left unset, password protection at-risk account flagging will be triggered when the user reuses their Google password on a phishing site but the user will be able to change this setting.''',
+    },
+    {
+      'id': 419,
+      'name': 'RelaunchNotification',
+      'tags': [],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': False,
+      },
+      'supported_on': ['chrome.*:66-'],
+      'type': 'int-enum',
+      'schema': {
+        'type': 'integer',
+        'enum': [ 1, 2 ],
+      },
+      'caption': '''Notify a user that a browser relaunch is recommended or required''',
+      'items': [
+        {
+          'name': 'Recommended',
+          'value': 1,
+          'caption': '''Show a recurring prompt to the user indicating that a relaunch is recommended''',
+        },
+        {
+          'name': 'Required',
+          'value': 2,
+          'caption': '''Show a recurring prompt to the user indicating that a relaunch is required''',
+        },
+      ],
+      'example_value': 1,
+      'desc': '''Notify users that <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> must be relaunched to apply a pending update.
+
+      This policy setting enables notifications to inform the user that a browser relaunch is recommended or required. If not set, <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> indicates to the user that a relaunch is needed via subtle changes to its menu. If set to 'Recommended', a recurring warning will be shown to the user that a relaunch is recommended. The user can dismiss this warning to defer the relaunch. If set to 'Required', a recurring warning will be shown to the user indicating that a browser relaunch will be forced once the notification period passes. This period is seven days by default, and may be configured via the <ph name="RELAUNCH_NOTIFICATION_PERIOD_POLICY_NAME">RelaunchNotificationPeriod</ph> policy setting.
+
+      The user's session is restored following the relaunch.''',
+    },
+    {
+      'id': 420,
+      'name': 'RelaunchNotificationPeriod',
+      'tags': [],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': False,
+      },
+      'supported_on': ['chrome.*:67-', 'chrome_os:67-'],
+      'type': 'int',
+      'schema': { 'type': 'integer', 'minimum': 3600000 },
+      'caption': '''Set the period for update relaunch notifications''',
+      'example_value': 604800000,
+      'desc': '''Allows you to set the time period over which <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> relaunch notifications are shown to apply a pending update.
+
+      This policy setting can be used to control the time period, in milliseconds, over which a user is progressively informed that <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> must be relaunched (or <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> must be restarted) for an update. Over this time period, the user will be repeatedly informed of the need for an update based on the setting of the <ph name="RELAUNCH_NOTIFICATION_POLICY_NAME">RelaunchNotification</ph> policy. If not set, the default period of 604800000 milliseconds (one week) is used.''',
+    },
+    {
+      'name': 'VirtualMachinesAllowed',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome_os:66-'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'example_value': True,
+      'id': 421,
+      'caption': '''Allow devices to run virtual machines on Chrome OS''',
+      'tags': ['system-security'],
+      'desc': '''Allows you to control whether virtual machines are allowed to run on Chrome OS.
+
+      If the policy is set to True, the device is allowed to run virtual machines.
+      If the policy is set to False, the device will not be allowed to run virtual machines.
+      When this policy is changed to False, it applies to starting new virtual machines but does not shut down virtual machines which are already running.
+      When this policy is not set on a managed device, the device will not be allowed to run virtual machines.
+      Unmanaged devices are allowed to run virtual machines.''',
+    },
+    {
+      'name': 'SafeBrowsingWhitelistDomains',
+      'type': 'list',
+      'schema': {
+        'type': 'array',
+        'items': { 'type': 'string' },
+      },
+      'supported_on': ['chrome.*:67-', 'chrome_os:67-'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': True,
+      },
+      'example_value': ['mydomain.com', 'myuniversity.edu'],
+      'id': 422,
+      'caption': '''Configure the list of domains on which Safe Browsing will not trigger warnings.''',
+      'tags': [],
+      'desc': '''Configure the list of domains which Safe Browsing will trust. This means:
+      Safe Browsing will not check for dangerous resources (e.g. phishing, malware, or unwanted software) if their URLs match these domains.
+      Safe Browsing's download protection service will not check downloads hosted on these domains.
+      Safe Browsing's password protection service will not check for password reuse if the page URL matches these domains.
+
+      If this setting is enabled, then Safe Browsing will trust these domains.
+      If this setting is disabled or not set, then default Safe Browsing protection is applied to all resources.
+      This policy is not available on Windows instances that are not joined to a <ph name="MS_AD_NAME">Microsoft® Active Directory®</ph> domain.''',
+    },
+    {
+      'name': 'PasswordProtectionLoginURLs',
+      'type': 'list',
+      'schema': {
+        'type': 'array',
+        'items': { 'type': 'string' },
+      },
+      'supported_on': ['chrome.*:67-', 'chrome_os:67-'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': True,
+      },
+      'example_value': ['https://mydomain.com/login.html', 'https://login.mydomain.com'],
+      'id': 423,
+      'caption': '''Configure the list of enterprise login URLs where password protection service should capture fingerprint of password.''',
+      'tags': [],
+      'desc': '''Configure the list of enterprise login URLs (HTTP and HTTPS schemes only). Fingerprint of password will be captured on these URLs and used for password reuse detection.
+      This setting should only be used by GSuite users using a SSO/SMAL system.
+
+      If this setting is enabled, then password protection service will capture fingerprint of password on these URLs for password reuse detection purpose.
+      If this setting is disabled or not set, then password protection service will only capture password fingerprint on https://accounts.google.com.
+      This policy is not available on Windows instances that are not joined to a <ph name="MS_AD_NAME">Microsoft® Active Directory®</ph> domain.''',
+    },
+    {
+      'name': 'PasswordProtectionChangePasswordURL',
+      'type': 'string',
+      'schema': { 'type': 'string' },
+      'supported_on': ['chrome.*:67-', 'chrome_os:67-'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': True,
+      },
+      'example_value': 'https://mydomain.com/change_password.html',
+      'id': 424,
+      'caption': '''Configure the change password URL.''',
+      'tags': [],
+      'desc': '''Configure the change password URL (HTTP and HTTPS schemes only). Password protection service will send users to this URL to change their passwords if they've been phished.
+      This setting should only be used by GSuite users using a SSO/SMAL system.
+
+      If this setting is enabled, then password protection service will send users to this URL to change their passwords if they've been phished.
+      If this setting is disabled or not set, then password protection service will send users to https://myaccounts.google.com to change their password.
+      This policy is not available on Windows instances that are not joined to a <ph name="MS_AD_NAME">Microsoft® Active Directory®</ph> domain.''',
+    },
+    {
+      'name': 'SafeBrowsingExtendedReportingEnabled',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome.*:66-', 'chrome_os:66-'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': True,
+      },
+      'example_value': True,
+      'id': 429,
+      'tags': ['google-sharing'],
+      'caption': '''Enable Safe Browsing Extended Reporting''',
+      'desc': '''Enables <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>'s Safe Browsing Extended Reporting and prevents users from changing this setting.
+
+      Extended Reporting sends some system information and page content to Google servers to help detect dangerous apps and sites.
+
+      If the setting is set to true, then reports will be created and sent whenever necessary (such as when a security interstitial is shown).
+
+      If the setting is set to false, reports will never be sent.
+
+      If this policy is set to true or false, the user will not be able to modify the setting.
+
+      If this policy is left unset, the user will be able to change the setting and decide whether to send reports or not.
+
+      See https://developers.google.com/safe-browsing for more info on SafeBrowsing.''',
+    },
+    {
+      'name': 'MachineLevelUserCloudPolicyEnrollmentToken',
+      'type': 'string',
+      'schema': { 'type': 'string' },
+      'supported_on': ['chrome.*:66-'],
+      'features': {
+        'dynamic_refresh': False,
+        'per_profile': False,
+      },
+      'example_value': '37185d02-e055-11e7-80c1-9a214cf093ae',
+      'id': 428,
+      'caption': '''The enrollment token of cloud policy on desktop''',
+      'tags': [],
+      'desc': '''
+        If this policy is set, <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> will try to register itself and apply associated cloud policy for all profiles.
+
+        The value of this policy is an Enrollment token that can be retrieved from the Google Admin console.''',
+    },
+    {
+      'name': 'AutoplayAllowed',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome.win:66-', 'chrome.linux:66-', 'chrome.mac:66-', 'chrome_os:66-'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': True,
+      },
+      'example_value': True,
+      'id': 430,
+      'caption': '''Allows media autoplay''',
+      'tags': [],
+      'desc': '''Allows you to control if videos can play automatically (without user consent) with audio content in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>.
+
+      If the policy is set to True, <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> is allowed to autoplay media.
+      If the policy is set to False, <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> is not allowed to autoplay media.
+      By default, <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> is not allowed to autoplay media.
+
+      Note that if <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> is running and this policy changes, it will be applied only to new opened tabs. Therefore some tabs might still observe the previous behavior.
+      ''',
+    }
   ],
 
   'messages': {

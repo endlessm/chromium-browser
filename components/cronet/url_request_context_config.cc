@@ -29,8 +29,13 @@
 #include "net/nqe/network_quality_estimator_params.h"
 #include "net/quic/chromium/quic_utils_chromium.h"
 #include "net/quic/core/quic_packets.h"
+#include "net/reporting/reporting_policy.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/url_request/url_request_context_builder.h"
+
+#if BUILDFLAG(ENABLE_REPORTING)
+#include "net/reporting/reporting_policy.h"
+#endif  // BUILDFLAG(ENABLE_REPORTING)
 
 namespace cronet {
 
@@ -53,6 +58,7 @@ const char kQuicMaxTimeBeforeCryptoHandshakeSeconds[] =
 const char kQuicMaxIdleTimeBeforeCryptoHandshakeSeconds[] =
     "max_idle_time_before_crypto_handshake_seconds";
 const char kQuicCloseSessionsOnIpChange[] = "close_sessions_on_ip_change";
+const char kQuicAllowServerMigration[] = "allow_server_migration";
 const char kQuicMigrateSessionsOnNetworkChange[] =
     "migrate_sessions_on_network_change";
 const char kQuicMigrateSessionsOnNetworkChangeV2[] =
@@ -68,6 +74,8 @@ const char kQuicDisableBidirectionalStreams[] =
     "quic_disable_bidirectional_streams";
 const char kQuicRaceCertVerification[] = "race_cert_verification";
 const char kQuicHostWhitelist[] = "host_whitelist";
+const char kQuicEnableSocketRecvOptimization[] =
+    "enable_socket_recv_optimization";
 
 // AsyncDNS experiment dictionary name.
 const char kAsyncDnsFieldTrialName[] = "AsyncDNS";
@@ -104,6 +112,11 @@ const char kHostResolverRules[] = "host_resolver_rules";
 
 // NetworkQualityEstimator (NQE) experiment dictionary name.
 const char kNetworkQualityEstimatorFieldTrialName[] = "NetworkQualityEstimator";
+
+// Network Error Logging experiment dictionary name.
+const char kNetworkErrorLoggingFieldTrialName[] = "NetworkErrorLogging";
+// Name of boolean to enable Reporting API.
+const char kNetworkErrorLoggingEnable[] = "enable";
 
 // Disable IPv6 when on WiFi. This is a workaround for a known issue on certain
 // Android phones, and should not be necessary when not on one of those devices.
@@ -153,6 +166,7 @@ URLRequestContextConfig::URLRequestContextConfig(
     int http_cache_max_size,
     bool load_disable_cache,
     const std::string& storage_path,
+    const std::string& accept_language,
     const std::string& user_agent,
     const std::string& experimental_options,
     std::unique_ptr<net::CertVerifier> mock_cert_verifier,
@@ -167,6 +181,7 @@ URLRequestContextConfig::URLRequestContextConfig(
       http_cache_max_size(http_cache_max_size),
       load_disable_cache(load_disable_cache),
       storage_path(storage_path),
+      accept_language(accept_language),
       user_agent(user_agent),
       mock_cert_verifier(std::move(mock_cert_verifier)),
       enable_network_quality_estimator(enable_network_quality_estimator),
@@ -209,6 +224,7 @@ void URLRequestContextConfig::ParseAndSetExperimentalOptions(
   bool stale_dns_enable = false;
   bool host_resolver_rules_enable = false;
   bool disable_ipv6_on_wifi = false;
+  bool nel_enable = false;
 
   effective_experimental_options = dict->CreateDeepCopy();
   StaleHostResolver::StaleOptions stale_dns_options;
@@ -285,6 +301,13 @@ void URLRequestContextConfig::ParseAndSetExperimentalOptions(
             quic_close_sessions_on_ip_change;
       }
 
+      bool quic_allow_server_migration = false;
+      if (quic_args->GetBoolean(kQuicAllowServerMigration,
+                                &quic_allow_server_migration)) {
+        session_params->quic_allow_server_migration =
+            quic_allow_server_migration;
+      }
+
       bool quic_migrate_sessions_on_network_change = false;
       if (quic_args->GetBoolean(kQuicMigrateSessionsOnNetworkChange,
                                 &quic_migrate_sessions_on_network_change)) {
@@ -302,6 +325,13 @@ void URLRequestContextConfig::ParseAndSetExperimentalOptions(
       std::string quic_user_agent_id;
       if (quic_args->GetString(kQuicUserAgentId, &quic_user_agent_id)) {
         session_params->quic_user_agent_id = quic_user_agent_id;
+      }
+
+      bool quic_enable_socket_recv_optimization = false;
+      if (quic_args->GetBoolean(kQuicEnableSocketRecvOptimization,
+                                &quic_enable_socket_recv_optimization)) {
+        session_params->quic_enable_socket_recv_optimization =
+            quic_enable_socket_recv_optimization;
       }
 
       bool quic_migrate_sessions_on_network_change_v2 = false;
@@ -412,6 +442,15 @@ void URLRequestContextConfig::ParseAndSetExperimentalOptions(
       }
       host_resolver_rules_enable = host_resolver_rules_args->GetString(
           kHostResolverRules, &host_resolver_rules_string);
+    } else if (it.key() == kNetworkErrorLoggingFieldTrialName) {
+      const base::DictionaryValue* nel_args = nullptr;
+      if (!it.value().GetAsDictionary(&nel_args)) {
+        LOG(ERROR) << "\"" << it.key() << "\" config params \"" << it.value()
+                   << "\" is not a dictionary value";
+        effective_experimental_options->Remove(it.key(), nullptr);
+        continue;
+      }
+      nel_args->GetBoolean(kNetworkErrorLoggingEnable, &nel_enable);
     } else if (it.key() == kDisableIPv6OnWifi) {
       if (!it.value().GetAsBoolean(&disable_ipv6_on_wifi)) {
         LOG(ERROR) << "\"" << it.key() << "\" config params \"" << it.value()
@@ -483,6 +522,23 @@ void URLRequestContextConfig::ParseAndSetExperimentalOptions(
     }
     context_builder->set_host_resolver(std::move(host_resolver));
   }
+
+#if BUILDFLAG(ENABLE_REPORTING)
+  if (nel_enable) {
+    auto policy = std::make_unique<net::ReportingPolicy>();
+
+    // Apps (like Cronet embedders) are generally allowed to run in the
+    // background, even across network changes, so use more relaxed privacy
+    // settings than when Reporting is running in the browser.
+    policy->persist_reports_across_restarts = true;
+    policy->persist_clients_across_restarts = true;
+    policy->persist_reports_across_network_changes = true;
+    policy->persist_clients_across_network_changes = true;
+
+    context_builder->set_reporting_policy(std::move(policy));
+    context_builder->set_network_error_logging_enabled(true);
+  }
+#endif  // BUILDFLAG(ENABLE_REPORTING)
 }
 
 void URLRequestContextConfig::ConfigureURLRequestContextBuilder(
@@ -507,6 +563,7 @@ void URLRequestContextConfig::ConfigureURLRequestContextBuilder(
   } else {
     context_builder->DisableHttpCache();
   }
+  context_builder->set_accept_language(accept_language);
   context_builder->set_user_agent(user_agent);
   net::HttpNetworkSession::Params session_params;
   session_params.enable_http2 = enable_spdy;
@@ -544,8 +601,8 @@ std::unique_ptr<URLRequestContextConfig>
 URLRequestContextConfigBuilder::Build() {
   return std::make_unique<URLRequestContextConfig>(
       enable_quic, quic_user_agent_id, enable_spdy, enable_brotli, http_cache,
-      http_cache_max_size, load_disable_cache, storage_path, user_agent,
-      experimental_options, std::move(mock_cert_verifier),
+      http_cache_max_size, load_disable_cache, storage_path, accept_language,
+      user_agent, experimental_options, std::move(mock_cert_verifier),
       enable_network_quality_estimator,
       bypass_public_key_pinning_for_local_trust_anchors, cert_verifier_data);
 }

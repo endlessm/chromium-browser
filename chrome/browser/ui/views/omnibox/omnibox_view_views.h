@@ -28,7 +28,6 @@
 #include "ui/base/ime/chromeos/input_method_manager.h"
 #endif
 
-class CommandUpdater;
 class LocationBarView;
 class OmniboxClient;
 class OmniboxPopupContentsView;
@@ -60,7 +59,6 @@ class OmniboxViewViews : public OmniboxView,
 
   OmniboxViewViews(OmniboxEditController* controller,
                    std::unique_ptr<OmniboxClient> client,
-                   CommandUpdater* command_updater,
                    bool popup_window_mode,
                    LocationBarView* location_bar,
                    const gfx::FontList& font_list);
@@ -110,11 +108,19 @@ class OmniboxViewViews : public OmniboxView,
   void AddedToWidget() override;
   void RemovedFromWidget() override;
 
+ protected:
+  // For testing only.
+  OmniboxPopupContentsView* GetPopupContentsView() const {
+    return popup_view_.get();
+  }
+
  private:
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, CloseOmniboxPopupOnTextDrag);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, FriendlyAccessibleLabel);
+  FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, AccessiblePopup);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, MaintainCursorAfterFocusCycle);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, OnBlur);
+  FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, DoNotNavigateOnDrop);
 
   // Update the field with |text| and set the selection.
   void SetTextAndSelectedRange(const base::string16& text,
@@ -137,6 +143,10 @@ class OmniboxViewViews : public OmniboxView,
   void UpdateSecurityLevel();
 
   void ClearAccessibilityLabel();
+
+  // Returns true if the user text was updated with the full URL (without
+  // steady-state elisions).
+  bool UnapplySteadyStateElisions();
 
   // OmniboxView:
   void SetWindowTextAndCaretPos(const base::string16& text,
@@ -250,6 +260,9 @@ class OmniboxViewViews : public OmniboxView,
   // avoid showing the popup. So far, the candidate window is detected only
   // on Chrome OS.
   bool ime_candidate_window_open_;
+
+  // True if any mouse button is currently depressed.
+  bool is_mouse_pressed_;
 
   // Should we select all the text when we see the mouse button get released?
   // We select in response to a click that focuses the omnibox, but we defer

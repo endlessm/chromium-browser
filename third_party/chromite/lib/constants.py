@@ -327,23 +327,12 @@ DEFAULT_CTS_RESULTS_GSURI = 'gs://chromeos-cts-results/'
 DEFAULT_CTS_APFE_GSURI = 'gs://chromeos-cts-apfe/'
 
 ANDROID_BUCKET_URL = 'gs://android-build-chromeos/builds'
-ANDROID_MASTER_ARC_DEV_BUILD_BRANCH = 'git_master-arc-dev'
-ANDROID_MNC_BUILD_BRANCH = 'git_mnc-dr-arc-dev'
+ANDROID_MST_BUILD_BRANCH = 'git_master-arc-dev'
 ANDROID_NYC_BUILD_BRANCH = 'git_nyc-mr1-arc'
-ANDROID_MASTER_ARC_DEV_BUILD_TARGETS = {
+ANDROID_MST_BUILD_TARGETS = {
     'ARM_USERDEBUG': ('linux-cheets_arm-userdebug', r'\.zip$'),
     'X86_USERDEBUG': ('linux-cheets_x86-userdebug', r'\.zip$'),
     'X86_64_USERDEBUG': ('linux-cheets_x86_64-userdebug', r'\.zip$'),
-}
-ANDROID_MNC_BUILD_TARGETS = {
-    # TODO(b/29509721): Workaround to roll adb with system image. We want to
-    # get rid of this.
-    'ARM': ('linux-cheets_arm-user', r'(\.zip|/adb)$'),
-    'X86': ('linux-cheets_x86-user', r'\.zip$'),
-    'X86_USERDEBUG': ('linux-cheets_x86-userdebug', r'\.zip$'),
-    'AOSP_X86_USERDEBUG': ('linux-aosp_cheets_x86-userdebug', r'\.zip$'),
-    'SDK_TOOLS': ('linux-static_sdk_tools', r'/(aapt|adb)$'),
-
 }
 
 ANDROID_INTERNAL_PATTERN = r'\.zip.internal$'
@@ -606,12 +595,12 @@ PRE_CQ_DEFAULT_CONFIGS = [
     'betty-pre-cq',                   # vm board                       vmtest
     'cyan-no-vmtest-pre-cq',          # braswell     kernel 3.18
     'daisy_spring-no-vmtest-pre-cq',  # arm32        kernel 3.8
-    'lumpy-no-vmtest-pre-cq',         # sandybridge  kernel 3.8
-    'kevin-no-vmtest-pre-cq',         # arm64        kernel 4.4
+    'kevin-arcnext-no-vmtest-pre-cq', # arm64        kernel 4.4        arcnext
     'nyan_blaze-no-vmtest-pre-cq',    # arm32        kernel 3.10
     'reef-no-vmtest-pre-cq',          # apollolake   kernel 4.4        vulkan
     'samus-no-vmtest-pre-cq',         # broadwell    kernel 3.14
     'whirlwind-no-vmtest-pre-cq',     # brillo
+    'zako-no-vmtest-pre-cq',          # haswell      kernel 3.8
 ]
 
 # The name of the pre-cq launching config.
@@ -738,6 +727,9 @@ JOB_KEYVAL_DATASTORE_PARENT_KEY = 'datastore_parent_key'
 JOB_KEYVAL_CIDB_BUILD_ID = 'cidb_build_id'
 JOB_KEYVAL_CIDB_BUILD_STAGE_ID = 'cidb_build_stage_id'
 
+
+# How many total test retries should be done for a suite.
+VM_TEST_MAX_RETRIES = 5
 # Defines VM Test types.
 FULL_AU_TEST_TYPE = 'full_suite'
 SIMPLE_AU_TEST_TYPE = 'pfq_suite'
@@ -1101,6 +1093,7 @@ PFQ_MASTER = 'master-chromium-pfq'
 BINHOST_PRE_CQ = 'binhost-pre-cq'
 WIFICELL_PRE_CQ = 'wificell-pre-cq'
 BLUESTREAK_PRE_CQ = 'bluestreak-pre-cq'
+MST_ANDROID_PFQ_MASTER = 'master-mst-android-pfq'
 NYC_ANDROID_PFQ_MASTER = 'master-nyc-android-pfq'
 TOOLCHAIN_MASTTER = 'master-toolchain'
 

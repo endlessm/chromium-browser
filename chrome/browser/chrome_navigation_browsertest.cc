@@ -6,6 +6,7 @@
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_timeouts.h"
+#include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_test_util.h"
@@ -18,7 +19,7 @@
 #include "components/network_session_configurator/common/network_switches.h"
 #include "components/url_formatter/url_formatter.h"
 #include "components/variations/active_field_trials.h"
-#include "components/variations/metrics_util.h"
+#include "components/variations/hashing.h"
 #include "components/variations/variations_switches.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
@@ -670,7 +671,7 @@ class SignInIsolationBrowserTest : public ChromeNavigationBrowserTest {
     std::vector<std::string> synthetic_trials;
     variations::GetSyntheticTrialGroupIdsAsString(&synthetic_trials);
     std::string trial_hash =
-        base::StringPrintf("%x", metrics::HashName(trial_name));
+        base::StringPrintf("%x", variations::HashName(trial_name));
 
     for (auto entry : synthetic_trials) {
       if (base::StartsWith(entry, trial_hash, base::CompareCase::SENSITIVE))
@@ -684,8 +685,9 @@ class SignInIsolationBrowserTest : public ChromeNavigationBrowserTest {
                                const std::string& trial_group) {
     std::vector<std::string> synthetic_trials;
     variations::GetSyntheticTrialGroupIdsAsString(&synthetic_trials);
-    std::string expected_entry = base::StringPrintf(
-        "%x-%x", metrics::HashName(trial_name), metrics::HashName(trial_group));
+    std::string expected_entry =
+        base::StringPrintf("%x-%x", variations::HashName(trial_name),
+                           variations::HashName(trial_group));
 
     for (auto entry : synthetic_trials) {
       if (entry == expected_entry)
@@ -935,7 +937,14 @@ class WillProcessResponseObserver : public content::WebContentsObserver {
 // Note: This test couldn't be a content_browsertests, since there would be
 // not handler defined for the "ftp" protocol in
 // URLRequestJobFactoryImpl::protocol_handler_map_.
-IN_PROC_BROWSER_TEST_F(ChromeNavigationBrowserTest, BlockLegacySubresources) {
+// Flaky on Mac only.  http://crbug.com/816646
+#if defined(OS_MACOSX)
+#define MAYBE_BlockLegacySubresources DISABLED_BlockLegacySubresources
+#else
+#define MAYBE_BlockLegacySubresources BlockLegacySubresources
+#endif
+IN_PROC_BROWSER_TEST_F(ChromeNavigationBrowserTest,
+                       MAYBE_BlockLegacySubresources) {
   net::SpawnedTestServer ftp_server(
       net::SpawnedTestServer::TYPE_FTP,
       base::FilePath(FILE_PATH_LITERAL("chrome/test/data")));

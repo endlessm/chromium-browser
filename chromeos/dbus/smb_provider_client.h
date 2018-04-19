@@ -7,6 +7,7 @@
 
 #include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/files/scoped_file.h"
 #include "chromeos/chromeos_export.h"
 #include "chromeos/dbus/dbus_client.h"
 #include "chromeos/dbus/smbprovider/directory_entry.pb.h"
@@ -22,15 +23,17 @@ class CHROMEOS_EXPORT SmbProviderClient : public DBusClient {
  public:
   using GetMetdataEntryCallback =
       base::OnceCallback<void(smbprovider::ErrorType error,
-                              const smbprovider::DirectoryEntry& entry)>;
+                              const smbprovider::DirectoryEntryProto& entry)>;
   using MountCallback =
       base::OnceCallback<void(smbprovider::ErrorType error, int32_t mount_id)>;
   using OpenFileCallback =
       base::OnceCallback<void(smbprovider::ErrorType error, int32_t file_id)>;
-  using ReadDirectoryCallback =
-      base::OnceCallback<void(smbprovider::ErrorType error,
-                              const smbprovider::DirectoryEntryList& entries)>;
+  using ReadDirectoryCallback = base::OnceCallback<void(
+      smbprovider::ErrorType error,
+      const smbprovider::DirectoryEntryListProto& entries)>;
   using StatusCallback = base::OnceCallback<void(smbprovider::ErrorType error)>;
+  using ReadFileCallback = base::OnceCallback<void(smbprovider::ErrorType error,
+                                                   const base::ScopedFD& fd)>;
 
   ~SmbProviderClient() override;
 
@@ -74,6 +77,71 @@ class CHROMEOS_EXPORT SmbProviderClient : public DBusClient {
   // |file_id|. Subsequent operations using file with this handle will fail.
   virtual void CloseFile(int32_t mount_id,
                          int32_t file_id,
+                         StatusCallback callback) = 0;
+
+  // Calls ReadFile. Using the corresponding mount |mount_id|, this reads the
+  // file with handle |file_id| from |offset| and reads up to |length| in bytes.
+  // The data read is saved to a temporary file and is returned as a file
+  // descriptor in the supplied ReadFileCallback.
+  virtual void ReadFile(int32_t mount_id,
+                        int32_t file_id,
+                        int64_t offset,
+                        int32_t length,
+                        ReadFileCallback callback) = 0;
+
+  // Calls DeleteEntry. This deletes the file or directory at |entry_path|.
+  // Subsequent operations on the entry at this path will fail.
+  virtual void DeleteEntry(int32_t mount_id,
+                           const base::FilePath& entry_path,
+                           bool recursive,
+                           StatusCallback callback) = 0;
+
+  // Calls CreateFile. Using the corresponding mount |mount_id|, this creates
+  // the file in the specified |file_path|.
+  virtual void CreateFile(int32_t mount_id,
+                          const base::FilePath& file_path,
+                          StatusCallback callback) = 0;
+
+  // Calls Truncate. Using the corresponding mount |mount_id|, this truncates
+  // the file in |file_path| to the desired |length|.
+  virtual void Truncate(int32_t mount_id,
+                        const base::FilePath& file_path,
+                        int64_t length,
+                        StatusCallback callback) = 0;
+
+  // Calls WriteFile. Using the corresponding mount |mount_id|, this writes to a
+  // file with handle |file_id| from |offset| and writes |length| bytes. The
+  // data to be written is contained in the file with handle |temp_fd|.
+  virtual void WriteFile(int32_t mount_id,
+                         int32_t file_id,
+                         int64_t offset,
+                         int32_t length,
+                         base::ScopedFD temp_fd,
+                         StatusCallback callback) = 0;
+
+  // Calls CreateDirectory. Using the corresponding |mount_id|, this creates the
+  // directory at |directory_path|. If |recursive| is set to true, this creates
+  // all non-existing directories on the path. The operation will fail if the
+  // directory already exists.
+  virtual void CreateDirectory(int32_t mount_id,
+                               const base::FilePath& directory_path,
+                               bool recursive,
+                               StatusCallback callback) = 0;
+
+  // Calls MoveEntry. Using the corresponding |mount_id|, this moves the entry
+  // at |source_path| to |target_path|. This operation will fail if the
+  // target already exists.
+  virtual void MoveEntry(int32_t mount_id,
+                         const base::FilePath& source_path,
+                         const base::FilePath& target_path,
+                         StatusCallback callback) = 0;
+
+  // Calls CopyEntry. Using the corresponding |mount_id|, this copies the entry
+  // at |source_path| to |target_path|. This operation will fail if the
+  // target already exists.
+  virtual void CopyEntry(int32_t mount_id,
+                         const base::FilePath& source_path,
+                         const base::FilePath& target_path,
                          StatusCallback callback) = 0;
 
  protected:

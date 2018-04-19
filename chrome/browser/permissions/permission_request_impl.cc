@@ -53,6 +53,9 @@ PermissionRequest::IconId PermissionRequestImpl::GetIconId() const {
     case CONTENT_SETTINGS_TYPE_ACCESSIBILITY_EVENTS:
       return IDR_ANDROID_INFOBAR_ACCESSIBILITY_EVENTS;
     case CONTENT_SETTINGS_TYPE_CLIPBOARD_READ:
+      return IDR_ANDROID_INFOBAR_CLIPBOARD;
+    case CONTENT_SETTINGS_TYPE_PAYMENT_HANDLER:
+      // TODO(zino): Should update this icon.
       return IDR_ANDROID_INFOBAR_WARNING;
     default:
       NOTREACHED();
@@ -81,6 +84,9 @@ PermissionRequest::IconId PermissionRequestImpl::GetIconId() const {
       return vector_icons::kAccessibilityIcon;
     case CONTENT_SETTINGS_TYPE_CLIPBOARD_READ:
       return kContentPasteIcon;
+    case CONTENT_SETTINGS_TYPE_PAYMENT_HANDLER:
+      // TODO(zino): Should update this icon.
+      return kProductIcon;
     default:
       NOTREACHED();
       return kExtensionIcon;
@@ -114,6 +120,10 @@ base::string16 PermissionRequestImpl::GetMessageText() const {
       message_id = IDS_ACCESSIBILITY_EVENTS_INFOBAR_TEXT;
       break;
     case CONTENT_SETTINGS_TYPE_CLIPBOARD_READ:
+      message_id = IDS_CLIPBOARD_INFOBAR_TEXT;
+      break;
+    case CONTENT_SETTINGS_TYPE_PAYMENT_HANDLER:
+      // TODO(zino): Should update this message.
       message_id = IDS_CLIPBOARD_INFOBAR_TEXT;
       break;
     default:
@@ -157,6 +167,10 @@ base::string16 PermissionRequestImpl::GetMessageTextFragment() const {
       message_id = IDS_ACCESSIBILITY_EVENTS_PERMISSION_FRAGMENT;
       break;
     case CONTENT_SETTINGS_TYPE_CLIPBOARD_READ:
+      message_id = IDS_CLIPBOARD_PERMISSION_FRAGMENT;
+      break;
+    case CONTENT_SETTINGS_TYPE_PAYMENT_HANDLER:
+      // TODO(zino): Should update this message.
       message_id = IDS_CLIPBOARD_PERMISSION_FRAGMENT;
       break;
     default:

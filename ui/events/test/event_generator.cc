@@ -36,10 +36,6 @@
 
 namespace ui {
 namespace test {
-namespace {
-
-void DummyCallback(EventType, const gfx::Vector2dF&) {
-}
 
 class TestTickClock : public base::TickClock {
  public:
@@ -56,6 +52,10 @@ class TestTickClock : public base::TickClock {
 
   DISALLOW_COPY_AND_ASSIGN(TestTickClock);
 };
+
+namespace {
+
+void DummyCallback(EventType, const gfx::Vector2dF&) {}
 
 class TestTouchEvent : public ui::TouchEvent {
  public:
@@ -306,14 +306,18 @@ void EventGenerator::PressMoveAndReleaseTouchToCenterOf(EventTarget* window) {
 }
 
 void EventGenerator::GestureTapAt(const gfx::Point& location) {
+  UpdateCurrentDispatcher(location);
+  gfx::Point converted_location = location;
+  delegate()->ConvertPointToTarget(current_target_, &converted_location);
+
   const int kTouchId = 2;
   ui::TouchEvent press(
-      ui::ET_TOUCH_PRESSED, location, ui::EventTimeForNow(),
+      ui::ET_TOUCH_PRESSED, converted_location, ui::EventTimeForNow(),
       ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, kTouchId));
   Dispatch(&press);
 
   ui::TouchEvent release(
-      ui::ET_TOUCH_RELEASED, location,
+      ui::ET_TOUCH_RELEASED, converted_location,
       press.time_stamp() + base::TimeDelta::FromMilliseconds(50),
       ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, kTouchId));
   Dispatch(&release);
@@ -625,7 +629,8 @@ void EventGenerator::Dispatch(ui::Event* event) {
 
 void EventGenerator::Init(gfx::NativeWindow root_window,
                           gfx::NativeWindow window_context) {
-  ui::SetEventTickClockForTesting(std::make_unique<TestTickClock>());
+  tick_clock_ = std::make_unique<TestTickClock>();
+  ui::SetEventTickClockForTesting(tick_clock_.get());
   delegate()->SetContext(this, root_window, window_context);
   if (window_context)
     current_location_ = delegate()->CenterOfWindow(window_context);

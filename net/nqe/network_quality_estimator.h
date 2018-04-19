@@ -28,7 +28,6 @@
 #include "net/nqe/effective_connection_type.h"
 #include "net/nqe/effective_connection_type_observer.h"
 #include "net/nqe/event_creator.h"
-#include "net/nqe/external_estimate_provider.h"
 #include "net/nqe/network_id.h"
 #include "net/nqe/network_quality.h"
 #include "net/nqe/network_quality_estimator_params.h"
@@ -66,7 +65,6 @@ class URLRequest;
 // observed traffic characteristics.
 class NET_EXPORT NetworkQualityEstimator
     : public NetworkChangeNotifier::ConnectionTypeObserver,
-      public ExternalEstimateProvider::UpdatedEstimateDelegate,
       public NetworkQualityProvider {
  public:
   // Observes measurements of round trip time.
@@ -106,11 +104,10 @@ class NET_EXPORT NetworkQualityEstimator
   };
 
   // Creates a new NetworkQualityEstimator.
-  // |external_estimates_provider| may be NULL. |params| contains the
+  // |params| contains the
   // configuration parameters relevant to network quality estimator. The caller
   // must guarantee that |net_log| outlives |this|.
   NetworkQualityEstimator(
-      std::unique_ptr<ExternalEstimateProvider> external_estimates_provider,
       std::unique_ptr<NetworkQualityEstimatorParams> params,
       NetLog* net_log);
 
@@ -232,10 +229,6 @@ class NET_EXPORT NetworkQualityEstimator
   // NetworkChangeNotifier::ConnectionTypeObserver implementation:
   void OnConnectionTypeChanged(
       NetworkChangeNotifier::ConnectionType type) override;
-
-  // ExternalEstimateProvider::UpdatedEstimateObserver implementation.
-  void OnUpdatedEstimateAvailable(const base::TimeDelta& rtt,
-                                  int32_t downstream_throughput_kbps) override;
 
   // Returns true if median RTT at the HTTP layer is available and sets |rtt|
   // to the median of RTT observations since |start_time|.
@@ -384,8 +377,6 @@ class NET_EXPORT NetworkQualityEstimator
   FRIEND_TEST_ALL_PREFIXES(NetworkQualityEstimatorTest, ComputedPercentiles);
   FRIEND_TEST_ALL_PREFIXES(NetworkQualityEstimatorTest, TestGetMetricsSince);
   FRIEND_TEST_ALL_PREFIXES(NetworkQualityEstimatorTest,
-                           TestExternalEstimateProviderMergeEstimates);
-  FRIEND_TEST_ALL_PREFIXES(NetworkQualityEstimatorTest,
                            UnknownEffectiveConnectionType);
   FRIEND_TEST_ALL_PREFIXES(NetworkQualityEstimatorTest,
                            TypicalNetworkQualities);
@@ -420,10 +411,6 @@ class NET_EXPORT NetworkQualityEstimator
   // Returns the RTT value to be used when the valid RTT is unavailable. Readers
   // should discard RTT if it is set to the value returned by |InvalidRTT()|.
   static const base::TimeDelta InvalidRTT();
-
-  // Queries external estimate provider for network quality. When the network
-  // quality is available, OnUpdatedEstimateAvailable() is called.
-  void MaybeQueryExternalEstimateProvider() const;
 
   // Records UMA on whether the NetworkID was available or not. Called right
   // after a network change event.
@@ -492,24 +479,6 @@ class NET_EXPORT NetworkQualityEstimator
       base::TimeDelta* transport_rtt,
       int32_t* downstream_throughput_kbps,
       size_t* transport_rtt_observation_count) const;
-
-  // Values of external estimate provider status. This enum must remain
-  // synchronized with the enum of the same name in
-  // metrics/histograms/histograms.xml.
-  enum NQEExternalEstimateProviderStatus {
-    EXTERNAL_ESTIMATE_PROVIDER_STATUS_NOT_AVAILABLE,
-    EXTERNAL_ESTIMATE_PROVIDER_STATUS_AVAILABLE,
-    EXTERNAL_ESTIMATE_PROVIDER_STATUS_QUERIED,
-    EXTERNAL_ESTIMATE_PROVIDER_STATUS_QUERY_SUCCESSFUL,
-    EXTERNAL_ESTIMATE_PROVIDER_STATUS_CALLBACK,
-    EXTERNAL_ESTIMATE_PROVIDER_STATUS_RTT_AVAILABLE,
-    EXTERNAL_ESTIMATE_PROVIDER_STATUS_DOWNLINK_BANDWIDTH_AVAILABLE,
-    EXTERNAL_ESTIMATE_PROVIDER_STATUS_BOUNDARY
-  };
-
-  // Records the metrics related to external estimate provider.
-  void RecordExternalEstimateProviderMetrics(
-      NQEExternalEstimateProviderStatus status) const;
 
   // Returns true if the cached network quality estimate was successfully read.
   bool ReadCachedNetworkQualityEstimate();
@@ -594,14 +563,6 @@ class NET_EXPORT NetworkQualityEstimator
   // request was started.
   nqe::internal::NetworkQuality estimated_quality_at_last_main_frame_;
   EffectiveConnectionType effective_connection_type_at_last_main_frame_;
-
-  // Estimated network quality obtained from external estimate provider when the
-  // external estimate provider was last queried.
-  nqe::internal::NetworkQuality external_estimate_provider_quality_;
-
-  // ExternalEstimateProvider that provides network quality using operating
-  // system APIs. May be NULL.
-  const std::unique_ptr<ExternalEstimateProvider> external_estimate_provider_;
 
   // Observer lists for round trip times and throughput measurements.
   base::ObserverList<RTTObserver> rtt_observer_list_;

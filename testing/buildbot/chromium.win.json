@@ -349,19 +349,7 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "mojo_public_bindings_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "mojo_public_system_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "mojo_system_unittests"
+        "test": "mojo_unittests"
       },
       {
         "swarming": {
@@ -538,6 +526,16 @@
     ],
     "isolated_scripts": [
       {
+        "args": [
+          "--test-type=integration"
+        ],
+        "isolate_name": "chromedriver_py_tests",
+        "name": "chromedriver_py_tests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        }
+      },
+      {
         "isolate_name": "metrics_python_tests",
         "name": "metrics_python_tests",
         "swarming": {
@@ -569,6 +567,13 @@
         "swarming": {
           "can_use_on_swarming_builders": true,
           "shards": 4
+        }
+      },
+      {
+        "isolate_name": "views_perftests",
+        "name": "views_perftests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
         }
       },
       {
@@ -939,19 +944,7 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "mojo_public_bindings_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "mojo_public_system_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "mojo_system_unittests"
+        "test": "mojo_unittests"
       },
       {
         "swarming": {
@@ -970,6 +963,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "net_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "notification_helper_unittests"
       },
       {
         "swarming": {
@@ -1512,19 +1511,7 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "mojo_public_bindings_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "mojo_public_system_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "mojo_system_unittests"
+        "test": "mojo_unittests"
       },
       {
         "swarming": {
@@ -1707,6 +1694,16 @@
     ],
     "isolated_scripts": [
       {
+        "args": [
+          "--test-type=integration"
+        ],
+        "isolate_name": "chromedriver_py_tests",
+        "name": "chromedriver_py_tests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        }
+      },
+      {
         "isolate_name": "content_shell_crash_test",
         "name": "content_shell_crash_test",
         "swarming": {
@@ -1745,6 +1742,13 @@
         "swarming": {
           "can_use_on_swarming_builders": true,
           "shards": 4
+        }
+      },
+      {
+        "isolate_name": "views_perftests",
+        "name": "views_perftests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
         }
       },
       {
@@ -2069,19 +2073,7 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "mojo_public_bindings_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "mojo_public_system_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "mojo_system_unittests"
+        "test": "mojo_unittests"
       },
       {
         "swarming": {
@@ -2269,11 +2261,31 @@
         "args": [
           "--jobs=1"
         ],
+        "experiment_percentage": 100,
+        "isolate_name": "telemetry_perf_unittests",
+        "name": "telemetry_perf_unittests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "hard_timeout": 960,
+          "shards": 20
+        }
+      },
+      {
+        "args": [
+          "--jobs=1"
+        ],
         "isolate_name": "telemetry_unittests",
         "name": "telemetry_unittests",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "shards": 4
+        }
+      },
+      {
+        "isolate_name": "views_perftests",
+        "name": "views_perftests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
         }
       },
       {

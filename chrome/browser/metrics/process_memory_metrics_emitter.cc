@@ -18,7 +18,7 @@
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/memory_instrumentation.h"
 #include "services/resource_coordinator/public/cpp/resource_coordinator_features.h"
-#include "services/resource_coordinator/public/interfaces/service_constants.mojom.h"
+#include "services/resource_coordinator/public/mojom/service_constants.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "url/gurl.h"
 
@@ -159,6 +159,26 @@ void EmitRendererMemoryMetrics(
   builder.SetPrivateSwapFootprint(pmd.os_dump().private_footprint_swap_kb /
                                   1024);
 #endif
+  base::Optional<uint64_t> number_of_documents =
+      pmd.GetMetric("blink_objects/Document", "object_count");
+  if (number_of_documents.has_value())
+    builder.SetNumberOfDocuments(number_of_documents.value());
+  base::Optional<uint64_t> number_of_layout_objects =
+      pmd.GetMetric("blink_objects/LayoutObject", "object_count");
+  if (number_of_layout_objects.has_value())
+    builder.SetNumberOfLayoutObjects(number_of_layout_objects.value());
+  base::Optional<uint64_t> number_of_nodes =
+      pmd.GetMetric("blink_objects/Node", "object_count");
+  if (number_of_nodes.has_value())
+    builder.SetNumberOfNodes(number_of_nodes.value());
+  base::Optional<uint64_t> number_of_frames =
+      pmd.GetMetric("blink_objects/Frame", "object_count");
+  if (number_of_frames.has_value())
+    builder.SetNumberOfFrames(number_of_frames.value());
+  base::Optional<uint64_t> array_buffer_size =
+      pmd.GetMetric("partition_alloc/partitions/array_buffer", "size");
+  if (array_buffer_size.has_value())
+    builder.SetArrayBuffer(array_buffer_size.value() / 1024 / 1024);
 
   if (!page_info.is_null()) {
     builder.SetIsVisible(page_info->is_visible);
@@ -225,7 +245,10 @@ void ProcessMemoryMetricsEmitter::FetchAndEmitProcessMemoryMetrics() {
   auto callback =
       base::Bind(&ProcessMemoryMetricsEmitter::ReceivedMemoryDump, this);
   memory_instrumentation::MemoryInstrumentation::GetInstance()
-      ->RequestGlobalDump(callback);
+      ->RequestGlobalDump({"blink_objects/Document", "blink_objects/Frame",
+                           "blink_objects/LayoutObject", "blink_objects/Node",
+                           "partition_alloc/partitions/array_buffer"},
+                          callback);
 
   // The callback keeps this object alive until the callback is invoked.
   if (IsResourceCoordinatorEnabled()) {

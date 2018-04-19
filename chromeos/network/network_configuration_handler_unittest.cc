@@ -8,6 +8,7 @@
 #include <set>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/json/json_writer.h"
 #include "base/location.h"
 #include "base/macros.h"
@@ -57,7 +58,7 @@ void CopyServiceResult(bool* called,
   *guid_out = guid;
 }
 
-static std::string PrettyJson(const base::DictionaryValue& value) {
+std::string PrettyJson(const base::DictionaryValue& value) {
   std::string pretty;
   base::JSONWriter::WriteWithOptions(
       value, base::JSONWriter::OPTIONS_PRETTY_PRINT, &pretty);
@@ -431,7 +432,7 @@ TEST_F(NetworkConfigurationHandlerTest, SetProperties) {
   value.SetString(shill::kSSIDProperty, kNetworkName);
   network_configuration_handler_->SetShillProperties(
       kServicePath, value, NetworkConfigurationObserver::SOURCE_USER_ACTION,
-      base::Bind(&base::DoNothing), base::Bind(&ErrorCallback));
+      base::DoNothing(), base::Bind(&ErrorCallback));
   base::RunLoop().RunUntilIdle();
 
   const base::DictionaryValue* properties =
@@ -455,8 +456,7 @@ TEST_F(NetworkConfigurationHandlerTest, ClearProperties) {
   // Now clear it.
   std::vector<std::string> names = {shill::kSSIDProperty};
   network_configuration_handler_->ClearShillProperties(
-      kServicePath, names, base::Bind(&base::DoNothing),
-      base::Bind(&ErrorCallback));
+      kServicePath, names, base::DoNothing(), base::Bind(&ErrorCallback));
   base::RunLoop().RunUntilIdle();
 
   const base::DictionaryValue* properties =
@@ -479,8 +479,7 @@ TEST_F(NetworkConfigurationHandlerTest, ClearProperties_Error) {
   // the whole ClearShillProperties() should succeed.
   std::vector<std::string> names = {"Unknown name"};
   network_configuration_handler_->ClearShillProperties(
-      kServicePath, names, base::Bind(&base::DoNothing),
-      base::Bind(&ErrorCallback));
+      kServicePath, names, base::DoNothing(), base::Bind(&ErrorCallback));
   base::RunLoop().RunUntilIdle();
 }
 
@@ -637,8 +636,8 @@ TEST_F(NetworkConfigurationHandlerTest, StubGetNameFromWifiHex) {
   properties_to_set.SetKey(shill::kWifiHexSsid, base::Value(wifi_hex));
   network_configuration_handler_->SetShillProperties(
       service_path, properties_to_set,
-      NetworkConfigurationObserver::SOURCE_USER_ACTION,
-      base::Bind(&base::DoNothing), base::Bind(&ErrorCallback));
+      NetworkConfigurationObserver::SOURCE_USER_ACTION, base::DoNothing(),
+      base::Bind(&ErrorCallback));
   base::RunLoop().RunUntilIdle();
   std::string wifi_hex_result;
   EXPECT_TRUE(GetServiceStringProperty(service_path, shill::kWifiHexSsid,
@@ -698,8 +697,8 @@ TEST_F(NetworkConfigurationHandlerTest, NetworkConfigurationObserver) {
                            base::Value(test_passphrase));
   network_configuration_handler_->SetShillProperties(
       service_path, properties_to_set,
-      NetworkConfigurationObserver::SOURCE_USER_ACTION,
-      base::Bind(&base::DoNothing), base::Bind(&ErrorCallback));
+      NetworkConfigurationObserver::SOURCE_USER_ACTION, base::DoNothing(),
+      base::Bind(&ErrorCallback));
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(test_passphrase, network_configuration_observer->GetStringProperty(
                                  service_path, shill::kPassphraseProperty));
@@ -713,8 +712,8 @@ TEST_F(NetworkConfigurationHandlerTest, NetworkConfigurationObserver) {
 
   network_configuration_handler_->SetNetworkProfile(
       service_path, user_profile,
-      NetworkConfigurationObserver::SOURCE_USER_ACTION,
-      base::Bind(&base::DoNothing), base::Bind(&ErrorCallback));
+      NetworkConfigurationObserver::SOURCE_USER_ACTION, base::DoNothing(),
+      base::Bind(&ErrorCallback));
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(network_configuration_observer->HasConfiguration(service_path));
   EXPECT_FALSE(network_configuration_observer->HasConfigurationInProfile(
@@ -724,7 +723,7 @@ TEST_F(NetworkConfigurationHandlerTest, NetworkConfigurationObserver) {
 
   network_configuration_handler_->RemoveConfiguration(
       service_path, NetworkConfigurationObserver::SOURCE_USER_ACTION,
-      base::Bind(&base::DoNothing), base::Bind(&ErrorCallback));
+      base::DoNothing(), base::Bind(&ErrorCallback));
   base::RunLoop().RunUntilIdle();
 
   EXPECT_FALSE(network_configuration_observer->HasConfiguration(service_path));

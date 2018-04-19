@@ -4,8 +4,8 @@
 
 #include "ui/app_list/presenter/app_list_presenter_impl.h"
 
-#include "ash/app_list/model/app_list_model.h"
-#include "base/metrics/histogram_functions.h"
+#include <utility>
+
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "ui/app_list/app_list_constants.h"
@@ -14,7 +14,9 @@
 #include "ui/app_list/app_list_view_delegate.h"
 #include "ui/app_list/pagination_model.h"
 #include "ui/app_list/presenter/app_list_presenter_delegate_factory.h"
+#include "ui/app_list/views/app_list_main_view.h"
 #include "ui/app_list/views/app_list_view.h"
+#include "ui/app_list/views/contents_view.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/window.h"
 #include "ui/compositor/layer.h"
@@ -86,22 +88,16 @@ void AppListPresenterImpl::Show(int64_t display_id) {
     ScheduleAnimation();
   } else {
     presenter_delegate_ = factory_->GetDelegate(this);
-    AppListViewDelegate* view_delegate = presenter_delegate_->GetViewDelegate();
-    DCHECK(view_delegate);
+    view_delegate_ = presenter_delegate_->GetViewDelegate();
+    DCHECK(view_delegate_);
     // Note the AppListViewDelegate outlives the AppListView. For Ash, the view
     // is destroyed when dismissed.
-    AppListView* view = new AppListView(view_delegate);
+    AppListView* view = new AppListView(view_delegate_);
     presenter_delegate_->Init(view, display_id, current_apps_page_);
     SetView(view);
   }
   presenter_delegate_->OnShown(display_id);
-
-  base::RecordAction(base::UserMetricsAction("Launcher_Show"));
-  base::UmaHistogramSparse("Apps.AppListBadgedAppsCount",
-                           presenter_delegate_->GetViewDelegate()
-                               ->GetModel()
-                               ->top_level_item_list()
-                               ->BadgedItemCount());
+  view_delegate_->ViewShown(display_id);
 }
 
 void AppListPresenterImpl::Dismiss() {
@@ -125,9 +121,20 @@ void AppListPresenterImpl::Dismiss() {
   if (view_->GetWidget()->IsActive())
     view_->GetWidget()->Deactivate();
 
+  view_delegate_->ViewClosing();
   presenter_delegate_->OnDismissed();
   ScheduleAnimation();
   base::RecordAction(base::UserMetricsAction("Launcher_Dismiss"));
+}
+
+bool AppListPresenterImpl::Back() {
+  if (!is_visible_)
+    return false;
+
+  // If the app list is currently visible, there should be an existing view.
+  DCHECK(view_);
+
+  return view_->app_list_main_view()->contents_view()->Back();
 }
 
 void AppListPresenterImpl::ToggleAppList(int64_t display_id) {
@@ -192,7 +199,6 @@ void AppListPresenterImpl::SetView(AppListView* view) {
   view_ = view;
   views::Widget* widget = view_->GetWidget();
   widget->AddObserver(this);
-  widget->GetNativeView()->GetRootWindow()->AddObserver(this);
   aura::client::GetFocusClient(widget->GetNativeView())->AddObserver(this);
   view_->GetAppsPaginationModel()->AddObserver(this);
   view_->ShowWhenReady();
@@ -206,7 +212,6 @@ void AppListPresenterImpl::ResetView() {
   widget->RemoveObserver(this);
   GetLayer(widget)->GetAnimator()->RemoveObserver(this);
   presenter_delegate_.reset();
-  widget->GetNativeView()->GetRootWindow()->RemoveObserver(this);
   aura::client::GetFocusClient(widget->GetNativeView())->RemoveObserver(this);
 
   view_->GetAppsPaginationModel()->RemoveObserver(this);
@@ -269,17 +274,6 @@ void AppListPresenterImpl::OnWindowFocused(aura::Window* gained_focus,
       Dismiss();
     }
   }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// AppListPresenterImpl,  aura::WindowObserver implementation:
-void AppListPresenterImpl::OnWindowBoundsChanged(
-    aura::Window* root,
-    const gfx::Rect& old_bounds,
-    const gfx::Rect& new_bounds,
-    ui::PropertyChangeReason reason) {
-  if (presenter_delegate_)
-    presenter_delegate_->UpdateBounds();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -85,6 +85,7 @@ class AddHistogramsQueueTest(testing_common.TestCase):
     params = [{
         'data': TEST_HISTOGRAM,
         'test_path': test_path,
+        'benchmark_description': None,
         'revision': 123
     }]
     self.testapp.post('/add_histograms_queue', json.dumps(params))
@@ -127,6 +128,7 @@ class AddHistogramsQueueTest(testing_common.TestCase):
     params = [{
         'data': TEST_HISTOGRAM,
         'test_path': test_path,
+        'benchmark_description': None,
         'revision': 123
     }]
     self.testapp.post('/add_histograms_queue', json.dumps(params))
@@ -159,6 +161,7 @@ class AddHistogramsQueueTest(testing_common.TestCase):
     params = [{
         'data': TEST_HISTOGRAM,
         'test_path': test_path,
+        'benchmark_description': None,
         'revision': 123,
         'diagnostics': {
             'benchmarks': TEST_BENCHMARKS,
@@ -199,6 +202,7 @@ class AddHistogramsQueueTest(testing_common.TestCase):
     params = [{
         'data': TEST_HISTOGRAM,
         'test_path': test_path,
+        'benchmark_description': None,
         'revision': 123,
         'diagnostics': {
             'benchmarks': TEST_BENCHMARKS,
@@ -231,6 +235,7 @@ class AddHistogramsQueueTest(testing_common.TestCase):
     params = [{
         'data': TEST_HISTOGRAM,
         'test_path': test_path,
+        'benchmark_description': None,
         'revision': 123,
         'diagnostics': {
             'benchmarks': TEST_BENCHMARKS,
@@ -257,6 +262,7 @@ class AddHistogramsQueueTest(testing_common.TestCase):
     params = [{
         'data': hists[0].AsDict(),
         'test_path': test_path,
+        'benchmark_description': None,
         'revision': 123,
         'diagnostics': {
             'stories': hists[0].diagnostics.get('stories').AsDict(),
@@ -267,6 +273,86 @@ class AddHistogramsQueueTest(testing_common.TestCase):
     t = utils.TestKey(test_path).get()
 
     self.assertEqual('http://unescaped_story', t.unescaped_story_name)
+
+  def testPostHistogram_OnlyCreatesAvgRowForMemoryBenchmark(self):
+    test_path = 'Chromium/win7/memory_desktop/memory:chrome'
+    params = [{
+        'data': TEST_HISTOGRAM,
+        'test_path': test_path,
+        'benchmark_description': None,
+        'revision': 123
+    }]
+    self.testapp.post('/add_histograms_queue', json.dumps(params))
+
+    rows = graph_data.Row.query().fetch()
+    self.assertEqual(len(rows), 2)
+    self.assertTrue(rows[1].key.parent().id().endswith('_avg'))
+
+  def testPostHistogram_SuffixesHistogramName(self):
+    test_path = 'Chromium/win7/memory_desktop/memory:chrome/bogus_page'
+    params = [{
+        'data': TEST_HISTOGRAM,
+        'test_path': test_path,
+        'benchmark_description': None,
+        'revision': 123
+    }]
+    self.testapp.post('/add_histograms_queue', json.dumps(params))
+
+    rows = graph_data.Row.query().fetch()
+    self.assertEqual(len(rows), 2)
+    parts = rows[1].key.parent().id().split('/')
+    self.assertEqual(len(parts), 5)
+    self.assertTrue(parts[3].endswith('_avg'))
+    self.assertFalse(parts[4].endswith('_avg'))
+
+  def testPostHistogram_KeepsWeirdStatistics(self):
+    test_path = 'Chromium/win7/memory_desktop/memory:chrome'
+    hist = histogram_module.Histogram.FromDict(TEST_HISTOGRAM)
+    hist.CustomizeSummaryOptions({
+        'percentile': [0.9]
+    })
+
+    params = [{
+        'data': hist.AsDict(),
+        'test_path': test_path,
+        'revision': 123,
+        'benchmark_description': None
+    }]
+    self.testapp.post('/add_histograms_queue', json.dumps(params))
+
+    rows = graph_data.Row.query().fetch()
+    self.assertEqual(len(rows), 3)
+    self.assertTrue(rows[2].key.parent().id().endswith('_pct_090'))
+
+  def testPostHistogram_FiltersV8Stats(self):
+    test_path = 'Chromium/win7/v8.browsing_desktop/v8-gc-blah'
+
+    params = [{
+        'data': TEST_HISTOGRAM,
+        'test_path': test_path,
+        'revision': 123,
+        'benchmark_description': None
+    }]
+    self.testapp.post('/add_histograms_queue', json.dumps(params))
+
+    rows = graph_data.Row.query().fetch()
+    self.assertEqual(len(rows), 1)
+    self.assertEqual(
+        rows[0].key.parent().id(),
+        'Chromium/win7/v8.browsing_desktop/v8-gc-blah')
+
+  def testPostHistogram_CreatesNoLegacyRowsForLegacyTest(self):
+    test_path = 'Chromium/win7/blink_perf.dom/foo'
+    params = [{
+        'data': TEST_HISTOGRAM,
+        'test_path': test_path,
+        'benchmark_description': None,
+        'revision': 123
+    }]
+    self.testapp.post('/add_histograms_queue', json.dumps(params))
+
+    rows = graph_data.Row.query().fetch()
+    self.assertEqual(len(rows), 1)
 
   def testGetUnitArgs_Up(self):
     unit_args = add_histograms_queue.GetUnitArgs('count_biggerIsBetter')
@@ -438,7 +524,7 @@ class AddHistogramsQueueTest(testing_common.TestCase):
     hist = histogram_module.Histogram('foo', 'count').AsDict()
     test_path = 'Chromium/win7/suite/metric'
     test_key = utils.TestKey(test_path)
-    row = add_histograms_queue.AddRows(hist, test_key, 123, test_path, True)
+    row = add_histograms_queue.AddRows(hist, test_key, {}, 123, True)
 
     rows = graph_data.Row.query().fetch()
     self.assertEqual(0, len(rows))
@@ -452,4 +538,4 @@ class AddHistogramsQueueTest(testing_common.TestCase):
         'type': 'GenericSet', 'values': [123, 456]}
 
     with self.assertRaises(add_histograms_queue.BadRequestError):
-      add_histograms_queue.AddRows(hist, test_key, 123, test_path, False).put()
+      add_histograms_queue.AddRows(hist, test_key, {}, 123, False).put()

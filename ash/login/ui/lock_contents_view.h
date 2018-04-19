@@ -12,20 +12,26 @@
 #include "ash/ash_export.h"
 #include "ash/login/lock_screen_apps_focus_observer.h"
 #include "ash/login/ui/login_data_dispatcher.h"
+#include "ash/login/ui/login_display_style.h"
 #include "ash/login/ui/non_accessible_view.h"
 #include "ash/session/session_observer.h"
+#include "ash/shell_observer.h"
 #include "ash/system/system_tray_focus_observer.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/scoped_observer.h"
 #include "ui/display/display_observer.h"
 #include "ui/display/screen.h"
+#include "ui/keyboard/keyboard_controller_observer.h"
 #include "ui/views/controls/styled_label_listener.h"
 #include "ui/views/view.h"
 
+namespace keyboard {
+class KeyboardController;
+}  // namespace keyboard
+
 namespace views {
 class BoxLayout;
-class ScrollView;
 class StyledLabel;
 }  // namespace views
 
@@ -33,8 +39,8 @@ namespace ash {
 
 class LoginAuthUserView;
 class LoginBubble;
-class LoginUserView;
 class NoteActionLaunchButton;
+class ScrollableUsersListView;
 
 namespace mojom {
 enum class TrayActionState;
@@ -50,7 +56,9 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
                                     public SystemTrayFocusObserver,
                                     public display::DisplayObserver,
                                     public views::StyledLabelListener,
-                                    public SessionObserver {
+                                    public SessionObserver,
+                                    public keyboard::KeyboardControllerObserver,
+                                    public ShellObserver {
  public:
   // TestApi is used for tests to get internal implementation details.
   class ASH_EXPORT TestApi {
@@ -60,7 +68,7 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
 
     LoginAuthUserView* primary_auth() const;
     LoginAuthUserView* opt_secondary_auth() const;
-    const std::vector<LoginUserView*>& user_views() const;
+    ScrollableUsersListView* users_list() const;
     views::View* note_action() const;
     LoginBubble* tooltip_bubble() const;
     views::View* dev_channel_info() const;
@@ -110,6 +118,13 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
                               int event_flags) override{};
   // SessionObserver:
   void OnLockStateChanged(bool locked) override;
+
+  // ash::ShellObserver:
+  void OnVirtualKeyboardStateChanged(bool activated,
+                                     aura::Window* root_window) override;
+
+  // keyboard::KeyboardControllerObserver:
+  void OnStateChanged(const keyboard::KeyboardControllerState state) override;
 
  private:
   class UserState {
@@ -201,6 +216,11 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
   // Called when the easy unlock icon is tapped.
   void OnEasyUnlockIconTapped();
 
+  // Returns keyboard controller for the view. Returns nullptr if keyboard is
+  // not activated, view has not been added to the widget yet or keyboard is not
+  // displayed in this window.
+  keyboard::KeyboardController* GetKeyboardController() const;
+
   // Helper method to allocate a LoginAuthUserView instance.
   LoginAuthUserView* AllocateLoginAuthUserView(
       const mojom::LoginUserInfoPtr& user,
@@ -212,17 +232,18 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
   LoginAuthUserView* TryToFindAuthUser(const AccountId& user,
                                        bool require_auth_active);
 
+  // Returns scrollable view with initialized size and rows for all |users|.
+  ScrollableUsersListView* BuildScrollableUsersListView(
+      const std::vector<mojom::LoginUserInfoPtr>& users,
+      LoginDisplayStyle display_style);
+
   std::vector<UserState> users_;
 
   LoginDataDispatcher* const data_dispatcher_;  // Unowned.
 
   LoginAuthUserView* primary_auth_ = nullptr;
   LoginAuthUserView* opt_secondary_auth_ = nullptr;
-
-  // All non-auth users; |primary_auth_| and |secondary_auth_| are not contained
-  // in this list.
-  std::vector<LoginUserView*> user_views_;
-  views::ScrollView* scroller_ = nullptr;
+  ScrollableUsersListView* users_list_ = nullptr;
 
   // View that contains the note action button and the dev channel info labels,
   // placed on the top right corner of the screen without affecting layout of
@@ -247,6 +268,9 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
 
   ScopedObserver<display::Screen, display::DisplayObserver> display_observer_;
   ScopedSessionObserver session_observer_;
+  ScopedObserver<keyboard::KeyboardController,
+                 keyboard::KeyboardControllerObserver>
+      keyboard_observer_;
 
   std::unique_ptr<LoginBubble> error_bubble_;
   std::unique_ptr<LoginBubble> tooltip_bubble_;

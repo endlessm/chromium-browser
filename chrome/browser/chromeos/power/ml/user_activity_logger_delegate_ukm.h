@@ -5,10 +5,9 @@
 #ifndef CHROME_BROWSER_CHROMEOS_POWER_ML_USER_ACTIVITY_LOGGER_DELEGATE_UKM_H_
 #define CHROME_BROWSER_CHROMEOS_POWER_ML_USER_ACTIVITY_LOGGER_DELEGATE_UKM_H_
 
-#include <vector>
-
 #include "base/macros.h"
 #include "chrome/browser/chromeos/power/ml/user_activity_logger_delegate.h"
+#include "chrome/browser/resource_coordinator/tab_metrics_event.pb.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
 
 namespace chromeos {
@@ -19,18 +18,24 @@ class UserActivityEvent;
 
 class UserActivityLoggerDelegateUkm : public UserActivityLoggerDelegate {
  public:
-  // Places |original_value| into buckets of size 5, i.e. if |original_value| is
-  // in [0, 5), we map it 0; if it is in [5, 10), we map it to 5 etc.
-  // |original_value| should be in the range of [0, 100].
-  static int BucketEveryFivePercents(int original_value);
+  // Both |boundary_end| and |rounding| must be positive.
+  struct Bucket {
+    int boundary_end;
+    int rounding;
+  };
 
-  // Bucket |timestamp_sec| such that
-  // 1. if |timestamp_sec| < 60sec, return original value.
-  // 2. if |timestamp_sec| < 5min, bucket to nearest 10sec.
-  // 3. if |timestamp_sec| < 10min, bucket to nearest 20sec.
-  // 4. if |timestamp_sec| >= 10min, cap it at 10min.
-  // In all cases, the returned value is in seconds.
-  static int ExponentiallyBucketTimestamp(int timestamp_sec);
+  // Bucketize |original_value| using given |buckets|, which is an array of
+  // Bucket and must be sorted in ascending order of |boundary_end|.
+  // |original_value| must be non-negative. An example of |buckets| is
+  // {{60, 1}, {300, 10}, {600, 20}}. This function looks for the first
+  // |boundary_end| > |original_value| and bucket it to the nearest |rounding|.
+  // If |original_value| is greater than all |boundary_end|, the function
+  // returns the largest |boundary_end|. Using the above |buckets| example, the
+  // function will return 30 if |original_value| = 30, and 290 if
+  // |original_value| = 299.
+  static int Bucketize(int original_value,
+                       const Bucket* buckets,
+                       size_t num_buckets);
 
   UserActivityLoggerDelegateUkm();
   ~UserActivityLoggerDelegateUkm() override;
@@ -51,10 +56,20 @@ class UserActivityLoggerDelegateUkm : public UserActivityLoggerDelegate {
     bool is_browser_visible;
     // Whether the containing browser is the topmost one on the screen.
     bool is_topmost_browser;
+    // Tab URL's engagement score. -1 if engagement service is disabled.
+    int engagement_score;
+    // Tab content type.
+    metrics::TabMetricsEvent::ContentType content_type;
+    // Whether user has form entry, i.e. text input.
+    bool has_form_entry;
   };
 
   // Source IDs of open tabs' URLs.
   std::map<ukm::SourceId, TabProperty> source_ids_;
+
+  // This ID is incremented each time a UserActivity is logged to UKM.
+  // Event index starts from 1, and resets when a new session starts.
+  int next_sequence_id_ = 1;
 
   DISALLOW_COPY_AND_ASSIGN(UserActivityLoggerDelegateUkm);
 };

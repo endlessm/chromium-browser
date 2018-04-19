@@ -13,8 +13,10 @@
 #include "base/metrics/user_metrics_action.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/buildflag.h"
 #include "chrome/browser/extensions/extension_action_manager.h"
 #include "chrome/browser/platform_util.h"
+#include "chrome/browser/signin/signin_ui_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -28,6 +30,8 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/bubble/bubble_controller.h"
+#include "components/signin/core/browser/account_info.h"
+#include "components/signin/core/browser/signin_features.h"
 #include "extensions/common/extension.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/ui_features.h"
@@ -46,6 +50,11 @@
 #include "chrome/browser/ui/views/toolbar/app_menu_button.h"
 #include "chrome/browser/ui/views/toolbar/browser_actions_container.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+#endif
+
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+#include "chrome/browser/signin/account_consistency_mode_manager.h"
+#include "chrome/browser/ui/views/sync/dice_bubble_sync_promo_view.h"
 #endif
 
 using extensions::Extension;
@@ -90,7 +99,7 @@ views::View* AnchorViewForBrowser(ExtensionInstalledBubble* controller,
 
   // Default case.
   if (!reference_view || !reference_view->visible())
-    return browser_view->toolbar()->app_menu_button();
+    return browser_view->button_provider()->GetAppMenuButton();
   return reference_view;
 }
 #else
@@ -137,7 +146,7 @@ class ExtensionInstalledBubbleView : public BubbleSyncPromoDelegate,
   void Init() override;
 
   // BubbleSyncPromoDelegate:
-  void OnSignInLinkClicked() override;
+  void OnEnableSync(const AccountInfo& account_info) override;
 
   // views::LinkListener:
   void LinkClicked(views::Link* source, int event_flags) override;
@@ -217,9 +226,24 @@ views::View* ExtensionInstalledBubbleView::CreateFootnoteView() {
   if (!(controller_->options() & ExtensionInstalledBubble::SIGN_IN_PROMO))
     return nullptr;
 
+  base::RecordAction(
+      base::UserMetricsAction("Signin_Impression_FromExtensionInstallBubble"));
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+  Profile* profile = browser()->profile();
+  if (AccountConsistencyModeManager::IsDiceEnabledForProfile(profile)) {
+    return new DiceBubbleSyncPromoView(
+        profile, this, IDS_EXTENSION_INSTALLED_DICE_PROMO_SIGNIN_MESSAGE,
+        IDS_EXTENSION_INSTALLED_DICE_PROMO_SYNC_MESSAGE);
+  } else {
+    return new BubbleSyncPromoView(this,
+                                   IDS_EXTENSION_INSTALLED_SYNC_PROMO_LINK_NEW,
+                                   IDS_EXTENSION_INSTALLED_SYNC_PROMO_NEW);
+  }
+#else
   return new BubbleSyncPromoView(this,
                                  IDS_EXTENSION_INSTALLED_SYNC_PROMO_LINK_NEW,
                                  IDS_EXTENSION_INSTALLED_SYNC_PROMO_NEW);
+#endif
 }
 
 int ExtensionInstalledBubbleView::GetDialogButtons() const {
@@ -282,9 +306,9 @@ void ExtensionInstalledBubbleView::Init() {
   }
 }
 
-void ExtensionInstalledBubbleView::OnSignInLinkClicked() {
-  chrome::ShowBrowserSignin(
-      browser(),
+void ExtensionInstalledBubbleView::OnEnableSync(const AccountInfo& account) {
+  signin_ui_util::EnableSync(
+      browser(), account,
       signin_metrics::AccessPoint::ACCESS_POINT_EXTENSION_INSTALL_BUBBLE);
   CloseBubble(BUBBLE_CLOSE_NAVIGATED);
 }

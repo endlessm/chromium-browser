@@ -16,7 +16,7 @@
 #include "ui/base/l10n/time_format.h"
 #include "ui/gfx/image/image.h"
 #include "ui/message_center/message_center.h"
-#include "ui/message_center/notification.h"
+#include "ui/message_center/public/cpp/notification.h"
 
 using message_center::MessageCenter;
 using message_center::Notification;
@@ -98,9 +98,6 @@ std::unique_ptr<Notification> CreateNotification(
           message_center::RichNotificationData(), nullptr,
           GetBatteryImageMD(notification_state),
           GetWarningLevelMD(notification_state));
-  // TODO(tetsui): Workaround of https://crbug.com/757724. Remove after the
-  // bug is fixed.
-  notification->set_vector_small_image(gfx::kNoneIcon);
   notification->SetSystemPriority();
   return notification;
 }

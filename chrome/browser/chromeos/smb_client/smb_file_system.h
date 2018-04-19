@@ -22,6 +22,7 @@
 #include "chrome/browser/chromeos/file_system_provider/provided_file_system_interface.h"
 #include "chrome/browser/chromeos/file_system_provider/watcher.h"
 #include "chrome/browser/chromeos/smb_client/smb_service.h"
+#include "chrome/browser/chromeos/smb_client/temp_file_manager.h"
 #include "chromeos/dbus/smb_provider_client.h"
 #include "storage/browser/fileapi/async_file_util.h"
 #include "storage/browser/fileapi/watcher_manager.h"
@@ -185,19 +186,19 @@ class SmbFileSystem : public file_system_provider::ProvidedFileSystemInterface {
   void HandleRequestReadDirectoryCallback(
       const storage::AsyncFileUtil::ReadDirectoryCallback& callback,
       smbprovider::ErrorType error,
-      const smbprovider::DirectoryEntryList& entries) const;
+      const smbprovider::DirectoryEntryListProto& entries) const;
 
   void HandleRequestGetMetadataEntryCallback(
       ProvidedFileSystemInterface::MetadataFieldMask fields,
       const ProvidedFileSystemInterface::GetMetadataCallback& callback,
       smbprovider::ErrorType error,
-      const smbprovider::DirectoryEntry& entry) const;
+      const smbprovider::DirectoryEntryProto& entry) const;
 
   void HandleRequestOpenFileCallback(const OpenFileCallback& callback,
                                      smbprovider::ErrorType error,
                                      int32_t file_id) const;
 
-  void HandleRequestCloseFileCallback(
+  void HandleStatusCallback(
       const storage::AsyncFileUtil::StatusCallback& callback,
       smbprovider::ErrorType error) const;
 
@@ -205,6 +206,12 @@ class SmbFileSystem : public file_system_provider::ProvidedFileSystemInterface {
       const ProviderId& provider_id,
       const std::string& file_system_id,
       file_system_provider::Service::UnmountReason reason);
+
+  void HandleRequestReadFileCallback(int32_t length,
+                                     scoped_refptr<net::IOBuffer> buffer,
+                                     const ReadChunkReceivedCallback& callback,
+                                     smbprovider::ErrorType error,
+                                     const base::ScopedFD& fd) const;
 
   int32_t GetMountId() const;
 
@@ -216,6 +223,7 @@ class SmbFileSystem : public file_system_provider::ProvidedFileSystemInterface {
   file_system_provider::Watchers watchers_;
 
   UnmountCallback unmount_callback_;
+  TempFileManager temp_file_manager_;
 
   base::WeakPtrFactory<SmbFileSystem> weak_ptr_factory_;
   DISALLOW_COPY_AND_ASSIGN(SmbFileSystem);

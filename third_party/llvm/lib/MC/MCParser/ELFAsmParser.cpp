@@ -447,7 +447,7 @@ bool ELFAsmParser::parseMetadataSym(MCSymbolELF *&Associated) {
   Lex();
   StringRef Name;
   if (getParser().parseIdentifier(Name))
-    return true;
+    return TokError("invalid metadata symbol");
   Associated = dyn_cast_or_null<MCSymbolELF>(getContext().lookupSymbol(Name));
   if (!Associated || !Associated->isInSection())
     return TokError("symbol is not in a section: " + Name);
@@ -608,6 +608,8 @@ EndStmt:
       Type = ELF::SHT_X86_64_UNWIND;
     else if (TypeName == "llvm_odrtab")
       Type = ELF::SHT_LLVM_ODRTAB;
+    else if (TypeName == "llvm_linker_options")
+      Type = ELF::SHT_LLVM_LINKER_OPTIONS;
     else if (TypeName.getAsInteger(0, Type))
       return TokError("unknown section type");
   }

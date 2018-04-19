@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">První řádek adresy</translation>
 <translation id="1545749641540134597">Naskenovat QR kód</translation>
 <translation id="1580783302095112590">E-mail byl odeslán.</translation>
+<translation id="1582732959743469162">Tímto zastavíte veškerý postup aktuálního stahování.</translation>
 <translation id="1612730193129642006">Zobrazit mřížku karet</translation>
+<translation id="1644574205037202324">Historie</translation>
 <translation id="1646446875146297738">Nastavení „Do Not Track“ (Nesledovat) znamená, že k vašemu provozu při prohlížení bude přidán speciální požadavek. Efekt tohoto požadavku však závisí na tom, zda na něj webové stránky reagují a jak jej interpretují.
 
 Některé webové stránky na tento požadavek mohou reagovat například tím, že při zobrazování reklam nebudou používat informace o tom, které jiné weby jste navštívili. Mnohé weby budou vaše údaje o prohlížení nadále sbírat a používat – např. za účelem zlepšení zabezpečení, poskytování obsahu, služeb, reklam a doporučení na svých webových stránkách a generování přehledových statistik. <ph name="BEGIN_LINK" />Další informace<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@ Některé webové stránky na tento požadavek mohou reagovat například tím, 
 <translation id="3175081911749765310">Webové služby</translation>
 <translation id="3207960819495026254">Přidáno do záložek</translation>
 <translation id="3210163015918861891">Synchronizace je vypnuta</translation>
+<translation id="3224641773458703735">Chcete-li exportovat hesla, musíte nejdříve na zařízení nastavit heslo.</translation>
 <translation id="3240426699337459095">Odkaz byl zkopírován</translation>
 <translation id="3244271242291266297">MM</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> z <ph name="NUM_SUGGESTIONS" /></translation>
@@ -153,6 +156,7 @@ Některé webové stránky na tento požadavek mohou reagovat například tím, 
 <translation id="3771033907050503522">Anonymní karty</translation>
 <translation id="3779810277399252432">Nejste připojeni k internetu</translation>
 <translation id="3783017676699494206">Uložit obrázek</translation>
+<translation id="3789841737615482174">Instalovat</translation>
 <translation id="385051799172605136">Zpět</translation>
 <translation id="3897092660631435901">Nabídka</translation>
 <translation id="3928666092801078803">Sloučit má data</translation>
@@ -220,7 +224,6 @@ Vaše data jsou šifrována pomocí heslové fráze pro synchronizaci. Chcete-li
 <translation id="5300589172476337783">Zobrazit</translation>
 <translation id="5317780077021120954">Uložit</translation>
 <translation id="5327248766486351172">Název</translation>
-<translation id="533632423981297619">Vaše hesla uvidí každý, kdo může zobrazit exportovaný soubor. Tento soubor s nikým nesdílejte.</translation>
 <translation id="5388358297987318779">Otevřít obrázek</translation>
 <translation id="5409365236829784218">Nemáte nainstalovanou žádnou aplikaci, která by tento soubor uměla otevřít.</translation>
 <translation id="5433691172869980887">Uživatelské jméno bylo zkopírováno</translation>
@@ -249,6 +252,7 @@ Funkce Handoff musí být povolena také v Nastavení v sekci Obecné a zaříze
 <translation id="5871497086027727873">Přesunuta 1 položka</translation>
 <translation id="5911030830365207728">Překladač Google</translation>
 <translation id="5916664084637901428">Zapnuto</translation>
+<translation id="5938160824633642847">Zařízení je téměř plné. Uvolněte místo a zkuste to znovu.</translation>
 <translation id="5948291296578561264">Toto umožňuje ukládat fotky do vaší knihovny fotek.</translation>
 <translation id="5955891643922670672">Zobrazuje se offline verze</translation>
 <translation id="5964480694698977962">Vytvořit novou anonymní kartu</translation>
@@ -280,7 +284,9 @@ Funkce Handoff musí být povolena také v Nastavení v sekci Obecné a zaříze
 <translation id="633809752005859102">Něco se hodně pokazilo. Na řešení pracujeme.</translation>
 <translation id="6342069812937806050">Právě teď</translation>
 <translation id="6344783595350022745">Smazat text</translation>
+<translation id="6346549652287021269">Zahájit nové stahování?</translation>
 <translation id="6362362396625799311">Žádné anonymní karty</translation>
+<translation id="6374469231428023295">Zkusit znovu</translation>
 <translation id="6380866119319257197">Pokud heslovou frázi zapomenete nebo toto nastavení budete chtít změnit, <ph name="BEGIN_LINK" />resetujte synchronizaci<ph name="END_LINK" />.</translation>
 <translation id="6389470377220713856">Jméno na kartě</translation>
 <translation id="6406506848690869874">Synchronizace</translation>
@@ -289,6 +295,7 @@ Funkce Handoff musí být povolena také v Nastavení v sekci Obecné a zaříze
 
 Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro synchronizaci. Chcete-li zahájit synchronizaci, zadejte ji.</translation>
 <translation id="6418346271604475326">Příprava souboru PDF</translation>
+<translation id="6434591244308415567">Došlo k chybě, zkuste to později.</translation>
 <translation id="6445051938772793705">Země</translation>
 <translation id="6445981559479772097">Zpráva odeslána</translation>
 <translation id="6464071786529933911">Otevřít v nové anonymní kartě</translation>
@@ -299,6 +306,7 @@ Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro syn
 <translation id="6657585470893396449">Heslo</translation>
 <translation id="667999046851023355">Dokument</translation>
 <translation id="6713747756340119864">Aplikace od Googlu</translation>
+<translation id="6730682669179532099">Hesla se nepodařilo exportovat</translation>
 <translation id="6762156594045689028">Chcete-li toto nastavení změnit, <ph name="BEGIN_LINK" />resetujte synchronizaci<ph name="END_LINK" />.</translation>
 <translation id="6780034285637185932">PSČ</translation>
 <translation id="6785453220513215166">Odesílání zprávy o selhání...</translation>
@@ -308,13 +316,16 @@ Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro syn
 <translation id="681368974849482173">Položka byla vytvořena</translation>
 <translation id="6896758677409633944">Kopírovat</translation>
 <translation id="6903907808598579934">Zapnout synchronizaci</translation>
+<translation id="6914783257214138813">Vaše hesla uvidí každý, kdo může zobrazit exportovaný soubor.</translation>
 <translation id="6945221475159498467">Vybrat</translation>
 <translation id="6973630695168034713">Složky</translation>
 <translation id="7004499039102548441">Nedávno použité karty</translation>
 <translation id="7006788746334555276">Nastavení obsahu</translation>
+<translation id="7029809446516969842">Hesla</translation>
 <translation id="7031882061095297553">Synchronizace s účty</translation>
 <translation id="7053983685419859001">Blokovat</translation>
 <translation id="7062545763355031412">Přijmout a přepnout účet</translation>
+<translation id="7102005569666697658">Stahování… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">Skrýt</translation>
 <translation id="7133798577887235672">Celé jméno</translation>
 <translation id="7136892417564438900">Kamera je nedostupná</translation>
@@ -325,6 +336,7 @@ Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro syn
 <translation id="7203585745079012652">Vyslovovat odpovědi</translation>
 <translation id="722055596168483966">Přizpůsobení služeb Google</translation>
 <translation id="7272437679830969316">Vaši totožnost nelze ověřit. Heslo nebylo zkopírováno.</translation>
+<translation id="7291368939935408496">Příprava hesel…</translation>
 <translation id="7336264872878993241">Staženo <ph name="PERCENT" /> %</translation>
 <translation id="7346909386216857016">Dobře, rozumím</translation>
 <translation id="7400418766976504921">Adresa URL</translation>
@@ -349,6 +361,7 @@ Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro syn
 <translation id="7769602470925380267">Přijmout a odhlásit se</translation>
 <translation id="7772032839648071052">Potvrďte heslovou frázi</translation>
 <translation id="780301667611848630">Ne, děkuji</translation>
+<translation id="7856733331829174190">Stažení se nezdařilo</translation>
 <translation id="7859704718976024901">Historie procházení</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">Exportovat hesla...</translation>
@@ -409,6 +422,7 @@ Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro syn
 <translation id="9083392325882095631">1 položka</translation>
 <translation id="9100610230175265781">Je vyžadována heslová fráze</translation>
 <translation id="9148126808321036104">Znovu přihlásit</translation>
+<translation id="915371508759614899">Zrušit stahování?</translation>
 <translation id="9157836665414082580">Potlačit dialogová okna</translation>
 <translation id="9188680907066685419">Odhlásit se ze spravovaného účtu</translation>
 <translation id="9203116392574189331">Handoff</translation>

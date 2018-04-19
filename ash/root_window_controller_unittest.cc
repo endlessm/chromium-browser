@@ -12,6 +12,7 @@
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/system_modal_container_layout_manager.h"
+#include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_properties.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
@@ -637,6 +638,35 @@ TEST_F(RootWindowControllerTest, DontDeleteWindowsNotOwnedByParent) {
   delete window2;
 }
 
+// Verify that the context menu gets hidden when entering or exiting tablet
+// mode.
+TEST_F(RootWindowControllerTest, ContextMenuDisappearsInTabletMode) {
+  RootWindowController* controller = Shell::GetPrimaryRootWindowController();
+
+  // Open context menu.
+  ui::test::EventGenerator generator(controller->GetRootWindow());
+  generator.PressRightButton();
+  generator.ReleaseRightButton();
+  EXPECT_TRUE(controller->menu_model_);
+  EXPECT_TRUE(controller->menu_runner_);
+
+  // Verify menu closes on entering tablet mode.
+  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
+  EXPECT_FALSE(controller->menu_model_);
+  EXPECT_FALSE(controller->menu_runner_);
+
+  // Open context menu.
+  generator.PressRightButton();
+  generator.ReleaseRightButton();
+  EXPECT_TRUE(controller->menu_model_);
+  EXPECT_TRUE(controller->menu_runner_);
+
+  // Verify menu closes on exiting tablet mode.
+  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(false);
+  EXPECT_FALSE(controller->menu_model_);
+  EXPECT_FALSE(controller->menu_runner_);
+}
+
 class VirtualKeyboardRootWindowControllerTest
     : public RootWindowControllerTest {
  public:
@@ -725,14 +755,14 @@ TEST_F(VirtualKeyboardRootWindowControllerTest,
       Shell::Get()->display_manager()->GetSecondaryDisplay();
   display::test::DisplayManagerTestApi(Shell::Get()->display_manager())
       .SetTouchSupport(secondary_display.id(),
-                       display::Display::TouchSupport::TOUCH_SUPPORT_AVAILABLE);
+                       display::Display::TouchSupport::AVAILABLE);
 
   // The primary display doesn't have touch capability and the secondary display
   // does.
-  ASSERT_NE(display::Display::TouchSupport::TOUCH_SUPPORT_AVAILABLE,
+  ASSERT_NE(display::Display::TouchSupport::AVAILABLE,
             display::Screen::GetScreen()->GetPrimaryDisplay().touch_support());
   ASSERT_EQ(
-      display::Display::TouchSupport::TOUCH_SUPPORT_AVAILABLE,
+      display::Display::TouchSupport::AVAILABLE,
       Shell::Get()->display_manager()->GetSecondaryDisplay().touch_support());
 
   aura::Window::Windows root_windows = Shell::GetAllRootWindows();
@@ -777,18 +807,18 @@ TEST_F(VirtualKeyboardRootWindowControllerTest, FollowInputFocus) {
       display::Screen::GetScreen()->GetPrimaryDisplay().id();
   display::test::DisplayManagerTestApi(Shell::Get()->display_manager())
       .SetTouchSupport(primary_display_id,
-                       display::Display::TouchSupport::TOUCH_SUPPORT_AVAILABLE);
+                       display::Display::TouchSupport::AVAILABLE);
   const int64_t secondary_display_id =
       Shell::Get()->display_manager()->GetSecondaryDisplay().id();
   display::test::DisplayManagerTestApi(Shell::Get()->display_manager())
       .SetTouchSupport(secondary_display_id,
-                       display::Display::TouchSupport::TOUCH_SUPPORT_AVAILABLE);
+                       display::Display::TouchSupport::AVAILABLE);
 
   // Both of displays have touch capability.
-  ASSERT_EQ(display::Display::TouchSupport::TOUCH_SUPPORT_AVAILABLE,
+  ASSERT_EQ(display::Display::TouchSupport::AVAILABLE,
             display::Screen::GetScreen()->GetPrimaryDisplay().touch_support());
   ASSERT_EQ(
-      display::Display::TouchSupport::TOUCH_SUPPORT_AVAILABLE,
+      display::Display::TouchSupport::AVAILABLE,
       Shell::Get()->display_manager()->GetSecondaryDisplay().touch_support());
 
   aura::Window::Windows root_windows = Shell::GetAllRootWindows();

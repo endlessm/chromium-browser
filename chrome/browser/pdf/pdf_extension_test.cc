@@ -38,12 +38,12 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/download/public/common/download_item.h"
 #include "components/zoom/page_zoom.h"
 #include "components/zoom/test/zoom_test_utils.h"
 #include "components/zoom/zoom_controller.h"
 #include "content/public/browser/browser_accessibility_state.h"
 #include "content/public/browser/browser_plugin_guest_manager.h"
-#include "content/public/browser/download_item.h"
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -63,6 +63,7 @@
 #include "extensions/test/result_catcher.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "ui/accessibility/ax_enum_util.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/test/test_clipboard.h"
@@ -342,7 +343,7 @@ class DisablePluginHelper : public content::DownloadManager::Observer {
 
   // content::DownloadManager::Observer implementation.
   void OnDownloadCreated(content::DownloadManager* manager,
-                         content::DownloadItem* item) override {
+                         download::DownloadItem* item) override {
     last_url_ = item->GetURL();
     download_run_loop_.Quit();
   }
@@ -373,7 +374,7 @@ IN_PROC_BROWSER_TEST_F(PDFExtensionTest, DisablePlugin) {
 
   // Cancel the download to shutdown cleanly.
   download_manager->RemoveObserver(&helper);
-  std::vector<content::DownloadItem*> downloads;
+  std::vector<download::DownloadItem*> downloads;
   download_manager->GetAllDownloads(&downloads);
   ASSERT_EQ(1u, downloads.size());
   downloads[0]->Cancel(false);
@@ -629,7 +630,7 @@ static std::string DumpPdfAccessibilityTree(const ui::AXTreeUpdate& ax_tree) {
   std::map<int32_t, int> id_to_indentation;
   bool found_embedded_object = false;
   for (auto& node : ax_tree.nodes) {
-    if (node.role == ui::AX_ROLE_EMBEDDED_OBJECT)
+    if (node.role == ax::mojom::Role::kEmbeddedObject)
       found_embedded_object = true;
     if (!found_embedded_object)
       continue;
@@ -638,7 +639,8 @@ static std::string DumpPdfAccessibilityTree(const ui::AXTreeUpdate& ax_tree) {
     ax_tree_dump += std::string(2 * indent, ' ');
     ax_tree_dump += ui::ToString(node.role);
 
-    std::string name = node.GetStringAttribute(ui::AX_ATTR_NAME);
+    std::string name =
+        node.GetStringAttribute(ax::mojom::StringAttribute::kName);
     base::ReplaceChars(name, "\r\n", "", &name);
     if (!name.empty())
       ax_tree_dump += " '" + name + "'";
@@ -762,6 +764,39 @@ IN_PROC_BROWSER_TEST_F(PDFExtensionTest, PdfAccessibilityInOOPIF) {
   ui::AXTreeUpdate ax_tree = GetAccessibilityTreeSnapshot(guest_contents);
   std::string ax_tree_dump = DumpPdfAccessibilityTree(ax_tree);
   ASSERT_MULTILINE_STR_MATCHES(kExpectedPDFAXTreePattern, ax_tree_dump);
+}
+
+IN_PROC_BROWSER_TEST_F(PDFExtensionTest, PdfAccessibilityWordBoundaries) {
+  content::BrowserAccessibilityState::GetInstance()->EnableAccessibility();
+
+  GURL test_pdf_url(embedded_test_server()->GetURL("/pdf/test-bookmarks.pdf"));
+  WebContents* guest_contents = LoadPdfGetGuestContents(test_pdf_url);
+  ASSERT_TRUE(guest_contents);
+
+  WaitForAccessibilityTreeToContainNodeWithName(guest_contents,
+                                                "1 First Section\r\n");
+  ui::AXTreeUpdate ax_tree = GetAccessibilityTreeSnapshot(guest_contents);
+
+  bool found = false;
+  for (auto& node : ax_tree.nodes) {
+    std::string name =
+        node.GetStringAttribute(ax::mojom::StringAttribute::kName);
+    if (node.role == ax::mojom::Role::kInlineTextBox &&
+        name == "First Section\r\n") {
+      found = true;
+      std::vector<int32_t> word_starts =
+          node.GetIntListAttribute(ax::mojom::IntListAttribute::kWordStarts);
+      std::vector<int32_t> word_ends =
+          node.GetIntListAttribute(ax::mojom::IntListAttribute::kWordEnds);
+      ASSERT_EQ(2U, word_starts.size());
+      ASSERT_EQ(2U, word_ends.size());
+      EXPECT_EQ(0, word_starts[0]);
+      EXPECT_EQ(5, word_ends[0]);
+      EXPECT_EQ(6, word_starts[1]);
+      EXPECT_EQ(13, word_ends[1]);
+    }
+  }
+  ASSERT_TRUE(found);
 }
 
 #if defined(GOOGLE_CHROME_BUILD)
@@ -1371,7 +1406,7 @@ IN_PROC_BROWSER_TEST_F(PDFExtensionTest, SmartZoomDisabled) {
   blink::WebGestureEvent smart_zoom_event(
       blink::WebInputEvent::kGestureDoubleTap,
       blink::WebInputEvent::kNoModifiers,
-      blink::WebInputEvent::kTimeStampForTesting);
+      blink::WebInputEvent::GetStaticTimeStampForTests());
   smart_zoom_event.source_device = blink::kWebGestureDeviceTouchpad;
   smart_zoom_event.data.tap.tap_count = 1;
 

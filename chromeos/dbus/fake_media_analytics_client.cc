@@ -4,6 +4,8 @@
 
 #include "chromeos/dbus/fake_media_analytics_client.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -34,29 +36,31 @@ void FakeMediaAnalyticsClient::SetDiagnostics(
 
 void FakeMediaAnalyticsClient::Init(dbus::Bus* bus) {}
 
-void FakeMediaAnalyticsClient::SetMediaPerceptionSignalHandler(
-    const MediaPerceptionSignalHandler& handler) {
-  media_perception_signal_handler_ = handler;
+void FakeMediaAnalyticsClient::AddObserver(Observer* observer) {
+  observer_list_.AddObserver(observer);
 }
 
-void FakeMediaAnalyticsClient::ClearMediaPerceptionSignalHandler() {
-  media_perception_signal_handler_.Reset();
+void FakeMediaAnalyticsClient::RemoveObserver(Observer* observer) {
+  observer_list_.RemoveObserver(observer);
 }
 
-void FakeMediaAnalyticsClient::GetState(const StateCallback& callback) {
+void FakeMediaAnalyticsClient::GetState(
+    DBusMethodCallback<mri::State> callback) {
   if (!process_running_) {
-    callback.Run(false, current_state_);
+    std::move(callback).Run(base::nullopt);
     return;
   }
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&FakeMediaAnalyticsClient::OnState,
-                            weak_ptr_factory_.GetWeakPtr(), callback));
+      FROM_HERE,
+      base::BindOnce(&FakeMediaAnalyticsClient::OnState,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }
 
-void FakeMediaAnalyticsClient::SetState(const mri::State& state,
-                                        const StateCallback& callback) {
+void FakeMediaAnalyticsClient::SetState(
+    const mri::State& state,
+    DBusMethodCallback<mri::State> callback) {
   if (!process_running_) {
-    callback.Run(false, current_state_);
+    std::move(callback).Run(base::nullopt);
     return;
   }
   DCHECK(state.has_status()) << "Trying to set state without status.";
@@ -67,8 +71,9 @@ void FakeMediaAnalyticsClient::SetState(const mri::State& state,
          "RESTARTING.";
   current_state_ = state;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&FakeMediaAnalyticsClient::OnState,
-                            weak_ptr_factory_.GetWeakPtr(), callback));
+      FROM_HERE,
+      base::BindOnce(&FakeMediaAnalyticsClient::OnState,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }
 
 void FakeMediaAnalyticsClient::SetStateSuspended() {
@@ -80,32 +85,33 @@ void FakeMediaAnalyticsClient::SetStateSuspended() {
   current_state_ = suspended;
 }
 
-void FakeMediaAnalyticsClient::OnState(const StateCallback& callback) {
-  callback.Run(true, current_state_);
+void FakeMediaAnalyticsClient::OnState(
+    DBusMethodCallback<mri::State> callback) {
+  std::move(callback).Run(current_state_);
 }
 
 void FakeMediaAnalyticsClient::GetDiagnostics(
-    const DiagnosticsCallback& callback) {
+    DBusMethodCallback<mri::Diagnostics> callback) {
   if (!process_running_) {
     LOG(ERROR) << "Fake media analytics process not running.";
-    callback.Run(false, mri::Diagnostics());
+    std::move(callback).Run(base::nullopt);
     return;
   }
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&FakeMediaAnalyticsClient::OnGetDiagnostics,
-                            weak_ptr_factory_.GetWeakPtr(), callback));
+      FROM_HERE,
+      base::BindOnce(&FakeMediaAnalyticsClient::OnGetDiagnostics,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }
 
 void FakeMediaAnalyticsClient::OnGetDiagnostics(
-    const DiagnosticsCallback& callback) {
-  callback.Run(true, diagnostics_);
+    DBusMethodCallback<mri::Diagnostics> callback) {
+  std::move(callback).Run(diagnostics_);
 }
 
 void FakeMediaAnalyticsClient::OnMediaPerception(
     const mri::MediaPerception& media_perception) {
-  if (media_perception_signal_handler_.is_null())
-    return;
-  media_perception_signal_handler_.Run(media_perception);
+  for (auto& observer : observer_list_)
+    observer.OnDetectionSignal(media_perception);
 }
 
 }  // namespace chromeos

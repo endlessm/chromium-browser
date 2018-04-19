@@ -12,7 +12,7 @@
 #include "device/bluetooth/bluetooth_device.h"
 #include "device/bluetooth/bluetooth_discovery_filter.h"
 #include "device/bluetooth/bluetooth_uuid.h"
-#include "device/bluetooth/public/interfaces/test/fake_bluetooth.mojom.h"
+#include "device/bluetooth/public/mojom/test/fake_bluetooth.mojom.h"
 #include "device/bluetooth/test/fake_peripheral.h"
 #include "device/bluetooth/test/fake_remote_gatt_characteristic.h"
 #include "device/bluetooth/test/fake_remote_gatt_service.h"
@@ -40,6 +40,66 @@ void FakeCentral::SimulatePreconnectedPeripheral(
   fake_peripheral->SetSystemConnected(true);
   fake_peripheral->SetServiceUUIDs(device::BluetoothDevice::UUIDSet(
       known_service_uuids.begin(), known_service_uuids.end()));
+
+  std::move(callback).Run();
+}
+
+void FakeCentral::SimulateAdvertisementReceived(
+    mojom::ScanResultPtr scan_result_ptr,
+    SimulateAdvertisementReceivedCallback callback) {
+  // TODO(https://crbug.com/719826): Add a DCHECK to proceed only if a scan is
+  // currently in progress.
+  auto* fake_peripheral = GetFakePeripheral(scan_result_ptr->device_address);
+  const bool is_new_device = fake_peripheral == nullptr;
+  if (is_new_device) {
+    auto fake_peripheral_ptr =
+        std::make_unique<FakePeripheral>(this, scan_result_ptr->device_address);
+    fake_peripheral = fake_peripheral_ptr.get();
+    auto pair = devices_.emplace(scan_result_ptr->device_address,
+                                 std::move(fake_peripheral_ptr));
+    DCHECK(pair.second);
+  }
+
+  if (scan_result_ptr->scan_record->name) {
+    fake_peripheral->SetName(scan_result_ptr->scan_record->name.value());
+  }
+
+  device::BluetoothDevice::UUIDList uuids =
+      (scan_result_ptr->scan_record->uuids)
+          ? device::BluetoothDevice::UUIDList(
+                scan_result_ptr->scan_record->uuids.value().begin(),
+                scan_result_ptr->scan_record->uuids.value().end())
+          : device::BluetoothDevice::UUIDList();
+  // TODO(https://crbug.com/817603): Extract the service_data map from
+  // scan_result_ptr once the typemap for this field is added.
+  device::BluetoothDevice::ServiceDataMap service_data =
+      device::BluetoothDevice::ServiceDataMap();
+  device::BluetoothDevice::ManufacturerDataMap manufacturer_data =
+      (scan_result_ptr->scan_record->manufacturer_data)
+          ? device::BluetoothDevice::ManufacturerDataMap(
+                scan_result_ptr->scan_record->manufacturer_data.value().begin(),
+                scan_result_ptr->scan_record->manufacturer_data.value().end())
+          : device::BluetoothDevice::ManufacturerDataMap();
+
+  fake_peripheral->UpdateAdvertisementData(
+      scan_result_ptr->rssi, std::move(uuids), std::move(service_data),
+      std::move(manufacturer_data),
+      (scan_result_ptr->scan_record->tx_power->has_value)
+          ? &scan_result_ptr->scan_record->tx_power->value
+          : nullptr);
+
+  if (is_new_device) {
+    // Call DeviceAdded on observers because it is a newly detected peripheral.
+    for (auto& observer : observers_) {
+      observer.DeviceAdded(this, fake_peripheral);
+    }
+  } else {
+    // Call DeviceChanged on observers because it is a device that was detected
+    // before.
+    for (auto& observer : observers_) {
+      observer.DeviceChanged(this, fake_peripheral);
+    }
+  }
 
   std::move(callback).Run();
 }
@@ -116,6 +176,17 @@ void FakeCentral::AddFakeService(const std::string& peripheral_address,
   }
 
   std::move(callback).Run(fake_peripheral->AddFakeService(service_uuid));
+}
+
+void FakeCentral::RemoveFakeService(const std::string& identifier,
+                                    const std::string& peripheral_address,
+                                    RemoveFakeServiceCallback callback) {
+  FakePeripheral* fake_peripheral = GetFakePeripheral(peripheral_address);
+  if (!fake_peripheral) {
+    std::move(callback).Run(false);
+    return;
+  }
+  std::move(callback).Run(fake_peripheral->RemoveFakeService(identifier));
 }
 
 void FakeCentral::AddFakeCharacteristic(
@@ -371,6 +442,11 @@ device::BluetoothLocalGattService* FakeCentral::GetGattService(
     const std::string& identifier) const {
   NOTREACHED();
   return nullptr;
+}
+
+bool FakeCentral::SetPoweredImpl(bool powered) {
+  NOTREACHED();
+  return false;
 }
 
 void FakeCentral::AddDiscoverySession(

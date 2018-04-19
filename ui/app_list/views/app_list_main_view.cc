@@ -29,6 +29,7 @@
 #include "ui/app_list/views/contents_view.h"
 #include "ui/app_list/views/search_box_view.h"
 #include "ui/app_list/views/search_result_page_view.h"
+#include "ui/chromeos/search_box/search_box_view_base.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/button.h"
@@ -91,7 +92,7 @@ void AppListMainView::ShowAppListWhenReady() {
 }
 
 void AppListMainView::ResetForShow() {
-  contents_view_->SetActiveState(AppListModel::STATE_START);
+  contents_view_->SetActiveState(ash::AppListState::kStateStart);
   contents_view_->apps_container_view()->ResetForShowApps();
   // We clear the search when hiding so when app list appears it is not showing
   // search results.
@@ -141,14 +142,12 @@ void AppListMainView::ActivateApp(AppListItem* item, int event_flags) {
   // TODO(jennyz): Activate the folder via AppListModel notification.
   if (item->GetItemType() == AppListFolderItem::kItemType) {
     contents_view_->ShowFolderContent(static_cast<AppListFolderItem*>(item));
-    UMA_HISTOGRAM_ENUMERATION(kAppListFolderOpenedHistogram, kOldFolders,
-                              kMaxFolderOpened);
+    UMA_HISTOGRAM_ENUMERATION(kAppListFolderOpenedHistogram,
+                              kFullscreenAppListFolders, kMaxFolderOpened);
   } else {
     base::RecordAction(base::UserMetricsAction("AppList_ClickOnApp"));
     delegate_->ActivateItem(item->id(), event_flags);
-    UMA_HISTOGRAM_BOOLEAN(features::IsFullscreenAppListEnabled()
-                              ? kAppListAppLaunchedFullscreen
-                              : kAppListAppLaunched,
+    UMA_HISTOGRAM_BOOLEAN(kAppListAppLaunchedFullscreen,
                           false /*not a suggested app*/);
   }
 }
@@ -166,7 +165,7 @@ void AppListMainView::OnResultInstalled(SearchResult* result) {
   search_box_view_->ClearSearch();
 }
 
-void AppListMainView::QueryChanged(SearchBoxView* sender) {
+void AppListMainView::QueryChanged(search_box::SearchBoxViewBase* sender) {
   base::string16 raw_query = search_model_->search_box()->text();
   base::string16 query;
   base::TrimWhitespace(raw_query, base::TRIM_ALL, &query);
@@ -177,7 +176,8 @@ void AppListMainView::QueryChanged(SearchBoxView* sender) {
 }
 
 void AppListMainView::BackButtonPressed() {
-  contents_view_->Back();
+  if (!contents_view_->Back())
+    app_list_view_->Dismiss();
 }
 
 }  // namespace app_list

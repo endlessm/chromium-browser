@@ -49,6 +49,8 @@ struct TestConfig {
   std::string expected_channel_id;
   bool enable_channel_id = false;
   std::string send_channel_id;
+  int expected_token_binding_param = -1;
+  std::string send_token_binding_params;
   bool shim_writes_first = false;
   std::string host_name;
   std::string advertise_alpn;
@@ -57,6 +59,8 @@ struct TestConfig {
   std::string expected_advertised_alpn;
   std::string select_alpn;
   bool decline_alpn = false;
+  std::string quic_transport_params;
+  std::string expected_quic_transport_params;
   bool expect_session_miss = false;
   bool expect_extended_master_secret = false;
   std::string psk;
@@ -148,6 +152,8 @@ struct TestConfig {
   bool allow_false_start_without_alpn = false;
   bool expect_draft_downgrade = false;
   int dummy_pq_padding_len = 0;
+  bool handoff = false;
+  bool expect_dummy_pq_padding = false;
 };
 
 bool ParseConfig(int argc, char **argv, TestConfig *out_initial,

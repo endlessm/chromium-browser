@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">Adresse 1</translation>
 <translation id="1545749641540134597">Scan QR-kode</translation>
 <translation id="1580783302095112590">Email sendt.</translation>
+<translation id="1582732959743469162">Denne handling stopper den aktuelle download.</translation>
 <translation id="1612730193129642006">Vis fanegitter</translation>
+<translation id="1644574205037202324">Historik</translation>
 <translation id="1646446875146297738">Hvis du aktiverer "Spor ikke", medtages der en anmodning i din browsertrafik. Anmodningens virkning afhænger af, om et website reagerer på den, og hvordan anmodningen fortolkes.
 
 Nogle websites kan f.eks. reagere på denne anmodning ved at vise dig annoncer, der ikke er baseret på andre websites, du har besøgt. Mange websites vil stadig indsamle og bruge dine browserdata – f.eks. for at forbedre sikkerheden, for at levere indhold, tjenester, annoncer og anbefalinger på deres websites og for at generere rapporteringsstatistik. <ph name="BEGIN_LINK" />Få flere oplysninger<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@ Nogle websites kan f.eks. reagere på denne anmodning ved at vise dig annoncer, 
 <translation id="3175081911749765310">Webtjenester</translation>
 <translation id="3207960819495026254">Bogmærket</translation>
 <translation id="3210163015918861891">Synkronisering er slået fra</translation>
+<translation id="3224641773458703735">Angiv en adgangskode på din enhed, før du kan eksportere adgangskoder.</translation>
 <translation id="3240426699337459095">Linket er kopieret</translation>
 <translation id="3244271242291266297">MM</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> af <ph name="NUM_SUGGESTIONS" /></translation>
@@ -153,6 +156,7 @@ Nogle websites kan f.eks. reagere på denne anmodning ved at vise dig annoncer, 
 <translation id="3771033907050503522">Inkognitofaner</translation>
 <translation id="3779810277399252432">Ingen internetforbindelse.</translation>
 <translation id="3783017676699494206">Gem billede</translation>
+<translation id="3789841737615482174">Installer</translation>
 <translation id="385051799172605136">Tilbage</translation>
 <translation id="3897092660631435901">Menu</translation>
 <translation id="3928666092801078803">Kombiner mine data</translation>
@@ -220,7 +224,6 @@ Dine data er krypteret med din adgangssætning til synkronisering. Indtast den f
 <translation id="5300589172476337783">Vis</translation>
 <translation id="5317780077021120954">Gem</translation>
 <translation id="5327248766486351172">Navn</translation>
-<translation id="533632423981297619">Dine adgangskoder er synlige for alle, der kan se den eksporterede fil. Del ikke denne fil med nogen.</translation>
 <translation id="5388358297987318779">Åbn billede</translation>
 <translation id="5409365236829784218">Der er ingen installerede apps, der kan åbne denne fil.</translation>
 <translation id="5433691172869980887">Brugernavnet er kopieret</translation>
@@ -230,9 +233,9 @@ Dine data er krypteret med din adgangssætning til synkronisering. Indtast den f
 
 Handoff skal være aktiveret i afsnittet Generelt i Indstillinger, og dine enheder skal benytte den samme iCloud-konto.</translation>
 <translation id="5556459405103347317">Genindlæs</translation>
-<translation id="5619279135193775234">E-mail</translation>
+<translation id="5619279135193775234">Mail</translation>
 <translation id="5626245204502895507">Filen kunne ikke downloades på nuværende tidspunkt.</translation>
-<translation id="5659593005791499971">E-mail</translation>
+<translation id="5659593005791499971">Mail</translation>
 <translation id="5669528293118408608">www</translation>
 <translation id="567881659373499783">Version <ph name="PRODUCT_VERSION" /></translation>
 <translation id="5728700505257787410">Der var et problem med at logge ind på din konto.</translation>
@@ -249,6 +252,7 @@ Handoff skal være aktiveret i afsnittet Generelt i Indstillinger, og dine enhed
 <translation id="5871497086027727873">1 bogmærke blev flyttet</translation>
 <translation id="5911030830365207728">Google Oversæt</translation>
 <translation id="5916664084637901428">Til</translation>
+<translation id="5938160824633642847">Din enhed er ved at løbe tør for plads. Frigør plads, og prøv igen.</translation>
 <translation id="5948291296578561264">Dermed kan du gemme fotos i din fotosamling.</translation>
 <translation id="5955891643922670672">Viser offlineversion</translation>
 <translation id="5964480694698977962">Opret ny inkognitofane.</translation>
@@ -280,7 +284,9 @@ Handoff skal være aktiveret i afsnittet Generelt i Indstillinger, og dine enhed
 <translation id="633809752005859102">Der gik noget helt galt. Vi arbejder på sagen.</translation>
 <translation id="6342069812937806050">Lige nu</translation>
 <translation id="6344783595350022745">Ryd tekst</translation>
+<translation id="6346549652287021269">Vil du starte en ny download?</translation>
 <translation id="6362362396625799311">Ingen inkognitofaner</translation>
+<translation id="6374469231428023295">Prøv igen</translation>
 <translation id="6380866119319257197">Hvis du glemmer din adgangssætning eller vil ændre denne indstilling, skal du <ph name="BEGIN_LINK" />nulstille synkroniseringen<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">Navn på kort</translation>
 <translation id="6406506848690869874">Synkronisering</translation>
@@ -289,6 +295,7 @@ Handoff skal være aktiveret i afsnittet Generelt i Indstillinger, og dine enhed
 
 Dine data blev krypteret med din adgangssætning til synkronisering d. <ph name="TIME" />. Indtast adgangssætningen for at starte synkroniseringen.</translation>
 <translation id="6418346271604475326">Forbereder PDF</translation>
+<translation id="6434591244308415567">Der opstod en fejl. Prøv igen senere.</translation>
 <translation id="6445051938772793705">Land</translation>
 <translation id="6445981559479772097">Beskeden er sendt.</translation>
 <translation id="6464071786529933911">Åbn i ny inkognitofane</translation>
@@ -299,6 +306,7 @@ Dine data blev krypteret med din adgangssætning til synkronisering d. <ph name=
 <translation id="6657585470893396449">Adgangskode</translation>
 <translation id="667999046851023355">Dokument</translation>
 <translation id="6713747756340119864">Google Apps</translation>
+<translation id="6730682669179532099">Der kan ikke eksporteres adgangskoder</translation>
 <translation id="6762156594045689028">Hvis du vil ændre denne indstilling, skal du <ph name="BEGIN_LINK" />nulstille synkroniseringen<ph name="END_LINK" /></translation>
 <translation id="6780034285637185932">Postnummer</translation>
 <translation id="6785453220513215166">Der sendes en nedbrudsrapport...</translation>
@@ -308,13 +316,16 @@ Dine data blev krypteret med din adgangssætning til synkronisering d. <ph name=
 <translation id="681368974849482173">Elementet blev oprettet</translation>
 <translation id="6896758677409633944">Kopiér</translation>
 <translation id="6903907808598579934">Aktivér synkronisering</translation>
+<translation id="6914783257214138813">Dine adgangskoder vil være synlige for alle, der kan se den eksporterede fil.</translation>
 <translation id="6945221475159498467">Vælg</translation>
 <translation id="6973630695168034713">Mapper</translation>
 <translation id="7004499039102548441">Seneste faner</translation>
 <translation id="7006788746334555276">Indstillinger for indhold</translation>
+<translation id="7029809446516969842">Adgangskoder</translation>
 <translation id="7031882061095297553">Synkroniser til</translation>
 <translation id="7053983685419859001">Bloker</translation>
 <translation id="7062545763355031412">Acceptér, og skift konto</translation>
+<translation id="7102005569666697658">Downloader… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">Skjul</translation>
 <translation id="7133798577887235672">Fulde navn</translation>
 <translation id="7136892417564438900">Kameraet er ikke tilgængeligt</translation>
@@ -325,6 +336,7 @@ Dine data blev krypteret med din adgangssætning til synkronisering d. <ph name=
 <translation id="7203585745079012652">Giv talte svar</translation>
 <translation id="722055596168483966">Tilpas Google-tjenester</translation>
 <translation id="7272437679830969316">Din identitet kunne ikke bekræftes. Adgangskoden blev ikke kopieret.</translation>
+<translation id="7291368939935408496">Forbereder adgangskoder...</translation>
 <translation id="7336264872878993241"><ph name="PERCENT" /> procent er downloadet</translation>
 <translation id="7346909386216857016">OK</translation>
 <translation id="7400418766976504921">Webadresse</translation>
@@ -349,6 +361,7 @@ Dine data blev krypteret med din adgangssætning til synkronisering d. <ph name=
 <translation id="7769602470925380267">Acceptér, og log ud</translation>
 <translation id="7772032839648071052">Bekræft adgangssætning</translation>
 <translation id="780301667611848630">Nej tak</translation>
+<translation id="7856733331829174190">Downloaden mislykkedes</translation>
 <translation id="7859704718976024901">Browserhistorik</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">Eksportér adgangskoder…</translation>
@@ -409,6 +422,7 @@ Dine data blev krypteret med din adgangssætning til synkronisering d. <ph name=
 <translation id="9083392325882095631">1 element</translation>
 <translation id="9100610230175265781">Adgangssætning kræves</translation>
 <translation id="9148126808321036104">Log ind igen</translation>
+<translation id="915371508759614899">Vil du annullere downloaden?</translation>
 <translation id="9157836665414082580">Skjul dialogbokse</translation>
 <translation id="9188680907066685419">Log ud af den administrerede konto</translation>
 <translation id="9203116392574189331">Handoff</translation>

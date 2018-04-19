@@ -16,7 +16,6 @@
 #include "base/sys_info.h"
 #include "base/task_scheduler/post_task.h"
 #include "base/task_scheduler/task_traits.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/about_flags.h"
@@ -24,6 +23,7 @@
 #include "chrome/browser/chrome_browser_main.h"
 #include "chrome/browser/mac/bluetooth_utility.h"
 #include "chrome/browser/shell_integration.h"
+#include "chrome/browser/vr/service/vr_device_manager.h"
 #include "components/flags_ui/pref_service_flags_storage.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/service_manager_connection.h"
@@ -517,6 +517,10 @@ void RecordIsPinnedToTaskbarHistogram(
       std::move(connector), base::Bind(&OnShellHandlerConnectionError),
       base::Bind(&OnIsPinnedToTaskbarResult));
 }
+
+void RecordVrStartupHistograms() {
+  vr::VRDeviceManager::RecordVrStartupHistograms();
+}
 #endif  // defined(OS_WIN)
 
 }  // namespace
@@ -600,11 +604,19 @@ void ChromeBrowserMainExtraPartsMetrics::PostBrowserStart() {
   service_manager::Connector* connector =
       content::ServiceManagerConnection::GetForProcess()->GetConnector();
 
-  base::CreateSequencedTaskRunnerWithTraits(background_task_traits)
-      ->PostDelayedTask(
-          FROM_HERE,
-          base::BindOnce(&RecordIsPinnedToTaskbarHistogram, connector->Clone()),
-          base::TimeDelta::FromSeconds(45));
+  auto background_task_runner =
+      base::CreateSequencedTaskRunnerWithTraits(background_task_traits);
+
+  background_task_runner->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&RecordIsPinnedToTaskbarHistogram, connector->Clone()),
+      base::TimeDelta::FromSeconds(45));
+
+  // TODO(billorr): This should eventually be done on all platforms that support
+  // VR.
+  background_task_runner->PostDelayedTask(
+      FROM_HERE, base::BindOnce(&RecordVrStartupHistograms),
+      base::TimeDelta::FromSeconds(45));
 #endif  // defined(OS_WIN)
 
   display_count_ = display::Screen::GetScreen()->GetNumDisplays();

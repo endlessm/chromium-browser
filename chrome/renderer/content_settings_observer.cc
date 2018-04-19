@@ -23,8 +23,8 @@
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_view.h"
 #include "extensions/features/features.h"
-#include "third_party/WebKit/common/associated_interfaces/associated_interface_provider.h"
-#include "third_party/WebKit/common/associated_interfaces/associated_interface_registry.h"
+#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_registry.h"
 #include "third_party/WebKit/public/platform/URLConversion.h"
 #include "third_party/WebKit/public/platform/WebClientHintsType.h"
 #include "third_party/WebKit/public/platform/WebContentSettingCallbacks.h"
@@ -510,8 +510,16 @@ void ContentSettingsObserver::GetAllowedClientHintsFromSource(
   if (content_setting_rules_->client_hints_rules.empty())
     return;
 
+  // Pass the host of the URL of the top webframe.
   client_hints::GetAllowedClientHintsFromSource(
-      url, content_setting_rules_->client_hints_rules, client_hints);
+      url,
+      GURL(render_frame()
+               ->GetWebFrame()
+               ->Top()
+               ->GetSecurityOrigin()
+               .ToString()
+               .Ascii()),
+      content_setting_rules_->client_hints_rules, client_hints);
 }
 
 void ContentSettingsObserver::DidNotAllowPlugins() {

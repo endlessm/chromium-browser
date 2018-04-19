@@ -8,6 +8,7 @@ include_rules = [
   "+components/viz/common",
   "+components/viz/host",
   "+components/viz/service",
+  "+components/viz/test",
   "+services/viz/public/interfaces",
 
   "+cc/blink",
@@ -22,7 +23,9 @@ include_rules = [
   "+services/catalog",
   "+services/device/public/cpp/generic_sensor",
   "+services/network/public/cpp",
-  "+services/network/public/interfaces",
+  "+services/network/public/mojom",
+  "+services/network/test",
+  "+services/network/url_request_context_builder_mojo.h",
   "+services/proxy_resolver",
   "+services/service_manager/public",
   "+ui/base/resource/data_pack.h",
@@ -34,11 +37,13 @@ include_rules = [
   # For TestMojoProxyResolverFactory. Remove once it moves to the network
   # service.
   "+services/service_manager/public/cpp/service_context_ref.h",
+
+  # For ProxyServiceMojoTest. Remove once it moves to the network service.
+  "+services/network/proxy_service_mojo.h",
 ]
 
 specific_include_rules = {
   "layouttest_support.cc": [
-    "+components/viz/test",
     "+content/shell/test_runner",
     "+content/shell/common/shell_switches.h",
     "+services/ui/public/cpp/gpu",

@@ -8,8 +8,8 @@
 #include "base/logging.h"
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_most_visited_cell.h"
+#import "ios/chrome/browser/ui/location_bar/location_bar_constants.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_header_constants.h"
-#import "ios/chrome/browser/ui/toolbar/public/web_toolbar_controller_constants.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
@@ -58,7 +58,13 @@ namespace content_suggestions {
 
 const CGFloat kSearchFieldHeight = 50;
 
+const NSUInteger kMostVisitedItemsPerLine = 4;
+
 NSUInteger numberOfTilesForWidth(CGFloat availableWidth) {
+  if (IsUIRefreshPhase1Enabled()) {
+    return kMostVisitedItemsPerLine;
+  }
+
   if (availableWidth > widthForNumberOfItem(4))
     return 4;
   if (availableWidth > widthForNumberOfItem(3))
@@ -79,7 +85,15 @@ CGFloat centeredTilesMarginForWidth(CGFloat width) {
       width - columns * [ContentSuggestionsMostVisitedCell defaultSize].width -
       (columns - 1) * spacingBetweenTiles();
   CGFloat margin = AlignValueToPixel(whitespace / 2);
-  DCHECK(margin >= spacingBetweenTiles());
+  if (IsUIRefreshPhase1Enabled()) {
+    // Allow for less spacing as an edge case on smaller devices.
+    if (margin < spacingBetweenTiles()) {
+      DCHECK(width < 400);  // For now this is only expected on small widths.
+      return fmaxf(margin, 0);
+    }
+  } else {
+    DCHECK(margin >= spacingBetweenTiles());
+  }
   return margin;
 }
 
@@ -146,9 +160,9 @@ void configureSearchHintLabel(UILabel* searchHintLabel,
     [searchHintLabel setTextAlignment:NSTextAlignmentRight];
   }
   [searchHintLabel
-      setTextColor:[UIColor
-                       colorWithWhite:kiPhoneOmniboxPlaceholderColorBrightness
-                                alpha:1.0]];
+      setTextColor:
+          [UIColor colorWithWhite:kiPhoneLocationBarPlaceholderColorBrightness
+                            alpha:1.0]];
   [searchHintLabel setFont:[MDCTypography subheadFont]];
 }
 

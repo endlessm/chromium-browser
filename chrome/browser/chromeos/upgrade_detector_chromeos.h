@@ -32,6 +32,10 @@ class UpgradeDetectorChromeos : public UpgradeDetector,
   // update engine.
   void Shutdown();
 
+  // UpgradeDetector:
+  base::TimeDelta GetHighAnnoyanceLevelDelta() override;
+  base::TimeTicks GetHighAnnoyanceDeadline() override;
+
  private:
   friend struct base::DefaultSingletonTraits<UpgradeDetectorChromeos>;
   class ChannelsRequester;
@@ -55,7 +59,6 @@ class UpgradeDetectorChromeos : public UpgradeDetector,
   // has passed and we should start notifying the user.
   base::RepeatingTimer upgrade_notification_timer_;
   bool initialized_;
-  base::Time upgrade_detected_time_;
 
   std::unique_ptr<ChannelsRequester> channels_requester_;
 

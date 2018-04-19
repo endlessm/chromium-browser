@@ -15,12 +15,6 @@ const int kDebugModifier =
 const AcceleratorData kAcceleratorData[] = {
     {true, ui::VKEY_SPACE, ui::EF_CONTROL_DOWN, PREVIOUS_IME},
     {false, ui::VKEY_SPACE, ui::EF_CONTROL_DOWN, PREVIOUS_IME},
-    // Shortcuts for Japanese IME.
-    {true, ui::VKEY_CONVERT, ui::EF_NONE, SWITCH_IME},
-    {true, ui::VKEY_NONCONVERT, ui::EF_NONE, SWITCH_IME},
-    {true, ui::VKEY_DBE_SBCSCHAR, ui::EF_NONE, SWITCH_IME},
-    {true, ui::VKEY_DBE_DBCSCHAR, ui::EF_NONE, SWITCH_IME},
-
     {true, ui::VKEY_TAB, ui::EF_ALT_DOWN, CYCLE_FORWARD_MRU},
     {true, ui::VKEY_TAB, ui::EF_SHIFT_DOWN | ui::EF_ALT_DOWN,
      CYCLE_BACKWARD_MRU},
@@ -43,9 +37,9 @@ const AcceleratorData kAcceleratorData[] = {
     {true, ui::VKEY_BRIGHTNESS_UP, ui::EF_NONE, BRIGHTNESS_UP},
     {true, ui::VKEY_BRIGHTNESS_UP, ui::EF_ALT_DOWN, KEYBOARD_BRIGHTNESS_UP},
     {true, ui::VKEY_BRIGHTNESS_DOWN, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN,
-     MAGNIFY_SCREEN_ZOOM_OUT},
+     MAGNIFIER_ZOOM_OUT},
     {true, ui::VKEY_BRIGHTNESS_UP, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN,
-     MAGNIFY_SCREEN_ZOOM_IN},
+     MAGNIFIER_ZOOM_IN},
     {true, ui::VKEY_L, ui::EF_COMMAND_DOWN, LOCK_SCREEN},
     {true, ui::VKEY_L, ui::EF_COMMAND_DOWN | ui::EF_SHIFT_DOWN, SUSPEND},
     // The lock key on Chrome OS keyboards produces F13 scancodes.
@@ -156,15 +150,9 @@ const AcceleratorData kAcceleratorData[] = {
     {true, ui::VKEY_BROWSER_FORWARD, ui::EF_CONTROL_DOWN, FOCUS_NEXT_PANE},
     {true, ui::VKEY_BROWSER_BACK, ui::EF_CONTROL_DOWN, FOCUS_PREVIOUS_PANE},
 
-    // Window movement between displays shortcuts.
-    {true, ui::VKEY_UP, ui::EF_COMMAND_DOWN | ui::EF_ALT_DOWN,
-     MOVE_WINDOW_TO_ABOVE_DISPLAY},
-    {true, ui::VKEY_DOWN, ui::EF_COMMAND_DOWN | ui::EF_ALT_DOWN,
-     MOVE_WINDOW_TO_BELOW_DISPLAY},
-    {true, ui::VKEY_LEFT, ui::EF_COMMAND_DOWN | ui::EF_ALT_DOWN,
-     MOVE_WINDOW_TO_LEFT_DISPLAY},
-    {true, ui::VKEY_RIGHT, ui::EF_COMMAND_DOWN | ui::EF_ALT_DOWN,
-     MOVE_WINDOW_TO_RIGHT_DISPLAY},
+    // Moving active window between displays shortcut.
+    {true, ui::VKEY_M, ui::EF_COMMAND_DOWN | ui::EF_ALT_DOWN,
+     MOVE_ACTIVE_WINDOW_BETWEEN_DISPLAYS},
 
     // Media Player shortcuts.
     {true, ui::VKEY_MEDIA_NEXT_TRACK, ui::EF_NONE, MEDIA_NEXT_TRACK},
@@ -269,9 +257,8 @@ const size_t kDebugAcceleratorDataLength = arraysize(kDebugAcceleratorData);
 
 const AcceleratorData kDeveloperAcceleratorData[] = {
     // Extra shortcut for debug build to control magnifier on Linux desktop.
-    {true, ui::VKEY_BRIGHTNESS_DOWN, ui::EF_CONTROL_DOWN,
-     MAGNIFY_SCREEN_ZOOM_OUT},
-    {true, ui::VKEY_BRIGHTNESS_UP, ui::EF_CONTROL_DOWN, MAGNIFY_SCREEN_ZOOM_IN},
+    {true, ui::VKEY_BRIGHTNESS_DOWN, ui::EF_CONTROL_DOWN, MAGNIFIER_ZOOM_OUT},
+    {true, ui::VKEY_BRIGHTNESS_UP, ui::EF_CONTROL_DOWN, MAGNIFIER_ZOOM_IN},
     // Extra shortcuts to lock the screen on Linux desktop.
     {true, ui::VKEY_L, ui::EF_ALT_DOWN, LOCK_PRESSED},
     {false, ui::VKEY_L, ui::EF_ALT_DOWN, LOCK_RELEASED},
@@ -327,8 +314,8 @@ const AcceleratorAction kActionsAllowedAtLoginOrLockScreen[] = {
     DISABLE_CAPS_LOCK,
     KEYBOARD_BRIGHTNESS_DOWN,
     KEYBOARD_BRIGHTNESS_UP,
-    MAGNIFY_SCREEN_ZOOM_IN,   // Control+F7
-    MAGNIFY_SCREEN_ZOOM_OUT,  // Control+F6
+    MAGNIFIER_ZOOM_IN,   // Control+F7
+    MAGNIFIER_ZOOM_OUT,  // Control+F6
     NEXT_IME,
     PREVIOUS_IME,
     PRINT_UI_HIERARCHIES,
@@ -337,7 +324,6 @@ const AcceleratorAction kActionsAllowedAtLoginOrLockScreen[] = {
     SCALE_UI_RESET,
     SCALE_UI_UP,
     SHOW_IME_MENU_BUBBLE,
-    SWITCH_IME,  // Switch to another IME depending on the accelerator.
     TAKE_PARTIAL_SCREENSHOT,
     TAKE_SCREENSHOT,
     TAKE_WINDOW_SCREENSHOT,
@@ -379,8 +365,8 @@ const AcceleratorAction kActionsAllowedAtModalWindow[] = {
     KEYBOARD_BRIGHTNESS_DOWN,
     KEYBOARD_BRIGHTNESS_UP,
     LOCK_SCREEN,
-    MAGNIFY_SCREEN_ZOOM_IN,
-    MAGNIFY_SCREEN_ZOOM_OUT,
+    MAGNIFIER_ZOOM_IN,
+    MAGNIFIER_ZOOM_OUT,
     MEDIA_NEXT_TRACK,
     MEDIA_PLAY_PAUSE,
     MEDIA_PREV_TRACK,
@@ -398,7 +384,6 @@ const AcceleratorAction kActionsAllowedAtModalWindow[] = {
     SHOW_KEYBOARD_OVERLAY,
     SUSPEND,
     SWAP_PRIMARY_DISPLAY,
-    SWITCH_IME,
     TAKE_PARTIAL_SCREENSHOT,
     TAKE_SCREENSHOT,
     TAKE_WINDOW_SCREENSHOT,
@@ -423,8 +408,8 @@ const AcceleratorAction kRepeatableActions[] = {
     FOCUS_PREVIOUS_PANE,
     KEYBOARD_BRIGHTNESS_DOWN,
     KEYBOARD_BRIGHTNESS_UP,
-    MAGNIFY_SCREEN_ZOOM_IN,
-    MAGNIFY_SCREEN_ZOOM_OUT,
+    MAGNIFIER_ZOOM_IN,
+    MAGNIFIER_ZOOM_OUT,
     MEDIA_NEXT_TRACK,
     MEDIA_PREV_TRACK,
     RESTORE_TAB,
@@ -446,8 +431,8 @@ const AcceleratorAction kActionsAllowedInAppModeOrPinnedMode[] = {
     DISABLE_CAPS_LOCK,
     KEYBOARD_BRIGHTNESS_DOWN,
     KEYBOARD_BRIGHTNESS_UP,
-    MAGNIFY_SCREEN_ZOOM_IN,   // Control+F7
-    MAGNIFY_SCREEN_ZOOM_OUT,  // Control+F6
+    MAGNIFIER_ZOOM_IN,   // Control+F7
+    MAGNIFIER_ZOOM_OUT,  // Control+F6
     MEDIA_NEXT_TRACK,
     MEDIA_PLAY_PAUSE,
     MEDIA_PREV_TRACK,
@@ -461,7 +446,6 @@ const AcceleratorAction kActionsAllowedInAppModeOrPinnedMode[] = {
     SCALE_UI_RESET,
     SCALE_UI_UP,
     SWAP_PRIMARY_DISPLAY,
-    SWITCH_IME,  // Switch to another IME depending on the accelerator.
     TOGGLE_CAPS_LOCK,
     TOGGLE_DICTATION,
     TOGGLE_HIGH_CONTRAST,
@@ -492,14 +476,10 @@ const size_t kActionsAllowedInPinnedModeLength =
 const AcceleratorAction kActionsNeedingWindow[] = {
     CYCLE_BACKWARD_MRU,
     CYCLE_FORWARD_MRU,
-    MOVE_WINDOW_TO_ABOVE_DISPLAY,
-    MOVE_WINDOW_TO_BELOW_DISPLAY,
-    MOVE_WINDOW_TO_LEFT_DISPLAY,
-    MOVE_WINDOW_TO_RIGHT_DISPLAY,
+    MOVE_ACTIVE_WINDOW_BETWEEN_DISPLAYS,
     ROTATE_WINDOW,
     TOGGLE_FULLSCREEN,
     TOGGLE_MAXIMIZED,
-    TOGGLE_OVERVIEW,
     WINDOW_CYCLE_SNAP_LEFT,
     WINDOW_CYCLE_SNAP_RIGHT,
     WINDOW_MINIMIZE,
@@ -522,7 +502,6 @@ const AcceleratorAction kActionsKeepingMenuOpen[] = {
     NEXT_IME,
     PREVIOUS_IME,
     PRINT_UI_HIERARCHIES,
-    SWITCH_IME,
     TAKE_PARTIAL_SCREENSHOT,
     TAKE_SCREENSHOT,
     TAKE_WINDOW_SCREENSHOT,

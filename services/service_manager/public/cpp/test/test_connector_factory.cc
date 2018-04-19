@@ -10,7 +10,7 @@
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "services/service_manager/public/cpp/service.h"
 #include "services/service_manager/public/cpp/service_context.h"
-#include "services/service_manager/public/interfaces/connector.mojom.h"
+#include "services/service_manager/public/mojom/connector.mojom.h"
 
 namespace service_manager {
 
@@ -52,8 +52,7 @@ class TestConnectorImplBase : public mojom::Connector {
     (*service_ptr)
         ->OnBindInterface(
             BindSourceInfo(Identity("TestConnectorFactory"), CapabilitySet()),
-            interface_name, std::move(interface_pipe),
-            base::BindOnce(&base::DoNothing));
+            interface_name, std::move(interface_pipe), base::DoNothing());
     std::move(callback).Run(mojom::ConnectResult::SUCCEEDED, Identity());
   }
 

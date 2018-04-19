@@ -31,7 +31,7 @@ CreateLowEntropyProvider() {
   return std::unique_ptr<const base::FieldTrial::EntropyProvider>(
       // Since variations are only enabled for users opted in to UMA, it is
       // acceptable to use the SHA1EntropyProvider for randomization.
-      new metrics::SHA1EntropyProvider(
+      new variations::SHA1EntropyProvider(
           // Synchronous read of the client id is permitted as it is fast
           // enough to have minimal impact on startup time, and is behind the
           // webview-enable-finch flag.
@@ -106,7 +106,6 @@ void AwFieldTrialCreator::SetUpFieldTrials() {
   // VariationsFieldTrialCreator::SetupFieldTrials().
   // TODO(isherman): We might want a more genuine SafeSeedManager:
   // https://crbug.com/801771
-  std::vector<std::string> variation_ids;
   std::set<std::string> unforceable_field_trials;
   variations::SafeSeedManager ignored_safe_seed_manager(true,
                                                         local_state.get());
@@ -115,8 +114,9 @@ void AwFieldTrialCreator::SetUpFieldTrials() {
   variations_field_trial_creator_->SetupFieldTrials(
       cc::switches::kEnableGpuBenchmarking, switches::kEnableFeatures,
       switches::kDisableFeatures, unforceable_field_trials,
-      CreateLowEntropyProvider(), std::make_unique<base::FeatureList>(),
-      &variation_ids, aw_field_trials_.get(), &ignored_safe_seed_manager);
+      std::vector<std::string>(), CreateLowEntropyProvider(),
+      std::make_unique<base::FeatureList>(), aw_field_trials_.get(),
+      &ignored_safe_seed_manager);
 }
 
 }  // namespace android_webview

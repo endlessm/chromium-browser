@@ -13,7 +13,7 @@
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/arc/intent_helper/arc_navigation_throttle.h"
@@ -82,7 +82,7 @@ class TestBrowserWindow : public BrowserWindow {
   void ToolbarSizeChanged(bool is_animating) override {}
   void FocusAppMenu() override {}
   void FocusBookmarksToolbar() override {}
-  void FocusInfobars() override {}
+  void FocusInactivePopupForAccessibility() override {}
   void RotatePaneFocus(bool forwards) override {}
   void ShowAppMenu() override {}
   content::KeyboardEventProcessingResult PreHandleKeyboardEvent(

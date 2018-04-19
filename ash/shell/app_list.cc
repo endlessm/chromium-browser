@@ -13,7 +13,6 @@
 #include "ash/app_list/model/search/search_box_model.h"
 #include "ash/app_list/model/search/search_model.h"
 #include "ash/app_list/model/search/search_result.h"
-#include "ash/app_list/model/speech/speech_ui_model.h"
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
 #include "ash/shell/example_factory.h"
@@ -228,16 +227,15 @@ class ExampleAppListViewDelegate : public app_list::AppListViewDelegate {
     return search_model_.get();
   }
 
-  app_list::SpeechUIModel* GetSpeechUI() override { return &speech_ui_; }
-
-  void OpenSearchResult(app_list::SearchResult* result,
+  void OpenSearchResult(const std::string& result_id,
                         int event_flags) override {
     const ExampleSearchResult* example_result =
-        static_cast<const ExampleSearchResult*>(result);
+        static_cast<const ExampleSearchResult*>(
+            search_model_->FindSearchResult(result_id));
     WindowTypeShelfItem::ActivateItem(example_result->type(), event_flags);
   }
 
-  void InvokeSearchResultAction(app_list::SearchResult* result,
+  void InvokeSearchResultAction(const std::string& result_id,
                                 int action_index,
                                 int event_flags) override {
     NOTIMPLEMENTED();
@@ -266,7 +264,7 @@ class ExampleAppListViewDelegate : public app_list::AppListViewDelegate {
     }
   }
 
-  void ViewInitialized() override {
+  void ViewShown(int64_t display_id) override {
     // Nothing needs to be done.
   }
 
@@ -279,16 +277,8 @@ class ExampleAppListViewDelegate : public app_list::AppListViewDelegate {
     // Nothing needs to be done.
   }
 
-  void StartSpeechRecognition() override { NOTIMPLEMENTED(); }
-  void StopSpeechRecognition() override { NOTIMPLEMENTED(); }
-
-  views::View* CreateStartPageWebView(const gfx::Size& size) override {
-    return NULL;
-  }
-
-  bool IsSpeechRecognitionEnabled() override { return false; }
-
-  void GetWallpaperProminentColors(std::vector<SkColor>* colors) override {
+  void GetWallpaperProminentColors(
+      GetWallpaperProminentColorsCallback callback) override {
     NOTIMPLEMENTED();
   }
 
@@ -300,8 +290,15 @@ class ExampleAppListViewDelegate : public app_list::AppListViewDelegate {
     item->Activate(event_flags);
   }
 
-  ui::MenuModel* GetContextMenuModel(const std::string& id) override {
-    return nullptr;
+  void GetContextMenuModel(const std::string& id,
+                           GetContextMenuModelCallback callback) override {
+    NOTIMPLEMENTED();
+  }
+
+  void ContextMenuItemSelected(const std::string& id,
+                               int command_id,
+                               int event_flags) override {
+    NOTIMPLEMENTED();
   }
 
   void AddObserver(app_list::AppListViewDelegateObserver* observer) override {
@@ -315,7 +312,6 @@ class ExampleAppListViewDelegate : public app_list::AppListViewDelegate {
 
   std::unique_ptr<app_list::AppListModel> model_;
   std::unique_ptr<app_list::SearchModel> search_model_;
-  app_list::SpeechUIModel speech_ui_;
 
   DISALLOW_COPY_AND_ASSIGN(ExampleAppListViewDelegate);
 };

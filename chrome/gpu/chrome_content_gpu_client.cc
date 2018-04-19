@@ -4,23 +4,17 @@
 
 #include "chrome/gpu/chrome_content_gpu_client.h"
 
+#include <string>
 #include <utility>
 
-#include "base/command_line.h"
-#include "base/lazy_instance.h"
-#include "base/threading/platform_thread.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
-#include "chrome/common/stack_sampling_configuration.h"
-#include "components/metrics/child_call_stack_profile_collector.h"
 #include "content/public/child/child_thread.h"
-#include "content/public/common/content_switches.h"
-#include "content/public/common/service_names.mojom.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
-#include "services/service_manager/public/cpp/connector.h"
 
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
 #include "media/cdm/cdm_paths.h"
-#include "media/cdm/ppapi/clear_key_cdm/clear_key_cdm_proxy.h"
+#include "media/cdm/library_cdm/clear_key_cdm/clear_key_cdm_proxy.h"
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -34,27 +28,9 @@
 #include "ui/ozone/public/surface_factory_ozone.h"
 #endif
 
-namespace {
-
-base::LazyInstance<metrics::ChildCallStackProfileCollector>::Leaky
-    g_call_stack_profile_collector = LAZY_INSTANCE_INITIALIZER;
-
-}  // namespace
-
 ChromeContentGpuClient::ChromeContentGpuClient()
-    : stack_sampling_profiler_(
-          base::PlatformThread::CurrentId(),
-          StackSamplingConfiguration::Get()
-              ->GetSamplingParamsForCurrentProcess(),
-          g_call_stack_profile_collector.Get().GetProfilerCallback(
-              metrics::CallStackProfileParams(
-                  metrics::CallStackProfileParams::GPU_PROCESS,
-                  metrics::CallStackProfileParams::GPU_MAIN_THREAD,
-                  metrics::CallStackProfileParams::PROCESS_STARTUP,
-                  metrics::CallStackProfileParams::MAY_SHUFFLE))) {
-  if (StackSamplingConfiguration::Get()->IsProfilerEnabledForCurrentProcess())
-    stack_sampling_profiler_.Start();
-
+    : main_thread_profiler_(ThreadProfiler::CreateAndStartOnMainThread(
+          metrics::CallStackProfileParams::GPU_MAIN_THREAD)) {
 #if defined(OS_CHROMEOS)
   protected_buffer_manager_ = std::make_unique<arc::ProtectedBufferManager>();
 #endif
@@ -91,11 +67,17 @@ void ChromeContentGpuClient::GpuServiceInitialized(
                      base::Unretained(protected_buffer_manager_.get())));
 #endif
 
-  metrics::mojom::CallStackProfileCollectorPtr browser_interface;
-  content::ChildThread::Get()->GetConnector()->BindInterface(
-      content::mojom::kBrowserServiceName, &browser_interface);
-  g_call_stack_profile_collector.Get().SetParentProfileCollector(
-      std::move(browser_interface));
+  main_thread_profiler_->SetMainThreadTaskRunner(
+      base::ThreadTaskRunnerHandle::Get());
+  ThreadProfiler::SetServiceManagerConnectorForChildProcess(
+      content::ChildThread::Get()->GetConnector());
+}
+
+void ChromeContentGpuClient::PostIOThreadCreated(
+    base::SingleThreadTaskRunner* io_task_runner) {
+  io_task_runner->PostTask(
+      FROM_HERE, base::BindOnce(&ThreadProfiler::StartOnChildThread,
+                                metrics::CallStackProfileParams::IO_THREAD));
 }
 
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
@@ -113,7 +95,7 @@ std::unique_ptr<media::CdmProxy> ChromeContentGpuClient::CreateCdmProxy(
 void ChromeContentGpuClient::CreateArcVideoDecodeAccelerator(
     ::arc::mojom::VideoDecodeAcceleratorRequest request) {
   mojo::MakeStrongBinding(
-      base::MakeUnique<arc::GpuArcVideoDecodeAccelerator>(
+      std::make_unique<arc::GpuArcVideoDecodeAccelerator>(
           gpu_preferences_, protected_buffer_manager_.get()),
       std::move(request));
 }

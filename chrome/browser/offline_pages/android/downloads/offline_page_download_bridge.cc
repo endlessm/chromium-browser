@@ -21,8 +21,10 @@
 #include "chrome/browser/offline_pages/offline_page_utils.h"
 #include "chrome/browser/offline_pages/recent_tab_helper.h"
 #include "chrome/browser/offline_pages/request_coordinator_factory.h"
+#include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_android.h"
+#include "components/download/public/common/download_url_parameters.h"
 #include "components/offline_items_collection/core/offline_content_aggregator.h"
 #include "components/offline_pages/core/background/request_coordinator.h"
 #include "components/offline_pages/core/client_namespace_constants.h"
@@ -32,7 +34,7 @@
 #include "components/offline_pages/core/offline_page_model.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/download_manager.h"
-#include "content/public/browser/download_url_parameters.h"
+#include "content/public/browser/download_request_utils.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -224,8 +226,34 @@ content::ResourceRequestInfo::WebContentsGetter GetWebContentsGetter(
                     web_contents->GetMainFrame()->GetRoutingID());
 }
 
-void OnAcquireFileAccessPermissionDone(
+void DownloadAsFile(content::WebContents* web_contents, const GURL& url) {
+  content::DownloadManager* dlm = content::BrowserContext::GetDownloadManager(
+      web_contents->GetBrowserContext());
+  std::unique_ptr<download::DownloadUrlParameters> dl_params(
+      content::DownloadRequestUtils::CreateDownloadForWebContentsMainFrame(
+          web_contents, url, NO_TRAFFIC_ANNOTATION_YET));
+
+  content::NavigationEntry* entry =
+      web_contents->GetController().GetLastCommittedEntry();
+  // |entry| should not be null since otherwise an empty URL is returned from
+  // calling GetLastCommittedURL and we should bail out earlier.
+  DCHECK(entry);
+  content::Referrer referrer =
+      content::Referrer::SanitizeForRequest(url, entry->GetReferrer());
+  dl_params->set_referrer(referrer.url);
+  dl_params->set_referrer_policy(content::Referrer::ReferrerPolicyForUrlRequest(
+      referrer.policy));
+
+  dl_params->set_prefer_cache(true);
+  dl_params->set_prompt(false);
+  dl_params->set_download_source(download::DownloadSource::OFFLINE_PAGE);
+  dlm->DownloadUrl(std::move(dl_params));
+}
+
+void OnOfflinePageAcquireFileAccessPermissionDone(
     const content::ResourceRequestInfo::WebContentsGetter& web_contents_getter,
+    const ScopedJavaGlobalRef<jobject>& j_tab_ref,
+    const std::string& origin,
     bool granted) {
   if (!granted)
     return;
@@ -238,25 +266,22 @@ void OnAcquireFileAccessPermissionDone(
   if (url.is_empty())
     return;
 
-  content::DownloadManager* dlm = content::BrowserContext::GetDownloadManager(
-      web_contents->GetBrowserContext());
-  std::unique_ptr<content::DownloadUrlParameters> dl_params(
-      content::DownloadUrlParameters::CreateForWebContentsMainFrame(
-          web_contents, url, NO_TRAFFIC_ANNOTATION_YET));
+  // If the page is not a HTML page, route to DownloadManager.
+  if (!offline_pages::OfflinePageUtils::CanDownloadAsOfflinePage(
+          url, web_contents->GetContentsMimeType())) {
+    DownloadAsFile(web_contents, url);
+    return;
+  }
 
-  content::NavigationEntry* entry =
-      web_contents->GetController().GetLastCommittedEntry();
-  // |entry| should not be null since otherwise an empty URL is returned from
-  // calling GetLastCommittedURL and we should bail out earlier.
-  DCHECK(entry);
-  content::Referrer referrer =
-      content::Referrer::SanitizeForRequest(url, entry->GetReferrer());
-  dl_params->set_referrer(referrer);
-
-  dl_params->set_prefer_cache(true);
-  dl_params->set_prompt(false);
-  dl_params->set_download_source(content::DownloadSource::OFFLINE_PAGE);
-  dlm->DownloadUrl(std::move(dl_params));
+  // Otherwise, save the HTML page as archive.
+  GURL original_url =
+      offline_pages::OfflinePageUtils::GetOriginalURLFromWebContents(
+          web_contents);
+  OfflinePageUtils::CheckDuplicateDownloads(
+      chrome::GetBrowserContextRedirectedInIncognito(
+          web_contents->GetBrowserContext()),
+      url,
+      base::Bind(&DuplicateCheckDone, url, original_url, j_tab_ref, origin));
 }
 
 }  // namespace
@@ -286,31 +311,17 @@ void JNI_OfflinePageDownloadBridge_StartDownload(
   if (!web_contents)
     return;
 
-  GURL url = web_contents->GetLastCommittedURL();
-  if (url.is_empty())
-    return;
   std::string origin = ConvertJavaStringToUTF8(env, j_origin);
-
-  GURL original_url =
-      offline_pages::OfflinePageUtils::GetOriginalURLFromWebContents(
-          web_contents);
-
-  // If the page is not a HTML page, route to DownloadManager.
-  if (!offline_pages::OfflinePageUtils::CanDownloadAsOfflinePage(
-          url, web_contents->GetContentsMimeType())) {
-    content::ResourceRequestInfo::WebContentsGetter web_contents_getter =
-        GetWebContentsGetter(web_contents);
-    DownloadControllerBase::Get()->AcquireFileAccessPermission(
-        web_contents_getter,
-        base::Bind(&OnAcquireFileAccessPermissionDone, web_contents_getter));
-    return;
-  }
-
   ScopedJavaGlobalRef<jobject> j_tab_ref(env, j_tab);
 
-  OfflinePageUtils::CheckDuplicateDownloads(
-      tab->GetProfile()->GetOriginalProfile(), url,
-      base::Bind(&DuplicateCheckDone, url, original_url, j_tab_ref, origin));
+  // Ensure that the storage permission is granted since the target file
+  // is going to be placed in the public directory.
+  content::ResourceRequestInfo::WebContentsGetter web_contents_getter =
+      GetWebContentsGetter(web_contents);
+  DownloadControllerBase::Get()->AcquireFileAccessPermission(
+      web_contents_getter,
+      base::Bind(&OnOfflinePageAcquireFileAccessPermissionDone,
+                 web_contents_getter, j_tab_ref, origin));
 }
 
 static jlong JNI_OfflinePageDownloadBridge_Init(
@@ -337,7 +348,7 @@ static jlong JNI_OfflinePageDownloadBridge_Init(
     DCHECK(aggregator);
     adapter = new DownloadUIAdapter(
         aggregator, offline_page_model, request_coordinator,
-        base::MakeUnique<DownloadUIAdapterDelegate>(offline_page_model));
+        std::make_unique<DownloadUIAdapterDelegate>(offline_page_model));
     DownloadUIAdapter::AttachToOfflinePageModel(base::WrapUnique(adapter),
                                                 offline_page_model);
   }

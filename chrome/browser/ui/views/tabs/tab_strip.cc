@@ -45,6 +45,7 @@
 #include "ui/base/default_theme_provider.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/models/list_selection_model.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/compositor/compositing_recorder.h"
@@ -116,9 +117,9 @@ const int kPinnedToNonPinnedOffset = 3;
 #endif
 
 // Returns the width needed for the new tab button (and padding).
-int GetNewTabButtonWidth() {
-  return GetLayoutSize(NEW_TAB_BUTTON).width() -
-         GetLayoutConstant(TABSTRIP_NEW_TAB_BUTTON_OVERLAP);
+int GetNewTabButtonWidth(bool is_incognito) {
+  return GetLayoutSize(NEW_TAB_BUTTON, is_incognito).width() +
+         GetLayoutConstant(TABSTRIP_NEW_TAB_BUTTON_SPACING);
 }
 
 // Animation delegate used for any automatic tab movement.  Hides the tab if it
@@ -676,14 +677,14 @@ void TabStrip::SetSelection(const ui::ListSelectionModel& old_selection,
   // Fire accessibility events that reflect the changes to selection.
   for (size_t i = 0; i < no_longer_selected.size(); ++i) {
     tab_at(no_longer_selected[i])
-        ->NotifyAccessibilityEvent(ui::AX_EVENT_SELECTION_REMOVE, true);
+        ->NotifyAccessibilityEvent(ax::mojom::Event::kSelectionRemove, true);
   }
   for (size_t i = 0; i < newly_selected.size(); ++i) {
     tab_at(newly_selected[i])
-        ->NotifyAccessibilityEvent(ui::AX_EVENT_SELECTION_ADD, true);
+        ->NotifyAccessibilityEvent(ax::mojom::Event::kSelectionAdd, true);
   }
   tab_at(new_selection.active())
-      ->NotifyAccessibilityEvent(ui::AX_EVENT_SELECTION, true);
+      ->NotifyAccessibilityEvent(ax::mojom::Event::kSelection, true);
 }
 
 void TabStrip::TabTitleChangedNotLoading(int model_index) {
@@ -843,6 +844,11 @@ bool TabStrip::IsTabPinned(const Tab* tab) const {
   int model_index = GetModelIndexOfTab(tab);
   return IsValidModelIndex(model_index) &&
          controller_->IsTabPinned(model_index);
+}
+
+bool TabStrip::IsIncognito() const {
+  // There may be no controller in tests.
+  return controller_ && controller_->IsIncognito();
 }
 
 void TabStrip::MaybeStartDrag(
@@ -1175,8 +1181,8 @@ gfx::Size TabStrip::CalculatePreferredSize() const {
   if (touch_layout_ || adjust_layout_) {
     // For stacked tabs the minimum size is calculated as the size needed to
     // handle showing any number of tabs.
-    needed_tab_width =
-        Tab::GetTouchWidth() + (2 * kStackedPadding * kMaxStackedCount);
+    needed_tab_width = GetLayoutConstant(TAB_STACK_TAB_WIDTH) +
+                       (2 * kStackedPadding * kMaxStackedCount);
   } else {
     // Otherwise the minimum width is based on the actual number of tabs.
     const int pinned_tab_count = GetPinnedTabCount();
@@ -1200,7 +1206,7 @@ gfx::Size TabStrip::CalculatePreferredSize() const {
     needed_tab_width = std::min(std::max(needed_tab_width, min_selected_width),
                                 largest_min_tab_width);
   }
-  return gfx::Size(needed_tab_width + GetNewTabButtonWidth(),
+  return gfx::Size(needed_tab_width + GetNewTabButtonWidth(IsIncognito()),
                    Tab::GetMinimumInactiveSize().height());
 }
 
@@ -1269,7 +1275,7 @@ int TabStrip::OnPerformDrop(const DropTargetEvent& event) {
 }
 
 void TabStrip::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  node_data->role = ui::AX_ROLE_TAB_LIST;
+  node_data->role = ax::mojom::Role::kTabList;
 }
 
 views::View* TabStrip::GetTooltipHandlerForPoint(const gfx::Point& point) {
@@ -1308,7 +1314,7 @@ void TabStrip::Init() {
   // So we get enter/exit on children to switch stacked layout on and off.
   set_notify_enter_exit_on_child(true);
 
-  new_tab_button_bounds_.set_size(GetLayoutSize(NEW_TAB_BUTTON));
+  new_tab_button_bounds_.set_size(GetLayoutSize(NEW_TAB_BUTTON, IsIncognito()));
   new_tab_button_bounds_.Inset(0, 0, 0, -NewTabButton::GetTopOffset());
   new_tab_button_ = new NewTabButton(this, this);
   new_tab_button_->SetTooltipText(
@@ -2115,8 +2121,8 @@ void TabStrip::GenerateIdealBounds() {
   // tabstrip. Constrain the x-coordinate of the new tab button so that it is
   // always visible.
   const int new_tab_x = std::min(
-      max_new_tab_x, tabs_.ideal_bounds(tabs_.view_size() - 1).right() -
-                         GetLayoutConstant(TABSTRIP_NEW_TAB_BUTTON_OVERLAP));
+      max_new_tab_x, tabs_.ideal_bounds(tabs_.view_size() - 1).right() +
+                         GetLayoutConstant(TABSTRIP_NEW_TAB_BUTTON_SPACING));
   const int old_max_x = new_tab_button_bounds_.right();
   new_tab_button_bounds_.set_origin(gfx::Point(new_tab_x, 0));
   if (new_tab_button_bounds_.right() != old_max_x) {
@@ -2145,7 +2151,7 @@ int TabStrip::GenerateIdealBoundsForPinnedTabs(int* first_non_pinned_index) {
 }
 
 int TabStrip::GetTabAreaWidth() const {
-  return width() - GetNewTabButtonWidth();
+  return width() - GetNewTabButtonWidth(IsIncognito());
 }
 
 void TabStrip::StartResizeLayoutAnimation() {
@@ -2189,8 +2195,8 @@ void TabStrip::StartMouseInitiatedRemoveTabAnimation(int model_index) {
   // the new tab button should stay where it is.
   new_tab_button_bounds_.set_x(
       std::min(width() - new_tab_button_bounds_.width(),
-               ideal_bounds(tab_count() - 1).right() -
-                   GetLayoutConstant(TABSTRIP_NEW_TAB_BUTTON_OVERLAP)));
+               ideal_bounds(tab_count() - 1).right() +
+                   GetLayoutConstant(TABSTRIP_NEW_TAB_BUTTON_SPACING)));
 
   PrepareForAnimation();
 
@@ -2288,7 +2294,8 @@ void TabStrip::SwapLayoutIfNecessary() {
     return;
 
   if (needs_touch) {
-    gfx::Size tab_size(Tab::GetTouchWidth(), GetLayoutConstant(TAB_HEIGHT));
+    gfx::Size tab_size(GetLayoutConstant(TAB_STACK_TAB_WIDTH),
+                       GetLayoutConstant(TAB_HEIGHT));
 
     const int overlap = Tab::GetOverlap();
     touch_layout_.reset(new StackedTabStripLayout(
@@ -2320,17 +2327,19 @@ bool TabStrip::NeedsTouchLayout() const {
   int normal_count = tab_count() - pinned_tab_count;
   if (normal_count <= 1 || normal_count == pinned_tab_count)
     return false;
-  return (Tab::GetTouchWidth() * normal_count -
+  return (GetLayoutConstant(TAB_STACK_TAB_WIDTH) * normal_count -
           Tab::GetOverlap() * (normal_count - 1)) >
          GetTabAreaWidth() - GetStartXForNormalTabs();
 }
 
 void TabStrip::SetResetToShrinkOnExit(bool value) {
-  if (!adjust_layout_)
+  if (!adjust_layout_ ||
+      ui::MaterialDesignController::IsTouchOptimizedUiEnabled()) {
     return;
+  }
 
-  if (value && !stacked_layout_)
-    value = false;  // We're already using shrink (not stacked) layout.
+  // We have to be using stacked layout to reset out of it.
+  value &= stacked_layout_;
 
   if (value == reset_to_shrink_on_exit_)
     return;

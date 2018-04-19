@@ -9,6 +9,7 @@
 #include <memory>
 #include <vector>
 
+#include "ash/public/cpp/vector_icons/vector_icons.h"
 #include "ash/shell.h"
 #include "ash/system/tray/system_tray_notifier.h"
 #include "base/command_line.h"
@@ -20,15 +21,14 @@
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/mobile/mobile_activator.h"
 #include "chrome/browser/chromeos/net/network_portal_web_dialog.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
-#include "chrome/browser/notifications/notification_display_service.h"
 #include "chrome/browser/notifications/notification_handler.h"
+#include "chrome/browser/notifications/system_notification_helper.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
@@ -48,9 +48,9 @@
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "ui/message_center/notification.h"
-#include "ui/message_center/notification_types.h"
-#include "ui/message_center/notifier_id.h"
+#include "ui/message_center/public/cpp/notification.h"
+#include "ui/message_center/public/cpp/notification_types.h"
+#include "ui/message_center/public/cpp/notifier_id.h"
 #include "ui/views/widget/widget.h"
 
 namespace chromeos {
@@ -73,8 +73,7 @@ Profile* GetProfileForPrimaryUser() {
 }
 
 void CloseNotification() {
-  NotificationDisplayService::GetForSystemNotifications()->Close(
-      NotificationHandler::Type::TRANSIENT,
+  SystemNotificationHelper::GetInstance()->Close(
       NetworkPortalNotificationController::kNotificationId);
 }
 
@@ -293,8 +292,8 @@ void NetworkPortalNotificationController::OnPortalDetectionCompleted(
         network->guid());
   }
 
-  NotificationDisplayService::GetForSystemNotifications()->Display(
-      NotificationHandler::Type::TRANSIENT, *GetNotification(network, state));
+  SystemNotificationHelper::GetInstance()->Display(
+      *GetNotification(network, state));
   UMA_HISTOGRAM_ENUMERATION(
       NetworkPortalNotificationController::kNotificationMetric,
       NetworkPortalNotificationController::NOTIFICATION_METRIC_DISPLAYED,
@@ -341,7 +340,7 @@ NetworkPortalNotificationController::CreateDefaultCaptivePortalNotification(
                       : IDS_PORTAL_DETECTION_NOTIFICATION_MESSAGE_WIRED,
               base::UTF8ToUTF16(network->name())),
           gfx::Image(), base::string16(), GURL(), notifier_id, data,
-          delegate.get(), kNotificationCaptivePortalIcon,
+          delegate.get(), ash::kNotificationCaptivePortalIcon,
           message_center::SystemNotificationWarningLevel::NORMAL);
   notification->SetSystemPriority();
   return notification;
@@ -395,7 +394,7 @@ NetworkPortalNotificationController::
               IDS_PORTAL_DETECTION_NOTIFICATION_TITLE_WIFI),
           notification_text, gfx::Image(),
           base::string16() /* display_source */, GURL(), notifier_id, data,
-          delegate.get(), kNotificationCaptivePortalIcon,
+          delegate.get(), ash::kNotificationCaptivePortalIcon,
           message_center::SystemNotificationWarningLevel::NORMAL);
   notification->SetSystemPriority();
   return notification;

@@ -30,6 +30,7 @@
 #include "chrome/browser/chromeos/arc/policy/arc_policy_util.h"
 #include "chrome/browser/chromeos/arc/print/arc_print_service.h"
 #include "chrome/browser/chromeos/arc/process/arc_process_service.h"
+#include "chrome/browser/chromeos/arc/screen_capture/arc_screen_capture_bridge.h"
 #include "chrome/browser/chromeos/arc/tracing/arc_tracing_bridge.h"
 #include "chrome/browser/chromeos/arc/tts/arc_tts_service.h"
 #include "chrome/browser/chromeos/arc/user_session/arc_user_session_service.h"
@@ -55,6 +56,7 @@
 #include "components/arc/power/arc_power_bridge.h"
 #include "components/arc/rotation_lock/arc_rotation_lock_bridge.h"
 #include "components/arc/storage_manager/arc_storage_manager.h"
+#include "components/arc/timer/arc_timer_bridge.h"
 #include "components/arc/usb/usb_host_bridge.h"
 #include "components/arc/volume_mounter/arc_volume_mounter_bridge.h"
 #include "components/prefs/pref_member.h"
@@ -161,7 +163,9 @@ void ArcServiceLauncher::OnPrimaryUserProfilePrepared(Profile* profile) {
   ArcProcessService::GetForBrowserContext(profile);
   ArcProvisionNotificationService::GetForBrowserContext(profile);
   ArcRotationLockBridge::GetForBrowserContext(profile);
+  ArcScreenCaptureBridge::GetForBrowserContext(profile);
   ArcSettingsService::GetForBrowserContext(profile);
+  ArcTimerBridge::GetForBrowserContext(profile);
   ArcTracingBridge::GetForBrowserContext(profile);
   ArcTtsService::GetForBrowserContext(profile);
   ArcUsbHostBridge::GetForBrowserContext(profile);

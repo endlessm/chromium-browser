@@ -5,6 +5,7 @@
 #include "chrome/browser/chromeos/login/lock/views_screen_locker.h"
 
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "base/bind.h"
@@ -20,9 +21,9 @@
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_storage.h"
 #include "chrome/browser/chromeos/login/screens/chrome_user_selection_screen.h"
 #include "chrome/browser/chromeos/login/user_selection_screen_proxy.h"
-#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/chromeos/system/system_clock.h"
 #include "chrome/browser/ui/ash/session_controller_client.h"
+#include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
@@ -143,29 +144,7 @@ void ViewsScreenLocker::OnHeaderBarVisible() {
 }
 
 void ViewsScreenLocker::OnAshLockAnimationFinished() {
-  // Notify session controller that the lock animations are done.
-  // This is used to notify chromeos::PowerEventObserver that lock screen UI
-  // has finished showing. PowerEventObserver uses this notification during
-  // device suspend - device suspend is delayed until lock UI reports it's done
-  // animating. Additionally, PowerEventObserver will not stop root windows
-  // compositors until it receives this notification.
-  // Historically, this was called when Web UI lock implementation reported
-  // that all animations for showing the UI have finished, which gave enough
-  // time to update display's frame buffers with new UI before compositing was
-  // stopped.
-  // This is not the case with views lock implementation.
-  // OnAshLockAnimationFinished() is called too soon, thus the display's frame
-  // buffers might still contain the UI from before the lock window was shown
-  // at this time - see https://crbug.com/807511.
-  // To work around this, add additional delay before notifying
-  // PowerEventObserver lock screen UI is ready.
-  // TODO(tbarzic): Find a more deterministic way to determine when the display
-  //     can be turned off during device suspend.
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE,
-      base::BindOnce(&ViewsScreenLocker::NotifyChromeLockAnimationsComplete,
-                     weak_factory_.GetWeakPtr()),
-      base::TimeDelta::FromMilliseconds(1500));
+  SessionControllerClient::Get()->NotifyChromeLockAnimationsComplete();
 }
 
 void ViewsScreenLocker::SetFingerprintState(
@@ -236,7 +215,7 @@ void ViewsScreenLocker::HandleOnFocusPod(const AccountId& account_id) {
     lock_screen_utils::SetUserInputMethod(account_id.GetUserEmail(),
                                           ime_state_.get());
     lock_screen_utils::SetKeyboardSettings(account_id);
-    WallpaperManager::Get()->ShowUserWallpaper(account_id);
+    WallpaperControllerClient::Get()->ShowUserWallpaper(account_id);
 
     bool use_24hour_clock = false;
     if (user_manager::known_user::GetBooleanPref(
@@ -304,10 +283,6 @@ void ViewsScreenLocker::OnEnterpriseInfoUpdated(const std::string& message_text,
 void ViewsScreenLocker::OnDeviceInfoUpdated(const std::string& bluetooth_name) {
   bluetooth_name_ = bluetooth_name;
   OnDevChannelInfoUpdated();
-}
-
-void ViewsScreenLocker::NotifyChromeLockAnimationsComplete() {
-  SessionControllerClient::Get()->NotifyChromeLockAnimationsComplete();
 }
 
 void ViewsScreenLocker::UpdatePinKeyboardState(const AccountId& account_id) {

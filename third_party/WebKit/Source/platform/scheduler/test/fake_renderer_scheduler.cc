@@ -31,7 +31,7 @@ FakeRendererScheduler::CompositorTaskRunner() {
 }
 
 scoped_refptr<base::SingleThreadTaskRunner>
-FakeRendererScheduler::LoadingTaskRunner() {
+FakeRendererScheduler::InputTaskRunner() {
   return nullptr;
 }
 
@@ -129,8 +129,9 @@ bool FakeRendererScheduler::MainThreadSeemsUnresponsive(
 void FakeRendererScheduler::SetRendererProcessType(RendererProcessType type) {}
 
 WebScopedVirtualTimePauser
-FakeRendererScheduler::CreateWebScopedVirtualTimePauser() {
-  return WebScopedVirtualTimePauser(nullptr);
+FakeRendererScheduler::CreateWebScopedVirtualTimePauser(
+    WebScopedVirtualTimePauser::VirtualTaskDuration duration) {
+  return WebScopedVirtualTimePauser(nullptr, duration);
 }
 
 }  // namespace scheduler

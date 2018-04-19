@@ -23,8 +23,10 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" /> (HDMI/DP)</translation>
 <translation id="1510238584712386396">Trình chạy</translation>
 <translation id="1525508553941733066">LOẠI BỎ</translation>
+<translation id="1537254971476575106">Phóng to toàn bộ màn hình</translation>
 <translation id="15373452373711364">Con trỏ chuột lớn</translation>
 <translation id="1550523713251050646">Nhấp để xem các tùy chọn khác</translation>
+<translation id="1608626060424371292">Xóa người dùng này</translation>
 <translation id="1621499497873603021">Thời gian còn lại cho đến khi pin hết, <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">Rất tiếc, chúng tôi vẫn không thể xác minh được mật khẩu của bạn. Lưu ý: nếu gần đây bạn đã đổi mật khẩu thì mật khẩu mới của bạn sẽ được áp dụng sau khi bạn đăng xuất. Vui lòng sử dụng mật khẩu cũ của bạn tại đây.</translation>
 <translation id="1677472565718498478">Còn <ph name="TIME" /></translation>
@@ -43,12 +45,15 @@
 <translation id="1951012854035635156">Trợ lý</translation>
 <translation id="1957803754585243749">0°</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
+<translation id="1995660704900986789">Tắt nguồn</translation>
 <translation id="2012624427112548395">Ctrl+Search+H</translation>
 <translation id="2049639323467105390">Thiết bị này được <ph name="DOMAIN" /> quản lý.</translation>
 <translation id="2050339315714019657">Khổ dọc</translation>
 <translation id="2067602449040652523">Độ sáng bàn phím</translation>
+<translation id="2081529251031312395">$1 vẫn có thể đăng nhập sau.</translation>
 <translation id="2122028596993374965">Dừng truyền <ph name="TAB_NAME" /> sang <ph name="RECEIVER_NAME" /></translation>
 <translation id="2127372758936585790">Bộ sạc công suất thấp</translation>
+<translation id="2135456203358955318">Phóng to ở vị trí cố định</translation>
 <translation id="2144487987174258011">Khởi động lại để cập nhật Adobe Flash Player</translation>
 <translation id="2208323208084708176">Chế độ màn hình đồng nhất</translation>
 <translation id="2220572644011485463">Mã PIN hoặc mật khẩu</translation>
@@ -73,7 +78,6 @@
 <translation id="2653659639078652383">Gửi</translation>
 <translation id="2675319268637823299">Quản trị viên không cho phép đăng nhập nhiều tài khoản đối với <ph name="USER_EMAIL" />.
     Tất cả người dùng phải đăng xuất để tiếp tục.</translation>
-<translation id="2700058918926273959">Phiên sẽ kết thúc sau <ph name="SESSION_TIME_REMAINING" />. Bạn sẽ bị đăng xuất.</translation>
 <translation id="2727977024730340865">Được cắm vào bộ sạc công suất thấp. Việc sạc pin có thể không được đảm bảo.</translation>
 <translation id="2761704814324807722">Khay trạng thái, thời gian <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581">Đang kết nối lại với <ph name="NAME" /></translation>
@@ -83,6 +87,7 @@
 <translation id="2844169650293029770">Thiết bị USB-C (cổng phía trước, bên trái)</translation>
 <translation id="2865888419503095837">Thông tin mạng</translation>
 <translation id="2872961005593481000">Tắt</translation>
+<translation id="2878884018241093801">Không có mục nào gần đây</translation>
 <translation id="2903844815300039659">Đã kết nối tới <ph name="NAME" />, <ph name="STRENGTH" /></translation>
 <translation id="2911940648265863620">Bạn đang chia sẻ màn hình của mình</translation>
 <translation id="2942516765047364088">Vị trí giá</translation>
@@ -109,7 +114,6 @@
 <translation id="3413817803639110246">Chưa có thông báo nào để xem</translation>
 <translation id="3445925074670675829">Thiết bị USB-C</translation>
 <translation id="3465566417615315331">Nhấp vào ảnh của bạn</translation>
-<translation id="3473479545200714844">Phóng to màn hình</translation>
 <translation id="3477079411857374384">Control-Shift-Space</translation>
 <translation id="3510164367642747937">Đánh dấu con trỏ chuột</translation>
 <translation id="3513798432020909783">Tài khoản được quản lý bởi <ph name="MANAGER_EMAIL" /></translation>
@@ -131,6 +135,7 @@
 <translation id="3891340733213178823">Nhấn Ctrl+Shift+Q hai lần để đăng xuất.</translation>
 <translation id="3893630138897523026">ChromeVox (phản hồi bằng giọng nói)</translation>
 <translation id="3899995891769452915">Nhập bằng giọng nói</translation>
+<translation id="3900355044994618856">Phiên hoạt động của bạn sẽ kết thúc sau <ph name="SESSION_TIME_REMAINING" /></translation>
 <translation id="3901991538546252627">Đang kết nối với <ph name="NAME" /></translation>
 <translation id="394485226368336402">Cài đặt âm thanh</translation>
 <translation id="397105322502079400">Đang tính...</translation>
@@ -139,6 +144,8 @@
 <translation id="4072264167173457037">Tín hiệu trung bình</translation>
 <translation id="4279490309300973883">Đang phản chiếu</translation>
 <translation id="4321179778687042513">ctrl</translation>
+<translation id="4331809312908958774">Chrome OS
+</translation>
 <translation id="4338109981321384717">Kính lúp</translation>
 <translation id="4351433414020964307">Trợ lý đang tải...</translation>
 <translation id="4378551569595875038">Đang kết nối…</translation>
@@ -183,6 +190,7 @@
 <translation id="5744083938413354016">Kéo nhấn</translation>
 <translation id="5777841717266010279">Bạn muốn dừng chia sẻ màn hình?</translation>
 <translation id="57838592816432529">Tắt tiếng</translation>
+<translation id="5820394555380036790">Hệ điều hành Chromium</translation>
 <translation id="5832805196449965646">Thêm người</translation>
 <translation id="5860033963881614850">Tắt</translation>
 <translation id="5895138241574237353">Khởi động lại</translation>
@@ -206,6 +214,7 @@
 <translation id="607652042414456612">Máy tính của bạn có thể phát hiện thiết bị Bluetooth gần đó và hiện thị dưới tên "<ph name="NAME" />" với địa chỉ là <ph name="ADDRESS" /></translation>
 <translation id="6106745654298855237">Đang sạc <ph name="POWER_SOURCE" /></translation>
 <translation id="615957422585914272">Hiển thị bàn phím ảo</translation>
+<translation id="6164005077879661055">Tất cả các tệp và dữ liệu trên máy được liên kết với người dùng được giám sát sẽ vĩnh viễn bị xóa khi người dùng được giám sát này bị xóa. Các trang web đã truy cập và các cài đặt của người dùng được giám sát này có thể vẫn hiển thị với người quản lý tại <ph name="MANAGEMENT_URL" />.</translation>
 <translation id="6165508094623778733">Tìm hiểu thêm</translation>
 <translation id="6267036997247669271"><ph name="NAME" />: Đang kích hoạt...</translation>
 <translation id="6284232397434400372">Đã thay đổi độ phân giải</translation>
@@ -240,6 +249,7 @@ Chỉ sử dụng tính năng này với các tài khoản mà bạn tin tưởn
 <translation id="6857811139397017780">Kích hoạt <ph name="NETWORKSERVICE" /></translation>
 <translation id="6911468394164995108">Tham gia mạng khác...</translation>
 <translation id="6981982820502123353">Truy cập</translation>
+<translation id="698231206551913481">Tất cả các tệp và dữ liệu cục bộ liên quan tới người dùng này sẽ bị xóa vĩnh viễn sau khi người dùng này bị xóa.</translation>
 <translation id="7029814467594812963">Thoát khỏi phiên</translation>
 <translation id="7034339000180558234">Đang truyền <ph name="TAB_NAME" /> tới <ph name="RECEIVER_NAME" /></translation>
 <translation id="7052914147756339792">Đặt hình nền...</translation>
@@ -247,6 +257,7 @@ Chỉ sử dụng tính năng này với các tài khoản mà bạn tin tưởn
 <translation id="7066646422045619941">Mạng này bị quản trị viên của bạn tắt.</translation>
 <translation id="7067196344162293536">Tự động xoay</translation>
 <translation id="7098389117866926363">Thiết bị USB-C (cổng bên trái ở phía sau)</translation>
+<translation id="7131634465328662194">Bạn sẽ tự động bị đăng xuất.</translation>
 <translation id="7165278925115064263">Alt+Shift+K</translation>
 <translation id="7168224885072002358">Sẽ hoàn nguyên về độ phân giải cũ sau <ph name="TIMEOUT_SECONDS" /></translation>
 <translation id="7256634071279256947">Micrô mặt sau</translation>
@@ -303,6 +314,7 @@ Chỉ sử dụng tính năng này với các tài khoản mà bạn tin tưởn
 <translation id="8484916590211895857"><ph name="NAME" />: Đang kết nối lại...</translation>
 <translation id="8517041960877371778"><ph name="DEVICE_TYPE" /> của bạn có thể không sạc khi được bật.</translation>
 <translation id="8639760480004882931">Còn <ph name="PERCENTAGE" /></translation>
+<translation id="8649101189709089199">Chọn để nói</translation>
 <translation id="8652175077544655965">Đóng cài đặt</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">Đã kết nối bộ sạc công suất thấp</translation>
@@ -312,6 +324,7 @@ Chỉ sử dụng tính năng này với các tài khoản mà bạn tin tưởn
 Các thông báo, cửa sổ và hộp thoại tiếp theo có thể bị phân tách giữa các màn hình.</translation>
 <translation id="8825534185036233643">Không hỗ trợ tính năng phản chiếu với hai màn hình trở lên.</translation>
 <translation id="8828714802988429505">90°</translation>
+<translation id="8841375032071747811">Nút quay lại</translation>
 <translation id="8850991929411075241">Search+Esc</translation>
 <translation id="8870509716567206129">Ứng dụng không hỗ trợ chế độ chia đôi màn hình.</translation>
 <translation id="8878886163241303700">Mở rộng màn hình</translation>

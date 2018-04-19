@@ -120,7 +120,7 @@ tcu::Vec4 linearToSRGBIfNeeded (const TextureFormat& format, const tcu::Vec4& co
 bool isCombinedDepthStencilType (TextureFormat::ChannelType type)
 {
 	// make sure to update this if type table is updated
-	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 38);
+	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 40);
 
 	return	type == TextureFormat::UNSIGNED_INT_16_8_8			||
 			type == TextureFormat::UNSIGNED_INT_24_8			||
@@ -162,7 +162,7 @@ bool hasDepthComponent (TextureFormat::ChannelOrder order)
 TextureChannelClass getTextureChannelClass (TextureFormat::ChannelType channelType)
 {
 	// make sure this table is updated if format table is updated
-	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 38);
+	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 40);
 
 	switch (channelType)
 	{
@@ -204,6 +204,8 @@ TextureChannelClass getTextureChannelClass (TextureFormat::ChannelType channelTy
 		case TextureFormat::FLOAT:							return TEXTURECHANNELCLASS_FLOATING_POINT;
 		case TextureFormat::FLOAT64:						return TEXTURECHANNELCLASS_FLOATING_POINT;
 		case TextureFormat::FLOAT_UNSIGNED_INT_24_8_REV:	return TEXTURECHANNELCLASS_LAST;					//!< packed float32-pad24-uint8
+		case TextureFormat::UNORM_SHORT_10:					return TEXTURECHANNELCLASS_UNSIGNED_FIXED_POINT;
+		case TextureFormat::UNORM_SHORT_12:					return TEXTURECHANNELCLASS_UNSIGNED_FIXED_POINT;
 		default:
 			DE_FATAL("Unknown channel type");
 			return TEXTURECHANNELCLASS_LAST;
@@ -347,7 +349,7 @@ ConstPixelBufferAccess flipYAccess (const ConstPixelBufferAccess& access)
 static Vec2 getFloatChannelValueRange (TextureFormat::ChannelType channelType)
 {
 	// make sure this table is updated if format table is updated
-	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 38);
+	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 40);
 
 	float cMin = 0.0f;
 	float cMax = 0.0f;
@@ -372,16 +374,18 @@ static Vec2 getFloatChannelValueRange (TextureFormat::ChannelType channelType)
 		case TextureFormat::UNORM_SHORT_5551:
 		case TextureFormat::UNORM_SHORT_1555:
 		case TextureFormat::UNORM_INT_101010:
-		case TextureFormat::UNORM_INT_1010102_REV:			cMin = 0.0f;			cMax = 1.0f;			break;
+		case TextureFormat::UNORM_INT_1010102_REV:
+		case TextureFormat::UNORM_SHORT_10:
+		case TextureFormat::UNORM_SHORT_12:					cMin = 0.0f;			cMax = 1.0f;			break;
 
 		// Misc formats.
 		case TextureFormat::SIGNED_INT8:					cMin = -128.0f;			cMax = 127.0f;			break;
 		case TextureFormat::SIGNED_INT16:					cMin = -32768.0f;		cMax = 32767.0f;		break;
-		case TextureFormat::SIGNED_INT32:					cMin = -2147483648.0f;	cMax = 2147483647.0f;	break;
+		case TextureFormat::SIGNED_INT32:					cMin = -2147483520.0f;	cMax = 2147483520.0f;	break; // Maximum exactly representable 31-bit integer: (2^24 - 1) * 2^7
 		case TextureFormat::UNSIGNED_INT8:					cMin = 0.0f;			cMax = 255.0f;			break;
 		case TextureFormat::UNSIGNED_INT16:					cMin = 0.0f;			cMax = 65535.0f;		break;
 		case TextureFormat::UNSIGNED_INT24:					cMin = 0.0f;			cMax = 16777215.0f;		break;
-		case TextureFormat::UNSIGNED_INT32:					cMin = 0.0f;			cMax = 4294967295.f;	break;
+		case TextureFormat::UNSIGNED_INT32:					cMin = 0.0f;			cMax = 4294967040.f;	break; // Maximum exactly representable 32-bit integer: (2^24 - 1) * 2^8
 		case TextureFormat::HALF_FLOAT:						cMin = -1e3f;			cMax = 1e3f;			break;
 		case TextureFormat::FLOAT:							cMin = -1e5f;			cMax = 1e5f;			break;
 		case TextureFormat::FLOAT64:						cMin = -1e5f;			cMax = 1e5f;			break;
@@ -514,7 +518,7 @@ UVec4 getFormatMaxUintValue (const TextureFormat& format)
 static IVec4 getChannelBitDepth (TextureFormat::ChannelType channelType)
 {
 	// make sure this table is updated if format table is updated
-	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 38);
+	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 40);
 
 	switch (channelType)
 	{
@@ -556,6 +560,8 @@ static IVec4 getChannelBitDepth (TextureFormat::ChannelType channelType)
 		case TextureFormat::UNSIGNED_INT_11F_11F_10F_REV:	return IVec4(11,11,10,0);
 		case TextureFormat::UNSIGNED_INT_999_E5_REV:		return IVec4(9,9,9,0);
 		case TextureFormat::FLOAT_UNSIGNED_INT_24_8_REV:	return IVec4(32,8,0,0);
+		case TextureFormat::UNORM_SHORT_10:					return IVec4(10);
+		case TextureFormat::UNORM_SHORT_12:					return IVec4(12);
 		default:
 			DE_ASSERT(false);
 			return IVec4(0);
@@ -581,7 +587,7 @@ IVec4 getTextureFormatBitDepth (const TextureFormat& format)
 static IVec4 getChannelMantissaBitDepth (TextureFormat::ChannelType channelType)
 {
 	// make sure this table is updated if format table is updated
-	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 38);
+	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 40);
 
 	switch (channelType)
 	{
@@ -618,6 +624,8 @@ static IVec4 getChannelMantissaBitDepth (TextureFormat::ChannelType channelType)
 		case TextureFormat::UNSIGNED_INT_24_8:
 		case TextureFormat::UNSIGNED_INT_24_8_REV:
 		case TextureFormat::UNSIGNED_INT_999_E5_REV:
+		case TextureFormat::UNORM_SHORT_10:
+		case TextureFormat::UNORM_SHORT_12:
 			return getChannelBitDepth(channelType);
 
 		case TextureFormat::HALF_FLOAT:						return IVec4(10);
@@ -1256,7 +1264,7 @@ template <typename AccessType>
 static AccessType toSamplerAccess (const AccessType& baseAccess, Sampler::DepthStencilMode mode)
 {
 	// make sure to update this if type table is updated
-	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 38);
+	DE_STATIC_ASSERT(TextureFormat::CHANNELTYPE_LAST == 40);
 
 	if (!isCombinedDepthStencilType(baseAccess.getFormat().type))
 		return baseAccess;

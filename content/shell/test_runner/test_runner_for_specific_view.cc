@@ -33,7 +33,7 @@
 #include "gin/handle.h"
 #include "gin/object_template_builder.h"
 #include "gin/wrappable.h"
-#include "third_party/WebKit/common/page/page_visibility_state.mojom.h"
+#include "third_party/WebKit/public/mojom/page/page_visibility_state.mojom.h"
 #include "third_party/WebKit/public/platform/WebCanvas.h"
 #include "third_party/WebKit/public/platform/WebData.h"
 #include "third_party/WebKit/public/platform/WebPoint.h"
@@ -61,10 +61,6 @@
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/gfx/switches.h"
-
-#if defined(__linux__) || defined(ANDROID)
-#include "third_party/WebKit/public/web/linux/WebFontRendering.h"
-#endif
 
 using namespace blink;
 
@@ -239,7 +235,7 @@ void TestRunnerForSpecificView::CapturePixelsAsyncThen(
           web_view()->MainFrame()->ToWebLocalFrame(),
           base::BindOnce(&TestRunnerForSpecificView::CapturePixelsCallback,
                          weak_factory_.GetWeakPtr(),
-                         base::Passed(std::move(persistent_callback))));
+                         std::move(persistent_callback)));
 }
 
 void TestRunnerForSpecificView::CapturePixelsCallback(
@@ -299,7 +295,7 @@ void TestRunnerForSpecificView::CopyImageAtAndCapturePixelsAsyncThen(
       web_view()->MainFrame()->ToWebLocalFrame(), x, y,
       base::BindOnce(&TestRunnerForSpecificView::CapturePixelsCallback,
                      weak_factory_.GetWeakPtr(),
-                     base::Passed(std::move(persistent_callback))));
+                     std::move(persistent_callback)));
 }
 
 void TestRunnerForSpecificView::GetManifestThen(

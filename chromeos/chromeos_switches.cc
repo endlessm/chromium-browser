@@ -28,13 +28,17 @@ const char kTestCrosGaiaIdMigration[] = "test-cros-gaia-id-migration";
 // all stored user keys will be converted to GaiaId)
 const char kTestCrosGaiaIdMigrationStarted[] = "started";
 
-// Controls whether enable voice interaction feature.
-const base::Feature kVoiceInteractionFeature{"ChromeOSVoiceInteraction",
-                                             base::FEATURE_DISABLED_BY_DEFAULT};
+// Controls whether enable Google Assistant feature.
+const base::Feature kAssistantFeature{"ChromeOSAssistant",
+                                      base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Controls whether enable assistant for locale.
 const base::Feature kAssistantFeatureForLocale{
     "ChromeOSAssistantForLocale", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Controls whether enable voice interaction feature.
+const base::Feature kVoiceInteractionFeature{"ChromeOSVoiceInteraction",
+                                             base::FEATURE_DISABLED_BY_DEFAULT};
 
 }  // namespace
 
@@ -223,9 +227,6 @@ const char kDisableMachineCertRequest[] = "disable-machine-cert-request";
 // Disables material design Error screen.
 const char kDisableMdErrorScreen[] = "disable-md-error-screen";
 
-// Disables material design OOBE UI.
-const char kDisableMdOobe[] = "disable-md-oobe";
-
 // Disables mtp write support.
 const char kDisableMtpWriteSupport[] = "disable-mtp-write-support";
 
@@ -236,8 +237,8 @@ const char kDisableMultiDisplayLayout[] = "disable-multi-display-layout";
 const char kDisableNetworkPortalNotification[] =
     "disable-network-portal-notification";
 
-// Enables Settings based network configuration dialogs.
-const char kEnableNetworkSettingsConfig[] = "enable-network-settings-config";
+// Disables Settings based network configuration dialogs.
+const char kDisableNetworkSettingsConfig[] = "disable-network-settings-config";
 
 // Disables the new Korean IME in chrome://settings/languages.
 const char kDisableNewKoreanIme[] = "disable-new-korean-ime";
@@ -290,15 +291,9 @@ const char kDisableWakeOnWifi[] = "disable-wake-on-wifi";
 // Disables zip archiver - unpacker.
 const char kDisableZipArchiverUnpacker[] = "disable-zip-archiver-unpacker";
 
-// Enables the Android Wallpapers App as the default app on Chrome OS.
-const char kEnableAndroidWallpapersApp[] = "enable-android-wallpapers-app";
-
 // DEPRECATED. Please use --arc-availability=officially-supported.
 // Enables starting the ARC instance upon session start.
 const char kEnableArc[] = "enable-arc";
-
-// Enables ARC OptIn flow in OOBE.
-const char kEnableArcOOBEOptIn[] = "enable-arc-oobe-optin";
 
 // Enables using a random url for captive portal detection.
 const char kEnableCaptivePortalRandomUrl[] = "enable-captive-portal-random-url";
@@ -314,6 +309,9 @@ const char kEnableConsumerKiosk[] = "enable-consumer-kiosk";
 
 // Enables Data Saver prompt on cellular networks.
 const char kEnableDataSaverPrompt[] = "enable-datasaver-prompt";
+
+// Enables demo mode feature.
+const char kEnableDemoMode[] = "enable-demo-mode";
 
 // Enables the slider in display settings to modify the display size.
 const char kEnableDisplayZoomSetting[] = "enable-display-zoom-setting";
@@ -511,6 +509,10 @@ const char kOobeSkipToLogin[] = "oobe-skip-to-login";
 // Interval at which we check for total time on OOBE.
 const char kOobeTimerInterval[] = "oobe-timer-interval";
 
+// If set to "true", the profile requires policy during restart (policy load
+// must succeed, otherwise session restart should fail).
+const char kProfileRequiresPolicy[] = "profile-requires-policy";
+
 // Overrides network stub behavior. By default, ethernet, wifi and vpn are
 // enabled, and transitions occur instantaneously. Multiple options can be
 // comma separated (no spaces). Note: all options are in the format 'foo=x'.
@@ -532,9 +534,6 @@ const char kShillStub[] = "shill-stub";
 // This makes it easier to test layout logic.
 const char kShowLoginDevOverlay[] = "show-login-dev-overlay";
 
-// If true, the non-md login and lock screens will be shown.
-const char kShowNonMdLogin[] = "show-non-md-login";
-
 // Sends test messages on first call to RequestUpdate (stub only).
 const char kSmsTestMessages[] = "sms-test-messages";
 
@@ -549,9 +548,6 @@ const char kStubCrosSettings[] = "stub-cros-settings";
 // done by session manager.
 const char kSystemDevMode[] = "system-developer-mode";
 
-// Enables testing for auto update UI.
-const char kTestAutoUpdateUI[] = "test-auto-update-ui";
-
 // Enables testing for encryption migration UI.
 const char kTestEncryptionMigrationUI[] = "test-encryption-migration-ui";
 
@@ -561,6 +557,14 @@ const char kTetherStub[] = "tether-stub";
 
 // List of locales supported by voice interaction.
 const char kVoiceInteractionLocales[] = "voice-interaction-supported-locales";
+
+// Used to tell the policy infrastructure to not let profile initialization
+// complete until policy is manually set by a test. This is used to provide
+// backward compatibility with a few tests that incorrectly use the
+// synchronously-initialized login profile to run their tests - do not add new
+// uses of this flag.
+const char kWaitForInitialPolicyFetchForTest[] =
+    "wait-for-initial-policy-fetch-for-test";
 
 // Enables wake on wifi packet feature, which wakes the device on the receipt
 // of network packets from whitelisted sources.
@@ -649,13 +653,23 @@ bool IsVoiceInteractionLocalesSupported() {
 
 bool IsVoiceInteractionFlagsEnabled() {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  return command_line->HasSwitch(kEnableVoiceInteraction) ||
-         base::FeatureList::IsEnabled(kVoiceInteractionFeature);
+  return !IsAssistantFlagsEnabled() &&
+         (command_line->HasSwitch(kEnableVoiceInteraction) ||
+          base::FeatureList::IsEnabled(kVoiceInteractionFeature));
 }
 
 bool IsVoiceInteractionEnabled() {
   return IsVoiceInteractionLocalesSupported() &&
          IsVoiceInteractionFlagsEnabled();
+}
+
+bool IsAssistantFlagsEnabled() {
+  return base::FeatureList::IsEnabled(kAssistantFeature);
+}
+
+bool IsAssistantEnabled() {
+  // TODO(xiaohuic): We will add locale restrictions later.
+  return IsAssistantFlagsEnabled();
 }
 
 bool IsZipArchiverUnpackerEnabled() {
@@ -665,9 +679,9 @@ bool IsZipArchiverUnpackerEnabled() {
 }
 
 bool IsZipArchiverPackerEnabled() {
-  // Enabled by default.
-  return !base::CommandLine::ForCurrentProcess()->HasSwitch(
-      kDisableZipArchiverPacker);
+  // Disabled by default.
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      kEnableZipArchiverPacker);
 }
 
 bool IsSigninFrameClientCertsEnabled() {
@@ -681,8 +695,8 @@ bool IsSigninFrameClientCertUserSelectionEnabled() {
 }
 
 bool IsNetworkSettingsConfigEnabled() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      chromeos::switches::kEnableNetworkSettingsConfig);
+  return !base::CommandLine::ForCurrentProcess()->HasSwitch(
+      chromeos::switches::kDisableNetworkSettingsConfig);
 }
 
 bool AreExperimentalAccessibilityFeaturesEnabled() {

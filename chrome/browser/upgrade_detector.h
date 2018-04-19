@@ -8,6 +8,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/upgrade_observer.h"
 #include "ui/base/idle/idle.h"
@@ -29,15 +30,15 @@ class UpgradeObserver;
 class UpgradeDetector {
  public:
   // The Homeland Security Upgrade Advisory System.
-  // These values are logged in a histogram and shouldn't be renumbered or
-  // removed.
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
   enum UpgradeNotificationAnnoyanceLevel {
-    UPGRADE_ANNOYANCE_NONE = 0,  // What? Me worry?
-    UPGRADE_ANNOYANCE_LOW,       // Green.
-    UPGRADE_ANNOYANCE_ELEVATED,  // Yellow.
-    UPGRADE_ANNOYANCE_HIGH,      // Red.
-    UPGRADE_ANNOYANCE_SEVERE,    // Orange.
-    UPGRADE_ANNOYANCE_CRITICAL,  // Red exclamation mark.
+    UPGRADE_ANNOYANCE_NONE = 0,      // What? Me worry?
+    UPGRADE_ANNOYANCE_LOW = 1,       // Green.
+    UPGRADE_ANNOYANCE_ELEVATED = 2,  // Yellow.
+    UPGRADE_ANNOYANCE_HIGH = 3,      // Red.
+    // UPGRADE_ANNOYANCE_SEVERE = 4,  // Removed in 2018-03 for lack of use.
+    UPGRADE_ANNOYANCE_CRITICAL = 5,  // Red exclamation mark.
     UPGRADE_ANNOYANCE_LAST = UPGRADE_ANNOYANCE_CRITICAL  // The last value
   };
 
@@ -51,6 +52,11 @@ class UpgradeDetector {
   virtual ~UpgradeDetector();
 
   static void RegisterPrefs(PrefRegistrySimple* registry);
+
+  // Returns the time at which an available upgrade was detected.
+  base::TimeTicks upgrade_detected_time() const {
+    return upgrade_detected_time_;
+  }
 
   // Whether the user should be notified about an upgrade.
   bool notify_upgrade() const { return notify_upgrade_; }
@@ -87,6 +93,13 @@ class UpgradeDetector {
   UpgradeNotificationAnnoyanceLevel upgrade_notification_stage() const {
     return upgrade_notification_stage_;
   }
+
+  // Returns the delta between "elevated" and "high" annoyance levels.
+  virtual base::TimeDelta GetHighAnnoyanceLevelDelta() = 0;
+
+  // Returns the tick count at which "high" annoyance level will be (or was)
+  // reached, or a null tick count if an upgrade has not yet been detected.
+  virtual base::TimeTicks GetHighAnnoyanceDeadline() = 0;
 
   void AddObserver(UpgradeObserver* observer);
 
@@ -147,6 +160,10 @@ class UpgradeDetector {
     upgrade_available_ = available;
   }
 
+  void set_upgrade_detected_time(base::TimeTicks upgrade_detected_time) {
+    upgrade_detected_time_ = upgrade_detected_time;
+  }
+
   void set_best_effort_experiment_updates_available(bool available) {
     best_effort_experiment_updates_available_ = available;
   }
@@ -185,6 +202,9 @@ class UpgradeDetector {
   // Whether any software updates are available (experiment updates are tracked
   // separately via additional member variables below).
   UpgradeAvailable upgrade_available_;
+
+  // The time at which an available upgrade was detected.
+  base::TimeTicks upgrade_detected_time_;
 
   // Whether "best effort" experiment updates are available.
   bool best_effort_experiment_updates_available_;

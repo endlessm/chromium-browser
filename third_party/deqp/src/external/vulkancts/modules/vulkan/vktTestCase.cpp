@@ -33,6 +33,7 @@
 
 #include "tcuCommandLine.hpp"
 
+#include "deSTLUtil.hpp"
 #include "deMemory.h"
 
 namespace vkt
@@ -43,6 +44,9 @@ namespace vkt
 using std::vector;
 using std::string;
 using namespace vk;
+
+namespace
+{
 
 vector<string> getValidationLayers (const vector<VkLayerProperties>& supportedLayers)
 {
@@ -91,7 +95,8 @@ vector<string> filterExtensions(const vector<VkExtensionProperties>& deviceExten
 	const char*		extensionGroups[] =
 	{
 		"VK_KHR_",
-		"VK_EXT_"
+		"VK_EXT_",
+		"VK_KHX_"
 	};
 
 	for (size_t deviceExtNdx = 0; deviceExtNdx < deviceExtensions.size(); deviceExtNdx++)
@@ -137,19 +142,21 @@ static deUint32 findQueueFamilyIndexWithCaps (const InstanceInterface& vkInstanc
 	TCU_THROW(NotSupportedError, "No matching queue found");
 }
 
-Move<VkDevice> createDefaultDevice (const InstanceInterface&		vki,
-									VkPhysicalDevice				physicalDevice,
-									deUint32						queueIndex,
-									const VkPhysicalDeviceFeatures&	enabledFeatures,
-									const vector<string>&			enabledExtensions,
-									const tcu::CommandLine&			cmdLine)
+Move<VkDevice> createDefaultDevice (const InstanceInterface&			vki,
+									VkPhysicalDevice					physicalDevice,
+									deUint32							queueIndex,
+									deUint32							sparseQueueIndex,
+									const VkPhysicalDeviceFeatures2KHR&	enabledFeatures,
+									const vector<string>&				enabledExtensions,
+									const tcu::CommandLine&				cmdLine)
 {
-	VkDeviceQueueCreateInfo		queueInfo;
+	VkDeviceQueueCreateInfo		queueInfo[2];
 	VkDeviceCreateInfo			deviceInfo;
 	vector<string>				enabledLayers;
 	vector<const char*>			layerPtrs;
 	vector<const char*>			extensionPtrs;
 	const float					queuePriority	= 1.0f;
+	const deUint32				numQueues = enabledFeatures.features.sparseBinding ? 2 : 1;
 
 	deMemset(&queueInfo,	0, sizeof(queueInfo));
 	deMemset(&deviceInfo,	0, sizeof(deviceInfo));
@@ -171,25 +178,76 @@ Move<VkDevice> createDefaultDevice (const InstanceInterface&		vki,
 	for (size_t ndx = 0; ndx < enabledExtensions.size(); ++ndx)
 		extensionPtrs[ndx] = enabledExtensions[ndx].c_str();
 
-	queueInfo.sType							= VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	queueInfo.pNext							= DE_NULL;
-	queueInfo.flags							= (VkDeviceQueueCreateFlags)0u;
-	queueInfo.queueFamilyIndex				= queueIndex;
-	queueInfo.queueCount					= 1u;
-	queueInfo.pQueuePriorities				= &queuePriority;
+	queueInfo[0].sType						= VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+	queueInfo[0].pNext						= DE_NULL;
+	queueInfo[0].flags						= (VkDeviceQueueCreateFlags)0u;
+	queueInfo[0].queueFamilyIndex			= queueIndex;
+	queueInfo[0].queueCount					= 1u;
+	queueInfo[0].pQueuePriorities			= &queuePriority;
 
+	queueInfo[1].sType						= VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+	queueInfo[1].pNext						= DE_NULL;
+	queueInfo[1].flags						= (VkDeviceQueueCreateFlags)0u;
+	queueInfo[1].queueFamilyIndex			= sparseQueueIndex;
+	queueInfo[1].queueCount					= 1u;
+	queueInfo[1].pQueuePriorities			= &queuePriority;
+
+	// VK_KHR_get_physical_device_properties2 is used if enabledFeatures.pNext != 0
 	deviceInfo.sType						= VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-	deviceInfo.pNext						= DE_NULL;
-	deviceInfo.queueCreateInfoCount			= 1u;
-	deviceInfo.pQueueCreateInfos			= &queueInfo;
+	deviceInfo.pNext						= enabledFeatures.pNext ? &enabledFeatures : DE_NULL;
+	deviceInfo.queueCreateInfoCount			= numQueues;
+	deviceInfo.pQueueCreateInfos			= queueInfo;
 	deviceInfo.enabledExtensionCount		= (deUint32)extensionPtrs.size();
 	deviceInfo.ppEnabledExtensionNames		= (extensionPtrs.empty() ? DE_NULL : &extensionPtrs[0]);
 	deviceInfo.enabledLayerCount			= (deUint32)layerPtrs.size();
 	deviceInfo.ppEnabledLayerNames			= (layerPtrs.empty() ? DE_NULL : &layerPtrs[0]);
-	deviceInfo.pEnabledFeatures				= &enabledFeatures;
+	deviceInfo.pEnabledFeatures				= enabledFeatures.pNext ? DE_NULL : &enabledFeatures.features;
 
 	return createDevice(vki, physicalDevice, &deviceInfo);
 };
+
+bool isPhysicalDeviceFeatures2Supported (const vector<string>& instanceExtensions)
+{
+	return de::contains(instanceExtensions.begin(), instanceExtensions.end(), "VK_KHR_get_physical_device_properties2");
+}
+
+struct DeviceFeatures
+{
+	VkPhysicalDeviceFeatures2KHR						coreFeatures;
+	VkPhysicalDeviceSamplerYcbcrConversionFeaturesKHR	samplerYCbCrConversionFeatures;
+
+	DeviceFeatures (const InstanceInterface&	vki,
+					VkPhysicalDevice			physicalDevice,
+					const vector<string>&		instanceExtensions,
+					const vector<string>&		deviceExtensions)
+	{
+		void**	curExtPoint		= &coreFeatures.pNext;
+
+		deMemset(&coreFeatures, 0, sizeof(coreFeatures));
+		deMemset(&samplerYCbCrConversionFeatures, 0, sizeof(samplerYCbCrConversionFeatures));
+
+		coreFeatures.sType						= VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2_KHR;
+		samplerYCbCrConversionFeatures.sType	= VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES_KHR;
+
+		if (isPhysicalDeviceFeatures2Supported(instanceExtensions))
+		{
+			if (de::contains(deviceExtensions.begin(), deviceExtensions.end(), "VK_KHR_sampler_ycbcr_conversion"))
+			{
+				*curExtPoint = &samplerYCbCrConversionFeatures;
+				curExtPoint = &samplerYCbCrConversionFeatures.pNext;
+			}
+
+			vki.getPhysicalDeviceFeatures2KHR(physicalDevice, &coreFeatures);
+		}
+		else
+			coreFeatures.features = getPhysicalDeviceFeatures(vki, physicalDevice);
+
+		// Disable robustness by default, as it has an impact on performance on some HW.
+		coreFeatures.features.robustBufferAccess = false;
+	}
+};
+
+} // anonymous
 
 class DefaultDevice
 {
@@ -197,19 +255,22 @@ public:
 										DefaultDevice					(const PlatformInterface& vkPlatform, const tcu::CommandLine& cmdLine);
 										~DefaultDevice					(void);
 
-	VkInstance							getInstance						(void) const	{ return *m_instance;					}
-	const InstanceInterface&			getInstanceInterface			(void) const	{ return m_instanceInterface;			}
-	const vector<string>&				getInstanceExtensions			(void) const	{ return m_instanceExtensions;			}
+	VkInstance							getInstance						(void) const	{ return *m_instance;								}
+	const InstanceInterface&			getInstanceInterface			(void) const	{ return m_instanceInterface;						}
+	const vector<string>&				getInstanceExtensions			(void) const	{ return m_instanceExtensions;						}
 
-	VkPhysicalDevice					getPhysicalDevice				(void) const	{ return m_physicalDevice;				}
-	const VkPhysicalDeviceFeatures&		getDeviceFeatures				(void) const	{ return m_deviceFeatures;				}
-	VkDevice							getDevice						(void) const	{ return *m_device;						}
-	const DeviceInterface&				getDeviceInterface				(void) const	{ return m_deviceInterface;				}
-	const VkPhysicalDeviceProperties&	getDeviceProperties				(void) const	{ return m_deviceProperties;			}
-	const vector<string>&				getDeviceExtensions				(void) const	{ return m_deviceExtensions;			}
+	VkPhysicalDevice					getPhysicalDevice				(void) const	{ return m_physicalDevice;							}
+	const VkPhysicalDeviceFeatures&		getDeviceFeatures				(void) const	{ return m_deviceFeatures.coreFeatures.features;	}
+	const VkPhysicalDeviceFeatures2KHR&	getDeviceFeatures2				(void) const	{ return m_deviceFeatures.coreFeatures;				}
+	VkDevice							getDevice						(void) const	{ return *m_device;									}
+	const DeviceInterface&				getDeviceInterface				(void) const	{ return m_deviceInterface;							}
+	const VkPhysicalDeviceProperties&	getDeviceProperties				(void) const	{ return m_deviceProperties;						}
+	const vector<string>&				getDeviceExtensions				(void) const	{ return m_deviceExtensions;						}
 
-	deUint32							getUniversalQueueFamilyIndex	(void) const	{ return m_universalQueueFamilyIndex;	}
+	deUint32							getUniversalQueueFamilyIndex	(void) const	{ return m_universalQueueFamilyIndex;				}
 	VkQueue								getUniversalQueue				(void) const;
+	deUint32							getSparseQueueFamilyIndex		(void) const	{ return m_sparseQueueFamilyIndex;					}
+	VkQueue								getSparseQueue					(void) const;
 
 private:
 	static VkPhysicalDeviceFeatures		filterDefaultDeviceFeatures		(const VkPhysicalDeviceFeatures& deviceFeatures);
@@ -219,11 +280,12 @@ private:
 	const InstanceDriver				m_instanceInterface;
 
 	const VkPhysicalDevice				m_physicalDevice;
+	const vector<string>				m_deviceExtensions;
+	const DeviceFeatures				m_deviceFeatures;
 
 	const deUint32						m_universalQueueFamilyIndex;
-	const VkPhysicalDeviceFeatures		m_deviceFeatures;
+	const deUint32						m_sparseQueueFamilyIndex;
 	const VkPhysicalDeviceProperties	m_deviceProperties;
-	const vector<string>				m_deviceExtensions;
 
 	const Unique<VkDevice>				m_device;
 	const DeviceDriver					m_deviceInterface;
@@ -234,11 +296,12 @@ DefaultDevice::DefaultDevice (const PlatformInterface& vkPlatform, const tcu::Co
 	, m_instance					(createInstance(vkPlatform, m_instanceExtensions, cmdLine))
 	, m_instanceInterface			(vkPlatform, *m_instance)
 	, m_physicalDevice				(chooseDevice(m_instanceInterface, *m_instance, cmdLine))
-	, m_universalQueueFamilyIndex	(findQueueFamilyIndexWithCaps(m_instanceInterface, m_physicalDevice, VK_QUEUE_GRAPHICS_BIT|VK_QUEUE_COMPUTE_BIT))
-	, m_deviceFeatures				(filterDefaultDeviceFeatures(getPhysicalDeviceFeatures(m_instanceInterface, m_physicalDevice)))
-	, m_deviceProperties			(getPhysicalDeviceProperties(m_instanceInterface, m_physicalDevice))
 	, m_deviceExtensions			(filterExtensions(enumerateDeviceExtensionProperties(m_instanceInterface, m_physicalDevice, DE_NULL)))
-	, m_device						(createDefaultDevice(m_instanceInterface, m_physicalDevice, m_universalQueueFamilyIndex, m_deviceFeatures, m_deviceExtensions, cmdLine))
+	, m_deviceFeatures				(m_instanceInterface, m_physicalDevice, m_instanceExtensions, m_deviceExtensions)
+	, m_universalQueueFamilyIndex	(findQueueFamilyIndexWithCaps(m_instanceInterface, m_physicalDevice, VK_QUEUE_GRAPHICS_BIT|VK_QUEUE_COMPUTE_BIT))
+	, m_sparseQueueFamilyIndex		(m_deviceFeatures.coreFeatures.features.sparseBinding ? findQueueFamilyIndexWithCaps(m_instanceInterface, m_physicalDevice, VK_QUEUE_SPARSE_BINDING_BIT) : 0)
+	, m_deviceProperties			(getPhysicalDeviceProperties(m_instanceInterface, m_physicalDevice))
+	, m_device						(createDefaultDevice(m_instanceInterface, m_physicalDevice, m_universalQueueFamilyIndex, m_sparseQueueFamilyIndex, m_deviceFeatures.coreFeatures, m_deviceExtensions, cmdLine))
 	, m_deviceInterface				(m_instanceInterface, *m_device)
 {
 }
@@ -249,21 +312,19 @@ DefaultDevice::~DefaultDevice (void)
 
 VkQueue DefaultDevice::getUniversalQueue (void) const
 {
-	VkQueue	queue	= 0;
-	m_deviceInterface.getDeviceQueue(*m_device, m_universalQueueFamilyIndex, 0, &queue);
-	return queue;
+	return getDeviceQueue(m_deviceInterface, *m_device, m_universalQueueFamilyIndex, 0);
 }
 
-VkPhysicalDeviceFeatures DefaultDevice::filterDefaultDeviceFeatures (const VkPhysicalDeviceFeatures& deviceFeatures)
+VkQueue DefaultDevice::getSparseQueue (void) const
 {
-	VkPhysicalDeviceFeatures enabledDeviceFeatures = deviceFeatures;
+	if (!m_deviceFeatures.coreFeatures.features.sparseBinding)
+		TCU_THROW(NotSupportedError, "Sparse binding not supported.");
 
-	// Disable robustness by default, as it has an impact on performance on some HW.
-	enabledDeviceFeatures.robustBufferAccess = false;
-
-	return enabledDeviceFeatures;
+	return getDeviceQueue(m_deviceInterface, *m_device, m_sparseQueueFamilyIndex, 0);
 }
 
+namespace
+{
 // Allocator utilities
 
 vk::Allocator* createAllocator (DefaultDevice* device)
@@ -273,6 +334,8 @@ vk::Allocator* createAllocator (DefaultDevice* device)
 	// \todo [2015-07-24 jarkko] support allocator selection/configuration from command line (or compile time)
 	return new SimpleAllocator(device->getDeviceInterface(), device->getDevice(), memoryProperties);
 }
+
+} // anonymous
 
 // Context
 
@@ -296,12 +359,15 @@ vk::VkInstance							Context::getInstance					(void) const { return m_device->ge
 const vk::InstanceInterface&			Context::getInstanceInterface			(void) const { return m_device->getInstanceInterface();			}
 vk::VkPhysicalDevice					Context::getPhysicalDevice				(void) const { return m_device->getPhysicalDevice();			}
 const vk::VkPhysicalDeviceFeatures&		Context::getDeviceFeatures				(void) const { return m_device->getDeviceFeatures();			}
+const vk::VkPhysicalDeviceFeatures2KHR&	Context::getDeviceFeatures2				(void) const { return m_device->getDeviceFeatures2();			}
 const vk::VkPhysicalDeviceProperties&	Context::getDeviceProperties			(void) const { return m_device->getDeviceProperties();			}
 const vector<string>&					Context::getDeviceExtensions			(void) const { return m_device->getDeviceExtensions();			}
 vk::VkDevice							Context::getDevice						(void) const { return m_device->getDevice();					}
 const vk::DeviceInterface&				Context::getDeviceInterface				(void) const { return m_device->getDeviceInterface();			}
 deUint32								Context::getUniversalQueueFamilyIndex	(void) const { return m_device->getUniversalQueueFamilyIndex();	}
 vk::VkQueue								Context::getUniversalQueue				(void) const { return m_device->getUniversalQueue();			}
+deUint32								Context::getSparseQueueFamilyIndex		(void) const { return m_device->getSparseQueueFamilyIndex();	}
+vk::VkQueue								Context::getSparseQueue					(void) const { return m_device->getSparseQueue();				}
 vk::Allocator&							Context::getDefaultAllocator			(void) const { return *m_allocator;								}
 
 // TestCase

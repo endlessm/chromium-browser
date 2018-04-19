@@ -57,7 +57,8 @@ void AddVariationHeaders(const std::unique_ptr<net::URLFetcher>& fetcher) {
 //
 //     urls: {
 //       url : <current_url>
-//       // timestamp_usec is the timestamp for the page visit time.
+//       // timestamp_usec is the timestamp for the page visit time, measured
+//       // in microseconds since the Unix epoch.
 //       timestamp_usec: <visit_time>
 //     }
 //     // stream_type = 1 corresponds to zero suggest suggestions.
@@ -71,8 +72,9 @@ std::string FormatRequestBodyExperimentalService(const std::string& current_url,
   auto url_list = std::make_unique<base::ListValue>();
   auto url_entry = std::make_unique<base::DictionaryValue>();
   url_entry->SetString("url", current_url);
-  url_entry->SetString("timestamp_usec",
-                       std::to_string(syncer::TimeToProtoTime(visit_time)));
+  url_entry->SetString(
+      "timestamp_usec",
+      std::to_string((visit_time - base::Time::UnixEpoch()).InMicroseconds()));
   url_list->Append(std::move(url_entry));
   request->Set("urls", std::move(url_list));
   // stream_type = 1 corresponds to zero suggest suggestions.
@@ -150,12 +152,11 @@ GURL ContextualSuggestionsService::ContextualSuggestionsUrl(
 GURL ContextualSuggestionsService::ExperimentalContextualSuggestionsUrl(
     const std::string& current_url,
     const TemplateURLService* template_url_service) const {
-  if (current_url.empty()) {
+  if (current_url.empty() || template_url_service == nullptr) {
     return GURL();
   }
 
-  if (!base::FeatureList::IsEnabled(omnibox::kZeroSuggestRedirectToChrome) ||
-      template_url_service == nullptr) {
+  if (!base::FeatureList::IsEnabled(omnibox::kZeroSuggestRedirectToChrome)) {
     return GURL();
   }
 

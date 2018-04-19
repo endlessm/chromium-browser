@@ -9,7 +9,7 @@
 #include <memory>
 
 #include "base/allocator/allocator_shim.h"
-#include "base/allocator/features.h"
+#include "base/allocator/buildflags.h"
 #include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -737,8 +737,14 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
 
   [self openUrls:urls];
 
+  // In test environments where there is no network connection, the visible NTP
+  // URL may be chrome-search://local-ntp/local-ntp.html instead of
+  // chrome://newtab/. See local_ntp_test_utils::GetFinalNtpUrl for more
+  // details.
+  // This NTP check should be replaced once https://crbug.com/624410 is fixed.
   if (startupIndex != TabStripModel::kNoTab &&
-      startupContent->GetVisibleURL() == chrome::kChromeUINewTabURL) {
+      (startupContent->GetVisibleURL() == chrome::kChromeUINewTabURL ||
+       startupContent->GetVisibleURL() == chrome::kChromeSearchLocalNtpUrl)) {
     browser->tab_strip_model()->CloseWebContentsAt(startupIndex,
         TabStripModel::CLOSE_NONE);
   }
@@ -830,17 +836,16 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
 
   // Set the dialog text based on whether or not there are multiple downloads.
   // Dialog text: warning and explanation.
-  titleText = l10n_util::GetPluralNSStringF(
-      IDS_DOWNLOAD_REMOVE_CONFIRM_TITLE, downloadCount);
-  explanationText = l10n_util::GetPluralNSStringF(
-      IDS_DOWNLOAD_REMOVE_CONFIRM_EXPLANATION, downloadCount);
-  // Cancel download and exit button text.
-  exitTitle = l10n_util::GetPluralNSStringF(
-      IDS_DOWNLOAD_REMOVE_CONFIRM_OK_BUTTON_LABEL, downloadCount);
+  titleText = l10n_util::GetPluralNSStringF(IDS_ABANDON_DOWNLOAD_DIALOG_TITLE,
+                                            downloadCount);
+  explanationText =
+      l10n_util::GetNSString(IDS_ABANDON_DOWNLOAD_DIALOG_BROWSER_MESSAGE);
+  // "Cancel download and exit" button text.
+  exitTitle = l10n_util::GetNSString(IDS_ABANDON_DOWNLOAD_DIALOG_EXIT_BUTTON);
 
-  // Wait for download button text.
-  waitTitle = l10n_util::GetPluralNSStringF(
-      IDS_DOWNLOAD_REMOVE_CONFIRM_CANCEL_BUTTON_LABEL, downloadCount);
+  // "Wait for download" button text.
+  waitTitle =
+      l10n_util::GetNSString(IDS_ABANDON_DOWNLOAD_DIALOG_CONTINUE_BUTTON);
 
   // 'waitButton' is the default choice.
   int choice = NSRunAlertPanel(titleText, @"%@",
@@ -857,6 +862,14 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
     return YES;
 
   std::vector<Profile*> profiles(profile_manager->GetLoadedProfiles());
+
+  std::vector<Profile*> added_profiles;
+  for (Profile* p : profiles) {
+    if (p->HasOffTheRecordProfile())
+      added_profiles.push_back(p->GetOffTheRecordProfile());
+  }
+  profiles.insert(profiles.end(), added_profiles.begin(), added_profiles.end());
+
   for (size_t i = 0; i < profiles.size(); ++i) {
     DownloadCoreService* download_core_service =
         DownloadCoreServiceFactory::GetForBrowserContext(profiles[i]);
@@ -1031,10 +1044,14 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
   NSInteger tag = [sender tag];
 
   // If there are no browser windows, and we are trying to open a browser
-  // for a locked profile or the system profile, we have to show the User
-  // Manager instead as the locked profile needs authentication and the system
-  // profile cannot have a browser.
-  if (IsProfileSignedOut(lastProfile) || lastProfile->IsSystemProfile()) {
+  // for a locked profile or the system profile or the guest profile but
+  // guest mode is disabled, we have to show the User Manager instead as the
+  // locked profile needs authentication and the system profile cannot have a
+  // browser.
+  const PrefService* prefService = g_browser_process->local_state();
+  if (IsProfileSignedOut(lastProfile) || lastProfile->IsSystemProfile() ||
+      (lastProfile->IsGuestSession() && prefService &&
+       !prefService->GetBoolean(prefs::kBrowserGuestModeEnabled))) {
     UserManager::Show(base::FilePath(),
                       profiles::USER_MANAGER_SELECT_PROFILE_NO_ACTION);
     return;
@@ -1048,7 +1065,7 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
         chrome::ExecuteCommand(browser, IDC_NEW_TAB);
         break;
       }
-      // Else fall through to create new window.
+      FALLTHROUGH;  // To create new window.
     case IDC_NEW_WINDOW:
       CreateBrowser(lastProfile);
       break;

@@ -8,13 +8,13 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "base/scoped_observer.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/animation/ink_drop_host_view.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/widget/widget_observer.h"
 
 class CommandUpdater;
-class LocationBarBubbleDelegateView;
 
 namespace gfx {
 struct VectorIcon;
@@ -26,13 +26,16 @@ class BubbleDialogDelegateView;
 
 // Represents an icon on the omnibox that shows a bubble when clicked.
 // TODO(spqchan): Convert this to subclass Button.
-class BubbleIconView : public views::InkDropHostView,
-                       public views::WidgetObserver {
+class BubbleIconView : public views::InkDropHostView {
  public:
   void Init();
 
-  // Invoked when a bubble for this icon is created.
-  void OnBubbleCreated(LocationBarBubbleDelegateView* bubble);
+  // Invoked when a bubble for this icon is created. The BubbleIconView changes
+  // highlights based on this widget's visibility.
+  void OnBubbleWidgetCreated(views::Widget* bubble_widget);
+
+  // Returns the bubble instance for the icon.
+  virtual views::BubbleDialogDelegateView* GetBubble() const = 0;
 
  protected:
   enum ExecuteSource {
@@ -63,7 +66,7 @@ class BubbleIconView : public views::InkDropHostView,
   // Invoked after the icon is pressed.
   virtual void OnPressed(bool activated) {}
 
-  // views::View:
+  // views::InkDropHostView:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   bool GetTooltipText(const gfx::Point& p,
                       base::string16* tooltip) const override;
@@ -80,21 +83,17 @@ class BubbleIconView : public views::InkDropHostView,
   void RemoveInkDropLayer(ui::Layer* ink_drop_layer) override;
   std::unique_ptr<views::InkDrop> CreateInkDrop() override;
   std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override;
+  std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
+      const override;
   SkColor GetInkDropBaseColor() const override;
+  std::unique_ptr<views::InkDropMask> CreateInkDropMask() const override;
 
   // ui::EventHandler:
   void OnGestureEvent(ui::GestureEvent* event) override;
 
-  // views::WidgetObserver:
-  void OnWidgetDestroying(views::Widget* widget) override;
-  void OnWidgetVisibilityChanged(views::Widget* widget, bool visible) override;
-
  protected:
   // Calls OnExecuting and runs |command_id_| with a valid |command_updater_|.
   virtual void ExecuteCommand(ExecuteSource source);
-
-  // Returns the bubble instance for the icon.
-  virtual views::BubbleDialogDelegateView* GetBubble() const = 0;
 
   // Gets the given vector icon in the correct color and size based on |active|.
   virtual const gfx::VectorIcon& GetVectorIcon() const = 0;
@@ -112,6 +111,30 @@ class BubbleIconView : public views::InkDropHostView,
   bool active() const { return active_; }
 
  private:
+  class WidgetObserver : public views::WidgetObserver {
+   public:
+    explicit WidgetObserver(BubbleIconView* parent);
+    ~WidgetObserver() override;
+
+    void SetWidget(views::Widget* widget);
+
+   private:
+    // views::WidgetObserver:
+    void OnWidgetDestroying(views::Widget* widget) override;
+    void OnWidgetVisibilityChanged(views::Widget* widget,
+                                   bool visible) override;
+
+    BubbleIconView* const parent_;
+    ScopedObserver<views::Widget, views::WidgetObserver> scoped_observer_;
+    DISALLOW_COPY_AND_ASSIGN(WidgetObserver);
+  };
+
+  // Highlights the ink drop for the icon, used when the corresponding widget
+  // is visible.
+  void SetHighlighted(bool bubble_visible);
+
+  WidgetObserver widget_observer_;
+
   // The image shown in the button.
   views::ImageView* image_;
 

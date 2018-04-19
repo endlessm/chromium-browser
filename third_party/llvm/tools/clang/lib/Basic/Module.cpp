@@ -78,6 +78,11 @@ static bool hasFeature(StringRef Feature, const LangOptions &LangOpts,
                         .Case("coroutines", LangOpts.CoroutinesTS)
                         .Case("cplusplus", LangOpts.CPlusPlus)
                         .Case("cplusplus11", LangOpts.CPlusPlus11)
+                        .Case("cplusplus14", LangOpts.CPlusPlus14)
+                        .Case("cplusplus17", LangOpts.CPlusPlus17)
+                        .Case("c99", LangOpts.C99)
+                        .Case("c11", LangOpts.C11)
+                        .Case("c17", LangOpts.C17)
                         .Case("freestanding", LangOpts.Freestanding)
                         .Case("gnuinlineasm", LangOpts.GNUAsm)
                         .Case("objc", LangOpts.ObjC1)
@@ -95,11 +100,16 @@ static bool hasFeature(StringRef Feature, const LangOptions &LangOpts,
 
 bool Module::isAvailable(const LangOptions &LangOpts, const TargetInfo &Target,
                          Requirement &Req,
-                         UnresolvedHeaderDirective &MissingHeader) const {
+                         UnresolvedHeaderDirective &MissingHeader,
+                         Module *&ShadowingModule) const {
   if (IsAvailable)
     return true;
 
   for (const Module *Current = this; Current; Current = Current->Parent) {
+    if (Current->ShadowingModule) {
+      ShadowingModule = Current->ShadowingModule;
+      return false;
+    }
     for (unsigned I = 0, N = Current->Requirements.size(); I != N; ++I) {
       if (hasFeature(Current->Requirements[I].first, LangOpts, Target) !=
               Current->Requirements[I].second) {

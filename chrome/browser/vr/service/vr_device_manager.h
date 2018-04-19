@@ -17,8 +17,8 @@
 #include "base/threading/thread_checker.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/vr/service/vr_service_impl.h"
+#include "device/vr/public/mojom/vr_service.mojom.h"
 #include "device/vr/vr_device.h"
-#include "device/vr/vr_service.mojom.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
 
 namespace device {
@@ -36,6 +36,7 @@ class VRDeviceManager {
   // Returns the VRDeviceManager singleton.
   static VRDeviceManager* GetInstance();
   static bool HasInstance();
+  static void RecordVrStartupHistograms();
 
   // Adds a listener for device manager events. VRDeviceManager does not own
   // this object.

@@ -279,7 +279,8 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, DISABLED_EnableSpokenFeedback) {
 IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, FocusToolbar) {
   EnableChromeVox();
   chrome::ExecuteCommand(browser(), IDC_FOCUS_TOOLBAR);
-  EXPECT_EQ("Reload", speech_monitor_.GetNextUtterance());
+  while (speech_monitor_.GetNextUtterance() != "Reload") {
+  }
   EXPECT_EQ("Button", speech_monitor_.GetNextUtterance());
 }
 
@@ -314,6 +315,8 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, FocusShelf) {
   EXPECT_EQ("Shelf", speech_monitor_.GetNextUtterance());
   EXPECT_EQ("Tool bar", speech_monitor_.GetNextUtterance());
   EXPECT_EQ(", window", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Press Search plus Space to activate.",
+            speech_monitor_.GetNextUtterance());
 
   SendKeyPress(ui::VKEY_TAB);
   EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "*"));
@@ -622,7 +625,7 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, DISABLED_TouchExploreStatusTray) {
   // Send an accessibility hover event on the system tray, which is
   // what we get when you tap it on a touch screen when ChromeVox is on.
   ash::SystemTray* tray = ash::Shell::Get()->GetPrimarySystemTray();
-  tray->NotifyAccessibilityEvent(ui::AX_EVENT_HOVER, true);
+  tray->NotifyAccessibilityEvent(ax::mojom::Event::kHover, true);
 
   EXPECT_EQ("Status tray,", speech_monitor_.GetNextUtterance());
   EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "time*,"));
@@ -696,10 +699,9 @@ class GuestSpokenFeedbackTest : public LoggedInSpokenFeedbackTest {
 
 IN_PROC_BROWSER_TEST_F(GuestSpokenFeedbackTest, FocusToolbar) {
   EnableChromeVox();
-
   chrome::ExecuteCommand(browser(), IDC_FOCUS_TOOLBAR);
-
-  EXPECT_EQ("Reload", speech_monitor_.GetNextUtterance());
+  while (speech_monitor_.GetNextUtterance() != "Reload") {
+  }
   EXPECT_EQ("Button", speech_monitor_.GetNextUtterance());
 }
 

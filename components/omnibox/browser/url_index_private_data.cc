@@ -330,6 +330,7 @@ void URLIndexPrivateData::ScheduleUpdateRecentVisits(
     history::URLID url_id,
     base::CancelableTaskTracker* tracker) {
   history_service->ScheduleDBTask(
+      FROM_HERE,
       std::unique_ptr<history::HistoryDBTask>(
           new UpdateRecentVisitsFromHistoryDBTask(this, url_id)),
       tracker);
@@ -423,6 +424,7 @@ scoped_refptr<URLIndexPrivateData> URLIndexPrivateData::RebuildFromHistory(
       OmniboxFieldTrial::MaxNumHQPUrlsIndexedAtStartup();
   int num_urls_indexed = 0;
   for (history::URLRow row; history_enum.GetNextURL(&row);) {
+    DCHECK(RowQualifiesAsSignificant(row, base::Time()));
     // Do not use >= to account for case of -1 for unlimited urls.
     if (num_urls_indexed++ == max_urls_indexed)
       break;
@@ -480,6 +482,22 @@ void URLIndexPrivateData::Clear() {
   history_id_word_map_.clear();
   history_info_map_.clear();
   word_starts_map_.clear();
+}
+
+size_t URLIndexPrivateData::EstimateMemoryUsage() const {
+  size_t res = 0;
+
+  res += base::trace_event::EstimateMemoryUsage(search_term_cache_);
+  res += base::trace_event::EstimateMemoryUsage(word_list_);
+  res += base::trace_event::EstimateMemoryUsage(available_words_);
+  res += base::trace_event::EstimateMemoryUsage(word_map_);
+  res += base::trace_event::EstimateMemoryUsage(char_word_map_);
+  res += base::trace_event::EstimateMemoryUsage(word_id_history_map_);
+  res += base::trace_event::EstimateMemoryUsage(history_id_word_map_);
+  res += base::trace_event::EstimateMemoryUsage(history_info_map_);
+  res += base::trace_event::EstimateMemoryUsage(word_starts_map_);
+
+  return res;
 }
 
 URLIndexPrivateData::~URLIndexPrivateData() {}
@@ -1297,6 +1315,11 @@ URLIndexPrivateData::SearchTermCacheItem::SearchTermCacheItem() : used_(true) {
 
 URLIndexPrivateData::SearchTermCacheItem::SearchTermCacheItem(
     const SearchTermCacheItem& other) = default;
+
+size_t URLIndexPrivateData::SearchTermCacheItem::EstimateMemoryUsage() const {
+  return base::trace_event::EstimateMemoryUsage(word_id_set_) +
+         base::trace_event::EstimateMemoryUsage(history_id_set_);
+}
 
 URLIndexPrivateData::SearchTermCacheItem::~SearchTermCacheItem() {
 }

@@ -19,6 +19,7 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/render_text.h"
+#include "ui/gfx/shadow_value.h"
 #include "ui/gfx/text_elider.h"
 #include "ui/gl/gl_bindings.h"
 
@@ -26,7 +27,7 @@ namespace vr {
 
 namespace {
 
-static constexpr char kDefaultFontFamily[] = "sans-serif";
+constexpr char kDefaultFontFamily[] = "sans-serif";
 
 static bool force_font_fallback_failure_for_testing_ = false;
 
@@ -102,7 +103,9 @@ std::vector<std::unique_ptr<gfx::RenderText>> UiTexture::PrepareDrawStringRect(
     int line_height = 0;
     for (size_t i = 0; i < strings.size(); i++) {
       std::unique_ptr<gfx::RenderText> render_text = CreateConfiguredRenderText(
-          strings[i], font_list, parameters.color, parameters.text_alignment);
+          strings[i], font_list, parameters.color, parameters.text_alignment,
+          parameters.shadows_enabled, parameters.shadow_color,
+          parameters.shadow_size);
 
       if (i == 0) {
         // Measure line and center text vertically.
@@ -123,10 +126,11 @@ std::vector<std::unique_ptr<gfx::RenderText>> UiTexture::PrepareDrawStringRect(
     // Set calculated height.
     if (bounds->height() == 0)
       bounds->set_height(height);
-
   } else {
     std::unique_ptr<gfx::RenderText> render_text = CreateConfiguredRenderText(
-        text, font_list, parameters.color, parameters.text_alignment);
+        text, font_list, parameters.color, parameters.text_alignment,
+        parameters.shadows_enabled, parameters.shadow_color,
+        parameters.shadow_size);
     if (bounds->width() != 0 && !parameters.cursor_enabled)
       render_text->SetElideBehavior(gfx::TRUNCATE);
     if (parameters.cursor_enabled) {
@@ -142,11 +146,20 @@ std::vector<std::unique_ptr<gfx::RenderText>> UiTexture::PrepareDrawStringRect(
     render_text->SetDisplayRect(*bounds);
     lines.push_back(std::move(render_text));
   }
+
+  if (parameters.shadows_enabled) {
+    bounds->Inset(-parameters.shadow_size, -parameters.shadow_size);
+    bounds->Offset(parameters.shadow_size, parameters.shadow_size);
+  }
+
   return lines;
 }
 
 std::unique_ptr<gfx::RenderText> UiTexture::CreateRenderText() {
   auto render_text = gfx::RenderText::CreateHarfBuzzInstance();
+
+  // Disable the cursor to avoid reserving width for a trailing caret.
+  render_text->SetCursorEnabled(false);
 
   // Subpixel rendering is counterproductive when drawing VR textures.
   render_text->set_subpixel_rendering_suppressed(true);
@@ -158,11 +171,18 @@ std::unique_ptr<gfx::RenderText> UiTexture::CreateConfiguredRenderText(
     const base::string16& text,
     const gfx::FontList& font_list,
     SkColor color,
-    UiTexture::TextAlignment text_alignment) {
+    UiTexture::TextAlignment text_alignment,
+    bool shadows_enabled,
+    SkColor shadow_color,
+    float shadow_size) {
   std::unique_ptr<gfx::RenderText> render_text(CreateRenderText());
   render_text->SetText(text);
   render_text->SetFontList(font_list);
   render_text->SetColor(color);
+  if (shadows_enabled) {
+    render_text->set_shadows(
+        {gfx::ShadowValue({0, 0}, shadow_size, shadow_color)});
+  }
 
   switch (text_alignment) {
     case UiTexture::kTextAlignmentNone:

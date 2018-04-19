@@ -11,7 +11,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
-#include "chrome/browser/conflicts/module_database_win.h"
 #include "chrome/browser/conflicts/module_info_win.h"
 
 namespace {
@@ -32,22 +31,9 @@ bool IsMicrosoftModule(const ModuleInfoData& module_data) {
       base::CompareCase::SENSITIVE);
 }
 
-// Returns true if |module_data| is a third party module.
-bool IsThirdPartyModule(const ModuleInfoData& module_data) {
-  return !IsGoogleModule(module_data) && !IsMicrosoftModule(module_data);
-}
-
 }  // namespace
 
-ThirdPartyMetricsRecorder::ThirdPartyMetricsRecorder(
-    ModuleDatabase* module_database) {
-  // base::Unretained() is safe here because ThirdPartyMetricsRecorder owns
-  // |installed_programs_| and the callback won't be invoked if this instance is
-  // destroyed.
-  installed_programs_.Initialize(
-      base::BindOnce(&ThirdPartyMetricsRecorder::OnInstalledProgramsInitialized,
-                     base::Unretained(this), module_database));
-}
+ThirdPartyMetricsRecorder::ThirdPartyMetricsRecorder() = default;
 
 ThirdPartyMetricsRecorder::~ThirdPartyMetricsRecorder() = default;
 
@@ -77,14 +63,6 @@ void ThirdPartyMetricsRecorder::OnNewModuleFound(
       }
     }
   }
-
-  // The uninstallable metric is only recorded for third party metrics.
-  if (IsThirdPartyModule(module_data)) {
-    std::vector<InstalledPrograms::ProgramInfo> programs;
-    bool uninstallable = installed_programs_.GetInstalledPrograms(
-        module_key.module_path, &programs);
-    UMA_HISTOGRAM_BOOLEAN("ThirdPartyModules.Uninstallable", uninstallable);
-  }
 }
 
 void ThirdPartyMetricsRecorder::OnModuleDatabaseIdle() {
@@ -106,9 +84,4 @@ void ThirdPartyMetricsRecorder::OnModuleDatabaseIdle() {
                                  catalog_module_count_, 1, 500, 50);
   base::UmaHistogramCustomCounts("ThirdPartyModules.Modules.Total",
                                  module_count_, 1, 500, 50);
-}
-
-void ThirdPartyMetricsRecorder::OnInstalledProgramsInitialized(
-    ModuleDatabase* module_database) {
-  module_database->AddObserver(this);
 }

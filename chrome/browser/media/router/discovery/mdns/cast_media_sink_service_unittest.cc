@@ -11,7 +11,6 @@
 #include "chrome/browser/media/router/discovery/mdns/cast_media_sink_service_impl.h"
 #include "chrome/browser/media/router/test/mock_dns_sd_registry.h"
 #include "chrome/browser/media/router/test/test_helper.h"
-#include "chrome/test/base/testing_profile.h"
 #include "components/cast_channel/cast_socket.h"
 #include "components/cast_channel/cast_socket_service.h"
 #include "components/cast_channel/cast_test_util.h"
@@ -57,12 +56,13 @@ class MockCastMediaSinkServiceImpl : public CastMediaSinkServiceImpl {
  public:
   MockCastMediaSinkServiceImpl(
       const OnSinksDiscoveredCallback& callback,
+      CastMediaSinkServiceImpl::Observer* observer,
       cast_channel::CastSocketService* cast_socket_service,
       DiscoveryNetworkMonitor* network_monitor)
       : CastMediaSinkServiceImpl(callback,
+                                 observer,
                                  cast_socket_service,
-                                 network_monitor,
-                                 nullptr /* url_request_context_getter */),
+                                 network_monitor),
         sinks_discovered_cb_(callback) {}
   ~MockCastMediaSinkServiceImpl() override {}
 
@@ -82,21 +82,20 @@ class MockCastMediaSinkServiceImpl : public CastMediaSinkServiceImpl {
 
 class TestCastMediaSinkService : public CastMediaSinkService {
  public:
-  TestCastMediaSinkService(
-      const scoped_refptr<net::URLRequestContextGetter>& request_context,
-      cast_channel::CastSocketService* cast_socket_service,
-      DiscoveryNetworkMonitor* network_monitor)
-      : CastMediaSinkService(request_context),
-        cast_socket_service_(cast_socket_service),
+  TestCastMediaSinkService(cast_channel::CastSocketService* cast_socket_service,
+                           DiscoveryNetworkMonitor* network_monitor)
+      : cast_socket_service_(cast_socket_service),
         network_monitor_(network_monitor) {}
   ~TestCastMediaSinkService() override = default;
 
   std::unique_ptr<CastMediaSinkServiceImpl, base::OnTaskRunnerDeleter>
-  CreateImpl(const OnSinksDiscoveredCallback& sinks_discovered_cb) override {
+  CreateImpl(const OnSinksDiscoveredCallback& sinks_discovered_cb,
+             CastMediaSinkServiceImpl::Observer* observer) override {
     auto mock_impl = std::unique_ptr<MockCastMediaSinkServiceImpl,
                                      base::OnTaskRunnerDeleter>(
-        new MockCastMediaSinkServiceImpl(
-            sinks_discovered_cb, cast_socket_service_, network_monitor_),
+        new MockCastMediaSinkServiceImpl(sinks_discovered_cb, observer,
+                                         cast_socket_service_,
+                                         network_monitor_),
         base::OnTaskRunnerDeleter(cast_socket_service_->task_runner()));
     mock_impl_ = mock_impl.get();
     return mock_impl;
@@ -118,7 +117,6 @@ class CastMediaSinkServiceTest : public ::testing::Test {
         mock_cast_socket_service_(
             new cast_channel::MockCastSocketService(task_runner_)),
         media_sink_service_(new TestCastMediaSinkService(
-            profile_.GetRequestContext(),
             mock_cast_socket_service_.get(),
             DiscoveryNetworkMonitor::GetInstance())),
         test_dns_sd_registry_(media_sink_service_.get()) {}
@@ -127,7 +125,8 @@ class CastMediaSinkServiceTest : public ::testing::Test {
     EXPECT_CALL(test_dns_sd_registry_, AddObserver(media_sink_service_.get()));
     EXPECT_CALL(test_dns_sd_registry_, RegisterDnsSdListener(_));
     media_sink_service_->SetDnsSdRegistryForTest(&test_dns_sd_registry_);
-    media_sink_service_->Start(mock_sink_discovered_ui_cb_.Get());
+    media_sink_service_->Start(mock_sink_discovered_ui_cb_.Get(),
+                               /* observer */ nullptr);
     mock_impl_ = media_sink_service_->mock_impl();
     ASSERT_TRUE(mock_impl_);
     EXPECT_CALL(*mock_impl_, DoStart()).WillOnce(InvokeWithoutArgs([this]() {
@@ -148,8 +147,6 @@ class CastMediaSinkServiceTest : public ::testing::Test {
   content::TestBrowserThreadBundle thread_bundle_;
   scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
   std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier_;
-
-  TestingProfile profile_;
 
   base::MockCallback<OnSinksDiscoveredCallback> mock_sink_discovered_ui_cb_;
   std::unique_ptr<cast_channel::MockCastSocketService>

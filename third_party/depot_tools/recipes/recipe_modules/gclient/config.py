@@ -23,7 +23,7 @@ def BaseConfig(USE_MIRROR=True, CACHE_DIR=None,
                            hidden=False),
         managed = Single(bool, empty_val=True, required=False, hidden=False),
         custom_deps = Dict(value_type=(basestring, types.NoneType)),
-        custom_vars = Dict(value_type=basestring),
+        custom_vars = Dict(value_type=(basestring, types.BooleanType)),
         safesync_url = Single(basestring, required=False),
 
         revision = Single(
@@ -35,6 +35,8 @@ def BaseConfig(USE_MIRROR=True, CACHE_DIR=None,
     hooks = List(basestring),
     target_os = Set(basestring),
     target_os_only = Single(bool, empty_val=False, required=False),
+    target_cpu = Set(basestring),
+    target_cpu_only = Single(bool, empty_val=False, required=False),
     cache_dir = Static(cache_dir, hidden=False),
 
     # If supplied, use this as the source root (instead of the first solution's
@@ -245,6 +247,8 @@ def pdfium(c):
   soln = c.solutions.add()
   soln.name = 'pdfium'
   soln.url = 'https://pdfium.googlesource.com/pdfium.git'
+  m = c.got_revision_mapping
+  m['pdfium'] = 'got_revision'
 
 @config_ctx()
 def mojo(c):

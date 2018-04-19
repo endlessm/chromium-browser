@@ -7,6 +7,8 @@
 #include <utility>
 
 #include "ash/public/cpp/shell_window_ids.h"
+#include "ash/public/cpp/window_properties.h"
+#include "ash/public/cpp/window_state_type.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
 #include "ash/wm/screen_pinning_controller.h"
@@ -31,11 +33,12 @@ void SetWindowRestoreOverrides(aura::Window* window,
                                const gfx::Rect& bounds_override,
                                ui::WindowShowState window_state_override) {
   if (bounds_override.IsEmpty()) {
-    window->ClearProperty(kRestoreShowStateOverrideKey);
+    window->ClearProperty(kRestoreWindowStateTypeOverrideKey);
     window->ClearProperty(kRestoreBoundsOverrideKey);
     return;
   }
-  window->SetProperty(kRestoreShowStateOverrideKey, window_state_override);
+  window->SetProperty(kRestoreWindowStateTypeOverrideKey,
+                      ToWindowStateType(window_state_override));
   window->SetProperty(kRestoreBoundsOverrideKey,
                       new gfx::Rect(bounds_override));
 }
@@ -296,15 +299,12 @@ void TabletModeWindowState::AttachState(
     UpdateWindow(window_state, GetMaximizedOrCenteredWindowType(window_state),
                  true /* animated */);
   }
-
-  window_state->set_can_be_dragged(false);
 }
 
 void TabletModeWindowState::DetachState(wm::WindowState* window_state) {
   // From now on, we can use the default session restore mechanism again.
   SetWindowRestoreOverrides(window_state->window(), gfx::Rect(),
                             ui::SHOW_STATE_NORMAL);
-  window_state->set_can_be_dragged(true);
 }
 
 void TabletModeWindowState::UpdateWindow(wm::WindowState* window_state,
@@ -394,6 +394,8 @@ void TabletModeWindowState::UpdateBounds(wm::WindowState* window_state,
       // avoid flashing.
       if (window_state->IsMaximized())
         window_state->SetBoundsDirectCrossFade(bounds_in_parent);
+      else if (window_state->IsSnapped())
+        window_state->SetBoundsDirect(bounds_in_parent);
       else
         window_state->SetBoundsDirectAnimated(bounds_in_parent);
     }

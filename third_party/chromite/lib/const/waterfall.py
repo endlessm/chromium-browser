@@ -64,6 +64,8 @@ SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE = 1005
 SOM_BUILDS = {
     SOM_TREE: [
         (WATERFALL_INTERNAL, 'master-paladin', SOM_SEVERITY_CQ_FAILURE),
+        (WATERFALL_INTERNAL, 'master-mst-android-pfq',
+         SOM_SEVERITY_PFQ_FAILURE),
         (WATERFALL_INTERNAL, 'master-nyc-android-pfq',
          SOM_SEVERITY_PFQ_FAILURE),
         (WATERFALL_INTERNAL, 'master-release', SOM_SEVERITY_CANARY_FAILURE),
@@ -90,6 +92,9 @@ SOM_BUILDS = {
         (WATERFALL_CHROMIUM, 'amd64-generic-tot-asan-informational',
          SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE),
         (WATERFALL_CHROMIUM, 'amd64-generic-telemetry',
+         SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE),
+        (WATERFALL_CHROMIUM,
+         'amd64-generic-goma-canary-chromium-pfq-informational',
          SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE),
     ],
 }

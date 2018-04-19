@@ -10,8 +10,8 @@
 #include <stddef.h>
 
 #include "build/build_config.h"
-#include "chrome/common/features.h"
-#include "components/offline_pages/features/features.h"
+#include "chrome/common/buildflags.h"
+#include "components/offline_pages/buildflags/buildflags.h"
 #include "extensions/features/features.h"
 #include "media/media_features.h"
 #include "ppapi/features/features.h"
@@ -61,11 +61,15 @@ extern const char kURLsToRestoreOnStartup[];
 extern const char kRlzPingDelaySeconds[];
 #endif  // BUILDFLAG(ENABLE_RLZ)
 
+// The application locale.
+// DO NOT USE this locale directly: use language::ConverToActualLocale() after
+// reading it to get the system locale.
+// This pref stores the locale that the user selected, if applicable.
+extern const char kApplicationLocale[];
 // For OS_CHROMEOS we maintain the kApplicationLocale property in both local
 // state and the user's profile.  The global property determines the locale of
 // the login screen, while the user's profile determines their personal locale
 // preference.
-extern const char kApplicationLocale[];
 #if defined(OS_CHROMEOS)
 extern const char kApplicationLocaleBackup[];
 extern const char kApplicationLocaleAccepted[];
@@ -297,6 +301,7 @@ extern const char kInstantTetheringEnabled[];
 extern const char kInstantTetheringBleAdvertisingSupported[];
 extern const char kCastReceiverEnabled[];
 extern const char kMinimumAllowedChromeVersion[];
+extern const char kShowSyncSettingsOnSessionStart[];
 #endif  // defined(OS_CHROMEOS)
 extern const char kShowHomeButton[];
 extern const char kSpeechRecognitionFilterProfanities[];
@@ -448,18 +453,7 @@ extern const char kHasSeenWelcomePage[];
 
 #if defined(OS_WIN)
 extern const char kHasSeenWin10PromoPage[];
-#endif
-
-extern const char kGLVendorString[];
-extern const char kGLRendererString[];
-extern const char kGLVersionString[];
-
-#if defined(OS_ANDROID)
-extern const char kGLExtensionsString[];
-extern const char kGpuDriverInfoMaxSamples[];
-extern const char kGpuDriverInfoResetNotificationStrategy[];
-extern const char kGpuDriverInfoShaderVersion[];
-extern const char kGpuDriverInfoBuildFingerPrint[];
+extern const char kResetHasSeenWin10PromoPage[];
 #endif
 
 // Deprecated preference for metric / crash reporting on Android. Use
@@ -501,6 +495,9 @@ extern const char kDownloadDirUpgraded[];
 #if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_MACOSX)
 extern const char kOpenPdfDownloadInSystemReader[];
 #endif
+#if defined(OS_ANDROID)
+extern const char kPromptForDownloadAndroid[];
+#endif
 
 extern const char kSaveFileDefaultDirectory[];
 extern const char kSaveFileType[];
@@ -515,7 +512,6 @@ extern const char kSelectFileLastDirectory[];
 extern const char kExcludedSchemes[];
 
 extern const char kOptionsWindowLastTabIndex[];
-extern const char kShowFirstRunBubbleOption[];
 
 extern const char kLastKnownIntranetRedirectOrigin[];
 
@@ -562,6 +558,7 @@ extern const char kDevToolsRemoteEnabled[];
 extern const char kGoogleServicesPasswordHash[];
 
 #if !defined(OS_ANDROID)
+extern const char kDiceSigninUserMenuPromoCount[];
 extern const char kSignInPromoStartupCount[];
 extern const char kSignInPromoUserSkipped[];
 extern const char kSignInPromoShowOnFirstRunAllowed[];
@@ -655,6 +652,7 @@ extern const char kPowerMetricsIdleScreenDimCount[];
 extern const char kPowerMetricsIdleScreenOffCount[];
 extern const char kPowerMetricsIdleSuspendCount[];
 extern const char kPowerMetricsLidClosedSuspendCount[];
+extern const char kReportingUsers[];
 #endif  // defined(OS_CHROMEOS)
 
 extern const char kClearPluginLSODataEnabled[];
@@ -690,6 +688,8 @@ extern const char kNtlmV2Enabled[];
 #endif  // defined(OS_POSIX)
 
 extern const char kBuiltInDnsClientEnabled[];
+extern const char kDnsOverHttpsServers[];
+extern const char kDnsOverHttpsServerMethods[];
 
 extern const char kRegisteredProtocolHandlers[];
 extern const char kIgnoredProtocolHandlers[];
@@ -724,6 +724,13 @@ extern const char kSystemTimezoneAutomaticDetectionPolicy[];
 extern const char kEnableMediaRouter[];
 #if !defined(OS_ANDROID)
 extern const char kShowCastIconInToolbar[];
+#endif  // !defined(OS_ANDROID)
+
+#if !defined(OS_ANDROID)
+#if !defined(OS_CHROMEOS)
+extern const char kRelaunchNotification[];
+#endif  // !defined(OS_CHROMEOS)
+extern const char kRelaunchNotificationPeriod[];
 #endif  // !defined(OS_ANDROID)
 
 #if !defined(OS_ANDROID)
@@ -862,7 +869,12 @@ extern const char kNumberBookmarksFootNoteIOSPromoShown[];
 extern const char kBookmarksFootNoteIOSPromoDismissed[];
 extern const char kNumberHistoryPageIOSPromoShown[];
 extern const char kHistoryPageIOSPromoDismissed[];
-#endif
+
+#if defined(GOOGLE_CHROME_BUILD)
+extern const char kProblematicPrograms[];
+extern const char kThirdPartyBlockingEnabled[];
+#endif  // defined(GOOGLE_CHROME_BUILD)
+#endif  // defined(OS_WIN)
 
 extern const char kSettingsResetPromptPromptWave[];
 extern const char kSettingsResetPromptLastTriggeredForDefaultSearch[];
@@ -909,10 +921,8 @@ extern const char kIsolateOrigins[];
 extern const char kSitePerProcess[];
 extern const char kWebDriverOverridesIncompatiblePolicies[];
 
-#if defined(OS_WIN)
-// Preference for controlling whether or not third party blocking is enabled on
-// Windows.
-extern const char kThirdPartyBlockingEnabled[];
+#if !defined(OS_ANDROID)
+extern const char kAutoplayAllowed[];
 #endif
 
 }  // namespace prefs

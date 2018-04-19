@@ -127,12 +127,10 @@ void ToolbarButton::OnGestureEvent(ui::GestureEvent* event) {
 
 void ToolbarButton::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   Button::GetAccessibleNodeData(node_data);
-  node_data->role = ui::AX_ROLE_BUTTON_DROP_DOWN;
-  node_data->AddState(ui::AX_STATE_HASPOPUP);
-  if (enabled()) {
-    node_data->AddIntAttribute(ui::AX_ATTR_DEFAULT_ACTION_VERB,
-                               ui::AX_DEFAULT_ACTION_VERB_PRESS);
-  }
+  node_data->role = ax::mojom::Role::kButton;
+  node_data->AddState(ax::mojom::State::kHaspopup);
+  if (enabled())
+    node_data->SetDefaultActionVerb(ax::mojom::DefaultActionVerb::kPress);
 }
 
 void ToolbarButton::ShowContextMenuForView(View* source,

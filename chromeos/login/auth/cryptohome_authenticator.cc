@@ -87,15 +87,6 @@ std::unique_ptr<Key> TransformKeyIfNeeded(const Key& key,
   return result;
 }
 
-// Records status and calls resolver->Resolve().
-void TriggerResolve(const base::WeakPtr<AuthAttemptState>& attempt,
-                    scoped_refptr<CryptohomeAuthenticator> resolver,
-                    bool success,
-                    cryptohome::MountError return_code) {
-  attempt->RecordCryptohomeStatus(return_code);
-  resolver->Resolve();
-}
-
 // Records get hash status and calls resolver->Resolve().
 void TriggerResolveHash(const base::WeakPtr<AuthAttemptState>& attempt,
                         scoped_refptr<CryptohomeAuthenticator> resolver,
@@ -108,7 +99,7 @@ void TriggerResolveHash(const base::WeakPtr<AuthAttemptState>& attempt,
   resolver->Resolve();
 }
 
-// Calls TriggerResolve while adding login time marker.
+// Records status and calls resolver->Resolve() while adding login time marker.
 void TriggerResolveWithLoginTimeMarker(
     const std::string& marker_name,
     const base::WeakPtr<AuthAttemptState>& attempt,
@@ -116,7 +107,8 @@ void TriggerResolveWithLoginTimeMarker(
     bool success,
     cryptohome::MountError return_code) {
   chromeos::LoginEventRecorder::Get()->AddLoginTimeMarker(marker_name, false);
-  TriggerResolve(attempt, resolver, success, return_code);
+  attempt->RecordCryptohomeStatus(return_code);
+  resolver->Resolve();
 }
 
 // Records an error in accessing the user's cryptohome with the given key and
@@ -141,11 +133,13 @@ void OnMount(const base::WeakPtr<AuthAttemptState>& attempt,
   chromeos::LoginEventRecorder::Get()->AddLoginTimeMarker(
       public_mount ? "CryptohomeMountPublic-End" : "CryptohomeMount-End",
       false);
-  attempt->RecordCryptohomeStatus(BaseReplyToMountError(reply));
-  if (attempt->cryptohome_code() == cryptohome::MOUNT_ERROR_NONE)
-    attempt->RecordUsernameHash(BaseReplyToMountHash(reply.value()));
-  else
+  attempt->RecordCryptohomeStatus(MountExReplyToMountError(reply));
+  if (attempt->cryptohome_code() == cryptohome::MOUNT_ERROR_NONE) {
+    attempt->RecordUsernameHash(MountExReplyToMountHash(reply.value()));
+  } else {
+    LOGIN_LOG(ERROR) << "MountEx failed. Error: " << attempt->cryptohome_code();
     attempt->RecordUsernameHashFailed();
+  }
   resolver->Resolve();
 }
 
@@ -187,7 +181,7 @@ void DoMount(const base::WeakPtr<AuthAttemptState>& attempt,
   auth_key->set_secret(key->GetSecret());
   DBusThreadManager::Get()->GetCryptohomeClient()->MountEx(
       cryptohome::Identification(attempt->user_context.GetAccountId()), auth,
-      mount, base::Bind(&OnMount, attempt, resolver));
+      mount, base::BindOnce(&OnMount, attempt, resolver));
 }
 
 // Handle cryptohome migration status.
@@ -195,12 +189,12 @@ void OnCryptohomeRenamed(const base::WeakPtr<AuthAttemptState>& attempt,
                          scoped_refptr<CryptohomeAuthenticator> resolver,
                          bool ephemeral,
                          bool create_if_nonexistent,
-                         bool success,
-                         cryptohome::MountError return_code) {
+                         base::Optional<cryptohome::BaseReply> reply) {
+  cryptohome::MountError return_code = cryptohome::BaseReplyToMountError(reply);
   chromeos::LoginEventRecorder::Get()->AddLoginTimeMarker(
       "CryptohomeRename-End", false);
   const AccountId account_id = attempt->user_context.GetAccountId();
-  if (success) {
+  if (return_code == cryptohome::MOUNT_ERROR_NONE) {
     cryptohome::SetGaiaIdMigrationStatusDone(account_id);
     UMACryptohomeMigrationToGaiaId(CryptohomeMigrationToGaiaId::SUCCESS);
   } else {
@@ -255,11 +249,11 @@ void EnsureCryptohomeMigratedToGaiaId(
     const std::string cryptohome_id_to =
         attempt->user_context.GetAccountId().GetAccountIdKey();
 
-    cryptohome::HomedirMethods::GetInstance()->RenameCryptohome(
+    DBusThreadManager::Get()->GetCryptohomeClient()->RenameCryptohome(
         cryptohome::Identification::FromString(cryptohome_id_from),
         cryptohome::Identification::FromString(cryptohome_id_to),
-        base::Bind(&OnCryptohomeRenamed, attempt, resolver, ephemeral,
-                   create_if_nonexistent));
+        base::BindOnce(&OnCryptohomeRenamed, attempt, resolver, ephemeral,
+                       create_if_nonexistent));
     return;
   }
   if (!already_migrated && has_account_key) {
@@ -302,15 +296,15 @@ void OnGetSystemSalt(const base::WeakPtr<AuthAttemptState>& attempt,
 //   |attempt->user_context| can be transformed with Chrome's default hashing
 //   algorithm and the system salt.
 // The resulting key is then passed to cryptohome's MountEx().
-void OnGetKeyDataEx(
-    const base::WeakPtr<AuthAttemptState>& attempt,
-    scoped_refptr<CryptohomeAuthenticator> resolver,
-    bool ephemeral,
-    bool create_if_nonexistent,
-    bool success,
-    cryptohome::MountError return_code,
-    const std::vector<cryptohome::KeyDefinition>& key_definitions) {
-  if (success) {
+void OnGetKeyDataEx(const base::WeakPtr<AuthAttemptState>& attempt,
+                    scoped_refptr<CryptohomeAuthenticator> resolver,
+                    bool ephemeral,
+                    bool create_if_nonexistent,
+                    base::Optional<cryptohome::BaseReply> reply) {
+  if (cryptohome::GetKeyDataReplyToMountError(reply) ==
+      cryptohome::MOUNT_ERROR_NONE) {
+    std::vector<cryptohome::KeyDefinition> key_definitions =
+        cryptohome::GetKeyDataReplyToKeyDefinitions(reply);
     if (key_definitions.size() == 1) {
       const cryptohome::KeyDefinition& key_definition = key_definitions.front();
       DCHECK_EQ(kCryptohomeGAIAKeyLabel, key_definition.label);
@@ -391,11 +385,11 @@ void StartMount(const base::WeakPtr<AuthAttemptState>& attempt,
 
   cryptohome::GetKeyDataRequest request;
   request.mutable_key()->mutable_data()->set_label(kCryptohomeGAIAKeyLabel);
-  cryptohome::HomedirMethods::GetInstance()->GetKeyDataEx(
+  DBusThreadManager::Get()->GetCryptohomeClient()->GetKeyDataEx(
       cryptohome::Identification(attempt->user_context.GetAccountId()),
       cryptohome::AuthorizationRequest(), request,
-      base::Bind(&OnGetKeyDataEx, attempt, resolver, ephemeral,
-                 create_if_nonexistent));
+      base::BindOnce(&OnGetKeyDataEx, attempt, resolver, ephemeral,
+                     create_if_nonexistent));
 }
 
 // Calls cryptohome's mount method for guest and also get the user hash from
@@ -434,7 +428,7 @@ void MountPublic(const base::WeakPtr<AuthAttemptState>& attempt,
   DBusThreadManager::Get()->GetCryptohomeClient()->MountEx(
       cryptohome::Identification(attempt->user_context.GetAccountId()),
       cryptohome::AuthorizationRequest(), mount,
-      base::Bind(&OnMount, attempt, resolver));
+      base::BindOnce(&OnMount, attempt, resolver));
 }
 
 // Calls cryptohome's key migration method.
@@ -480,15 +474,25 @@ void Remove(const base::WeakPtr<AuthAttemptState>& attempt,
                  attempt, resolver));
 }
 
+void OnKeyChecked(const base::WeakPtr<AuthAttemptState>& attempt,
+                  scoped_refptr<CryptohomeAuthenticator> resolver,
+                  base::Optional<cryptohome::BaseReply> reply) {
+  attempt->RecordCryptohomeStatus(BaseReplyToMountError(reply));
+  resolver->Resolve();
+}
+
 // Calls cryptohome's key check method.
 void CheckKey(const base::WeakPtr<AuthAttemptState>& attempt,
               scoped_refptr<CryptohomeAuthenticator> resolver,
               const std::string& system_salt) {
   std::unique_ptr<Key> key =
       TransformKeyIfNeeded(*attempt->user_context.GetKey(), system_salt);
-  cryptohome::AsyncMethodCaller::GetInstance()->AsyncCheckKey(
-      cryptohome::Identification(attempt->user_context.GetAccountId()),
-      key->GetSecret(), base::Bind(&TriggerResolve, attempt, resolver));
+  cryptohome::AuthorizationRequest auth;
+  auth.mutable_key()->set_secret(key->GetSecret());
+  DBusThreadManager::Get()->GetCryptohomeClient()->CheckKeyEx(
+      cryptohome::Identification(attempt->user_context.GetAccountId()), auth,
+      cryptohome::CheckKeyRequest(),
+      base::BindOnce(&OnKeyChecked, attempt, resolver));
 }
 
 }  // namespace
@@ -834,6 +838,7 @@ void CryptohomeAuthenticator::Resolve() {
       break;
     case CREATE_NEW:
       create_if_nonexistent = true;
+      FALLTHROUGH;
     case RECOVER_MOUNT:
       current_state_->ResetCryptohomeStatus();
       StartMount(current_state_->AsWeakPtr(),
@@ -852,10 +857,10 @@ void CryptohomeAuthenticator::Resolve() {
       break;
     case OFFLINE_LOGIN:
       VLOG(2) << "Offline login";
-    // Fall through.
+      FALLTHROUGH;
     case UNLOCK:
       VLOG(2) << "Unlock";
-    // Fall through.
+      FALLTHROUGH;
     case ONLINE_LOGIN:
       VLOG(2) << "Online login";
       task_runner_->PostTask(

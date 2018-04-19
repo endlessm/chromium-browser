@@ -11,14 +11,10 @@
 
 namespace flag_descriptions {
 
-const char kAdaptiveToolbarName[] = "Adaptive Toolbar";
-const char kAdaptiveToolbarDescription[] =
-    "When enabled, the adaptive toolbar will be used.";
-
-const char kBookmarkNewEditPageName[] = "Bookmark New Edit Page";
-const char kBookmarkNewEditPageDescription[] =
-    "When enabled, the new bookmark edit page and folder picker will be used "
-    "in the new bookmark UI.";
+const char kAutofillIOSDelayBetweenFieldsName[] = "Autofill delay";
+const char kAutofillIOSDelayBetweenFieldsDescription[] =
+    "Delay between the different fields of a form being autofilled. In "
+    "milliseconds.";
 
 const char kBrowserTaskScheduler[] = "Task Scheduler";
 const char kBrowserTaskSchedulerDescription[] =
@@ -29,25 +25,34 @@ const char kCaptivePortalDescription[] =
     "When enabled, the Captive Portal landing page will be displayed if it is "
     "detected that the user is connected to a Captive Portal network.";
 
-const char kCleanToolbarName[] = "Clean Toolbar";
-const char kCleanToolbarDescription[] =
-    "When enabled, the Clean Toolbar will be used instead of "
-    "WebToolbarController.";
-
-const char kClippingTextfieldName[] = "Clipping Textfield";
-const char kClippingTextfieldDescription[] =
-    "When enabled, the new URL clipping implementation compatible with iOS 11 "
-    "is used.";
+const char kCaptivePortalMetricsName[] = "Captive Portal Metrics";
+const char kCaptivePortalMetricsDescription[] =
+    "When enabled, some network issues will trigger a test to check if a "
+    "Captive Portal network is the cause of the issue.";
 
 const char kContextualSearch[] = "Contextual Search";
 const char kContextualSearchDescription[] =
     "Whether or not Contextual Search is enabled.";
 
+const char kContextMenuElementPostMessageName[] =
+    "Context Menu Element Post Message";
+const char kContextMenuElementPostMessageDescription[] =
+    "When enabled, the DOM element for the Context Menu is returned using a "
+    "webkit postMessage call instead of directly returned from the JavaScript "
+    "function.";
+
 const char kDragAndDropName[] = "Drag and Drop";
 const char kDragAndDropDescription[] = "Enable support for drag and drop.";
 
+const char kNewClearBrowsingDataUIName[] = "Clear Browsing Data UI";
+const char kNewClearBrowsingDataUIDescription[] =
+    "Enable new Clear Browsing Data UI.";
+
 const char kExternalSearchName[] = "External Search";
 const char kExternalSearchDescription[] = "Enable support for External Search.";
+
+const char kFeedbackKitV2Name[] = "FeedbackKit V2";
+const char kFeedbackKitV2Description[] = "Enable use of FeedbackKit V2.";
 
 const char kHistoryBatchUpdatesFilterName[] = "History Single Batch Filtering";
 const char kHistoryBatchUpdatesFilterDescription[] =
@@ -61,6 +66,13 @@ const char kInProductHelpDemoModeDescription[] =
     "an individual promotion causes that promotion but no other promotions to "
     "occur.";
 
+const char kMailtoHandlingWithGoogleUIName[] = "Mailto Handling with Google UI";
+const char kMailtoHandlingWithGoogleUIDescription[] =
+    "When enabled, tapping mailto: links will open a contextual menu to allow "
+    "users to select how they would like to handle the current and future "
+    "mailto link interactions. This UI matches the same user experience as in "
+    "other Google iOS apps.";
+
 const char kMarkHttpAsName[] = "Mark non-secure origins as non-secure";
 const char kMarkHttpAsDescription[] = "Change the UI treatment for HTTP pages";
 
@@ -69,13 +81,6 @@ const char kMemexTabSwitcherDescription[] =
     "When enabled, the TabSwitcher button will navigate to the chrome memex "
     "prototype site instead of triggering the native Tab Switcher. The native "
     "TabSwitcher is accessible by long pressing the button";
-
-const char kNewFullscreenName[] = "Enable the new FullscreenController.";
-const char kNewFullscreenDescription[] =
-    "When enabled, the new implementation of FullscreenController will be used "
-    "instead of the legacy version.  This new implementation utilizes the "
-    "observer and broadcaster patterns to simplify interaction with the "
-    "feature and to distribute UI implementations to more specific owners.";
 
 const char kOmniboxUIElideSuggestionUrlAfterHostName[] =
     "Hide the path, query, and ref of omnibox suggestions";
@@ -103,9 +108,9 @@ const char kPhysicalWebDescription[] =
     "When enabled, the omnibox will include suggestions for web pages "
     "broadcast by devices near you.";
 
-const char kSafeAreaCompatibleToolbarName[] = "Safe Area Compatible Toolbar";
-const char kSafeAreaCompatibleToolbarDescription[] =
-    "When enabled, the toolbar resizes itself when the safe area changes.";
+const char kRecentTabsUIRebootName[] = "Recent Tabs UI Reboot";
+const char kRecentTabsUIRebootDescription[] =
+    "When enabled, Recent Tabs will use the new UI Reboot stack.";
 
 const char kShareCanonicalURLName[] = "Share Canonical URL";
 const char kShareCanonicalURLDescription[] =
@@ -136,6 +141,15 @@ const char kTabSwitcherPresentsBVCDescription[] =
     "When enabled, the tab switcher will present the BVC, so that when the "
     "BVC is visible, the tab switcher will remain in the VC hierarchy "
     "underneath it.";
+
+const char kTabSwitcherTabGridName[] = "TabSwitcher Tab Grid";
+const char kTabSwitcherTabGridDescription[] =
+    "When enabled, the tab grid will be used as the tab switcher for both "
+    "phone and tablet.";
+
+const char kUIRefreshPhase1Name[] = "UI Refresh Phase 1";
+const char kUIRefreshPhase1Description[] =
+    "When enabled, the first phase of the iOS UI refresh will be displayed.";
 
 const char kUseDdljsonApiName[] = "Use new ddljson API for Doodles";
 const char kUseDdljsonApiDescription[] =

@@ -44,13 +44,22 @@ class GitMock(partial_mock.PartialCmdMock):
 
   def RunGit(self, *args, **kwargs):
     """Mocked RunGit."""
-    return self._results['RunGit'].LookupResult(args, kwargs=kwargs)
+    try:
+      return self._results['RunGit'].LookupResult(args, kwargs=kwargs)
+    except cros_build_lib.RunCommandError as e:
+      # Copy the logic of error_code_ok from RunCommand.
+      if kwargs.get('error_code_ok'):
+        return e.result
+      raise e
 
   def AddRunGitResult(self, cmd, cwd=None, returncode=0, output='', error='',
                       kwargs=None, strict=False, side_effect=None):
     """Adds git command and results."""
     cwd = self.cwd if cwd is None else cwd
     result = self.CmdResult(returncode, output, error)
+    if returncode != 0 and not side_effect:
+      side_effect = cros_build_lib.RunCommandError('non-zero returncode',
+                                                   result)
     self._results['RunGit'].AddResultForParams(
         (cwd, cmd,), result, kwargs=kwargs, side_effect=side_effect,
         strict=strict)
@@ -100,7 +109,7 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
         base_dir=self.tempdir, board=self.BOARD, reuse_repo=True,
         good=self.GOOD_COMMIT_SHA1, bad=self.BAD_COMMIT_SHA1, remote=self.DUT,
         eval_repeat=self.REPEAT, auto_threshold=False, reuse_eval=False,
-        eval_raise_on_error=False)
+        eval_raise_on_error=False, skip_failed_commit=False)
 
     self.evaluator = evaluator_module.Evaluator(self.options)
     self.builder = builder_module.Builder(self.options)
@@ -174,7 +183,7 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
   def testUpdateCurrentCommitFail(self):
     """Tests UpdateCurrentCommit() when 'git show' returns nonzero."""
     git_mock = self.StartPatcher(GitMock(self.repo_dir))
-    git_mock.AddRunGitResult(partial_mock.In('show'), returncode=1)
+    git_mock.AddRunGitResult(partial_mock.In('show'), returncode=128)
     self.bisector.UpdateCurrentCommit()
     self.assertTrue(not self.bisector.current_commit)
 
@@ -259,9 +268,8 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
     sync_to_head_mock = self.PatchObject(builder_module.Builder, 'SyncToHead')
     # Mock git result for DoesCommitExistInRepo to return False.
     git_mock.AddRunGitResult(
-        partial_mock.InOrder(['rev-list', self.GOOD_COMMIT_SHA1]))
-    git_mock.AddRunGitResult(
-        partial_mock.InOrder(['rev-list', self.BAD_COMMIT_SHA1]))
+        partial_mock.InOrder(['rev-list', self.GOOD_COMMIT_SHA1]),
+        returncode=128)
 
     # Mock invalid result for GetCommitTimestamp to return None.
     git_mock.AddRunGitResult(
@@ -272,6 +280,9 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
         output='invalid commit')
 
     self.assertFalse(self.bisector.SanityCheck())
+
+    # SyncToHead() called because DoesCommitExistInRepo() returns False for
+    # good commit.
     sync_to_head_mock.assert_called()
 
   def testSanityCheckSyncToHeadWorks(self):
@@ -284,9 +295,6 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
     # Mock git result for DoesCommitExistInRepo to return False.
     git_mock.AddRunGitResult(
         partial_mock.InOrder(['rev-list', self.GOOD_COMMIT_SHA1]),
-        returncode=128)
-    git_mock.AddRunGitResult(
-        partial_mock.InOrder(['rev-list', self.BAD_COMMIT_SHA1]),
         returncode=128)
 
     # Mock git result for GetCommitTimestamp.
@@ -328,9 +336,8 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
     git_mock.AddRunGitResult(['checkout', self.BAD_COMMIT_SHA1])
 
     build_deploy_eval_mock = self.PatchObject(
-        git_bisector.GitBisector, 'BuildDeployEval')
-    build_deploy_eval_mock.side_effect = [
-        self.GOOD_COMMIT_SCORE, self.BAD_COMMIT_SCORE]
+        git_bisector.GitBisector, 'BuildDeployEval',
+        side_effect=[self.GOOD_COMMIT_SCORE, self.BAD_COMMIT_SCORE])
 
     self.assertEqual(self.GOOD_COMMIT_SCORE,
                      self.bisector.ObtainBisectBoundaryScoreImpl(True))
@@ -338,9 +345,12 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
                      self.bisector.ObtainBisectBoundaryScoreImpl(False))
 
     self.assertEqual(
-        [mock.call(self.repo_dir, ['checkout', self.GOOD_COMMIT_SHA1]),
-         mock.call(self.repo_dir, ['checkout', self.BAD_COMMIT_SHA1])],
+        [mock.call(self.repo_dir, ['checkout', self.GOOD_COMMIT_SHA1],
+                   error_code_ok=True),
+         mock.call(self.repo_dir, ['checkout', self.BAD_COMMIT_SHA1],
+                   error_code_ok=True)],
         git_mock.call_args_list)
+    build_deploy_eval_mock.assert_called()
 
   def testObtainBisectBoundaryScore(self):
     """Tests ObtainBisectBoundaryScore(). Normal case."""
@@ -353,8 +363,8 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
       return self.bisector.current_commit.score
 
     obtain_score_mock = self.PatchObject(
-        git_bisector.GitBisector, 'ObtainBisectBoundaryScoreImpl')
-    obtain_score_mock.side_effect = MockedObtainBisectBoundaryScoreImpl
+        git_bisector.GitBisector, 'ObtainBisectBoundaryScoreImpl',
+        side_effect=MockedObtainBisectBoundaryScoreImpl)
 
     self.assertTrue(self.bisector.ObtainBisectBoundaryScore())
     self.assertEqual(self.GOOD_COMMIT_SCORE,
@@ -362,6 +372,7 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
     self.assertEqual('last-known-good  ', self.bisector.good_commit_info.label)
     self.assertEqual(self.BAD_COMMIT_SCORE, self.bisector.bad_commit_info.score)
     self.assertEqual('last-known-bad   ', self.bisector.bad_commit_info.label)
+    obtain_score_mock.assert_called()
 
   def testObtainBisectBoundaryScoreBadScoreUnavailable(self):
     """Tests ObtainBisectBoundaryScore(). Bad score unavailable."""
@@ -375,8 +386,8 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
       return self.bisector.current_commit.score
 
     obtain_score_mock = self.PatchObject(
-        git_bisector.GitBisector, 'ObtainBisectBoundaryScoreImpl')
-    obtain_score_mock.side_effect = UpdateCurrentCommitSideEffect
+        git_bisector.GitBisector, 'ObtainBisectBoundaryScoreImpl',
+        side_effect=UpdateCurrentCommitSideEffect)
 
     self.assertFalse(self.bisector.ObtainBisectBoundaryScore())
     self.assertEqual(self.GOOD_COMMIT_SCORE,
@@ -384,15 +395,17 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
     self.assertEqual('last-known-good  ', self.bisector.good_commit_info.label)
     self.assertIsNone(self.bisector.bad_commit_info.score)
     self.assertEqual('last-known-bad   ', self.bisector.bad_commit_info.label)
+    obtain_score_mock.assert_called()
 
   def testGetThresholdFromUser(self):
     """Tests GetThresholdFromUser()."""
     logging.notice('testGetThresholdFromUser')
     self.setDefaultCommitInfo()
-    input_mock = self.PatchObject(cros_build_lib, 'GetInput')
-    input_mock.return_value = self.THRESHOLD_SPLITTER
+    input_mock = self.PatchObject(cros_build_lib, 'GetInput',
+                                  return_value=self.THRESHOLD_SPLITTER)
     self.assertTrue(self.bisector.GetThresholdFromUser())
     self.assertEqual(self.THRESHOLD, self.bisector.threshold)
+    input_mock.assert_called()
 
   def testGetThresholdFromUserAutoPick(self):
     """Tests GetThresholdFromUser()."""
@@ -405,8 +418,8 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
   def testGetThresholdFromUserOutOfBoundFail(self):
     """Tests GetThresholdFromUser() with out-of-bound input."""
     self.setDefaultCommitInfo()
-    input_mock = self.PatchObject(cros_build_lib, 'GetInput')
-    input_mock.side_effect = ['0', '1000', '-10']
+    input_mock = self.PatchObject(cros_build_lib, 'GetInput',
+                                  side_effect=['0', '1000', '-10'])
     self.assertFalse(self.bisector.GetThresholdFromUser())
     self.assertIsNone(self.bisector.threshold)
     self.assertEqual(3, input_mock.call_count)
@@ -414,8 +427,9 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
   def testGetThresholdFromUserRetrySuccess(self):
     """Tests GetThresholdFromUser() with retry."""
     self.setDefaultCommitInfo()
-    input_mock = self.PatchObject(cros_build_lib, 'GetInput')
-    input_mock.side_effect = ['not_a_number', '1000', self.THRESHOLD_SPLITTER]
+    input_mock = self.PatchObject(
+        cros_build_lib, 'GetInput',
+        side_effect=['not_a_number', '1000', self.THRESHOLD_SPLITTER])
     self.assertTrue(self.bisector.GetThresholdFromUser())
     self.assertEqual(self.THRESHOLD, self.bisector.threshold)
     self.assertEqual(3, input_mock.call_count)
@@ -425,15 +439,30 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
     # Inject this as UpdateCurrentCommit's side effect.
     self.bisector.current_commit = copy.deepcopy(self.GOOD_COMMIT_INFO)
 
-    build_mock = self.PatchObject(builder_module.Builder, 'Build')
     build_to_deploy = '/build/to/deploy'
-    build_mock.return_value = build_to_deploy
+    build_mock = self.PatchObject(builder_module.Builder, 'Build',
+                                  return_value=build_to_deploy)
     deploy_mock = self.PatchObject(builder_module.Builder, 'Deploy')
 
-    self.bisector.BuildDeploy()
+    self.assertTrue(self.bisector.BuildDeploy())
+
     build_label = self.GOOD_COMMIT_INFO.sha1
     build_mock.assert_called_with(build_label)
     deploy_mock.assert_called_with(self.DUT, build_to_deploy, build_label)
+
+  def testBuildDeployBuildFail(self):
+    """Tests BuildDeploy() with Build() failure."""
+    # Inject this as UpdateCurrentCommit's side effect.
+    self.bisector.current_commit = copy.deepcopy(self.GOOD_COMMIT_INFO)
+
+    # Build() failed.
+    build_mock = self.PatchObject(builder_module.Builder, 'Build',
+                                  return_value=None)
+    deploy_mock = self.PatchObject(builder_module.Builder, 'Deploy')
+
+    self.assertFalse(self.bisector.BuildDeploy())
+    build_mock.assert_called()
+    deploy_mock.assert_not_called()
 
   def PatchObjectForBuildDeployEval(self):
     """Returns a dict of patch objects.
@@ -449,8 +478,8 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
                                                 'UpdateCurrentCommit'),
         'CheckLastEvaluate': self.PatchObject(evaluator_module.Evaluator,
                                               'CheckLastEvaluate'),
-        'BuildDeploy': self.PatchObject(git_bisector.GitBisector,
-                                        'BuildDeploy'),
+        'BuildDeploy': self.PatchObject(git_bisector.GitBisector, 'BuildDeploy',
+                                        return_value=True),
         'Evaluate': self.PatchObject(evaluator_module.Evaluator, 'Evaluate')}
 
   def testBuildDeployEvalShortcutCheckLastEvaluate(self):
@@ -496,6 +525,28 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
     self.assertEqual(self.GOOD_COMMIT_SCORE, self.bisector.current_commit.score)
     self.AssertBuildDeployEvalMocksAllCalled(mocks)
 
+  def testBuildDeployEvalBuildFail(self):
+    """Tests BuildDeployEval() with BuildDeploy failure."""
+    mocks = self.PatchObjectForBuildDeployEval()
+
+    # Inject this as UpdateCurrentCommit's side effect.
+    self.bisector.current_commit = copy.deepcopy(self.GOOD_COMMIT_INFO)
+
+    mocks['CheckLastEvaluate'].return_value = common.Score()
+    mocks['BuildDeploy'].return_value = False
+
+    score = self.bisector.BuildDeployEval()
+    self.assertFalse(score)
+    self.assertFalse(self.bisector.current_commit.score)
+
+    for method_called in ['UpdateCurrentCommit', 'CheckLastEvaluate',
+                          'BuildDeploy']:
+      mocks[method_called].assert_called()
+    mocks['CheckLastEvaluate'].assert_called_with(self.GOOD_COMMIT_SHA1,
+                                                  self.REPEAT)
+
+    mocks['Evaluate'].assert_not_called()
+
   def testBuildDeployEvalNoCheckLastEvaluateSpecifyEvalLabel(self):
     """Tests BuildDeployEval() with eval_label specified."""
     mocks = self.PatchObjectForBuildDeployEval()
@@ -533,7 +584,8 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
     mocks['CheckLastEvaluate'].return_value = common.Score()
     mocks['Evaluate'].return_value = self.GOOD_COMMIT_SCORE
 
-    dummy_method = self.PatchObject(TestGitBisector, '_DummyMethod')
+    dummy_method = self.PatchObject(
+        TestGitBisector, '_DummyMethod', return_value=True)
 
     eval_label = 'customized_label'
     self.assertEqual(self.GOOD_COMMIT_SCORE,
@@ -611,6 +663,21 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
     self.assertEqual(bad, self.bisector.LabelBuild(None))
     self.assertEqual(bad, self.bisector.LabelBuild(common.Score()))
 
+  def testLabelBuildSkipNoScore(self):
+    """Tests LabelBuild()."""
+    self.options.skip_failed_commit = True
+    self.bisector = git_bisector.GitBisector(self.options, self.builder,
+                                             self.evaluator)
+
+    # Inject good(100), bad(80) score and threshold.
+    self.setDefaultCommitInfo()
+    self.bisector.threshold = self.THRESHOLD
+
+    # No score, skip.
+    self.assertEqual('skip', self.bisector.LabelBuild(None))
+    self.assertEqual('skip', self.bisector.LabelBuild(common.Score()))
+
+
   def testLabelBuildLowerIsBetter(self):
     """Tests LabelBuild() in lower-is-better condition."""
     # Reverse good(80) and bad(100) score (lower is better), same threshold.
@@ -640,10 +707,11 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
 
   def testGitBisect(self):
     """Tests GitBisect()."""
-    git_mock = self.PatchObject(git_bisector.GitBisector, 'Git')
-    git_mock.return_value = cros_build_lib.CommandResult(
-        cmd=['git', 'bisect', 'reset'], output='We are not bisecting.',
-        returncode=0)
+    git_mock = self.PatchObject(
+        git_bisector.GitBisector, 'Git',
+        return_value=cros_build_lib.CommandResult(
+            cmd=['git', 'bisect', 'reset'], output='We are not bisecting.',
+            returncode=0))
 
     result, done = self.bisector.GitBisect(['reset'])
     git_mock.assert_called_with(['bisect', 'reset'])
@@ -653,11 +721,12 @@ class TestGitBisector(cros_test_lib.MockTempDirTestCase):
 
   def testGitBisectDone(self):
     """Tests GitBisect() when culprit is found."""
-    git_mock = self.PatchObject(git_bisector.GitBisector, 'Git')
-    git_mock.return_value = cros_build_lib.CommandResult(
-        cmd=['git', 'bisect', 'bad'],
-        output='abcedf is the first bad commit\ncommit abcdef',
-        returncode=0)
+    git_mock = self.PatchObject(
+        git_bisector.GitBisector, 'Git',
+        return_value=cros_build_lib.CommandResult(
+            cmd=['git', 'bisect', 'bad'],
+            output='abcedf is the first bad commit\ncommit abcdef',
+            returncode=0))
 
     result, done = self.bisector.GitBisect(['bad'])
     git_mock.assert_called_with(['bisect', 'bad'])

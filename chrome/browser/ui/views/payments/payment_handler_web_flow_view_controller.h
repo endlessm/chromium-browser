@@ -38,14 +38,20 @@ class PaymentHandlerWebFlowViewController
       PaymentHandlerOpenWindowCallback first_navigation_complete_callback);
   ~PaymentHandlerWebFlowViewController() override;
 
+ private:
+  // PaymentRequestSheetController:
   base::string16 GetSheetTitle() override;
   void FillContentView(views::View* content_view) override;
+  bool ShouldShowSecondaryButton() override;
+  std::unique_ptr<views::View> CreateHeaderContentView() override;
+  std::unique_ptr<views::Background> GetHeaderBackground() override;
+  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   // content::WebContentsObserver:
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override;
+  void TitleWasSet(content::NavigationEntry* entry) override;
 
- private:
   Profile* profile_;
   GURL target_;
   PaymentHandlerOpenWindowCallback first_navigation_complete_callback_;

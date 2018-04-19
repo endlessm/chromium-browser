@@ -97,7 +97,7 @@ StateObjects::StateObjects (const vk::DeviceInterface&vk, vkt::Context &context,
 		const ImageCreateInfo colorImageCreateInfo(vk::VK_IMAGE_TYPE_2D, m_colorAttachmentFormat, imageExtent, 1, 1, vk::VK_SAMPLE_COUNT_1_BIT, vk::VK_IMAGE_TILING_OPTIMAL,
 												   vk::VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | vk::VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
 
-		m_colorAttachmentImage	= Image::createAndAlloc(vk, device, colorImageCreateInfo, m_context.getDefaultAllocator());
+		m_colorAttachmentImage	= Image::createAndAlloc(vk, device, colorImageCreateInfo, m_context.getDefaultAllocator(), m_context.getUniversalQueueFamilyIndex());
 
 		const ImageViewCreateInfo attachmentViewInfo(m_colorAttachmentImage->object(), vk::VK_IMAGE_VIEW_TYPE_2D, m_colorAttachmentFormat);
 		m_attachmentView		= vk::createImageView(vk, device, &attachmentViewInfo);
@@ -105,7 +105,7 @@ StateObjects::StateObjects (const vk::DeviceInterface&vk, vkt::Context &context,
 		ImageCreateInfo depthImageCreateInfo(vk::VK_IMAGE_TYPE_2D, depthFormat, imageExtent, 1, 1, vk::VK_SAMPLE_COUNT_1_BIT, vk::VK_IMAGE_TILING_OPTIMAL,
 			vk::VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
 
-		m_DepthImage			= Image::createAndAlloc(vk, device, depthImageCreateInfo, m_context.getDefaultAllocator());
+		m_DepthImage			= Image::createAndAlloc(vk, device, depthImageCreateInfo, m_context.getDefaultAllocator(), m_context.getUniversalQueueFamilyIndex());
 
 		// Construct a depth  view from depth image
 		const ImageViewCreateInfo depthViewInfo(m_DepthImage->object(), vk::VK_IMAGE_VIEW_TYPE_2D, depthFormat);
@@ -283,6 +283,7 @@ struct OcclusionQueryTestVector
 	vk::VkDeviceSize			queryResultsStride;
 	bool						queryResultsAvailability;
 	vk::VkPrimitiveTopology		primitiveTopology;
+	bool						discardHalf;
 };
 
 class BasicOcclusionQueryTestInstance : public vkt::TestInstance
@@ -367,21 +368,15 @@ tcu::TestStatus	BasicOcclusionQueryTestInstance::iterate (void)
 	const CmdPoolCreateInfo			cmdPoolCreateInfo	(m_context.getUniversalQueueFamilyIndex());
 	vk::Move<vk::VkCommandPool>		cmdPool				= vk::createCommandPool(vk, device, &cmdPoolCreateInfo);
 
-	const vk::VkCommandBufferAllocateInfo cmdBufferAllocateInfo =
-	{
-		vk::VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,	// VkStructureType			sType;
-		DE_NULL,											// const void*				pNext;
-		*cmdPool,											// VkCommandPool			commandPool;
-		vk::VK_COMMAND_BUFFER_LEVEL_PRIMARY,				// VkCommandBufferLevel		level;
-		1u,													// deUint32					bufferCount;
-	};
-	vk::Unique<vk::VkCommandBuffer> cmdBuffer			(vk::allocateCommandBuffer(vk, device, &cmdBufferAllocateInfo));
+	vk::Unique<vk::VkCommandBuffer> cmdBuffer			(vk::allocateCommandBuffer(vk, device, *cmdPool, vk::VK_COMMAND_BUFFER_LEVEL_PRIMARY));
 	const CmdBufferBeginInfo		beginInfo			(0u);
 
 	vk.beginCommandBuffer(*cmdBuffer, &beginInfo);
 
-	transition2DImage(vk, *cmdBuffer, m_stateObjects->m_colorAttachmentImage->object(), vk::VK_IMAGE_ASPECT_COLOR_BIT, vk::VK_IMAGE_LAYOUT_UNDEFINED, vk::VK_IMAGE_LAYOUT_GENERAL, 0, vk::VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-	transition2DImage(vk, *cmdBuffer, m_stateObjects->m_DepthImage->object(), vk::VK_IMAGE_ASPECT_DEPTH_BIT, vk::VK_IMAGE_LAYOUT_UNDEFINED, vk::VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 0, vk::VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+	initialTransitionColor2DImage(vk, *cmdBuffer, m_stateObjects->m_colorAttachmentImage->object(), vk::VK_IMAGE_LAYOUT_GENERAL,
+								  vk::VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, vk::VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+	initialTransitionDepth2DImage(vk, *cmdBuffer, m_stateObjects->m_DepthImage->object(), vk::VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+								  vk::VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, vk::VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT);
 
 	std::vector<vk::VkClearValue> renderPassClearValues(2);
 	deMemset(&renderPassClearValues[0], 0, static_cast<int>(renderPassClearValues.size()) * sizeof(vk::VkClearValue));
@@ -413,7 +408,9 @@ tcu::TestStatus	BasicOcclusionQueryTestInstance::iterate (void)
 
 	vk.cmdEndRenderPass(*cmdBuffer);
 
-	transition2DImage(vk, *cmdBuffer, m_stateObjects->m_colorAttachmentImage->object(), vk::VK_IMAGE_ASPECT_COLOR_BIT, vk::VK_IMAGE_LAYOUT_GENERAL, vk::VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vk::VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, vk::VK_ACCESS_TRANSFER_READ_BIT);
+	transition2DImage(vk, *cmdBuffer, m_stateObjects->m_colorAttachmentImage->object(), vk::VK_IMAGE_ASPECT_COLOR_BIT,
+					  vk::VK_IMAGE_LAYOUT_GENERAL, vk::VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vk::VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+					  vk::VK_ACCESS_TRANSFER_READ_BIT, vk::VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, vk::VK_PIPELINE_STAGE_TRANSFER_BIT);
 
 	vk.endCommandBuffer(*cmdBuffer);
 
@@ -717,11 +714,11 @@ tcu::TestStatus OcclusionQueryTestInstance::iterate (void)
 		VK_CHECK(vk.queueWaitIdle(queue));
 	}
 
-	deUint64 queryResults		[NUM_QUERIES_IN_POOL];
-	deUint64 queryAvailability	[NUM_QUERIES_IN_POOL];
+	deUint64	queryResults		[NUM_QUERIES_IN_POOL];
+	deUint64	queryAvailability	[NUM_QUERIES_IN_POOL];
 
 	// Allow not ready results only if nobody waited before getting the query results
-	bool	allowNotReady		= (m_testVector.queryWait == WAIT_NONE);
+	const bool	allowNotReady		= (m_testVector.queryWait == WAIT_NONE);
 
 	captureResults(queryResults, queryAvailability, allowNotReady);
 
@@ -779,15 +776,7 @@ vk::Move<vk::VkCommandBuffer> OcclusionQueryTestInstance::recordQueryPoolReset (
 
 	DE_ASSERT(hasSeparateResetCmdBuf());
 
-	const vk::VkCommandBufferAllocateInfo cmdBufferAllocateInfo =
-	{
-		vk::VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,	// VkStructureType			sType;
-		DE_NULL,											// const void*				pNext;
-		cmdPool,											// VkCommandPool			commandPool;
-		vk::VK_COMMAND_BUFFER_LEVEL_PRIMARY,				// VkCommandBufferLevel		level;
-		1u,													// deUint32					bufferCount;
-	};
-	vk::Move<vk::VkCommandBuffer>	cmdBuffer	(vk::allocateCommandBuffer(vk, device, &cmdBufferAllocateInfo));
+	vk::Move<vk::VkCommandBuffer>	cmdBuffer	(vk::allocateCommandBuffer(vk, device, cmdPool, vk::VK_COMMAND_BUFFER_LEVEL_PRIMARY));
 	CmdBufferBeginInfo				beginInfo	(0u);
 
 	vk.beginCommandBuffer(*cmdBuffer, &beginInfo);
@@ -802,21 +791,15 @@ vk::Move<vk::VkCommandBuffer> OcclusionQueryTestInstance::recordRender (vk::VkCo
 	const vk::VkDevice				device		= m_context.getDevice();
 	const vk::DeviceInterface&		vk			= m_context.getDeviceInterface();
 
-	const vk::VkCommandBufferAllocateInfo cmdBufferAllocateInfo =
-	{
-		vk::VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,	// VkStructureType			sType;
-		DE_NULL,											// const void*				pNext;
-		cmdPool,											// VkCommandPool			commandPool;
-		vk::VK_COMMAND_BUFFER_LEVEL_PRIMARY,				// VkCommandBufferLevel		level;
-		1u,													// deUint32					bufferCount;
-	};
-	vk::Move<vk::VkCommandBuffer>	cmdBuffer	(vk::allocateCommandBuffer(vk, device, &cmdBufferAllocateInfo));
+	vk::Move<vk::VkCommandBuffer>	cmdBuffer	(vk::allocateCommandBuffer(vk, device, cmdPool, vk::VK_COMMAND_BUFFER_LEVEL_PRIMARY));
 	CmdBufferBeginInfo				beginInfo	(0u);
 
 	vk.beginCommandBuffer(*cmdBuffer, &beginInfo);
 
-	transition2DImage(vk, *cmdBuffer, m_stateObjects->m_colorAttachmentImage->object(), vk::VK_IMAGE_ASPECT_COLOR_BIT, vk::VK_IMAGE_LAYOUT_UNDEFINED, vk::VK_IMAGE_LAYOUT_GENERAL, 0, vk::VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-	transition2DImage(vk, *cmdBuffer, m_stateObjects->m_DepthImage->object(), vk::VK_IMAGE_ASPECT_DEPTH_BIT, vk::VK_IMAGE_LAYOUT_UNDEFINED, vk::VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 0, vk::VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+	initialTransitionColor2DImage(vk, *cmdBuffer, m_stateObjects->m_colorAttachmentImage->object(), vk::VK_IMAGE_LAYOUT_GENERAL,
+								  vk::VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, vk::VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+	initialTransitionDepth2DImage(vk, *cmdBuffer, m_stateObjects->m_DepthImage->object(), vk::VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+								  vk::VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, vk::VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk::VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT);
 
 	std::vector<vk::VkClearValue>	renderPassClearValues(2);
 	deMemset(&renderPassClearValues[0], 0, static_cast<int>(renderPassClearValues.size()) * sizeof(vk::VkClearValue));
@@ -870,7 +853,9 @@ vk::Move<vk::VkCommandBuffer> OcclusionQueryTestInstance::recordRender (vk::VkCo
 		vk.cmdCopyQueryPoolResults(*cmdBuffer, m_queryPool, 0, NUM_QUERIES_IN_POOL, m_queryPoolResultsBuffer->object(), /*dstOffset*/ 0, m_testVector.queryResultsStride, m_queryResultFlags);
 	}
 
-	transition2DImage(vk, *cmdBuffer, m_stateObjects->m_colorAttachmentImage->object(), vk::VK_IMAGE_ASPECT_COLOR_BIT, vk::VK_IMAGE_LAYOUT_GENERAL, vk::VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vk::VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, vk::VK_ACCESS_TRANSFER_READ_BIT);
+	transition2DImage(vk, *cmdBuffer, m_stateObjects->m_colorAttachmentImage->object(), vk::VK_IMAGE_ASPECT_COLOR_BIT, vk::VK_IMAGE_LAYOUT_GENERAL,
+					  vk::VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vk::VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, vk::VK_ACCESS_TRANSFER_READ_BIT,
+					  vk::VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, vk::VK_PIPELINE_STAGE_TRANSFER_BIT);
 
 	vk.endCommandBuffer(*cmdBuffer);
 
@@ -882,15 +867,7 @@ vk::Move<vk::VkCommandBuffer> OcclusionQueryTestInstance::recordCopyResults (vk:
 	const vk::VkDevice				device		= m_context.getDevice();
 	const vk::DeviceInterface&		vk			= m_context.getDeviceInterface();
 
-	const vk::VkCommandBufferAllocateInfo cmdBufferAllocateInfo =
-	{
-		vk::VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,	// VkStructureType			sType;
-		DE_NULL,											// const void*				pNext;
-		cmdPool,											// VkCommandPool			commandPool;
-		vk::VK_COMMAND_BUFFER_LEVEL_PRIMARY,				// VkCommandBufferLevel		level;
-		1u,													// deUint32					bufferCount;
-	};
-	vk::Move<vk::VkCommandBuffer>	cmdBuffer	(vk::allocateCommandBuffer(vk, device, &cmdBufferAllocateInfo));
+	vk::Move<vk::VkCommandBuffer>	cmdBuffer	(vk::allocateCommandBuffer(vk, device, cmdPool, vk::VK_COMMAND_BUFFER_LEVEL_PRIMARY));
 	const CmdBufferBeginInfo		beginInfo	(0u);
 
 	vk.beginCommandBuffer(*cmdBuffer, &beginInfo);
@@ -1034,8 +1011,17 @@ bool OcclusionQueryTestInstance::validateResults (const deUint64* results , cons
 							const int primWidth		= StateObjects::WIDTH  / 2;
 							const int primHeight	= StateObjects::HEIGHT / 2;
 							const int primArea		= primWidth * primHeight / 2;
-							expectedValueMin		= (int)(0.97f * primArea);
-							expectedValueMax		= (int)(1.03f * primArea);
+
+							if (m_testVector.discardHalf)
+							{
+								expectedValueMin	= (int)(0.95f * primArea * 0.5f);
+								expectedValueMax	= (int)(1.05f * primArea * 0.5f);
+							}
+							else
+							{
+								expectedValueMin	= (int)(0.97f * primArea);
+								expectedValueMax	= (int)(1.03f * primArea);
+							}
 						}
 				}
 			}
@@ -1088,12 +1074,20 @@ private:
 
 	void initPrograms(vk::SourceCollections& programCollection) const
 	{
-		programCollection.glslSources.add("frag") << glu::FragmentSource("#version 400\n"
-																	   "layout(location = 0) out vec4 out_FragColor;\n"
-																	   "void main()\n"
-																	   "{\n"
-																	   "	out_FragColor = vec4(0.07, 0.48, 0.75, 1.0);\n"
-																	   "}\n");
+		const char* const discard =
+			"	if ((int(gl_FragCoord.x) % 2) == (int(gl_FragCoord.y) % 2))\n"
+			"		discard;\n";
+
+		const std::string fragSrc = std::string(
+			"#version 400\n"
+			"layout(location = 0) out vec4 out_FragColor;\n"
+			"void main()\n"
+			"{\n"
+			"	out_FragColor = vec4(0.07, 0.48, 0.75, 1.0);\n")
+			+ std::string(m_testVector.discardHalf ? discard : "")
+			+ "}\n";
+
+		programCollection.glslSources.add("frag") << glu::FragmentSource(fragSrc.c_str());
 
 		programCollection.glslSources.add("vert") << glu::VertexSource("#version 430\n"
 																		 "layout(location = 0) in vec4 in_Position;\n"
@@ -1130,6 +1124,7 @@ void QueryPoolOcclusionTests::init (void)
 	baseTestVector.queryResultsStride		= sizeof(deUint64);
 	baseTestVector.queryResultsAvailability = false;
 	baseTestVector.primitiveTopology		= vk::VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+	baseTestVector.discardHalf				= false;
 
 	//Basic tests
 	{
@@ -1142,71 +1137,83 @@ void QueryPoolOcclusionTests::init (void)
 
 	// Functional test
 	{
-		vk::VkQueryControlFlags	controlFlags[]		= { 0,					vk::VK_QUERY_CONTROL_PRECISE_BIT	};
-		const char*				controlFlagsStr[]	= { "conservative",		"precise"							};
+		const vk::VkQueryControlFlags	controlFlags[]		= { 0,					vk::VK_QUERY_CONTROL_PRECISE_BIT	};
+		const char* const				controlFlagsStr[]	= { "conservative",		"precise"							};
 
 		for (int controlFlagIdx = 0; controlFlagIdx < DE_LENGTH_OF_ARRAY(controlFlags); ++controlFlagIdx)
 		{
 
-			vk::VkPrimitiveTopology	primitiveTopology[]		= { vk::VK_PRIMITIVE_TOPOLOGY_POINT_LIST, vk::VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST };
-			const char*				primitiveTopologyStr[]	= { "points", "triangles" };
+			const vk::VkPrimitiveTopology	primitiveTopology[]		= { vk::VK_PRIMITIVE_TOPOLOGY_POINT_LIST, vk::VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST };
+			const char* const				primitiveTopologyStr[]	= { "points", "triangles" };
 			for (int primitiveTopologyIdx = 0; primitiveTopologyIdx < DE_LENGTH_OF_ARRAY(primitiveTopology); ++primitiveTopologyIdx)
 			{
 
-				OcclusionQueryResultSize	resultSize[]	= { RESULT_SIZE_32_BIT, RESULT_SIZE_64_BIT };
-				const char*					resultSizeStr[] = { "32",				"64" };
+				const OcclusionQueryResultSize	resultSize[]	= { RESULT_SIZE_32_BIT, RESULT_SIZE_64_BIT };
+				const char* const				resultSizeStr[] = { "32",				"64" };
 
 				for (int resultSizeIdx = 0; resultSizeIdx < DE_LENGTH_OF_ARRAY(resultSize); ++resultSizeIdx)
 				{
 
-					OcclusionQueryWait	wait[]		= { WAIT_QUEUE, WAIT_QUERY };
-					const char*			waitStr[]	= { "queue",	"query" };
+					const OcclusionQueryWait	wait[]		= { WAIT_QUEUE, WAIT_QUERY };
+					const char* const			waitStr[]	= { "queue",	"query" };
 
 					for (int waitIdx = 0; waitIdx < DE_LENGTH_OF_ARRAY(wait); ++waitIdx)
 					{
-						OcclusionQueryResultsMode	resultsMode[]		= { RESULTS_MODE_GET,	RESULTS_MODE_COPY };
-						const char*					resultsModeStr[]	= { "get",				"copy" };
+						const OcclusionQueryResultsMode	resultsMode[]		= { RESULTS_MODE_GET,	RESULTS_MODE_COPY };
+						const char* const				resultsModeStr[]	= { "get",				"copy" };
 
 						for (int resultsModeIdx = 0; resultsModeIdx < DE_LENGTH_OF_ARRAY(resultsMode); ++resultsModeIdx)
 						{
 
-							bool testAvailability[]				= { false, true };
-							const char* testAvailabilityStr[]	= { "without", "with"};
+							const bool			testAvailability[]		= { false, true };
+							const char* const	testAvailabilityStr[]	= { "without", "with"};
 
 							for (int testAvailabilityIdx = 0; testAvailabilityIdx < DE_LENGTH_OF_ARRAY(testAvailability); ++testAvailabilityIdx)
 							{
-								OcclusionQueryTestVector testVector			= baseTestVector;
-								testVector.queryControlFlags				= controlFlags[controlFlagIdx];
-								testVector.queryResultSize					= resultSize[resultSizeIdx];
-								testVector.queryWait						= wait[waitIdx];
-								testVector.queryResultsMode					= resultsMode[resultsModeIdx];
-								testVector.queryResultsStride				= (testVector.queryResultSize == RESULT_SIZE_32_BIT ? sizeof(deUint32) : sizeof(deUint64));
-								testVector.queryResultsAvailability			= testAvailability[testAvailabilityIdx];
-								testVector.primitiveTopology				= primitiveTopology[primitiveTopologyIdx];
+								const bool			discardHalf[]		= { false, true };
+								const char* const	discardHalfStr[]	= { "", "_discard" };
 
-								if (testVector.queryResultsAvailability)
+								for (int discardHalfIdx = 0; discardHalfIdx < DE_LENGTH_OF_ARRAY(discardHalf); ++discardHalfIdx)
 								{
-									testVector.queryResultsStride *= 2;
+									OcclusionQueryTestVector testVector			= baseTestVector;
+									testVector.queryControlFlags				= controlFlags[controlFlagIdx];
+									testVector.queryResultSize					= resultSize[resultSizeIdx];
+									testVector.queryWait						= wait[waitIdx];
+									testVector.queryResultsMode					= resultsMode[resultsModeIdx];
+									testVector.queryResultsStride				= (testVector.queryResultSize == RESULT_SIZE_32_BIT ? sizeof(deUint32) : sizeof(deUint64));
+									testVector.queryResultsAvailability			= testAvailability[testAvailabilityIdx];
+									testVector.primitiveTopology				= primitiveTopology[primitiveTopologyIdx];
+									testVector.discardHalf						= discardHalf[discardHalfIdx];
+
+									if (testVector.discardHalf && testVector.primitiveTopology == vk::VK_PRIMITIVE_TOPOLOGY_POINT_LIST)
+										continue; // Discarding half of the pixels in fragment shader doesn't make sense with one-pixel-sized points.
+
+									if (testVector.queryResultsAvailability)
+									{
+										testVector.queryResultsStride *= 2;
+									}
+
+									std::ostringstream testName;
+									std::ostringstream testDescr;
+
+									testName << resultsModeStr[resultsModeIdx] << "_results"
+											 << "_" << controlFlagsStr[controlFlagIdx]
+											 << "_size_" << resultSizeStr[resultSizeIdx]
+											 << "_wait_" << waitStr[waitIdx]
+											 << "_" << testAvailabilityStr[testAvailabilityIdx] << "_availability"
+											 << "_draw_" <<  primitiveTopologyStr[primitiveTopologyIdx]
+											 << discardHalfStr[discardHalfIdx];
+
+									testDescr << "draw occluded " << primitiveTopologyStr[primitiveTopologyIdx]
+											  << "with " << controlFlagsStr[controlFlagIdx] << ", "
+											  << resultsModeStr[resultsModeIdx] << " results "
+											  << testAvailabilityStr[testAvailabilityIdx] << " availability bit as "
+											  << resultSizeStr[resultSizeIdx] << "bit variables,"
+											  << (testVector.discardHalf ? " discarding half of the fragments," : "")
+											  << "wait for results on" << waitStr[waitIdx];
+
+									addChild(new QueryPoolOcclusionTest<OcclusionQueryTestInstance>(m_testCtx, testName.str().c_str(), testDescr.str().c_str(), testVector));
 								}
-
-								std::ostringstream testName;
-								std::ostringstream testDescr;
-
-								testName << resultsModeStr[resultsModeIdx] << "_results"
-										 << "_" << controlFlagsStr[controlFlagIdx]
-										 << "_size_" << resultSizeStr[resultSizeIdx]
-										 << "_wait_" << waitStr[waitIdx]
-										 << "_" << testAvailabilityStr[testAvailabilityIdx] << "_availability"
-										 << "_draw_" <<  primitiveTopologyStr[primitiveTopologyIdx];
-
-								testDescr << "draw occluded " << primitiveTopologyStr[primitiveTopologyIdx]
-										  << "with " << controlFlagsStr[controlFlagIdx] << ", "
-									      << resultsModeStr[resultsModeIdx] << " results "
-									      << testAvailabilityStr[testAvailabilityIdx] << " availability bit as "
-										  << resultSizeStr[resultSizeIdx] << "bit variables,"
-									      << "wait for results on" << waitStr[waitIdx];
-
-								addChild(new QueryPoolOcclusionTest<OcclusionQueryTestInstance>(m_testCtx, testName.str().c_str(), testDescr.str().c_str(), testVector));
 							}
 						}
 					}
@@ -1216,16 +1223,16 @@ void QueryPoolOcclusionTests::init (void)
 	}
 	// Test different strides
 	{
-		OcclusionQueryResultsMode	resultsMode[]		= { RESULTS_MODE_GET,	RESULTS_MODE_COPY	};
-		const char*					resultsModeStr[]	= { "get",				"copy"				};
+		const OcclusionQueryResultsMode	resultsMode[]		= { RESULTS_MODE_GET,	RESULTS_MODE_COPY	};
+		const char* const				resultsModeStr[]	= { "get",				"copy"				};
 
 		for (int resultsModeIdx = 0; resultsModeIdx < DE_LENGTH_OF_ARRAY(resultsMode); ++resultsModeIdx)
 		{
-			OcclusionQueryResultSize	resultSizes[]	= { RESULT_SIZE_32_BIT, RESULT_SIZE_64_BIT };
-			const char*					resultSizeStr[] = { "32", "64" };
+			const OcclusionQueryResultSize	resultSizes[]	= { RESULT_SIZE_32_BIT, RESULT_SIZE_64_BIT };
+			const char* const				resultSizeStr[] = { "32", "64" };
 
-			bool testAvailability[]				= { false,		true	};
-			const char* testAvailabilityStr[]	= { "without",	"with"	};
+			const bool			testAvailability[]		= { false,		true	};
+			const char* const	testAvailabilityStr[]	= { "without",	"with"	};
 
 			for (int testAvailabilityIdx = 0; testAvailabilityIdx < DE_LENGTH_OF_ARRAY(testAvailability); ++testAvailabilityIdx)
 			{

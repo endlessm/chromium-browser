@@ -52,7 +52,6 @@
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_test_user_manager.h"
-#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
@@ -143,7 +142,6 @@ class ProfileManagerTest : public testing::Test {
 #if defined(OS_CHROMEOS)
     base::CommandLine* cl = base::CommandLine::ForCurrentProcess();
     cl->AppendSwitch(switches::kTestType);
-    chromeos::WallpaperManager::Initialize();
     wallpaper_controller_client_ =
         std::make_unique<WallpaperControllerClient>();
     wallpaper_controller_client_->InitForTesting(
@@ -164,7 +162,6 @@ class ProfileManagerTest : public testing::Test {
 #if defined(OS_CHROMEOS)
     session_type_.reset();
     wallpaper_controller_client_.reset();
-    chromeos::WallpaperManager::Shutdown();
 #endif
   }
 
@@ -615,7 +612,6 @@ class ProfileManagerGuestTest : public ProfileManagerTest  {
     cl->AppendSwitch(chromeos::switches::kGuestSession);
     cl->AppendSwitch(::switches::kIncognito);
 
-    chromeos::WallpaperManager::Initialize();
     wallpaper_controller_client_ =
         std::make_unique<WallpaperControllerClient>();
     wallpaper_controller_client_->InitForTesting(
@@ -672,7 +668,7 @@ TEST_F(ProfileManagerTest, AutoloadProfilesWithBackgroundApps) {
   ProfileAttributesStorage& storage =
       profile_manager->GetProfileAttributesStorage();
   local_state_.Get()->SetUserPref(prefs::kBackgroundModeEnabled,
-                                  base::MakeUnique<base::Value>(true));
+                                  std::make_unique<base::Value>(true));
 
   // Setting a pref which is not applicable to a system (i.e., Android in this
   // case) does not necessarily create it. Don't bother continuing with the
@@ -707,7 +703,7 @@ TEST_F(ProfileManagerTest, DoNotAutoloadProfilesIfBackgroundModeOff) {
   ProfileAttributesStorage& storage =
       profile_manager->GetProfileAttributesStorage();
   local_state_.Get()->SetUserPref(prefs::kBackgroundModeEnabled,
-                                  base::MakeUnique<base::Value>(false));
+                                  std::make_unique<base::Value>(false));
 
   EXPECT_EQ(0u, storage.GetNumberOfProfiles());
 
@@ -1129,6 +1125,32 @@ TEST_F(ProfileManagerTest, CleanUpEphemeralProfiles) {
   // The profile should be deleted, and the last used profile set to a new one.
   EXPECT_FALSE(base::DirectoryExists(path2));
   EXPECT_EQ(0u, storage.GetNumberOfProfiles());
+  EXPECT_EQ("Profile 1", local_state->GetString(prefs::kProfileLastUsed));
+}
+
+TEST_F(ProfileManagerTest, CleanUpEphemeralProfilesWithGuestLastUsedProfile) {
+  ProfileManager* profile_manager = g_browser_process->profile_manager();
+  ProfileAttributesStorage& storage =
+      profile_manager->GetProfileAttributesStorage();
+  ASSERT_EQ(0u, storage.GetNumberOfProfiles());
+
+  const std::string profile_name1 = "Homer";
+  base::FilePath path1 =
+      profile_manager->user_data_dir().AppendASCII(profile_name1);
+  storage.AddProfile(path1, base::UTF8ToUTF16(profile_name1), std::string(),
+                     base::UTF8ToUTF16(profile_name1), 0, std::string());
+  storage.GetAllProfilesAttributes()[0u]->SetIsEphemeral(true);
+  ASSERT_TRUE(base::CreateDirectory(path1));
+  ASSERT_EQ(1u, storage.GetNumberOfProfiles());
+
+  // Set the active profile.
+  PrefService* local_state = g_browser_process->local_state();
+  local_state->SetString(prefs::kProfileLastUsed, std::string("Guest Profile"));
+
+  profile_manager->CleanUpEphemeralProfiles();
+  content::RunAllTasksUntilIdle();
+
+  ASSERT_EQ(0u, storage.GetNumberOfProfiles());
   EXPECT_EQ("Profile 1", local_state->GetString(prefs::kProfileLastUsed));
 }
 

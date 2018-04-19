@@ -16,6 +16,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/syslog_logging.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
@@ -113,6 +114,7 @@ const char* const kKnownSettings[] = {
     kUnaffiliatedArcAllowed,
     kUpdateDisabled,
     kVariationsRestrictParameter,
+    kVirtualMachinesAllowed,
 };
 
 void DecodeLoginPolicies(
@@ -575,10 +577,16 @@ void DecodeGenericPolicies(
 
   if (policy.has_device_wallpaper_image() &&
       policy.device_wallpaper_image().has_device_wallpaper_image()) {
+    const std::string& wallpaper_policy(
+        policy.device_wallpaper_image().device_wallpaper_image());
     std::unique_ptr<base::DictionaryValue> dict_val =
-        base::DictionaryValue::From(base::JSONReader::Read(
-            policy.device_wallpaper_image().device_wallpaper_image()));
-    new_values_cache->SetValue(kDeviceWallpaperImage, std::move(dict_val));
+        base::DictionaryValue::From(base::JSONReader::Read(wallpaper_policy));
+    if (dict_val) {
+      new_values_cache->SetValue(kDeviceWallpaperImage, std::move(dict_val));
+    } else {
+      SYSLOG(ERROR) << "Value of wallpaper policy has invalid format: "
+                    << wallpaper_policy;
+    }
   }
 
   if (policy.has_device_off_hours()) {
@@ -626,6 +634,16 @@ void DecodeGenericPolicies(
         !container.device_hostname_template().empty()) {
       new_values_cache->SetString(kDeviceHostnameTemplate,
                                   container.device_hostname_template());
+    }
+  }
+
+  if (policy.has_virtual_machines_allowed()) {
+    const em::VirtualMachinesAllowedProto& container(
+        policy.virtual_machines_allowed());
+    if (container.has_virtual_machines_allowed()) {
+      new_values_cache->SetValue(
+          kVirtualMachinesAllowed,
+          std::make_unique<base::Value>(container.virtual_machines_allowed()));
     }
   }
 }
@@ -958,7 +976,7 @@ bool DeviceSettingsProvider::UpdateFromService() {
     case DeviceSettingsService::STORE_NO_POLICY:
       if (MitigateMissingPolicy())
         break;
-      // fall through.
+      FALLTHROUGH;
     case DeviceSettingsService::STORE_KEY_UNAVAILABLE:
       VLOG(1) << "No policies present yet, will use the temp storage.";
       trusted_status_ = PERMANENTLY_UNTRUSTED;

@@ -37,12 +37,19 @@ set(DEQP_VK_API_SRCS
 	vktApiNullHandleTests.hpp
 	vktApiGranularityTests.cpp
 	vktApiGranularityTests.hpp
+	vktApiGetMemoryCommitment.cpp
+	vktApiGetMemoryCommitment.hpp
+	vktApiExternalMemoryTests.cpp
+	vktApiExternalMemoryTests.hpp
+	vktApiBufferAndImageAllocationUtil.hpp
+	vktApiBufferAndImageAllocationUtil.cpp
 	)
 
 set(DEQP_VK_API_LIBS
-	deqp-vk-common
+	deqp-vk-package
 	tcutil
 	vkutil
+	deqp-vk-package
 	)
 
 add_library(deqp-vk-api STATIC ${DEQP_VK_API_SRCS})

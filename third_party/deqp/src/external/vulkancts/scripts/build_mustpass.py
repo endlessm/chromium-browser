@@ -28,7 +28,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..", "scrip
 from build.common import DEQP_DIR
 from build.config import ANY_GENERATOR
 from build_caselists import Module, getModuleByName, getBuildConfig, DEFAULT_BUILD_DIR, DEFAULT_TARGET
-from mustpass import Project, Package, Mustpass, Configuration, include, exclude, genMustpassLists
+from mustpass import Project, Package, Mustpass, Configuration, include, exclude, genMustpassLists, parseBuildConfigFromCmdLineArgs
 
 COPYRIGHT_DECLARATION = """
 	 Licensed under the Apache License, Version 2.0 (the "License");
@@ -68,18 +68,47 @@ VULKAN_1_0_1_PKG	= Package(module = VULKAN_MODULE, configurations = [
 # 1.0.2
 
 VULKAN_1_0_2_PKG	= Package(module = VULKAN_MODULE, configurations = [
+			# Master
+			Configuration(name		= "default",
+						  filters	= [include("master.txt")]),
+	])
+
+# 1.0.3
+
+VULKAN_1_0_3_PKG	= Package(module = VULKAN_MODULE, configurations = [
+		  # Master
+		  Configuration(name		= "default",
+						filters		= [include("master.txt"),
+									   exclude("waivers.txt")]),
+		  Configuration(name		= "default-no-waivers",
+						filters		= [include("master.txt")]),
+	 ])
+
+# 1.0.4
+
+VULKAN_1_0_4_PKG	= Package(module = VULKAN_MODULE, configurations = [
 		  # Master
 		  Configuration(name		= "default",
 						filters		= [include("master.txt"),
 									   exclude("test-issues.txt"),
-									   exclude("excluded-tests.txt")]),
+									   exclude("excluded-tests.txt"),
+									   exclude("android-tests.txt"),
+									   exclude("waivers.txt")]),
+		  Configuration(name		= "default-no-waivers",
+						filters		= [include("master.txt"),
+									   exclude("test-issues.txt"),
+									   exclude("excluded-tests.txt"),
+									   exclude("android-tests.txt")]),
 	 ])
+
 
 MUSTPASS_LISTS		= [
 		  Mustpass(project = PROJECT,	version = "1.0.0",	packages = [VULKAN_1_0_0_PKG]),
 		  Mustpass(project = PROJECT,	version = "1.0.1",	packages = [VULKAN_1_0_1_PKG]),
 		  Mustpass(project = PROJECT,	version = "1.0.2",	packages = [VULKAN_1_0_2_PKG]),
+		  Mustpass(project = PROJECT,	version = "1.0.3",	packages = [VULKAN_1_0_3_PKG]),
+		  Mustpass(project = PROJECT,	version = "1.0.4",	packages = [VULKAN_1_0_4_PKG]),
 	]
 
 if __name__ == "__main__":
-	genMustpassLists(MUSTPASS_LISTS, ANY_GENERATOR, BUILD_CONFIG)
+	genMustpassLists(MUSTPASS_LISTS, ANY_GENERATOR, parseBuildConfigFromCmdLineArgs())

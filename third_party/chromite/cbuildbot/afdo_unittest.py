@@ -13,6 +13,7 @@ from chromite.cbuildbot import afdo
 from chromite.lib import cros_test_lib
 from chromite.lib import gs
 from chromite.lib import osutils
+from chromite.lib import portage_util
 
 
 class AfdoTest(cros_test_lib.MockTempDirTestCase):
@@ -80,3 +81,52 @@ class AfdoTest(cros_test_lib.MockTempDirTestCase):
         1,
         afdo.ProfileAge([0, 0, 0, int(time.time() - 86400)])
     )
+
+  def testGetCWPProfile(self):
+    profiles = ['R62-3202.43-320243.afdo.xz',
+                'R63-3223.0-233200.afdo.xz',
+                'R63-3239.20-323920.afdo.xz',
+                'R63-3239.42-323942.afdo.xz',
+                'R63-3239.50-323950.afdo.xz',
+                'R63-3239.50-323999.afdo.xz',
+                'R64-3280.5-328005.afdo.xz',
+                'R64-3282.41-328241.afdo.xz',
+                'R65-3299.0-329900.afdo.xz']
+
+    def MockGsList(path):
+      unused = {'content_length':None,
+                'creation_time':None,
+                'generation':None,
+                'metageneration':None}
+      return [gs.GSListResult(url=os.path.join(path, f),
+                              **unused) for f in profiles]
+
+    self.PatchObject(gs.GSContext, 'List',
+                     lambda _, path, **kwargs: MockGsList(path))
+
+    def _test(version, idx):
+      unused = {'pv':None,
+                'package':None,
+                'version_no_rev':None,
+                'rev':None,
+                'category':None}
+      cpv = portage_util.CPV(version=version, **unused)
+      profile = afdo.GetCWPProfile(cpv, 'unused', 'unused', gs.GSContext())
+      # Expect the most recent profile on the same branch.
+      self.assertEqual(profile, profiles[idx][:-3])
+
+    _test('66.0.3300.0_rc-r1', 8)
+    _test('65.0.3283.0_rc-r1', 1)
+    _test('65.0.3283.1_rc-r1', 1)
+    _test('64.0.3282.42_rc-r1', 7)
+    _test('63.0.3239.30_rc-r1', 2)
+    _test('63.0.3239.42_rc-r0', 2)
+
+  def testCWPProfileToVersionTuple(self):
+    self.assertEqual(
+        afdo.CWPProfileToVersionTuple('gs://chromeos-prebuilt/afdo-job/cwp/'
+                                      'chrome/R66-3325.65-1519321598.afdo.xz'),
+        [66, 3325, 65, 1519321598])
+    self.assertEqual(
+        afdo.CWPProfileToVersionTuple('R66-3325.65-1519321598.afdo.xz'),
+        [66, 3325, 65, 1519321598])

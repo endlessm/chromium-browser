@@ -51,6 +51,7 @@
 #include "components/data_use_measurement/core/data_use_ascriber.h"
 #include "components/metrics/metrics_service.h"
 #include "components/net_log/chrome_net_log.h"
+#include "components/network_session_configurator/common/network_features.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/policy/policy_constants.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -63,9 +64,6 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/user_agent.h"
-#include "content/public/network/ignore_errors_cert_verifier.h"
-#include "content/public/network/network_service.h"
-#include "content/public/network/url_request_context_builder_mojo.h"
 #include "extensions/features/features.h"
 #include "net/cert/caching_cert_verifier.h"
 #include "net/cert/cert_verifier.h"
@@ -87,17 +85,21 @@
 #include "net/http/http_server_properties_impl.h"
 #include "net/http/http_transaction_factory.h"
 #include "net/net_features.h"
-#include "net/nqe/external_estimate_provider.h"
 #include "net/nqe/network_quality_estimator_params.h"
-#include "net/proxy/proxy_config_service.h"
-#include "net/proxy/proxy_script_fetcher_impl.h"
-#include "net/proxy/proxy_service.h"
+#include "net/proxy_resolution/pac_file_fetcher_impl.h"
+#include "net/proxy_resolution/proxy_config_service.h"
+#include "net/proxy_resolution/proxy_service.h"
 #include "net/quic/chromium/quic_utils_chromium.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_builder.h"
 #include "net/url_request/url_request_context_getter.h"
+#include "services/network/ignore_errors_cert_verifier.h"
+#include "services/network/network_service.h"
+#include "services/network/public/cpp/features.h"
+#include "services/network/public/cpp/network_switches.h"
+#include "services/network/url_request_context_builder_mojo.h"
 #include "url/url_constants.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -111,23 +113,25 @@
 #if defined(OS_ANDROID)
 #include "base/android/build_info.h"
 #include "chrome/browser/android/data_usage/external_data_use_observer.h"
-#include "chrome/browser/android/net/external_estimate_provider_android.h"
 #include "components/data_usage/android/traffic_stats_amortizer.h"
-#include "net/cert/cert_net_fetcher.h"
 #include "net/cert/cert_verify_proc_android.h"
-#include "net/cert_net/cert_net_fetcher_impl.h"
 #endif  // defined(OS_ANDROID)
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/net/cert_verify_proc_chromeos.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chromeos/network/dhcp_proxy_script_fetcher_factory_chromeos.h"
+#include "chromeos/network/dhcp_pac_file_fetcher_factory_chromeos.h"
 #include "chromeos/network/host_resolver_impl_chromeos.h"
 #endif
 
 #if defined(OS_ANDROID) && defined(ARCH_CPU_ARMEL)
 #include "crypto/openssl_util.h"
 #include "third_party/boringssl/src/include/openssl/cpu.h"
+#endif
+
+#if defined(OS_ANDROID) || defined(OS_FUCHSIA)
+#include "net/cert/cert_net_fetcher.h"
+#include "net/cert_net/cert_net_fetcher_impl.h"
 #endif
 
 using content::BrowserThread;
@@ -191,13 +195,13 @@ std::unique_ptr<net::HostResolver> CreateGlobalHostResolver(
   // through a designated test server.
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
-  if (!command_line.HasSwitch(switches::kHostResolverRules))
+  if (!command_line.HasSwitch(network::switches::kHostResolverRules))
     return global_host_resolver;
 
   auto remapped_resolver = std::make_unique<net::MappedHostResolver>(
       std::move(global_host_resolver));
   remapped_resolver->SetRulesFromString(
-      command_line.GetSwitchValueASCII(switches::kHostResolverRules));
+      command_line.GetSwitchValueASCII(network::switches::kHostResolverRules));
   return std::move(remapped_resolver);
 }
 
@@ -279,21 +283,7 @@ SystemURLRequestContextGetter::GetNetworkTaskRunner() const {
   return network_task_runner_;
 }
 
-IOThread::Globals::
-SystemRequestContextLeakChecker::SystemRequestContextLeakChecker(
-    Globals* globals)
-    : globals_(globals) {
-  DCHECK(globals_);
-}
-
-IOThread::Globals::
-SystemRequestContextLeakChecker::~SystemRequestContextLeakChecker() {
-  globals_->system_request_context->AssertNoURLRequests();
-}
-
-IOThread::Globals::Globals()
-    : system_request_context(nullptr),
-      system_request_context_leak_checker(this) {}
+IOThread::Globals::Globals() : system_request_context(nullptr) {}
 
 IOThread::Globals::~Globals() {}
 
@@ -367,6 +357,31 @@ IOThread::IOThread(
                            base::Bind(&IOThread::UpdateDnsClientEnabled,
                                       base::Unretained(this)));
   dns_client_enabled_.MoveToThread(io_thread_proxy);
+
+  if (base::FeatureList::IsEnabled(features::kDnsOverHttps)) {
+    base::Value specs(base::Value::Type::LIST);
+    base::Value methods(base::Value::Type::LIST);
+    base::Value spec(variations::GetVariationParamValueByFeature(
+        features::kDnsOverHttps, "server"));
+    base::Value method(variations::GetVariationParamValueByFeature(
+        features::kDnsOverHttps, "method"));
+    if (spec.GetString().size() > 0) {
+      specs.GetList().push_back(std::move(spec));
+      methods.GetList().push_back(std::move(method));
+      local_state->SetDefaultPrefValue(prefs::kDnsOverHttpsServers,
+                                       std::move(specs));
+      local_state->SetDefaultPrefValue(prefs::kDnsOverHttpsServerMethods,
+                                       std::move(methods));
+    }
+  }
+  dns_over_https_servers_.Init(
+      prefs::kDnsOverHttpsServers, local_state,
+      base::Bind(&IOThread::UpdateDnsClientEnabled, base::Unretained(this)));
+  dns_over_https_server_methods_.Init(
+      prefs::kDnsOverHttpsServerMethods, local_state,
+      base::Bind(&IOThread::UpdateDnsClientEnabled, base::Unretained(this)));
+  dns_over_https_servers_.MoveToThread(io_thread_proxy);
+  dns_over_https_server_methods_.MoveToThread(io_thread_proxy);
 
 #if defined(OS_POSIX)
   local_state->SetDefaultPrefValue(
@@ -474,7 +489,7 @@ void IOThread::Init() {
 #endif  // defined(OS_ANDROID)
 
   globals_->data_use_ascriber =
-      base::MakeUnique<data_use_measurement::ChromeDataUseAscriber>();
+      std::make_unique<data_use_measurement::ChromeDataUseAscriber>();
 
   globals_->data_use_aggregator =
       std::make_unique<data_usage::DataUseAggregator>(
@@ -506,16 +521,10 @@ void IOThread::Init() {
     }
   }
 
-  std::unique_ptr<net::ExternalEstimateProvider> external_estimate_provider;
-#if defined(OS_ANDROID)
-  external_estimate_provider =
-      std::make_unique<chrome::android::ExternalEstimateProviderAndroid>();
-#endif  // defined(OS_ANDROID)
   // Pass ownership.
   globals_->network_quality_estimator =
       std::make_unique<net::NetworkQualityEstimator>(
-          std::move(external_estimate_provider),
-          base::MakeUnique<net::NetworkQualityEstimatorParams>(
+          std::make_unique<net::NetworkQualityEstimatorParams>(
               network_quality_estimator_params),
           net_log_);
   globals_->network_quality_observer = content::CreateNetworkQualityObserver(
@@ -581,13 +590,13 @@ void IOThread::CleanUp() {
   UnregisterSTHObserver(ct_tree_tracker_.get());
   ct_tree_tracker_.reset();
 
-  globals_->system_request_context->proxy_service()->OnShutdown();
+  globals_->system_request_context->proxy_resolution_service()->OnShutdown();
 
 #if defined(USE_NSS_CERTS)
   net::SetURLRequestContextForNSSHttpIO(nullptr);
 #endif
 
-#if defined(OS_ANDROID)
+#if defined(OS_ANDROID) || defined(OS_FUCHSIA)
   net::ShutdownGlobalCertNetFetcher();
 #endif
 
@@ -621,6 +630,8 @@ void IOThread::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(prefs::kEnableReferrers, true);
   data_reduction_proxy::RegisterPrefs(registry);
   registry->RegisterBooleanPref(prefs::kBuiltInDnsClientEnabled, true);
+  registry->RegisterListPref(prefs::kDnsOverHttpsServers);
+  registry->RegisterListPref(prefs::kDnsOverHttpsServerMethods);
   registry->RegisterBooleanPref(prefs::kQuickCheckEnabled, true);
   registry->RegisterBooleanPref(prefs::kPacHttpsUrlStrippingEnabled, true);
 #if defined(OS_POSIX)
@@ -719,7 +730,21 @@ void IOThread::ChangedToOnTheRecordOnIOThread() {
 
 void IOThread::UpdateDnsClientEnabled() {
   globals()->system_request_context->host_resolver()->SetDnsClientEnabled(
-      *dns_client_enabled_);
+      *dns_client_enabled_ || (*dns_over_https_servers_).size() > 0);
+
+  net::HostResolver* resolver =
+      globals()->system_request_context->host_resolver();
+  if ((*dns_over_https_servers_).size()) {
+    resolver->SetRequestContext(globals_->system_request_context);
+  }
+  DCHECK((*dns_over_https_servers_).size() ==
+         (*dns_over_https_server_methods_).size());
+  resolver->ClearDnsOverHttpsServers();
+  for (unsigned int i = 0; i < (*dns_over_https_servers_).size(); i++) {
+    resolver->AddDnsOverHttpsServer(
+        (*dns_over_https_servers_)[i],
+        (*dns_over_https_server_methods_)[i].compare("POST") == 0);
+  }
 }
 
 void IOThread::RegisterSTHObserver(net::ct::STHObserver* observer) {
@@ -739,17 +764,17 @@ bool IOThread::PacHttpsUrlStrippingEnabled() const {
 }
 
 void IOThread::SetUpProxyService(
-    content::URLRequestContextBuilderMojo* builder) const {
+    network::URLRequestContextBuilderMojo* builder) const {
 #if defined(OS_CHROMEOS)
   builder->SetDhcpFetcherFactory(
-      base::MakeUnique<chromeos::DhcpProxyScriptFetcherFactoryChromeos>());
+      std::make_unique<chromeos::DhcpProxyScriptFetcherFactoryChromeos>());
 #endif
 
   builder->set_pac_quick_check_enabled(WpadQuickCheckEnabled());
   builder->set_pac_sanitize_url_policy(
       PacHttpsUrlStrippingEnabled()
-          ? net::ProxyService::SanitizeUrlPolicy::SAFE
-          : net::ProxyService::SanitizeUrlPolicy::UNSAFE);
+          ? net::ProxyResolutionService::SanitizeUrlPolicy::SAFE
+          : net::ProxyResolutionService::SanitizeUrlPolicy::UNSAFE);
 }
 
 certificate_transparency::TreeStateTracker* IOThread::ct_tree_tracker() const {
@@ -757,8 +782,8 @@ certificate_transparency::TreeStateTracker* IOThread::ct_tree_tracker() const {
 }
 
 void IOThread::ConstructSystemRequestContext() {
-  std::unique_ptr<content::URLRequestContextBuilderMojo> builder =
-      base::MakeUnique<content::URLRequestContextBuilderMojo>();
+  std::unique_ptr<network::URLRequestContextBuilderMojo> builder =
+      std::make_unique<network::URLRequestContextBuilderMojo>();
 
   builder->set_network_quality_estimator(
       globals_->network_quality_estimator.get());
@@ -785,8 +810,8 @@ void IOThread::ConstructSystemRequestContext() {
   std::unique_ptr<net::CertVerifier> cert_verifier;
 #if defined(OS_CHROMEOS)
   // Creates a CertVerifyProc that doesn't allow any profile-provided certs.
-  cert_verifier = base::MakeUnique<net::CachingCertVerifier>(
-      base::MakeUnique<net::MultiThreadedCertVerifier>(
+  cert_verifier = std::make_unique<net::CachingCertVerifier>(
+      std::make_unique<net::MultiThreadedCertVerifier>(
           base::MakeRefCounted<chromeos::CertVerifyProcChromeOS>()));
 #else
   cert_verifier = std::make_unique<net::CachingCertVerifier>(
@@ -796,14 +821,15 @@ void IOThread::ConstructSystemRequestContext() {
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
   builder->SetCertVerifier(
-      content::IgnoreErrorsCertVerifier::MaybeWrapCertVerifier(
+      network::IgnoreErrorsCertVerifier::MaybeWrapCertVerifier(
           command_line, switches::kUserDataDir, std::move(cert_verifier)));
   UMA_HISTOGRAM_BOOLEAN(
       "Net.Certificate.IgnoreCertificateErrorsSPKIListPresent",
-      command_line.HasSwitch(switches::kIgnoreCertificateErrorsSPKIList));
+      command_line.HasSwitch(
+          network::switches::kIgnoreCertificateErrorsSPKIList));
 
   std::unique_ptr<net::MultiLogCTVerifier> ct_verifier =
-      base::MakeUnique<net::MultiLogCTVerifier>();
+      std::make_unique<net::MultiLogCTVerifier>();
   // Add built-in logs
   ct_verifier->AddLogs(globals_->ct_logs);
   builder->set_ct_verifier(std::move(ct_verifier));
@@ -813,12 +839,13 @@ void IOThread::ConstructSystemRequestContext() {
   if (!is_quic_allowed_on_init_)
     globals_->quic_disabled = true;
 
-  if (base::FeatureList::IsEnabled(features::kNetworkService)) {
+  if (base::FeatureList::IsEnabled(network::features::kNetworkService)) {
     globals_->system_request_context_owner =
         std::move(builder)->Create(std::move(network_context_params_).get(),
                                    !is_quic_allowed_on_init_, net_log_);
     globals_->system_request_context =
-        globals_->system_request_context_owner.url_request_context.get();
+        globals_->system_request_context_owner.url_request_context_getter
+            ->GetURLRequestContext();
   } else {
     globals_->system_network_context =
         content::GetNetworkServiceImpl()->CreateNetworkContextWithBuilder(
@@ -830,7 +857,7 @@ void IOThread::ConstructSystemRequestContext() {
 #if defined(USE_NSS_CERTS)
   net::SetURLRequestContextForNSSHttpIO(globals_->system_request_context);
 #endif
-#if defined(OS_ANDROID)
+#if defined(OS_ANDROID) || defined(OS_FUCHSIA)
   net::SetGlobalCertNetFetcher(
       net::CreateCertNetFetcher(globals_->system_request_context));
 #endif

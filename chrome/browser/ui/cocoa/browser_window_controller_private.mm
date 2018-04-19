@@ -360,7 +360,7 @@ willPositionSheet:(NSWindow*)sheet
   // Have to do this here, otherwise later calls can crash because the window
   // has no delegate.
   [sourceWindow setDelegate:nil];
-  [destWindow setDelegate:self];
+  [destWindow setDelegate:[self nsWindowController]];
 
   // With this call, valgrind complains that a "Conditional jump or move depends
   // on uninitialised value(s)".  The error happens in -[NSThemeFrame
@@ -389,7 +389,7 @@ willPositionSheet:(NSWindow*)sheet
 
   [sourceWindow setWindowController:nil];
   [self setWindow:destWindow];
-  [destWindow setWindowController:self];
+  [destWindow setWindowController:[self nsWindowController]];
 
   // Move the status bubble over, if we have one.
   if (statusBubble_)
@@ -608,9 +608,8 @@ willPositionSheet:(NSWindow*)sheet
 
       NSWindow* windowForToolbar = [window _windowForToolbar];
       if ([windowForToolbar isKindOfClass:[FramedBrowserWindow class]]) {
-        BrowserWindowController* bwc =
-            base::mac::ObjCCastStrict<BrowserWindowController>(
-                [windowForToolbar windowController]);
+        BrowserWindowController* bwc = [BrowserWindowController
+            browserWindowControllerForWindow:windowForToolbar];
         if ([bwc hasToolbar])
           [[window contentView] setHidden:YES];
       }
@@ -659,7 +658,13 @@ willPositionSheet:(NSWindow*)sheet
 
   if (shouldExitAfterEnteringFullscreen_) {
     shouldExitAfterEnteringFullscreen_ = NO;
-    [self exitAppKitFullscreen];
+
+    // At 10.13, -windowDidEnteredFullscreen: is called before the AppKit
+    // fullscreen transition is complete. This causes AppKit to emit "not in
+    // fullscreen state" and ignore the call when we try to toggle fullscreen
+    // in the same runloop that entered it. To handle this case, invoke
+    // -toggleFullscreen: asynchronously.
+    [self exitAppKitFullscreenAsync:!base::mac::IsAtMostOS10_12()];
   }
 
   // In macOS 10.12 and earlier, the web content's NSTrackingInVisibleRect
@@ -868,7 +873,7 @@ willPositionSheet:(NSWindow*)sheet
   [[self window] toggleFullScreen:nil];
 }
 
-- (void)exitAppKitFullscreen {
+- (void)exitAppKitFullscreenAsync:(BOOL)async {
   // If we're in the process of entering fullscreen, toggleSystemFullscreen
   // will get ignored. Set |shouldExitAfterEnteringFullscreen_| to true so
   // the browser will exit fullscreen immediately after it enters it.
@@ -877,7 +882,13 @@ willPositionSheet:(NSWindow*)sheet
     return;
   }
 
-  [[self window] toggleFullScreen:nil];
+  if (async) {
+    [[self window] performSelector:@selector(toggleFullScreen:)
+                        withObject:nil
+                        afterDelay:0];
+  } else {
+    [[self window] toggleFullScreen:nil];
+  }
 }
 
 - (NSRect)fullscreenButtonFrame {

@@ -4,6 +4,7 @@
 
 #include "chrome/browser/offline_pages/fresh_offline_content_observer.h"
 
+#include "base/memory/ptr_util.h"
 #include "chrome/browser/offline_pages/prefetch/prefetched_pages_notifier.h"
 #include "components/offline_pages/core/client_policy_controller.h"
 #include "components/offline_pages/core/offline_page_feature.h"
@@ -20,7 +21,7 @@ void FreshOfflineContentObserver::AttachToOfflinePageModel(
     OfflinePageModel* model) {
   if (!IsOfflinePagesPrefetchingUIEnabled())
     return;
-  auto observer = base::MakeUnique<FreshOfflineContentObserver>();
+  auto observer = std::make_unique<FreshOfflineContentObserver>();
   model->AddObserver(observer.get());
   model->SetUserData(&kFreshOfflineContentObserverUserDataKey,
                      std::move(observer));

@@ -86,7 +86,7 @@ void CheckExportedImageUniform(const std::vector<sh::Uniform> &uniforms,
 // Checks whether the image is saved in the AST as a node with the correct properties given the
 // shader.
 void CheckImageDeclaration(TIntermNode *astRoot,
-                           const TString &imageName,
+                           const ImmutableString &imageName,
                            TBasicType imageType,
                            TLayoutImageInternalFormat internalFormat,
                            bool readonly,
@@ -146,8 +146,8 @@ TEST_F(ShaderImageTest, Image2DDeclaration)
     }
 
     CheckExportedImageUniform(getUniforms(), 0, GL_IMAGE_2D, "myImage");
-    CheckImageDeclaration(mASTRoot, "myImage", EbtImage2D, EiifRGBA32F, true, false, false, false,
-                          false, 1);
+    CheckImageDeclaration(mASTRoot, ImmutableString("myImage"), EbtImage2D, EiifRGBA32F, true,
+                          false, false, false, false, 1);
 }
 
 // Test that an image3D is properly parsed and exported as a uniform.
@@ -166,8 +166,8 @@ TEST_F(ShaderImageTest, Image3DDeclaration)
     }
 
     CheckExportedImageUniform(getUniforms(), 0, GL_UNSIGNED_INT_IMAGE_3D, "myImage");
-    CheckImageDeclaration(mASTRoot, "myImage", EbtUImage3D, EiifRGBA32UI, true, true, false, false,
-                          false, 3);
+    CheckImageDeclaration(mASTRoot, ImmutableString("myImage"), EbtUImage3D, EiifRGBA32UI, true,
+                          true, false, false, false, 3);
 }
 
 // Check that imageLoad calls get correctly parsed.
@@ -188,10 +188,10 @@ TEST_F(ShaderImageTest, ImageLoad)
     }
 
     // imageLoad call with image2D passed
-    CheckImageLoadCall(mASTRoot, "imageLoad(im21;vi2;", EbtImage2D, 2);
+    CheckImageLoadCall(mASTRoot, "imageLoad(I2;2i;", EbtImage2D, 2);
 
     // imageLoad call with image3D passed
-    CheckImageLoadCall(mASTRoot, "imageLoad(iim31;vi3;", EbtIImage3D, 3);
+    CheckImageLoadCall(mASTRoot, "imageLoad(iI3;3i;", EbtIImage3D, 3);
 }
 
 // Check that imageStore calls get correctly parsed.
@@ -212,10 +212,10 @@ TEST_F(ShaderImageTest, ImageStore)
     }
 
     // imageStore call with image2D
-    CheckImageStoreCall(mASTRoot, "imageStore(im21;vi2;vf4;", EbtImage2D, 2, EbtFloat, 4);
+    CheckImageStoreCall(mASTRoot, "imageStore(I2;2i;4f;", EbtImage2D, 2, EbtFloat, 4);
 
     // imageStore call with image2DArray
-    CheckImageStoreCall(mASTRoot, "imageStore(uim2a1;vi3;vu4;", EbtUImage2DArray, 3, EbtUInt, 4);
+    CheckImageStoreCall(mASTRoot, "imageStore(uIA;3i;4u;", EbtUImage2DArray, 3, EbtUInt, 4);
 }
 
 // Check that memory qualifiers are correctly parsed.
@@ -234,10 +234,10 @@ TEST_F(ShaderImageTest, ImageMemoryQualifiers)
         FAIL() << "Shader compilation failed" << mInfoLog;
     }
 
-    CheckImageDeclaration(mASTRoot, "image1", EbtImage2D, EiifRGBA32F, true, false, true, false,
-                          false, -1);
-    CheckImageDeclaration(mASTRoot, "image2", EbtImage2D, EiifRGBA32F, false, true, true, false,
-                          true, -1);
-    CheckImageDeclaration(mASTRoot, "image3", EbtImage2D, EiifRGBA32F, true, true, true, true, true,
-                          -1);
+    CheckImageDeclaration(mASTRoot, ImmutableString("image1"), EbtImage2D, EiifRGBA32F, true, false,
+                          true, false, false, -1);
+    CheckImageDeclaration(mASTRoot, ImmutableString("image2"), EbtImage2D, EiifRGBA32F, false, true,
+                          true, false, true, -1);
+    CheckImageDeclaration(mASTRoot, ImmutableString("image3"), EbtImage2D, EiifRGBA32F, true, true,
+                          true, true, true, -1);
 }

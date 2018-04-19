@@ -7,11 +7,7 @@
 #include <windows.h>
 
 #include <tlhelp32.h>
-#include <wincrypt.h>
 #include <wintrust.h>
-
-// This must be after wincrypt and wintrust.
-#include <mscat.h>
 
 #include <limits>
 #include <memory>
@@ -25,6 +21,10 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/scoped_handle.h"
 #include "chrome/common/safe_browsing/pe_image_reader_win.h"
+#include "crypto/wincrypt_shim.h"
+
+// This must be after wincrypt and wintrust.
+#include <mscat.h>
 
 namespace {
 
@@ -305,7 +305,7 @@ bool GetModuleImageSizeAndTimeDateStamp(const base::FilePath& path,
   // the file in a well-formed dll.
   constexpr size_t kPageSize = 4096;
 
-  // Note: base::MakeUnique() is explicitly avoided because it does value-
+  // Note: std::make_unique() is explicitly avoided because it does value-
   //       initialization on arrays, which is not needed in this case.
   auto buffer = std::unique_ptr<uint8_t[]>(new uint8_t[kPageSize]);
   int bytes_read =

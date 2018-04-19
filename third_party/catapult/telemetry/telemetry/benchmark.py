@@ -162,21 +162,20 @@ class Benchmark(command_line.Command):
 
   # pylint: disable=unused-argument
   @classmethod
-  def ValueCanBeAddedPredicate(cls, value, is_first_result):
-    """Returns whether |value| can be added to the test results.
+  def ShouldAddValue(cls, name, from_first_story_run):
+    """Returns whether the named value should be added to PageTestResults.
 
     Override this method to customize the logic of adding values to test
-    results.
+    results. SkipValues and TraceValues will be added regardless
+    of logic here.
 
     Args:
-      value: a value.Value instance (except failure.FailureValue,
-        skip.SkipValue or trace.TraceValue which will always be added).
-      is_first_result: True if |value| is the first result for its
-          corresponding story.
+      name: The string name of a value being added.
+      from_first_story_run: True if the named value was produced during the
+          first run of the corresponding story.
 
     Returns:
-      True if |value| should be added to the test results.
-      Otherwise, it returns False.
+      True if the value should be added to the test results, False otherwise.
     """
     return True
 
@@ -280,6 +279,8 @@ class Benchmark(command_line.Command):
         if category not in categories:
           categories.append(category)
       tbm_options.config.atrace_config.categories = categories
+    if options and options.enable_systrace:
+      tbm_options.config.chrome_trace_config.SetEnableSystrace()
     return tbm_options
 
 

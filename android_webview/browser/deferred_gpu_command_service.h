@@ -21,6 +21,7 @@
 
 namespace gpu {
 struct GpuFeatureInfo;
+struct GpuPreferences;
 class SyncPointManager;
 }
 
@@ -44,11 +45,10 @@ class DeferredGpuCommandService
     : public gpu::InProcessCommandBuffer::Service,
       public base::RefCountedThreadSafe<DeferredGpuCommandService> {
  public:
-  static void SetInstance();
   static DeferredGpuCommandService* GetInstance();
 
-  void ScheduleTask(const base::Closure& task) override;
-  void ScheduleDelayedWork(const base::Closure& task) override;
+  void ScheduleTask(base::OnceClosure task) override;
+  void ScheduleDelayedWork(base::OnceClosure task) override;
   bool UseVirtualizedGLContexts() override;
   gpu::SyncPointManager* sync_point_manager() override;
 
@@ -66,6 +66,8 @@ class DeferredGpuCommandService
 
   const gpu::GPUInfo& gpu_info() const { return gpu_info_; }
 
+  bool CanSupportThreadedTextureMailbox() const;
+
  protected:
   ~DeferredGpuCommandService() override;
   friend class base::RefCountedThreadSafe<DeferredGpuCommandService>;
@@ -74,16 +76,21 @@ class DeferredGpuCommandService
   friend class ScopedAllowGL;
   static void RequestProcessGL(bool for_idle);
 
-  DeferredGpuCommandService(const gpu::GPUInfo& gpu_info,
+  DeferredGpuCommandService(const gpu::GpuPreferences& gpu_preferences,
+                            const gpu::GPUInfo& gpu_info,
                             const gpu::GpuFeatureInfo& gpu_feature_info);
+
+  static DeferredGpuCommandService* CreateDeferredGpuCommandService();
+
   size_t IdleQueueSize();
 
   base::Lock tasks_lock_;
-  base::queue<base::Closure> tasks_;
-  base::queue<std::pair<base::Time, base::Closure>> idle_tasks_;
+  base::queue<base::OnceClosure> tasks_;
+  base::queue<std::pair<base::Time, base::OnceClosure>> idle_tasks_;
 
   std::unique_ptr<gpu::SyncPointManager> sync_point_manager_;
   gpu::GPUInfo gpu_info_;
+
   DISALLOW_COPY_AND_ASSIGN(DeferredGpuCommandService);
 };
 

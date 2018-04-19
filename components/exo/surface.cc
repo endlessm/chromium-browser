@@ -23,7 +23,6 @@
 #include "components/viz/common/quads/solid_color_draw_quad.h"
 #include "components/viz/common/quads/texture_draw_quad.h"
 #include "components/viz/common/resources/single_release_callback.h"
-#include "components/viz/common/surfaces/sequence_surface_reference_factory.h"
 #include "components/viz/service/surfaces/surface.h"
 #include "components/viz/service/surfaces/surface_manager.h"
 #include "services/ui/public/interfaces/window_tree_constants.mojom.h"
@@ -116,7 +115,11 @@ class CustomWindowDelegate : public aura::WindowDelegate {
   void OnBoundsChanged(const gfx::Rect& old_bounds,
                        const gfx::Rect& new_bounds) override {}
   gfx::NativeCursor GetCursor(const gfx::Point& point) override {
-    return surface_->GetCursor();
+    views::Widget* widget =
+        views::Widget::GetTopLevelWidgetForNativeView(surface_->window());
+    if (widget)
+      return widget->GetNativeWindow()->GetCursor(point /* not used */);
+    return ui::CursorType::kNull;
   }
   int GetNonClientComponent(const gfx::Point& point) const override {
     return HTNOWHERE;
@@ -651,25 +654,6 @@ Surface::GetHitTestShapeRects() const {
   for (gfx::Rect rect : hit_test_region_)
     rects->push_back(rect);
   return rects;
-}
-
-void Surface::RegisterCursorProvider(Pointer* provider) {
-  cursor_providers_.insert(provider);
-}
-
-void Surface::UnregisterCursorProvider(Pointer* provider) {
-  cursor_providers_.erase(provider);
-}
-
-gfx::NativeCursor Surface::GetCursor() {
-  // What cursor we display when we have multiple cursor providers is not
-  // important. Return the first non-null cursor.
-  for (auto* cursor_provider : cursor_providers_) {
-    gfx::NativeCursor cursor = cursor_provider->GetCursor();
-    if (cursor != ui::CursorType::kNull)
-      return cursor;
-  }
-  return ui::CursorType::kNull;
 }
 
 void Surface::SetSurfaceDelegate(SurfaceDelegate* delegate) {

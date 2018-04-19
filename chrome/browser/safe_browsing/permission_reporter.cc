@@ -69,9 +69,6 @@ PermissionReport::Action PermissionActionForReport(PermissionAction action) {
       return PermissionReport::IGNORED;
     case PermissionAction::REVOKED:
       return PermissionReport::REVOKED;
-    case PermissionAction::REENABLED:
-    case PermissionAction::REQUESTED:
-      return PermissionReport::ACTION_UNSPECIFIED;
     case PermissionAction::NUM:
       break;
   }
@@ -115,8 +112,9 @@ PermissionReport::GestureType GestureTypeForReport(
   return PermissionReport::GESTURE_TYPE_UNSPECIFIED;
 }
 
-constexpr net::NetworkTrafficAnnotationTag kTrafficAnnotation =
-    net::DefineNetworkTrafficAnnotation("permission_reporting", R"(
+constexpr net::NetworkTrafficAnnotationTag
+    kPermissionReportingTrafficAnnotation =
+        net::DefineNetworkTrafficAnnotation("permission_reporting", R"(
         semantics {
           sender: "Safe Browsing"
           description:
@@ -177,16 +175,15 @@ std::size_t PermissionAndOriginHash::operator()(
 }
 
 PermissionReporter::PermissionReporter(net::URLRequestContext* request_context)
-    : PermissionReporter(
-          std::make_unique<net::ReportSender>(request_context,
-                                              kTrafficAnnotation),
-          base::WrapUnique(new base::DefaultClock)) {}
+    : PermissionReporter(std::make_unique<net::ReportSender>(
+                             request_context,
+                             kPermissionReportingTrafficAnnotation),
+                         base::DefaultClock::GetInstance()) {}
 
 PermissionReporter::PermissionReporter(
     std::unique_ptr<net::ReportSender> report_sender,
-    std::unique_ptr<base::Clock> clock)
-    : permission_report_sender_(std::move(report_sender)),
-      clock_(std::move(clock)) {}
+    base::Clock* clock)
+    : permission_report_sender_(std::move(report_sender)), clock_(clock) {}
 
 PermissionReporter::~PermissionReporter() {}
 

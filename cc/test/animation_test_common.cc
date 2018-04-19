@@ -7,18 +7,18 @@
 #include "base/memory/ptr_util.h"
 #include "cc/animation/animation_host.h"
 #include "cc/animation/animation_id_provider.h"
-#include "cc/animation/animation_player.h"
-#include "cc/animation/animation_ticker.h"
 #include "cc/animation/element_animations.h"
+#include "cc/animation/keyframe_effect.h"
 #include "cc/animation/keyframed_animation_curve.h"
 #include "cc/animation/scroll_offset_animation_curve.h"
+#include "cc/animation/single_keyframe_effect_animation.h"
 #include "cc/animation/timing_function.h"
 #include "cc/animation/transform_operations.h"
 #include "cc/base/time_util.h"
 #include "cc/layers/layer.h"
 #include "cc/layers/layer_impl.h"
 
-using cc::Animation;
+using cc::KeyframeModel;
 using cc::AnimationCurve;
 using cc::FloatKeyframe;
 using cc::KeyframedFloatAnimationCurve;
@@ -28,7 +28,7 @@ using cc::TransformKeyframe;
 
 namespace cc {
 
-int AddOpacityTransition(AnimationPlayer* target,
+int AddOpacityTransition(SingleKeyframeEffectAnimation* target,
                          double duration,
                          float start_opacity,
                          float end_opacity,
@@ -46,18 +46,19 @@ int AddOpacityTransition(AnimationPlayer* target,
   curve->AddKeyframe(FloatKeyframe::Create(
       base::TimeDelta::FromSecondsD(duration), end_opacity, nullptr));
 
-  int id = AnimationIdProvider::NextAnimationId();
+  int id = AnimationIdProvider::NextKeyframeModelId();
 
-  std::unique_ptr<Animation> animation(Animation::Create(
+  std::unique_ptr<KeyframeModel> keyframe_model(KeyframeModel::Create(
       std::move(curve), id, AnimationIdProvider::NextGroupId(),
       TargetProperty::OPACITY));
-  animation->set_needs_synchronized_start_time(true);
+  keyframe_model->set_needs_synchronized_start_time(true);
 
-  target->AddAnimation(std::move(animation));
+  target->AddKeyframeModelForKeyframeEffect(std::move(keyframe_model),
+                                            target->keyframe_effect()->id());
   return id;
 }
 
-int AddAnimatedTransform(AnimationPlayer* target,
+int AddAnimatedTransform(SingleKeyframeEffectAnimation* target,
                          double duration,
                          TransformOperations start_operations,
                          TransformOperations operations) {
@@ -72,18 +73,19 @@ int AddAnimatedTransform(AnimationPlayer* target,
   curve->AddKeyframe(TransformKeyframe::Create(
       base::TimeDelta::FromSecondsD(duration), operations, nullptr));
 
-  int id = AnimationIdProvider::NextAnimationId();
+  int id = AnimationIdProvider::NextKeyframeModelId();
 
-  std::unique_ptr<Animation> animation(Animation::Create(
+  std::unique_ptr<KeyframeModel> keyframe_model(KeyframeModel::Create(
       std::move(curve), id, AnimationIdProvider::NextGroupId(),
       TargetProperty::TRANSFORM));
-  animation->set_needs_synchronized_start_time(true);
+  keyframe_model->set_needs_synchronized_start_time(true);
 
-  target->AddAnimation(std::move(animation));
+  target->AddKeyframeModelForKeyframeEffect(std::move(keyframe_model),
+                                            target->keyframe_effect()->id());
   return id;
 }
 
-int AddAnimatedTransform(AnimationPlayer* target,
+int AddAnimatedTransform(SingleKeyframeEffectAnimation* target,
                          double duration,
                          int delta_x,
                          int delta_y) {
@@ -97,7 +99,7 @@ int AddAnimatedTransform(AnimationPlayer* target,
   return AddAnimatedTransform(target, duration, start_operations, operations);
 }
 
-int AddAnimatedFilter(AnimationPlayer* target,
+int AddAnimatedFilter(SingleKeyframeEffectAnimation* target,
                       double duration,
                       float start_brightness,
                       float end_brightness) {
@@ -117,14 +119,15 @@ int AddAnimatedFilter(AnimationPlayer* target,
   curve->AddKeyframe(FilterKeyframe::Create(
       base::TimeDelta::FromSecondsD(duration), filters, nullptr));
 
-  int id = AnimationIdProvider::NextAnimationId();
+  int id = AnimationIdProvider::NextKeyframeModelId();
 
-  std::unique_ptr<Animation> animation(Animation::Create(
+  std::unique_ptr<KeyframeModel> keyframe_model(KeyframeModel::Create(
       std::move(curve), id, AnimationIdProvider::NextGroupId(),
       TargetProperty::FILTER));
-  animation->set_needs_synchronized_start_time(true);
+  keyframe_model->set_needs_synchronized_start_time(true);
 
-  target->AddAnimation(std::move(animation));
+  target->AddKeyframeModelForKeyframeEffect(std::move(keyframe_model),
+                                            target->keyframe_effect()->id());
   return id;
 }
 
@@ -213,63 +216,66 @@ std::unique_ptr<AnimationCurve> FakeFloatTransition::Clone() const {
   return base::WrapUnique(new FakeFloatTransition(*this));
 }
 
-int AddScrollOffsetAnimationToPlayer(AnimationPlayer* player,
-                                     gfx::ScrollOffset initial_value,
-                                     gfx::ScrollOffset target_value,
-                                     bool impl_only) {
+int AddScrollOffsetAnimationToAnimation(
+    SingleKeyframeEffectAnimation* animation,
+    gfx::ScrollOffset initial_value,
+    gfx::ScrollOffset target_value) {
   std::unique_ptr<ScrollOffsetAnimationCurve> curve(
       ScrollOffsetAnimationCurve::Create(
           target_value, CubicBezierTimingFunction::CreatePreset(
                             CubicBezierTimingFunction::EaseType::EASE_IN_OUT)));
   curve->SetInitialValue(initial_value);
 
-  int id = AnimationIdProvider::NextAnimationId();
+  int id = AnimationIdProvider::NextKeyframeModelId();
 
-  std::unique_ptr<Animation> animation(Animation::Create(
+  std::unique_ptr<KeyframeModel> keyframe_model(KeyframeModel::Create(
       std::move(curve), id, AnimationIdProvider::NextGroupId(),
       TargetProperty::SCROLL_OFFSET));
-  animation->set_is_impl_only(impl_only);
+  keyframe_model->SetIsImplOnly();
 
-  player->AddAnimation(std::move(animation));
+  animation->AddKeyframeModelForKeyframeEffect(
+      std::move(keyframe_model), animation->keyframe_effect()->id());
 
   return id;
 }
 
-int AddAnimatedTransformToPlayer(AnimationPlayer* player,
-                                 double duration,
-                                 int delta_x,
-                                 int delta_y) {
-  return AddAnimatedTransform(player, duration, delta_x, delta_y);
+int AddAnimatedTransformToAnimation(SingleKeyframeEffectAnimation* animation,
+                                    double duration,
+                                    int delta_x,
+                                    int delta_y) {
+  return AddAnimatedTransform(animation, duration, delta_x, delta_y);
 }
 
-int AddAnimatedTransformToPlayer(AnimationPlayer* player,
-                                 double duration,
-                                 TransformOperations start_operations,
-                                 TransformOperations operations) {
-  return AddAnimatedTransform(player, duration, start_operations, operations);
+int AddAnimatedTransformToAnimation(SingleKeyframeEffectAnimation* animation,
+                                    double duration,
+                                    TransformOperations start_operations,
+                                    TransformOperations operations) {
+  return AddAnimatedTransform(animation, duration, start_operations,
+                              operations);
 }
 
-int AddOpacityTransitionToPlayer(AnimationPlayer* player,
-                                 double duration,
-                                 float start_opacity,
-                                 float end_opacity,
-                                 bool use_timing_function) {
-  return AddOpacityTransition(player, duration, start_opacity, end_opacity,
+int AddOpacityTransitionToAnimation(SingleKeyframeEffectAnimation* animation,
+                                    double duration,
+                                    float start_opacity,
+                                    float end_opacity,
+                                    bool use_timing_function) {
+  return AddOpacityTransition(animation, duration, start_opacity, end_opacity,
                               use_timing_function);
 }
 
-int AddAnimatedFilterToPlayer(AnimationPlayer* player,
-                              double duration,
-                              float start_brightness,
-                              float end_brightness) {
-  return AddAnimatedFilter(player, duration, start_brightness, end_brightness);
+int AddAnimatedFilterToAnimation(SingleKeyframeEffectAnimation* animation,
+                                 double duration,
+                                 float start_brightness,
+                                 float end_brightness) {
+  return AddAnimatedFilter(animation, duration, start_brightness,
+                           end_brightness);
 }
 
-int AddOpacityStepsToPlayer(AnimationPlayer* player,
-                            double duration,
-                            float start_opacity,
-                            float end_opacity,
-                            int num_steps) {
+int AddOpacityStepsToAnimation(SingleKeyframeEffectAnimation* animation,
+                               double duration,
+                               float start_opacity,
+                               float end_opacity,
+                               int num_steps) {
   std::unique_ptr<KeyframedFloatAnimationCurve> curve(
       KeyframedFloatAnimationCurve::Create());
 
@@ -281,125 +287,137 @@ int AddOpacityStepsToPlayer(AnimationPlayer* player,
   curve->AddKeyframe(FloatKeyframe::Create(
       base::TimeDelta::FromSecondsD(duration), end_opacity, nullptr));
 
-  int id = AnimationIdProvider::NextAnimationId();
+  int id = AnimationIdProvider::NextKeyframeModelId();
 
-  std::unique_ptr<Animation> animation(Animation::Create(
+  std::unique_ptr<KeyframeModel> keyframe_model(KeyframeModel::Create(
       std::move(curve), id, AnimationIdProvider::NextGroupId(),
       TargetProperty::OPACITY));
-  animation->set_needs_synchronized_start_time(true);
+  keyframe_model->set_needs_synchronized_start_time(true);
 
-  player->AddAnimation(std::move(animation));
+  animation->AddKeyframeModelForKeyframeEffect(
+      std::move(keyframe_model), animation->keyframe_effect()->id());
   return id;
 }
 
-void AddAnimationToElementWithPlayer(ElementId element_id,
-                                     scoped_refptr<AnimationTimeline> timeline,
-                                     std::unique_ptr<Animation> animation) {
-  scoped_refptr<AnimationPlayer> player =
-      AnimationPlayer::Create(AnimationIdProvider::NextPlayerId());
-  timeline->AttachPlayer(player);
-  player->AttachElement(element_id);
-  DCHECK(player->element_animations());
-  player->AddAnimation(std::move(animation));
-}
-
-void AddAnimationToElementWithExistingTicker(
+void AddKeyframeModelToElementWithAnimation(
     ElementId element_id,
     scoped_refptr<AnimationTimeline> timeline,
-    std::unique_ptr<Animation> animation) {
+    std::unique_ptr<KeyframeModel> keyframe_model) {
+  scoped_refptr<SingleKeyframeEffectAnimation> animation =
+      SingleKeyframeEffectAnimation::Create(
+          AnimationIdProvider::NextAnimationId());
+  timeline->AttachAnimation(animation);
+  animation->AttachElement(element_id);
+  DCHECK(animation->keyframe_effect()->element_animations());
+  animation->AddKeyframeModel(std::move(keyframe_model));
+}
+
+void AddKeyframeModelToElementWithExistingKeyframeEffect(
+    ElementId element_id,
+    scoped_refptr<AnimationTimeline> timeline,
+    std::unique_ptr<KeyframeModel> keyframe_model) {
   scoped_refptr<ElementAnimations> element_animations =
       timeline->animation_host()->GetElementAnimationsForElementId(element_id);
   DCHECK(element_animations);
-  DCHECK(element_animations->tickers_list().might_have_observers());
-  AnimationTicker* ticker = &*element_animations->tickers_list().begin();
-  DCHECK(ticker);
-  ticker->AddAnimation(std::move(animation));
+  DCHECK(element_animations->keyframe_effects_list().might_have_observers());
+  KeyframeEffect* keyframe_effect =
+      &*element_animations->keyframe_effects_list().begin();
+  DCHECK(keyframe_effect);
+  keyframe_effect->AddKeyframeModel(std::move(keyframe_model));
 }
 
-void RemoveAnimationFromElementWithExistingTicker(
+void RemoveKeyframeModelFromElementWithExistingKeyframeEffect(
     ElementId element_id,
     scoped_refptr<AnimationTimeline> timeline,
-    int animation_id) {
+    int keyframe_model_id) {
   scoped_refptr<ElementAnimations> element_animations =
       timeline->animation_host()->GetElementAnimationsForElementId(element_id);
   DCHECK(element_animations);
-  DCHECK(element_animations->tickers_list().might_have_observers());
-  AnimationTicker* ticker = &*element_animations->tickers_list().begin();
-  DCHECK(ticker);
-  ticker->RemoveAnimation(animation_id);
+  DCHECK(element_animations->keyframe_effects_list().might_have_observers());
+  KeyframeEffect* keyframe_effect =
+      &*element_animations->keyframe_effects_list().begin();
+  DCHECK(keyframe_effect);
+  keyframe_effect->RemoveKeyframeModel(keyframe_model_id);
 }
 
-Animation* GetAnimationFromElementWithExistingTicker(
+KeyframeModel* GetKeyframeModelFromElementWithExistingKeyframeEffect(
     ElementId element_id,
     scoped_refptr<AnimationTimeline> timeline,
-    int animation_id) {
+    int keyframe_model_id) {
   scoped_refptr<ElementAnimations> element_animations =
       timeline->animation_host()->GetElementAnimationsForElementId(element_id);
   DCHECK(element_animations);
-  DCHECK(element_animations->tickers_list().might_have_observers());
-  AnimationTicker* ticker = &*element_animations->tickers_list().begin();
-  DCHECK(ticker);
-  return ticker->GetAnimationById(animation_id);
+  DCHECK(element_animations->keyframe_effects_list().might_have_observers());
+  KeyframeEffect* keyframe_effect =
+      &*element_animations->keyframe_effects_list().begin();
+  DCHECK(keyframe_effect);
+  return keyframe_effect->GetKeyframeModelById(keyframe_model_id);
 }
 
-int AddAnimatedFilterToElementWithPlayer(
+int AddAnimatedFilterToElementWithAnimation(
     ElementId element_id,
     scoped_refptr<AnimationTimeline> timeline,
     double duration,
     float start_brightness,
     float end_brightness) {
-  scoped_refptr<AnimationPlayer> player =
-      AnimationPlayer::Create(AnimationIdProvider::NextPlayerId());
-  timeline->AttachPlayer(player);
-  player->AttachElement(element_id);
-  DCHECK(player->element_animations());
-  return AddAnimatedFilterToPlayer(player.get(), duration, start_brightness,
-                                   end_brightness);
+  scoped_refptr<SingleKeyframeEffectAnimation> animation =
+      SingleKeyframeEffectAnimation::Create(
+          AnimationIdProvider::NextAnimationId());
+  timeline->AttachAnimation(animation);
+  animation->AttachElement(element_id);
+  DCHECK(animation->keyframe_effect()->element_animations());
+  return AddAnimatedFilterToAnimation(animation.get(), duration,
+                                      start_brightness, end_brightness);
 }
 
-int AddAnimatedTransformToElementWithPlayer(
+int AddAnimatedTransformToElementWithAnimation(
     ElementId element_id,
     scoped_refptr<AnimationTimeline> timeline,
     double duration,
     int delta_x,
     int delta_y) {
-  scoped_refptr<AnimationPlayer> player =
-      AnimationPlayer::Create(AnimationIdProvider::NextPlayerId());
-  timeline->AttachPlayer(player);
-  player->AttachElement(element_id);
-  DCHECK(player->element_animations());
-  return AddAnimatedTransformToPlayer(player.get(), duration, delta_x, delta_y);
+  scoped_refptr<SingleKeyframeEffectAnimation> animation =
+      SingleKeyframeEffectAnimation::Create(
+          AnimationIdProvider::NextAnimationId());
+  timeline->AttachAnimation(animation);
+  animation->AttachElement(element_id);
+  DCHECK(animation->keyframe_effect()->element_animations());
+  return AddAnimatedTransformToAnimation(animation.get(), duration, delta_x,
+                                         delta_y);
 }
 
-int AddAnimatedTransformToElementWithPlayer(
+int AddAnimatedTransformToElementWithAnimation(
     ElementId element_id,
     scoped_refptr<AnimationTimeline> timeline,
     double duration,
     TransformOperations start_operations,
     TransformOperations operations) {
-  scoped_refptr<AnimationPlayer> player =
-      AnimationPlayer::Create(AnimationIdProvider::NextPlayerId());
-  timeline->AttachPlayer(player);
-  player->AttachElement(element_id);
-  DCHECK(player->element_animations());
-  return AddAnimatedTransformToPlayer(player.get(), duration, start_operations,
-                                      operations);
+  scoped_refptr<SingleKeyframeEffectAnimation> animation =
+      SingleKeyframeEffectAnimation::Create(
+          AnimationIdProvider::NextAnimationId());
+  timeline->AttachAnimation(animation);
+  animation->AttachElement(element_id);
+  DCHECK(animation->keyframe_effect()->element_animations());
+  return AddAnimatedTransformToAnimation(animation.get(), duration,
+                                         start_operations, operations);
 }
 
-int AddOpacityTransitionToElementWithPlayer(
+int AddOpacityTransitionToElementWithAnimation(
     ElementId element_id,
     scoped_refptr<AnimationTimeline> timeline,
     double duration,
     float start_opacity,
     float end_opacity,
     bool use_timing_function) {
-  scoped_refptr<AnimationPlayer> player =
-      AnimationPlayer::Create(AnimationIdProvider::NextPlayerId());
-  timeline->AttachPlayer(player);
-  player->AttachElement(element_id);
-  DCHECK(player->element_animations());
-  return AddOpacityTransitionToPlayer(player.get(), duration, start_opacity,
-                                      end_opacity, use_timing_function);
+  scoped_refptr<SingleKeyframeEffectAnimation> animation =
+      SingleKeyframeEffectAnimation::Create(
+          AnimationIdProvider::NextAnimationId());
+  timeline->AttachAnimation(animation);
+  animation->AttachElement(element_id);
+  DCHECK(animation->keyframe_effect()->element_animations());
+  return AddOpacityTransitionToAnimation(animation.get(), duration,
+                                         start_opacity, end_opacity,
+                                         use_timing_function);
 }
 
 }  // namespace cc

@@ -54,6 +54,7 @@
 #import "ios/chrome/browser/ui/settings/save_passwords_collection_view_controller.h"
 #import "ios/chrome/browser/ui/settings/search_engine_settings_collection_view_controller.h"
 #import "ios/chrome/browser/ui/settings/sync_utils/sync_util.h"
+#import "ios/chrome/browser/ui/settings/table_cell_catalog_view_controller.h"
 #import "ios/chrome/browser/ui/settings/utils/pref_backed_boolean.h"
 #import "ios/chrome/browser/ui/settings/voicesearch_collection_view_controller.h"
 #import "ios/chrome/browser/ui/signin_interaction/public/signin_presenter.h"
@@ -111,7 +112,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
   ItemTypeMemoryDebugging,
   ItemTypeViewSource,
   ItemTypeLogJavascript,
-  ItemTypeCellCatalog,
+  ItemTypeCollectionCellCatalog,
+  ItemTypeTableCellCatalog,
   ItemTypeArticlesForYou,
 };
 
@@ -423,7 +425,9 @@ void SigninObserverBridge::GoogleSignedOut(const std::string& account_id,
       toSectionWithIdentifier:SectionIdentifierDebug];
   [model addItem:[self logJavascriptConsoleSwitchItem]
       toSectionWithIdentifier:SectionIdentifierDebug];
-  [model addItem:[self materialCatalogDetailItem]
+  [model addItem:[self collectionViewCatalogDetailItem]
+      toSectionWithIdentifier:SectionIdentifierDebug];
+  [model addItem:[self tableViewCatalogDetailItem]
       toSectionWithIdentifier:SectionIdentifierDebug];
 #endif  // CHROMIUM_BUILD && !defined(NDEBUG)
 }
@@ -483,16 +487,10 @@ void SigninObserverBridge::GoogleSignedOut(const std::string& account_id,
 }
 
 - (CollectionViewItem*)savePasswordsDetailItem {
-  BOOL savePasswordsEnabled = _browserState->GetPrefs()->GetBoolean(
-      password_manager::prefs::kCredentialsEnableService);
-  NSString* passwordsDetail = savePasswordsEnabled
-                                  ? l10n_util::GetNSString(IDS_IOS_SETTING_ON)
-                                  : l10n_util::GetNSString(IDS_IOS_SETTING_OFF);
-
   _savePasswordsDetailItem =
       [self detailItemWithType:ItemTypeSavedPasswords
-                          text:l10n_util::GetNSString(IDS_IOS_SAVE_PASSWORDS)
-                    detailText:passwordsDetail];
+                          text:l10n_util::GetNSString(IDS_IOS_PASSWORDS)
+                    detailText:nil];
 
   return _savePasswordsDetailItem;
 }
@@ -590,9 +588,15 @@ void SigninObserverBridge::GoogleSignedOut(const std::string& account_id,
                   withDefaultsKey:kLogJavascriptKey];
 }
 
-- (CollectionViewDetailItem*)materialCatalogDetailItem {
-  return [self detailItemWithType:ItemTypeCellCatalog
-                             text:@"Cell Catalog"
+- (CollectionViewDetailItem*)collectionViewCatalogDetailItem {
+  return [self detailItemWithType:ItemTypeCollectionCellCatalog
+                             text:@"Collection Cell Catalog"
+                       detailText:nil];
+}
+
+- (CollectionViewDetailItem*)tableViewCatalogDetailItem {
+  return [self detailItemWithType:ItemTypeTableCellCatalog
+                             text:@"TableView Cell Catalog"
                        detailText:nil];
 }
 #endif  // CHROMIUM_BUILD && !defined(NDEBUG)
@@ -794,8 +798,13 @@ void SigninObserverBridge::GoogleSignedOut(const std::string& account_id,
       // Taps on these don't do anything. They have a switch as accessory view
       // and only the switch is tappable.
       break;
-    case ItemTypeCellCatalog:
+    case ItemTypeCollectionCellCatalog:
       [self.settingsMainPageDispatcher showMaterialCellCatalog];
+      break;
+    case ItemTypeTableCellCatalog:
+      [self.navigationController
+          pushViewController:[[TableCellCatalogViewController alloc] init]
+                    animated:YES];
       break;
     default:
       break;

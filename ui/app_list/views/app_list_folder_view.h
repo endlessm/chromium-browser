@@ -13,10 +13,13 @@
 #include "ui/app_list/views/apps_grid_view_folder_delegate.h"
 #include "ui/app_list/views/folder_header_view.h"
 #include "ui/app_list/views/folder_header_view_delegate.h"
-#include "ui/compositor/layer_animation_observer.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/view.h"
 #include "ui/views/view_model.h"
+
+namespace gfx {
+class SlideAnimation;
+}  // namespace gfx
 
 namespace app_list {
 
@@ -27,17 +30,25 @@ class AppListItemView;
 class AppListMainView;
 class AppListModel;
 class FolderHeaderView;
+class PageSwitcher;
 
-class AppListFolderView : public views::View,
-                          public FolderHeaderViewDelegate,
-                          public AppListModelObserver,
-                          public ui::ImplicitAnimationObserver,
-                          public AppsGridViewFolderDelegate {
+class APP_LIST_EXPORT AppListFolderView : public views::View,
+                                          public FolderHeaderViewDelegate,
+                                          public AppListModelObserver,
+                                          public AppsGridViewFolderDelegate {
  public:
   AppListFolderView(AppsContainerView* container_view,
                     AppListModel* model,
                     AppListMainView* app_list_main_view);
   ~AppListFolderView() override;
+
+  // An interface for the folder opening and closing animations.
+  class Animation {
+   public:
+    virtual ~Animation() {}
+    virtual void ScheduleAnimation() = 0;
+    virtual bool IsAnimationRunning() = 0;
+  };
 
   void SetAppListFolderItem(AppListFolderItem* folder);
 
@@ -45,13 +56,6 @@ class AppListFolderView : public views::View,
   // If |show| is false, the view should be set to invisible after the
   // animation is done unless |hide_for_reparent| is true.
   void ScheduleShowHideAnimation(bool show, bool hide_for_reparent);
-
-  // Gets icon image bounds of the item at |index|, relative to
-  // AppListFolderView.
-  gfx::Rect GetItemIconBoundsAt(int index);
-
-  void UpdateFolderNameVisibility(bool visible);
-  void SetBackButtonLabel(bool folder);
 
   // Hides the view immediately without animation.
   void HideViewImmediately();
@@ -62,19 +66,44 @@ class AppListFolderView : public views::View,
   // views::View
   gfx::Size CalculatePreferredSize() const override;
   void Layout() override;
+  bool OnKeyPressed(const ui::KeyEvent& event) override;
 
   // AppListModelObserver
   void OnAppListItemWillBeDeleted(AppListItem* item) override;
 
-  // ui::ImplicitAnimationObserver
-  void OnImplicitAnimationsCompleted() override;
+  // Returns true if this view's child views are in animation for opening or
+  // closing the folder.
+  bool IsAnimationRunning() const;
 
   AppsGridView* items_grid_view() { return items_grid_view_; }
 
   FolderHeaderView* folder_header_view() { return folder_header_view_; }
 
+  views::View* background_view() { return background_view_; }
+
+  views::View* contents_container() { return contents_container_; }
+
+  const AppListFolderItem* folder_item() const { return folder_item_; }
+
+  const gfx::Rect& folder_item_icon_bounds() const {
+    return folder_item_icon_bounds_;
+  }
+
+  const gfx::Rect& preferred_bounds() const { return preferred_bounds_; }
+
+  AppListItemView* GetActivatedFolderItemView();
+
+  // Records the smoothness of folder show/hide animations mixed with the
+  // BackgroundAnimation, FolderItemTitleAnimation, TopIconAnimation, and
+  // ContentsContainerAnimation.
+  void RecordAnimationSmoothness();
+
  private:
   void CalculateIdealBounds();
+
+  // Updates preferred bounds of this view based on the activated folder item
+  // icon's bounds.
+  void UpdatePreferredBounds();
 
   // Starts setting up drag in root level apps grid view for re-parenting a
   // folder item.
@@ -94,7 +123,6 @@ class AppListFolderView : public views::View,
   void SetItemName(AppListFolderItem* item, const std::string& name) override;
 
   // Overridden from AppsGridViewFolderDelegate:
-  void UpdateFolderViewBackground(bool show_bubble) override;
   void ReparentItem(AppListItemView* original_drag_view,
                     const gfx::Point& drag_point_in_folder_grid,
                     bool has_native_drag) override;
@@ -107,19 +135,46 @@ class AppListFolderView : public views::View,
   bool IsOEMFolder() const override;
   void SetRootLevelDragViewVisible(bool visible) override;
 
-  AppsContainerView* container_view_;     // Not owned.
-  AppListMainView* app_list_main_view_;   // Not Owned.
+  // Returns the compositor associated to the widget containing this view.
+  // Returns nullptr if there isn't one associated with this widget.
+  ui::Compositor* GetCompositor();
+
+  // Views below are not owned by views hierarchy.
+  AppsContainerView* container_view_;
+  AppListMainView* app_list_main_view_;
+
+  // The view is used to draw a background with corner radius.
+  views::View* background_view_;  // Owned by views hierarchy.
+
+  // The view is used as a container for all following views.
+  views::View* contents_container_;  // Owned by views hierarchy.
+
   FolderHeaderView* folder_header_view_;  // Owned by views hierarchy.
-  AppsGridView* items_grid_view_;         // Owned by the views hierarchy.
+  AppsGridView* items_grid_view_;         // Owned by views hierarchy.
+  PageSwitcher* page_switcher_;           // Owned by views hierarchy.
 
   std::unique_ptr<views::ViewModel> view_model_;
 
   AppListModel* model_;             // Not owned.
   AppListFolderItem* folder_item_;  // Not owned.
 
+  // The bounds of the activated folder item icon relative to this view.
+  gfx::Rect folder_item_icon_bounds_;
+
+  // The preferred bounds of this view relative to AppsContainerView.
+  gfx::Rect preferred_bounds_;
+
   bool hide_for_reparent_;
 
   base::string16 accessible_name_;
+
+  std::unique_ptr<gfx::SlideAnimation> background_animation_;
+  std::unique_ptr<gfx::SlideAnimation> folder_item_title_animation_;
+  std::unique_ptr<Animation> top_icon_animation_;
+  std::unique_ptr<Animation> contents_container_animation_;
+
+  // The compositor frame number when animation starts.
+  int animation_start_frame_number_;
 
   DISALLOW_COPY_AND_ASSIGN(AppListFolderView);
 };

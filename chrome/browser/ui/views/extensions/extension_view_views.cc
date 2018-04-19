@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "build/build_config.h"
 #include "chrome/browser/extensions/extension_view_host.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -22,6 +23,10 @@
 
 #if defined(USE_AURA)
 #include "ui/base/cursor/cursor.h"
+#endif
+
+#if defined(OS_MACOSX)
+#include "chrome/browser/ui/cocoa/browser_dialogs_views_mac.h"
 #endif
 
 ExtensionViewViews::ExtensionViewViews(extensions::ExtensionHost* host,
@@ -139,6 +144,12 @@ namespace extensions {
 std::unique_ptr<ExtensionView> ExtensionViewHost::CreateExtensionView(
     ExtensionViewHost* host,
     Browser* browser) {
+#if defined(OS_MACOSX)
+  if (!chrome::ShowAllDialogsWithViewsToolkit() ||
+      !chrome::ShowExtensionPopupWithViewsToolkit()) {
+    return CreateExtensionViewCocoa(host, browser);
+  }
+#endif
   std::unique_ptr<ExtensionViewViews> view(
       new ExtensionViewViews(host, browser));
   // We own |view_|, so don't auto delete when it's removed from the view

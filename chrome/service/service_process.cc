@@ -26,7 +26,6 @@
 #include "base/task_scheduler/post_task.h"
 #include "base/task_scheduler/scheduler_worker_pool_params.h"
 #include "base/task_scheduler/task_scheduler.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
@@ -43,6 +42,7 @@
 #include "chrome/service/cloud_print/cloud_print_proxy.h"
 #include "chrome/service/net/service_url_request_context_getter.h"
 #include "chrome/service/service_process_prefs.h"
+#include "components/language/core/common/locale_util.h"
 #include "components/network_session_configurator/common/network_switches.h"
 #include "components/prefs/json_pref_store.h"
 #include "mojo/edk/embedder/embedder.h"
@@ -155,7 +155,7 @@ bool ServiceProcess::Initialize(base::MessageLoopForUI* message_loop,
   main_message_loop_ = message_loop;
   service_process_state_.reset(state);
 
-  // Initialize TaskScheduler and redirect SequencedWorkerPool tasks to it.
+  // Initialize TaskScheduler.
   constexpr int kMaxBackgroundThreads = 1;
   constexpr int kMaxBackgroundBlockingThreads = 1;
   constexpr int kMaxForegroundThreads = 3;
@@ -170,8 +170,6 @@ bool ServiceProcess::Initialize(base::MessageLoopForUI* message_loop,
        {kMaxForegroundThreads, kSuggestedReclaimTime},
        {kMaxForegroundBlockingThreads, kSuggestedReclaimTime,
         base::SchedulerBackwardCompatibility::INIT_COM_STA}});
-
-  base::SequencedWorkerPool::EnableWithRedirectionToTaskSchedulerForProcess();
 
   // The NetworkChangeNotifier must be created after TaskScheduler because it
   // posts tasks to it.
@@ -220,6 +218,7 @@ bool ServiceProcess::Initialize(base::MessageLoopForUI* message_loop,
     // the prefs.
     locale =
         service_prefs_->GetString(prefs::kApplicationLocale, std::string());
+    language::ConvertToActualUILocale(&locale);
     // If no locale was specified anywhere, use the default one.
     if (locale.empty())
       locale = kDefaultServiceProcessLocale;
@@ -354,7 +353,7 @@ mojo::ScopedMessagePipeHandle ServiceProcess::CreateChannelMessagePipe() {
 #endif
   CHECK(channel_handle.is_valid());
 
-  peer_connection_ = base::MakeUnique<mojo::edk::PeerConnection>();
+  peer_connection_ = std::make_unique<mojo::edk::PeerConnection>();
   return peer_connection_->Connect(mojo::edk::ConnectionParams(
       mojo::edk::TransportProtocol::kLegacy, std::move(channel_handle)));
 }

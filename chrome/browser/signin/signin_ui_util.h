@@ -9,8 +9,13 @@
 #include <vector>
 
 #include "base/strings/string16.h"
+#include "build/buildflag.h"
+#include "components/signin/core/browser/account_info.h"
+#include "components/signin/core/browser/signin_features.h"
+#include "components/signin/core/browser/signin_metrics.h"
 
 class Profile;
+class Browser;
 class SigninManagerBase;
 
 // Utility functions to gather status information from the various signed in
@@ -30,11 +35,35 @@ void InitializePrefsForProfile(Profile* profile);
 // Shows a learn more page for signin errors.
 void ShowSigninErrorLearnMorePage(Profile* profile);
 
+// This function is used to enable sync for a given account:
+// * This function does nothing if the user is already signed in to Chrome.
+// * If |account| is empty, then it presents the Chrome sign-in page.
+// * If token service has an invalid refreh token for account |account|,
+//   then it presents the Chrome sign-in page with |account.emil| prefilled.
+// * If token service has a valid refresh token for |account|, then it
+//   enables sync for |account|.
+void EnableSync(Browser* browser,
+                const AccountInfo& account,
+                signin_metrics::AccessPoint access_point);
+
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
 // Returns the display email string for the given account.  If the profile
 // has not been migrated to use gaia ids, then its possible for the display
 // to not ne known yet.  In this case, use |account_id|, which is assumed to
 // be an email address.
 std::string GetDisplayEmail(Profile* profile, const std::string& account_id);
+
+// Returns the list of all accounts that have a token. The default account in
+// the Gaia cookies will be the first account in the list.
+std::vector<AccountInfo> GetAccountsForDicePromos(Profile* profile);
+
+#endif
+
+// Returns the domain of the policy value of RestrictSigninToPattern. Returns
+// an empty string if the policy is not set or can not be parsed. The parser
+// only supports the policy value that matches [^@]+@[a-zA-Z0-9\-.]+(\\E)?\$?$.
+// Also, the parser does not validate the policy value.
+std::string GetAllowedDomain(std::string signin_pattern);
 
 }  // namespace signin_ui_util
 

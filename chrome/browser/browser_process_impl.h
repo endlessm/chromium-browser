@@ -22,18 +22,19 @@
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "components/keep_alive_registry/keep_alive_state_observer.h"
-#include "components/nacl/common/features.h"
+#include "components/nacl/common/buildflags.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "extensions/features/features.h"
 #include "media/media_features.h"
 #include "ppapi/features/features.h"
 #include "printing/features/features.h"
-#include "services/network/public/interfaces/network_service.mojom.h"
+#include "services/network/public/mojom/network_service.mojom.h"
 
 class ChromeChildProcessWatcher;
 class ChromeDeviceClient;
+class ChromeMetricsServicesManagerClient;
 class ChromeResourceDispatcherHostDelegate;
 class DevToolsAutoOpener;
 class RemoteDebuggingServer;
@@ -74,6 +75,9 @@ class BrowserProcessImpl : public BrowserProcess,
       base::SequencedTaskRunner* local_state_task_runner);
   ~BrowserProcessImpl() override;
 
+  // Called to complete initialization.
+  void Init();
+
   // Called before the browser threads are created.
   void PreCreateThreads(const base::CommandLine& command_line);
 
@@ -111,16 +115,11 @@ class BrowserProcessImpl : public BrowserProcess,
   extensions::EventRouterForwarder* extension_event_router_forwarder() override;
   NotificationUIManager* notification_ui_manager() override;
   NotificationPlatformBridge* notification_platform_bridge() override;
-  message_center::MessageCenter* message_center() override;
   policy::ChromeBrowserPolicyConnector* browser_policy_connector() override;
   policy::PolicyService* policy_service() override;
   IconManager* icon_manager() override;
   GpuModeManager* gpu_mode_manager() override;
-#if defined(OS_ANDROID)
-  GpuDriverInfoManager* gpu_driver_info_manager() override;
-#endif
-  void CreateDevToolsHttpProtocolHandler(const std::string& ip,
-                                         uint16_t port) override;
+  void CreateDevToolsProtocolHandler() override;
   void CreateDevToolsAutoOpener() override;
   bool IsShuttingDown() override;
   printing::PrintJobManager* print_job_manager() override;
@@ -174,16 +173,13 @@ class BrowserProcessImpl : public BrowserProcess,
   void CreateWatchdogThread();
   void CreateProfileManager();
   void CreateLocalState();
-  void CreateViewedPageTracker();
   void CreateIconManager();
   void CreateIntranetRedirectDetector();
   void CreateNotificationPlatformBridge();
   void CreateNotificationUIManager();
-  void CreateStatusTrayManager();
   void CreatePrintPreviewDialogController();
   void CreateBackgroundPrintingManager();
   void CreateSafeBrowsingService();
-  void CreateSafeBrowsingDetectionService();
   void CreateSubresourceFilterRulesetService();
   void CreateOptimizationGuideService();
   void CreateStatusTray();
@@ -203,6 +199,10 @@ class BrowserProcessImpl : public BrowserProcess,
   // to make sure it keeps running.
   void Pin();
   void Unpin();
+
+  // |metrics_services_manager_| owns this.
+  ChromeMetricsServicesManagerClient* metrics_services_manager_client_ =
+      nullptr;
 
   std::unique_ptr<metrics_services_manager::MetricsServicesManager>
       metrics_services_manager_;
@@ -230,10 +230,6 @@ class BrowserProcessImpl : public BrowserProcess,
   bool created_icon_manager_ = false;
   std::unique_ptr<IconManager> icon_manager_;
 
-#if defined(OS_ANDROID)
-  std::unique_ptr<GpuDriverInfoManager> gpu_driver_info_manager_;
-#endif
-
   std::unique_ptr<GpuModeManager> gpu_mode_manager_;
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -259,9 +255,11 @@ class BrowserProcessImpl : public BrowserProcess,
       background_printing_manager_;
 #endif
 
+#if !defined(OS_ANDROID)
   // Manager for desktop notification UI.
   bool created_notification_ui_manager_ = false;
   std::unique_ptr<NotificationUIManager> notification_ui_manager_;
+#endif
 
   std::unique_ptr<IntranetRedirectDetector> intranet_redirect_detector_;
 

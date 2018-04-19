@@ -134,7 +134,7 @@ class BasePinButton : public views::InkDropHostView {
   }
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
     node_data->SetName(accessible_name_);
-    node_data->role = ui::AX_ROLE_BUTTON;
+    node_data->role = ax::mojom::Role::kButton;
   }
 
   std::unique_ptr<views::InkDrop> CreateInkDrop() override {

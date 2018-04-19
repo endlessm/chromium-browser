@@ -11,6 +11,7 @@
 #include "angle_gl.h"
 #include "compiler/translator/InfoSink.h"
 #include "compiler/translator/PoolAlloc.h"
+#include "compiler/translator/StaticType.h"
 #include "compiler/translator/SymbolTable.h"
 #include "gtest/gtest.h"
 
@@ -36,16 +37,16 @@ class IntermNodeTest : public testing::Test
 
     TIntermSymbol *createTestSymbol(const TType &type)
     {
-        TInfoSinkBase symbolNameOut;
+        std::stringstream symbolNameOut;
         symbolNameOut << "test" << mUniqueIndex;
-        TString *symbolName = NewPoolTString(symbolNameOut.c_str());
+        ImmutableString symbolName(symbolNameOut.str());
         ++mUniqueIndex;
 
         // We're using a dummy symbol table here, don't need to assign proper symbol ids to these
         // nodes.
         TSymbolTable symbolTable;
-        TType variableType(type);
-        variableType.setQualifier(EvqTemporary);
+        TType *variableType = new TType(type);
+        variableType->setQualifier(EvqTemporary);
         TVariable *variable =
             new TVariable(&symbolTable, symbolName, variableType, SymbolType::AngleInternal);
         TIntermSymbol *node = new TIntermSymbol(variable);
@@ -57,6 +58,21 @@ class IntermNodeTest : public testing::Test
     {
         TType type(EbtFloat, EbpHigh);
         return createTestSymbol(type);
+    }
+
+    TFunction *createTestFunction(const TType &returnType, const TIntermSequence &args)
+    {
+        // We're using a dummy symbol table similarly as for creating symbol nodes.
+        const ImmutableString name("testFunc");
+        TSymbolTable symbolTable;
+        TFunction *func = new TFunction(&symbolTable, name, SymbolType::UserDefined,
+                                        new TType(returnType), false);
+        for (TIntermNode *arg : args)
+        {
+            const TType *type = new TType(arg->getAsTyped()->getType());
+            func->addParameter(TConstParameter(type));
+        }
+        return func;
     }
 
     void checkTypeEqualWithQualifiers(const TType &original, const TType &copy)
@@ -122,13 +138,13 @@ class IntermNodeTest : public testing::Test
 // original.
 TEST_F(IntermNodeTest, DeepCopySymbolNode)
 {
-    TType type(EbtInt, EbpHigh);
+    const TType *type = StaticType::Get<EbtInt, EbpHigh, EvqTemporary, 1, 1>();
 
     // We're using a dummy symbol table here, don't need to assign proper symbol ids to these nodes.
     TSymbolTable symbolTable;
 
     TVariable *variable =
-        new TVariable(&symbolTable, NewPoolTString("name"), type, SymbolType::AngleInternal);
+        new TVariable(&symbolTable, ImmutableString("name"), type, SymbolType::AngleInternal);
     TIntermSymbol *original = new TIntermSymbol(variable);
     original->setLine(getTestSourceLoc());
     TIntermTyped *copy = original->deepCopy();
@@ -199,8 +215,11 @@ TEST_F(IntermNodeTest, DeepCopyAggregateNode)
     originalSeq->push_back(createTestSymbol());
     originalSeq->push_back(createTestSymbol());
     originalSeq->push_back(createTestSymbol());
-    TIntermAggregate *original =
-        TIntermAggregate::Create(originalSeq->at(0)->getAsTyped()->getType(), EOpMix, originalSeq);
+
+    TFunction *testFunc =
+        createTestFunction(originalSeq->back()->getAsTyped()->getType(), *originalSeq);
+
+    TIntermAggregate *original = TIntermAggregate::CreateFunctionCall(*testFunc, originalSeq);
     original->setLine(getTestSourceLoc());
 
     TIntermTyped *copyTyped = original->deepCopy();

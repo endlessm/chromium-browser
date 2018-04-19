@@ -16,7 +16,7 @@
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "chromecast/base/task_runner_impl.h"
-#include "chromecast/media/cma/backend/media_pipeline_backend_audio.h"
+#include "chromecast/media/cma/backend/media_pipeline_backend_for_mixer.h"
 #include "chromecast/media/cma/base/decoder_buffer_adapter.h"
 #include "chromecast/media/cma/base/decoder_buffer_base.h"
 #include "chromecast/public/media/cast_decoder_buffer.h"
@@ -27,7 +27,7 @@
 #include "media/filters/audio_renderer_algorithm.h"
 
 #if defined(OS_LINUX)
-#include "chromecast/media/cma/backend/audio_features.h"
+#include "chromecast/media/cma/backend/audio_buildflags.h"
 #endif  // defined(OS_LINUX)
 
 #if defined(OS_FUCHSIA)
@@ -76,7 +76,7 @@ int64_t MonotonicClockNow() {
 }
 #else
 int64_t MonotonicClockNow() {
-  return zx_time_get(ZX_CLOCK_MONOTONIC) / 1000;
+  return zx_clock_get(ZX_CLOCK_MONOTONIC) / 1000;
 }
 #endif
 
@@ -85,7 +85,8 @@ int64_t MonotonicClockNow() {
 AudioDecoderForMixer::RateShifterInfo::RateShifterInfo(float playback_rate)
     : rate(playback_rate), input_frames(0), output_frames(0) {}
 
-AudioDecoderForMixer::AudioDecoderForMixer(MediaPipelineBackendAudio* backend)
+AudioDecoderForMixer::AudioDecoderForMixer(
+    MediaPipelineBackendForMixer* backend)
     : backend_(backend),
       task_runner_(backend->GetTaskRunner()),
       delegate_(nullptr),
@@ -142,9 +143,10 @@ void AudioDecoderForMixer::Initialize() {
 bool AudioDecoderForMixer::Start(int64_t start_pts) {
   TRACE_FUNCTION_ENTRY0();
   DCHECK(IsValidConfig(config_));
-  mixer_input_.reset(new StreamMixerInput(
-      this, config_.samples_per_second, config_.playout_channel,
-      backend_->Primary(), backend_->DeviceId(), backend_->ContentType()));
+  mixer_input_.reset(new BufferingMixerSource(
+      this, config_.samples_per_second, backend_->Primary(),
+      backend_->DeviceId(), backend_->ContentType(), config_.playout_channel));
+
   mixer_input_->SetVolumeMultiplier(volume_multiplier_);
   // Create decoder_ if necessary. This can happen if Stop() was called, and
   // SetConfig() was not called since then.
@@ -286,9 +288,9 @@ bool AudioDecoderForMixer::SetConfig(const AudioConfig& config) {
     // Destroy the old input first to ensure that the mixer output sample rate
     // is updated.
     mixer_input_.reset();
-    mixer_input_.reset(new StreamMixerInput(
-        this, config.samples_per_second, config.playout_channel,
-        backend_->Primary(), backend_->DeviceId(), backend_->ContentType()));
+    mixer_input_.reset(new BufferingMixerSource(
+        this, config.samples_per_second, backend_->Primary(),
+        backend_->DeviceId(), backend_->ContentType(), config.playout_channel));
     mixer_input_->SetVolumeMultiplier(volume_multiplier_);
     pending_output_frames_ = kNoPendingOutput;
   }
@@ -577,11 +579,9 @@ bool AudioDecoderForMixer::BypassDecoder() const {
           config_.sample_format == kSampleFormatPlanarF32);
 }
 
-void AudioDecoderForMixer::OnWritePcmCompletion(BufferStatus status,
-                                                const RenderingDelay& delay) {
+void AudioDecoderForMixer::OnWritePcmCompletion(RenderingDelay delay) {
   TRACE_FUNCTION_ENTRY0();
   DCHECK(task_runner_->BelongsToCurrentThread());
-  DCHECK_EQ(MediaPipelineBackend::kBufferSuccess, status);
   pending_output_frames_ = kNoPendingOutput;
   last_mixer_delay_ = delay;
 
@@ -595,10 +595,6 @@ void AudioDecoderForMixer::PushMorePcm() {
 
   DCHECK(!rate_shifter_info_.empty());
   CheckBufferComplete();
-
-  if (pushed_eos_) {
-    delegate_->OnEndOfStream();
-  }
 }
 
 void AudioDecoderForMixer::OnMixerError(MixerError error) {
@@ -608,6 +604,11 @@ void AudioDecoderForMixer::OnMixerError(MixerError error) {
     LOG(ERROR) << "Mixer error occurred.";
   mixer_error_ = true;
   delegate_->OnDecoderError();
+}
+
+void AudioDecoderForMixer::OnEos() {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+  delegate_->OnEndOfStream();
 }
 
 }  // namespace media

@@ -24,10 +24,8 @@
 #include "chrome/browser/chromeos/arc/test/arc_data_removed_waiter.h"
 #include "chrome/browser/chromeos/login/screens/arc_terms_of_service_screen_view.h"
 #include "chrome/browser/chromeos/login/screens/arc_terms_of_service_screen_view_observer.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host.h"
+#include "chrome/browser/chromeos/login/ui/fake_login_display_host.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
-#include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/policy/profile_policy_connector_factory.h"
@@ -67,83 +65,6 @@
 namespace arc {
 
 namespace {
-
-class FakeBaseScreen : public chromeos::BaseScreen {
- public:
-  explicit FakeBaseScreen(chromeos::OobeScreen screen_id)
-      : BaseScreen(nullptr, screen_id) {}
-
-  ~FakeBaseScreen() override = default;
-
-  // chromeos::BaseScreen:
-  void Show() override {}
-  void Hide() override {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(FakeBaseScreen);
-};
-
-class FakeLoginDisplayHost : public chromeos::LoginDisplayHost {
- public:
-  FakeLoginDisplayHost() {
-    DCHECK(!chromeos::LoginDisplayHost::default_host_);
-    chromeos::LoginDisplayHost::default_host_ = this;
-  }
-
-  ~FakeLoginDisplayHost() override {
-    DCHECK_EQ(chromeos::LoginDisplayHost::default_host_, this);
-    chromeos::LoginDisplayHost::default_host_ = nullptr;
-  }
-
-  /// chromeos::LoginDisplayHost:
-  chromeos::LoginDisplay* CreateLoginDisplay(
-      chromeos::LoginDisplay::Delegate* delegate) override {
-    return nullptr;
-  }
-  gfx::NativeWindow GetNativeWindow() const override { return nullptr; }
-  chromeos::OobeUI* GetOobeUI() const override { return nullptr; }
-  chromeos::WebUILoginView* GetWebUILoginView() const override {
-    return nullptr;
-  }
-  void BeforeSessionStart() override {}
-  void Finalize(base::OnceClosure) override {}
-  void SetStatusAreaVisible(bool visible) override {}
-  void StartWizard(chromeos::OobeScreen first_screen) override {
-    // Reset the controller first since there could only be one wizard
-    // controller at any time.
-    wizard_controller_.reset();
-    wizard_controller_ =
-        std::make_unique<chromeos::WizardController>(nullptr, nullptr);
-
-    fake_screen_ = std::make_unique<FakeBaseScreen>(first_screen);
-    wizard_controller_->SetCurrentScreenForTesting(fake_screen_.get());
-  }
-  chromeos::WizardController* GetWizardController() override {
-    return wizard_controller_.get();
-  }
-  void StartUserAdding(base::OnceClosure completion_callback) override {}
-  void CancelUserAdding() override {}
-  void OnStartSignInScreen(
-      const chromeos::LoginScreenContext& context) override {}
-  void OnPreferencesChanged() override {}
-  void OnStartAppLaunch() override {}
-  void OnStartArcKiosk() override {}
-  void StartVoiceInteractionOobe() override {
-    is_voice_interaction_oobe_ = true;
-  }
-  bool IsVoiceInteractionOobe() override { return is_voice_interaction_oobe_; }
-
- private:
-  bool is_voice_interaction_oobe_ = false;
-
-  // SessionManager is required by the constructor of WizardController.
-  std::unique_ptr<session_manager::SessionManager> session_manager_ =
-      std::make_unique<session_manager::SessionManager>();
-  std::unique_ptr<FakeBaseScreen> fake_screen_;
-  std::unique_ptr<chromeos::WizardController> wizard_controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeLoginDisplayHost);
-};
 
 class ArcSessionManagerInLoginScreenTest : public testing::Test {
  public:
@@ -253,7 +174,6 @@ class ArcSessionManagerTestBase : public testing::Test {
     StartPreferenceSyncing();
 
     ASSERT_FALSE(arc_session_manager_->enable_requested());
-    chromeos::WallpaperManager::Initialize();
     wallpaper_controller_client_ =
         std::make_unique<WallpaperControllerClient>();
     wallpaper_controller_client_->InitForTesting(
@@ -261,7 +181,6 @@ class ArcSessionManagerTestBase : public testing::Test {
   }
 
   void TearDown() override {
-    chromeos::WallpaperManager::Shutdown();
     arc_session_manager_->Shutdown();
     wallpaper_controller_client_.reset();
     profile_.reset();
@@ -894,63 +813,15 @@ TEST_F(ArcSessionManagerKioskTest, AuthFailure) {
   EXPECT_TRUE(terminated);
 }
 
-class ArcSessionOobeOptInTest : public ArcSessionManagerTest {
- public:
-  ArcSessionOobeOptInTest() = default;
-
- protected:
-  void CreateLoginDisplayHost() {
-    fake_login_display_host_ = std::make_unique<FakeLoginDisplayHost>();
-  }
-
-  FakeLoginDisplayHost* login_display_host() {
-    return fake_login_display_host_.get();
-  }
-
-  void CloseLoginDisplayHost() { fake_login_display_host_.reset(); }
-
-  void AppendEnableArcOOBEOptInSwitch() {
-    base::CommandLine::ForCurrentProcess()->AppendSwitch(
-        chromeos::switches::kEnableArcOOBEOptIn);
-  }
-
- private:
-  std::unique_ptr<FakeLoginDisplayHost> fake_login_display_host_;
-
-  DISALLOW_COPY_AND_ASSIGN(ArcSessionOobeOptInTest);
-};
-
-TEST_F(ArcSessionOobeOptInTest, OobeOptInActive) {
-  // OOBE OptIn is active in case of OOBE controller is alive and the ARC ToS
-  // screen is currently showing.
-  EXPECT_FALSE(IsArcOobeOptInActive());
-  CreateLoginDisplayHost();
-  EXPECT_FALSE(IsArcOobeOptInActive());
-  GetFakeUserManager()->set_current_user_new(true);
-  EXPECT_FALSE(IsArcOobeOptInActive());
-  AppendEnableArcOOBEOptInSwitch();
-  EXPECT_TRUE(IsArcOobeOptInActive());
-  login_display_host()->StartVoiceInteractionOobe();
-  EXPECT_FALSE(IsArcOobeOptInActive());
-  login_display_host()->StartWizard(
-      chromeos::OobeScreen::SCREEN_VOICE_INTERACTION_VALUE_PROP);
-  EXPECT_FALSE(IsArcOobeOptInActive());
-  login_display_host()->StartWizard(
-      chromeos::OobeScreen::SCREEN_ARC_TERMS_OF_SERVICE);
-  EXPECT_TRUE(IsArcOobeOptInActive());
-}
-
 class ArcSessionOobeOptInNegotiatorTest
-    : public ArcSessionOobeOptInTest,
+    : public ArcSessionManagerTest,
       public chromeos::ArcTermsOfServiceScreenView,
       public testing::WithParamInterface<bool> {
  public:
   ArcSessionOobeOptInNegotiatorTest() = default;
 
   void SetUp() override {
-    ArcSessionOobeOptInTest::SetUp();
-
-    AppendEnableArcOOBEOptInSwitch();
+    ArcSessionManagerTest::SetUp();
 
     ArcTermsOfServiceOobeNegotiator::SetArcTermsOfServiceScreenViewForTesting(
         this);
@@ -983,7 +854,7 @@ class ArcSessionOobeOptInNegotiatorTest
     ArcTermsOfServiceOobeNegotiator::SetArcTermsOfServiceScreenViewForTesting(
         nullptr);
 
-    ArcSessionOobeOptInTest::TearDown();
+    ArcSessionManagerTest::TearDown();
   }
 
  protected:
@@ -1004,6 +875,17 @@ class ArcSessionOobeOptInNegotiatorTest
       observer.OnViewDestroyed(this);
     base::RunLoop().RunUntilIdle();
   }
+
+  void CreateLoginDisplayHost() {
+    fake_login_display_host_ =
+        std::make_unique<chromeos::FakeLoginDisplayHost>();
+  }
+
+  chromeos::FakeLoginDisplayHost* login_display_host() {
+    return fake_login_display_host_.get();
+  }
+
+  void CloseLoginDisplayHost() { fake_login_display_host_.reset(); }
 
   chromeos::ArcTermsOfServiceScreenView* view() { return this; }
 
@@ -1030,6 +912,7 @@ class ArcSessionOobeOptInNegotiatorTest
 
   base::ObserverList<chromeos::ArcTermsOfServiceScreenViewObserver>
       observer_list_;
+  std::unique_ptr<chromeos::FakeLoginDisplayHost> fake_login_display_host_;
 
   DISALLOW_COPY_AND_ASSIGN(ArcSessionOobeOptInNegotiatorTest);
 };

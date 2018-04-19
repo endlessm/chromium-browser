@@ -42,10 +42,6 @@ gfx::Size GetWindowMaximumSize(aura::Window* window) {
                             : gfx::Size();
 }
 
-bool IsMinimizedWindowState(const mojom::WindowStateType state_type) {
-  return state_type == mojom::WindowStateType::MINIMIZED;
-}
-
 void MoveToDisplayForRestore(WindowState* window_state) {
   if (!window_state->HasRestoreBounds())
     return;
@@ -110,6 +106,16 @@ DefaultState::~DefaultState() = default;
 void DefaultState::AttachState(WindowState* window_state,
                                WindowState::State* state_in_previous_mode) {
   DCHECK_EQ(stored_window_state_, window_state);
+
+  // If previous state is unminimized but window state is minimized, sync window
+  // state to unminimized.
+  if (window_state->IsMinimized() &&
+      !IsMinimizedWindowStateType(state_in_previous_mode->GetType())) {
+    aura::Window* window = window_state->window();
+    window->SetProperty(
+        aura::client::kShowStateKey,
+        window->GetProperty(aura::client::kPreMinimizedShowStateKey));
+  }
 
   ReenterToCurrentState(window_state, state_in_previous_mode);
 
@@ -369,11 +375,10 @@ void DefaultState::HandleTransitionEvents(WindowState* window_state,
   }
 
   if (next_state_type == current_state_type && window_state->IsSnapped()) {
-    aura::Window* window = window_state->window();
-    gfx::Rect snapped_bounds =
-        event->type() == WM_EVENT_SNAP_LEFT
-            ? GetDefaultLeftSnappedWindowBoundsInParent(window)
-            : GetDefaultRightSnappedWindowBoundsInParent(window);
+    gfx::Rect snapped_bounds = GetSnappedWindowBoundsInParent(
+        window_state->window(), event->type() == WM_EVENT_SNAP_LEFT
+                                    ? mojom::WindowStateType::LEFT_SNAPPED
+                                    : mojom::WindowStateType::RIGHT_SNAPPED);
     window_state->SetBoundsDirectAnimated(snapped_bounds);
     return;
   }
@@ -550,9 +555,7 @@ void DefaultState::UpdateBoundsFromState(
     case mojom::WindowStateType::LEFT_SNAPPED:
     case mojom::WindowStateType::RIGHT_SNAPPED:
       bounds_in_parent =
-          state_type_ == mojom::WindowStateType::LEFT_SNAPPED
-              ? GetDefaultLeftSnappedWindowBoundsInParent(window)
-              : GetDefaultRightSnappedWindowBoundsInParent(window);
+          GetSnappedWindowBoundsInParent(window_state->window(), state_type_);
       break;
 
     case mojom::WindowStateType::DEFAULT:
@@ -602,7 +605,7 @@ void DefaultState::UpdateBoundsFromState(
   }
 
   if (!window_state->IsMinimized()) {
-    if (IsMinimizedWindowState(previous_state_type) ||
+    if (IsMinimizedWindowStateType(previous_state_type) ||
         window_state->IsFullscreen() || window_state->IsPinned()) {
       window_state->SetBoundsDirect(bounds_in_parent);
     } else if (window_state->IsMaximized() ||

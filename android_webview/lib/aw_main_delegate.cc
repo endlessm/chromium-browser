@@ -30,10 +30,11 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "cc/base/switches.h"
+#include "components/autofill/core/common/autofill_features.h"
 #include "components/crash/content/app/breakpad_linux.h"
 #include "components/crash/core/common/crash_key.h"
 #include "components/safe_browsing/android/safe_browsing_api_handler_bridge.h"
-#include "components/spellcheck/common/spellcheck_features.h"
+#include "components/spellcheck/spellcheck_build_features.h"
 #include "content/public/browser/android/browser_media_player_manager_register.h"
 #include "content/public/browser/browser_main_runner.h"
 #include "content/public/browser/browser_thread.h"
@@ -49,6 +50,10 @@
 #include "media/media_features.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/events/gesture_detection/gesture_configuration.h"
+
+#if BUILDFLAG(ENABLE_SPELLCHECK)
+#include "components/spellcheck/common/spellcheck_features.h"
+#endif  // ENABLE_SPELLCHECK
 
 namespace android_webview {
 
@@ -80,6 +85,9 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
   // WebRTC hardware decoding is not supported, internal bug 15075307
   cl->AppendSwitch(switches::kDisableWebRtcHWDecoding);
 #endif
+
+  // Check damage in OnBeginFrame to prevent unnecessary draws.
+  cl->AppendSwitch(cc::switches::kCheckDamageEarly);
 
   // This is needed for sharing textures across the different GL threads.
   cl->AppendSwitch(switches::kEnableThreadedTextureMailboxes);
@@ -140,8 +148,10 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
     cl->AppendSwitch(switches::kInProcessGPU);
   }
 
+#if BUILDFLAG(ENABLE_SPELLCHECK)
   CommandLineHelper::AddEnabledFeature(
       *cl, spellcheck::kAndroidSpellCheckerNonLowEnd.name);
+#endif  // ENABLE_SPELLCHECK
 
   CommandLineHelper::AddDisabledFeature(*cl, features::kWebPayments.name);
 
@@ -153,7 +163,12 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
   CommandLineHelper::AddDisabledFeature(*cl,
                                         media::kMediaDrmPersistentLicense.name);
 
-  CommandLineHelper::AddDisabledFeature(*cl, features::kMojoInputMessages.name);
+  CommandLineHelper::AddEnabledFeature(
+      *cl, autofill::features::kAutofillSkipComparingInferredLabels.name);
+
+  CommandLineHelper::AddDisabledFeature(
+      *cl, autofill::features::kAutofillRestrictUnownedFieldsToFormlessCheckout
+               .name);
 
   android_webview::RegisterPathProvider();
 
@@ -268,22 +283,11 @@ gpu::SyncPointManager* GetSyncPointManager() {
   DCHECK(DeferredGpuCommandService::GetInstance());
   return DeferredGpuCommandService::GetInstance()->sync_point_manager();
 }
-
-const gpu::GPUInfo& GetGPUInfo() {
-  DCHECK(DeferredGpuCommandService::GetInstance());
-  return DeferredGpuCommandService::GetInstance()->gpu_info();
-}
-
-const gpu::GpuFeatureInfo& GetGpuFeatureInfo() {
-  DCHECK(DeferredGpuCommandService::GetInstance());
-  return DeferredGpuCommandService::GetInstance()->gpu_feature_info();
-}
 }  // namespace
 
 content::ContentGpuClient* AwMainDelegate::CreateContentGpuClient() {
-  content_gpu_client_.reset(new AwContentGpuClient(
-      base::Bind(&GetSyncPointManager), base::Bind(&GetGPUInfo),
-      base::Bind(&GetGpuFeatureInfo)));
+  content_gpu_client_.reset(
+      new AwContentGpuClient(base::Bind(&GetSyncPointManager)));
   return content_gpu_client_.get();
 }
 

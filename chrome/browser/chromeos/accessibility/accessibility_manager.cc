@@ -11,22 +11,16 @@
 #include <utility>
 #include <vector>
 
-#include "ash/accessibility/accessibility_controller.h"
 #include "ash/accessibility/accessibility_focus_ring_controller.h"
-#include "ash/autoclick/autoclick_controller.h"
-#include "ash/autoclick/mus/public/interfaces/autoclick.mojom.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/interfaces/constants.mojom.h"
 #include "ash/root_window_controller.h"
-#include "ash/shelf/shelf.h"
-#include "ash/shelf/shelf_layout_manager.h"
 #include "ash/shell.h"
 #include "ash/sticky_keys/sticky_keys_controller.h"
 #include "ash/system/tray/system_tray_notifier.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
-#include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/singleton.h"
 #include "base/metrics/histogram_macros.h"
@@ -34,13 +28,11 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
-#include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/accessibility/accessibility_extension_api.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_extension_loader.h"
-#include "chrome/browser/chromeos/accessibility/accessibility_highlight_manager.h"
 #include "chrome/browser/chromeos/accessibility/dictation_chromeos.h"
 #include "chrome/browser/chromeos/accessibility/magnification_manager.h"
 #include "chrome/browser/chromeos/accessibility/switch_access_event_handler.h"
@@ -53,6 +45,7 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/speech/tts_controller.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/api/accessibility_private.h"
@@ -69,27 +62,25 @@
 #include "components/session_manager/core/session_manager.h"
 #include "content/public/browser/browser_accessibility_state.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/focused_node_details.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/service_manager_connection.h"
-#include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_registry.h"
-#include "extensions/browser/extension_system.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/extension_resource.h"
 #include "extensions/common/host_id.h"
-#include "mash/public/interfaces/launchable.mojom.h"
+#include "mash/public/mojom/launchable.mojom.h"
 #include "media/audio/sounds/sounds_manager.h"
 #include "media/base/media_switches.h"
 #include "services/service_manager/public/cpp/connector.h"
+#include "ui/accessibility/ax_enum_util.h"
 #include "ui/base/ime/chromeos/extension_ime_util.h"
-#include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "ui/keyboard/keyboard_controller.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
 #include "url/gurl.h"
@@ -253,13 +244,7 @@ AccessibilityManager::AccessibilityManager()
           ash::prefs::kAccessibilitySelectToSpeakEnabled),
       switch_access_pref_handler_(
           ash::prefs::kAccessibilitySwitchAccessEnabled),
-      sticky_keys_enabled_(false),
       spoken_feedback_enabled_(false),
-      autoclick_delay_ms_(ash::AutoclickController::GetDefaultAutoclickDelay()),
-      virtual_keyboard_enabled_(false),
-      caret_highlight_enabled_(false),
-      cursor_highlight_enabled_(false),
-      focus_highlight_enabled_(false),
       tap_dragging_enabled_(false),
       select_to_speak_enabled_(false),
       switch_access_enabled_(false),
@@ -281,6 +266,8 @@ AccessibilityManager::AccessibilityManager()
   notification_registrar_.Add(this, chrome::NOTIFICATION_PROFILE_DESTROYED,
                               content::NotificationService::AllSources());
   notification_registrar_.Add(this, chrome::NOTIFICATION_APP_TERMINATING,
+                              content::NotificationService::AllSources());
+  notification_registrar_.Add(this, content::NOTIFICATION_FOCUS_CHANGED_IN_PAGE,
                               content::NotificationService::AllSources());
   input_method::InputMethodManager::Get()->AddObserver(this);
   session_manager::SessionManager::Get()->AddObserver(this);
@@ -321,7 +308,8 @@ AccessibilityManager::AccessibilityManager()
   select_to_speak_loader_ = base::WrapUnique(new AccessibilityExtensionLoader(
       extension_misc::kSelectToSpeakExtensionId,
       resources_path.Append(extension_misc::kSelectToSpeakExtensionPath),
-      base::Closure()));
+      base::Bind(&AccessibilityManager::PostUnloadSelectToSpeak,
+                 weak_ptr_factory_.GetWeakPtr())));
   switch_access_loader_ = base::WrapUnique(new AccessibilityExtensionLoader(
       extension_misc::kSwitchAccessExtensionId,
       resources_path.Append(extension_misc::kSwitchAccessExtensionPath),
@@ -361,6 +349,7 @@ bool AccessibilityManager::ShouldShowAccessibilityMenu() {
     if (prefs->GetBoolean(ash::prefs::kAccessibilityStickyKeysEnabled) ||
         prefs->GetBoolean(ash::prefs::kAccessibilityLargeCursorEnabled) ||
         prefs->GetBoolean(ash::prefs::kAccessibilitySpokenFeedbackEnabled) ||
+        prefs->GetBoolean(ash::prefs::kAccessibilitySelectToSpeakEnabled) ||
         prefs->GetBoolean(ash::prefs::kAccessibilityHighContrastEnabled) ||
         prefs->GetBoolean(ash::prefs::kAccessibilityAutoclickEnabled) ||
         prefs->GetBoolean(ash::prefs::kShouldAlwaysShowAccessibilityMenu) ||
@@ -421,30 +410,15 @@ void AccessibilityManager::EnableStickyKeys(bool enabled) {
 }
 
 bool AccessibilityManager::IsStickyKeysEnabled() const {
-  return sticky_keys_enabled_;
+  return profile_ && profile_->GetPrefs()->GetBoolean(
+                         ash::prefs::kAccessibilityStickyKeysEnabled);
 }
 
-void AccessibilityManager::UpdateStickyKeysFromPref() {
-  if (!profile_)
-    return;
-
-  const bool enabled = profile_->GetPrefs()->GetBoolean(
-      ash::prefs::kAccessibilityStickyKeysEnabled);
-
-  if (sticky_keys_enabled_ == enabled)
-    return;
-
-  sticky_keys_enabled_ = enabled;
-
+void AccessibilityManager::OnStickyKeysChanged() {
   AccessibilityStatusEventDetails details(ACCESSIBILITY_TOGGLE_STICKY_KEYS,
-                                          enabled, ash::A11Y_NOTIFICATION_NONE);
+                                          IsStickyKeysEnabled(),
+                                          ash::A11Y_NOTIFICATION_NONE);
   NotifyAccessibilityStatusChanged(details);
-
-  // TODO(crbug.com/594887): Fix for mash by moving pref into ash.
-  if (GetAshConfig() == ash::Config::MASH)
-    return;
-
-  ash::Shell::Get()->sticky_keys_controller()->Enable(enabled);
 }
 
 void AccessibilityManager::EnableSpokenFeedback(
@@ -495,9 +469,6 @@ void AccessibilityManager::OnSpokenFeedbackChanged() {
     chromevox_loader_->Unload();
   }
   UpdateBrailleImeState();
-
-  // ChromeVox focus highlighting overrides the other focus highlighting.
-  UpdateFocusHighlightFromPref();
 }
 
 bool AccessibilityManager::IsSpokenFeedbackEnabled() const {
@@ -543,7 +514,7 @@ void AccessibilityManager::OnLocaleChanged() {
 
 void AccessibilityManager::OnViewFocusedInArc(
     const gfx::Rect& bounds_in_screen) {
-  accessibility_highlight_manager_->OnViewFocusedInArc(bounds_in_screen);
+  accessibility_controller_->SetFocusHighlightRect(bounds_in_screen);
 }
 
 bool AccessibilityManager::PlayEarcon(int sound_key, PlaySoundOption option) {
@@ -626,13 +597,13 @@ bool AccessibilityManager::PlaySpokenFeedbackToggleCountdown(int tick_count) {
 }
 
 void AccessibilityManager::HandleAccessibilityGesture(
-    const std::string& gesture) {
+    ax::mojom::Gesture gesture) {
   extensions::EventRouter* event_router =
       extensions::EventRouter::Get(profile());
   CHECK(event_router);
 
   std::unique_ptr<base::ListValue> event_args(new base::ListValue());
-  event_args->AppendString(gesture);
+  event_args->AppendString(ui::ToString(gesture));
   std::unique_ptr<extensions::Event> event(new extensions::Event(
       extensions::events::ACCESSIBILITY_PRIVATE_ON_ACCESSIBILITY_GESTURE,
       extensions::api::accessibility_private::OnAccessibilityGesture::
@@ -662,48 +633,6 @@ bool AccessibilityManager::IsAutoclickEnabled() const {
                          ash::prefs::kAccessibilityAutoclickEnabled);
 }
 
-void AccessibilityManager::OnAutoclickChanged() {}
-
-void AccessibilityManager::SetAutoclickDelay(int delay_ms) {
-  if (!profile_)
-    return;
-
-  PrefService* pref_service = profile_->GetPrefs();
-  pref_service->SetInteger(ash::prefs::kAccessibilityAutoclickDelayMs,
-                           delay_ms);
-  pref_service->CommitPendingWrite();
-}
-
-int AccessibilityManager::GetAutoclickDelay() const {
-  return static_cast<int>(autoclick_delay_ms_.InMilliseconds());
-}
-
-void AccessibilityManager::UpdateAutoclickDelayFromPref() {
-  if (!profile_)
-    return;
-
-  base::TimeDelta autoclick_delay_ms = base::TimeDelta::FromMilliseconds(
-      int64_t{profile_->GetPrefs()->GetInteger(
-          ash::prefs::kAccessibilityAutoclickDelayMs)});
-
-  if (autoclick_delay_ms == autoclick_delay_ms_)
-    return;
-  autoclick_delay_ms_ = autoclick_delay_ms;
-
-  if (GetAshConfig() == ash::Config::MASH) {
-    service_manager::Connector* connector =
-        content::ServiceManagerConnection::GetForProcess()->GetConnector();
-    ash::autoclick::mojom::AutoclickControllerPtr autoclick_controller;
-    connector->BindInterface("accessibility_autoclick", &autoclick_controller);
-    autoclick_controller->SetAutoclickDelay(
-        autoclick_delay_ms_.InMilliseconds());
-    return;
-  }
-
-  ash::Shell::Get()->autoclick_controller()->SetAutoclickDelay(
-      autoclick_delay_ms_);
-}
-
 void AccessibilityManager::EnableVirtualKeyboard(bool enabled) {
   if (!profile_)
     return;
@@ -715,40 +644,14 @@ void AccessibilityManager::EnableVirtualKeyboard(bool enabled) {
 }
 
 bool AccessibilityManager::IsVirtualKeyboardEnabled() const {
-  return virtual_keyboard_enabled_;
+  return profile_ && profile_->GetPrefs()->GetBoolean(
+                         ash::prefs::kAccessibilityVirtualKeyboardEnabled);
 }
 
-void AccessibilityManager::UpdateVirtualKeyboardFromPref() {
-  if (!profile_)
-    return;
-
-  const bool enabled = profile_->GetPrefs()->GetBoolean(
-      ash::prefs::kAccessibilityVirtualKeyboardEnabled);
-
-  if (virtual_keyboard_enabled_ == enabled)
-    return;
-  virtual_keyboard_enabled_ = enabled;
-
-  keyboard::SetAccessibilityKeyboardEnabled(enabled);
-  if (GetAshConfig() != ash::Config::MASH) {
-    // Note that there are two versions of the on-screen keyboard. A full layout
-    // is provided for accessibility, which includes sticky modifier keys to
-    // enable typing of hotkeys. A compact version is used in tablet mode
-    // to provide a layout with larger keys to facilitate touch typing. In the
-    // event that the a11y keyboard is being disabled, an on-screen keyboard
-    // might still be enabled and a forced reset is required to pick up the
-    // layout change.
-    if (keyboard::IsKeyboardEnabled())
-      ash::Shell::Get()->CreateKeyboard();
-    else
-      ash::Shell::Get()->DestroyKeyboard();
-  } else {
-    // TODO(mash): Support on-screen keyboard. See http://crbug.com/646565
-    NOTIMPLEMENTED();
-  }
-
+void AccessibilityManager::OnVirtualKeyboardChanged() {
   AccessibilityStatusEventDetails details(ACCESSIBILITY_TOGGLE_VIRTUAL_KEYBOARD,
-                                          enabled, ash::A11Y_NOTIFICATION_NONE);
+                                          IsVirtualKeyboardEnabled(),
+                                          ash::A11Y_NOTIFICATION_NONE);
   NotifyAccessibilityStatusChanged(details);
 }
 
@@ -788,24 +691,15 @@ void AccessibilityManager::SetCaretHighlightEnabled(bool enabled) {
 }
 
 bool AccessibilityManager::IsCaretHighlightEnabled() const {
-  return caret_highlight_enabled_;
+  return profile_ && profile_->GetPrefs()->GetBoolean(
+                         ash::prefs::kAccessibilityCaretHighlightEnabled);
 }
 
-void AccessibilityManager::UpdateCaretHighlightFromPref() {
-  if (!profile_)
-    return;
-
-  const bool enabled = profile_->GetPrefs()->GetBoolean(
-      ash::prefs::kAccessibilityCaretHighlightEnabled);
-
-  if (caret_highlight_enabled_ == enabled)
-    return;
-  caret_highlight_enabled_ = enabled;
-
+void AccessibilityManager::OnCaretHighlightChanged() {
   AccessibilityStatusEventDetails details(ACCESSIBILITY_TOGGLE_CARET_HIGHLIGHT,
-                                          enabled, ash::A11Y_NOTIFICATION_NONE);
+                                          IsCaretHighlightEnabled(),
+                                          ash::A11Y_NOTIFICATION_NONE);
   NotifyAccessibilityStatusChanged(details);
-  UpdateAccessibilityHighlightingFromPrefs();
 }
 
 void AccessibilityManager::SetCursorHighlightEnabled(bool enabled) {
@@ -819,24 +713,15 @@ void AccessibilityManager::SetCursorHighlightEnabled(bool enabled) {
 }
 
 bool AccessibilityManager::IsCursorHighlightEnabled() const {
-  return cursor_highlight_enabled_;
+  return profile_ && profile_->GetPrefs()->GetBoolean(
+                         ash::prefs::kAccessibilityCursorHighlightEnabled);
 }
 
-void AccessibilityManager::UpdateCursorHighlightFromPref() {
-  if (!profile_)
-    return;
-
-  const bool enabled = profile_->GetPrefs()->GetBoolean(
-      ash::prefs::kAccessibilityCursorHighlightEnabled);
-
-  if (cursor_highlight_enabled_ == enabled)
-    return;
-  cursor_highlight_enabled_ = enabled;
-
+void AccessibilityManager::OnCursorHighlightChanged() {
   AccessibilityStatusEventDetails details(ACCESSIBILITY_TOGGLE_CURSOR_HIGHLIGHT,
-                                          enabled, ash::A11Y_NOTIFICATION_NONE);
+                                          IsCursorHighlightEnabled(),
+                                          ash::A11Y_NOTIFICATION_NONE);
   NotifyAccessibilityStatusChanged(details);
-  UpdateAccessibilityHighlightingFromPrefs();
 }
 
 void AccessibilityManager::SetFocusHighlightEnabled(bool enabled) {
@@ -850,30 +735,20 @@ void AccessibilityManager::SetFocusHighlightEnabled(bool enabled) {
 }
 
 bool AccessibilityManager::IsFocusHighlightEnabled() const {
-  return focus_highlight_enabled_;
+  return profile_ && profile_->GetPrefs()->GetBoolean(
+                         ash::prefs::kAccessibilityFocusHighlightEnabled);
 }
 
-void AccessibilityManager::UpdateFocusHighlightFromPref() {
-  if (!profile_)
-    return;
-
-  bool enabled = profile_->GetPrefs()->GetBoolean(
-      ash::prefs::kAccessibilityFocusHighlightEnabled);
+void AccessibilityManager::OnFocusHighlightChanged() {
+  bool enabled = IsFocusHighlightEnabled();
 
   // Focus highlighting can't be on when spoken feedback is on, because
   // ChromeVox does its own focus highlighting.
-  if (profile_->GetPrefs()->GetBoolean(
-          ash::prefs::kAccessibilitySpokenFeedbackEnabled))
+  if (IsSpokenFeedbackEnabled())
     enabled = false;
-
-  if (focus_highlight_enabled_ == enabled)
-    return;
-  focus_highlight_enabled_ = enabled;
-
   AccessibilityStatusEventDetails details(ACCESSIBILITY_TOGGLE_FOCUS_HIGHLIGHT,
                                           enabled, ash::A11Y_NOTIFICATION_NONE);
   NotifyAccessibilityStatusChanged(details);
-  UpdateAccessibilityHighlightingFromPrefs();
 }
 
 void AccessibilityManager::EnableTapDragging(bool enabled) {
@@ -922,7 +797,7 @@ bool AccessibilityManager::IsSelectToSpeakEnabled() const {
   return select_to_speak_enabled_;
 }
 
-void AccessibilityManager::UpdateSelectToSpeakFromPref() {
+void AccessibilityManager::OnSelectToSpeakChanged() {
   if (!profile_)
     return;
 
@@ -932,6 +807,10 @@ void AccessibilityManager::UpdateSelectToSpeakFromPref() {
   if (select_to_speak_enabled_ == enabled)
     return;
   select_to_speak_enabled_ = enabled;
+
+  AccessibilityStatusEventDetails details(ACCESSIBILITY_TOGGLE_SELECT_TO_SPEAK,
+                                          enabled, ash::A11Y_NOTIFICATION_NONE);
+  NotifyAccessibilityStatusChanged(details);
 
   if (enabled)
     select_to_speak_loader_->Load(profile_, base::Closure() /* done_cb */);
@@ -984,24 +863,6 @@ void AccessibilityManager::UpdateSwitchAccessFromPref() {
     switch_access_loader_->Unload();
     switch_access_event_handler_.reset(nullptr);
   }
-}
-
-void AccessibilityManager::UpdateAccessibilityHighlightingFromPrefs() {
-  if (!focus_highlight_enabled_ && !caret_highlight_enabled_ &&
-      !cursor_highlight_enabled_) {
-    if (accessibility_highlight_manager_)
-      accessibility_highlight_manager_.reset();
-    return;
-  }
-
-  if (!accessibility_highlight_manager_) {
-    accessibility_highlight_manager_.reset(new AccessibilityHighlightManager());
-    accessibility_highlight_manager_->RegisterObservers();
-  }
-
-  accessibility_highlight_manager_->HighlightFocus(focus_highlight_enabled_);
-  accessibility_highlight_manager_->HighlightCaret(caret_highlight_enabled_);
-  accessibility_highlight_manager_->HighlightCursor(cursor_highlight_enabled_);
 }
 
 bool AccessibilityManager::IsBrailleDisplayConnected() const {
@@ -1119,7 +980,7 @@ void AccessibilityManager::SetProfile(Profile* profile) {
                    base::Unretained(this)));
     pref_change_registrar_->Add(
         ash::prefs::kAccessibilityStickyKeysEnabled,
-        base::Bind(&AccessibilityManager::UpdateStickyKeysFromPref,
+        base::Bind(&AccessibilityManager::OnStickyKeysChanged,
                    base::Unretained(this)));
     pref_change_registrar_->Add(
         ash::prefs::kAccessibilitySpokenFeedbackEnabled,
@@ -1130,16 +991,8 @@ void AccessibilityManager::SetProfile(Profile* profile) {
         base::Bind(&AccessibilityManager::OnHighContrastChanged,
                    base::Unretained(this)));
     pref_change_registrar_->Add(
-        ash::prefs::kAccessibilityAutoclickEnabled,
-        base::Bind(&AccessibilityManager::OnAutoclickChanged,
-                   base::Unretained(this)));
-    pref_change_registrar_->Add(
-        ash::prefs::kAccessibilityAutoclickDelayMs,
-        base::Bind(&AccessibilityManager::UpdateAutoclickDelayFromPref,
-                   base::Unretained(this)));
-    pref_change_registrar_->Add(
         ash::prefs::kAccessibilityVirtualKeyboardEnabled,
-        base::Bind(&AccessibilityManager::UpdateVirtualKeyboardFromPref,
+        base::Bind(&AccessibilityManager::OnVirtualKeyboardChanged,
                    base::Unretained(this)));
     pref_change_registrar_->Add(
         ash::prefs::kAccessibilityMonoAudioEnabled,
@@ -1147,15 +1000,15 @@ void AccessibilityManager::SetProfile(Profile* profile) {
                    base::Unretained(this)));
     pref_change_registrar_->Add(
         ash::prefs::kAccessibilityCaretHighlightEnabled,
-        base::Bind(&AccessibilityManager::UpdateCaretHighlightFromPref,
+        base::Bind(&AccessibilityManager::OnCaretHighlightChanged,
                    base::Unretained(this)));
     pref_change_registrar_->Add(
         ash::prefs::kAccessibilityCursorHighlightEnabled,
-        base::Bind(&AccessibilityManager::UpdateCursorHighlightFromPref,
+        base::Bind(&AccessibilityManager::OnCursorHighlightChanged,
                    base::Unretained(this)));
     pref_change_registrar_->Add(
         ash::prefs::kAccessibilityFocusHighlightEnabled,
-        base::Bind(&AccessibilityManager::UpdateFocusHighlightFromPref,
+        base::Bind(&AccessibilityManager::OnFocusHighlightChanged,
                    base::Unretained(this)));
     pref_change_registrar_->Add(
         prefs::kTapDraggingEnabled,
@@ -1163,7 +1016,7 @@ void AccessibilityManager::SetProfile(Profile* profile) {
                    base::Unretained(this)));
     pref_change_registrar_->Add(
         ash::prefs::kAccessibilitySelectToSpeakEnabled,
-        base::Bind(&AccessibilityManager::UpdateSelectToSpeakFromPref,
+        base::Bind(&AccessibilityManager::OnSelectToSpeakChanged,
                    base::Unretained(this)));
     pref_change_registrar_->Add(
         ash::prefs::kAccessibilitySwitchAccessEnabled,
@@ -1210,19 +1063,13 @@ void AccessibilityManager::SetProfile(Profile* profile) {
   else
     UpdateBrailleImeState();
   UpdateAlwaysShowMenuFromPref();
-  UpdateStickyKeysFromPref();
-  UpdateAutoclickDelayFromPref();
-  UpdateVirtualKeyboardFromPref();
-  UpdateCaretHighlightFromPref();
-  UpdateCursorHighlightFromPref();
-  UpdateFocusHighlightFromPref();
   UpdateTapDraggingFromPref();
-  UpdateSelectToSpeakFromPref();
   UpdateSwitchAccessFromPref();
 
   // TODO(warx): reconcile to ash once the prefs registration above is moved to
   // ash.
   OnSpokenFeedbackChanged();
+  OnSelectToSpeakChanged();
 
   // Update the panel height in the shelf layout manager when the profile
   // changes, since the shelf layout manager doesn't exist in the login profile.
@@ -1234,15 +1081,6 @@ void AccessibilityManager::ActiveUserChanged(
     const user_manager::User* active_user) {
   if (active_user && active_user->is_profile_created())
     SetProfile(ProfileManager::GetActiveUserProfile());
-}
-
-void AccessibilityManager::SetProfileForTest(Profile* profile) {
-  SetProfile(profile);
-}
-
-void AccessibilityManager::SetBrailleControllerForTest(
-    BrailleController* controller) {
-  g_braille_controller_for_test = controller;
 }
 
 base::TimeDelta AccessibilityManager::PlayShutdownSound() {
@@ -1269,11 +1107,8 @@ void AccessibilityManager::NotifyAccessibilityStatusChanged(
   // Update system tray menu visibility. Prefs tracked inside ash handle their
   // own updates to avoid race conditions (pref updates are asynchronous between
   // chrome and ash).
-  if (details.notification_type != ACCESSIBILITY_MANAGER_SHUTDOWN &&
-      details.notification_type != ACCESSIBILITY_TOGGLE_HIGH_CONTRAST_MODE &&
-      details.notification_type != ACCESSIBILITY_TOGGLE_LARGE_CURSOR &&
-      details.notification_type != ACCESSIBILITY_TOGGLE_MONO_AUDIO &&
-      details.notification_type != ACCESSIBILITY_TOGGLE_SPOKEN_FEEDBACK) {
+  if (details.notification_type == ACCESSIBILITY_TOGGLE_SCREEN_MAGNIFIER ||
+      details.notification_type == ACCESSIBILITY_TOGGLE_TAP_DRAGGING) {
     ash::Shell::Get()->system_tray_notifier()->NotifyAccessibilityStatusChanged(
         details.notify);
   }
@@ -1372,27 +1207,22 @@ void AccessibilityManager::Observe(
       app_terminating_ = true;
       break;
     }
+    case content::NOTIFICATION_FOCUS_CHANGED_IN_PAGE: {
+      content::FocusedNodeDetails* node_details =
+          content::Details<content::FocusedNodeDetails>(details).ptr();
+      accessibility_controller_->SetFocusHighlightRect(
+          node_details->node_bounds_in_screen);
+      break;
+    }
   }
 }
 
 void AccessibilityManager::OnBrailleDisplayStateChanged(
     const DisplayState& display_state) {
   braille_display_connected_ = display_state.available;
-  if (braille_display_connected_) {
-    // TODO(crbug.com/594887): Fix for mash by moving notifying accessibility
-    // status change to ash for BrailleDisplayStateChanged.
-    if (GetAshConfig() == ash::Config::MASH)
-      return;
-
-    ash::Shell::Get()->accessibility_controller()->SetSpokenFeedbackEnabled(
-        true, ash::A11Y_NOTIFICATION_SHOW);
-  }
+  accessibility_controller_->BrailleDisplayStateChanged(
+      braille_display_connected_);
   UpdateBrailleImeState();
-
-  AccessibilityStatusEventDetails details(
-      ACCESSIBILITY_BRAILLE_DISPLAY_CONNECTION_STATE_CHANGED,
-      braille_display_connected_, ash::A11Y_NOTIFICATION_SHOW);
-  NotifyAccessibilityStatusChanged(details);
 }
 
 void AccessibilityManager::OnBrailleKeyEvent(const KeyEvent& event) {
@@ -1442,7 +1272,8 @@ void AccessibilityManager::PostLoadChromeVox() {
   event_router->DispatchEventWithLazyListener(
       extension_misc::kChromeVoxExtensionId, std::move(event));
 
-  if (!chromevox_panel_) {
+  // TODO(mash): Support ChromeVoxPanel. http://crbug.com/628655
+  if (!chromevox_panel_ && chromeos::GetAshConfig() != ash::Config::MASH) {
     chromevox_panel_ = new ChromeVoxPanel(
         profile_,
         session_manager::SessionManager::Get()->IsUserSessionBlocked());
@@ -1473,6 +1304,9 @@ void AccessibilityManager::PostUnloadChromeVox() {
 
   // In case the user darkened the screen, undarken it now.
   SetDarkenScreen(false);
+
+  // Stop speech.
+  TtsController::GetInstance()->Stop();
 }
 
 void AccessibilityManager::PostSwitchChromeVoxProfile() {
@@ -1480,6 +1314,10 @@ void AccessibilityManager::PostSwitchChromeVoxProfile() {
 }
 
 void AccessibilityManager::ReloadChromeVoxPanel() {
+  // TODO(mash): Support ChromeVoxPanel. http://crbug.com/628655
+  if (chromeos::GetAshConfig() == ash::Config::MASH)
+    return;
+
   if (chromevox_panel_) {
     chromevox_panel_->Close();
     chromevox_panel_ = nullptr;
@@ -1499,6 +1337,18 @@ void AccessibilityManager::OnChromeVoxPanelClosing() {
 void AccessibilityManager::OnChromeVoxPanelDestroying() {
   chromevox_panel_widget_observer_.reset(nullptr);
   chromevox_panel_ = nullptr;
+}
+
+void AccessibilityManager::PostUnloadSelectToSpeak() {
+  // Do any teardown work needed immediately after Select-to-Speak actually
+  // unloads.
+
+  // Clear the accessibility focus ring and highlight.
+  ash::AccessibilityFocusRingController::GetInstance()->HideFocusRing();
+  ash::AccessibilityFocusRingController::GetInstance()->HideHighlights();
+
+  // Stop speech.
+  TtsController::GetInstance()->Stop();
 }
 
 void AccessibilityManager::SetKeyboardListenerExtensionId(
@@ -1525,6 +1375,20 @@ void AccessibilityManager::ToggleDictation() {
     dictation_ = std::make_unique<DictationChromeos>(profile_);
 
   dictation_->OnToggleDictation();
+}
+
+void AccessibilityManager::SetProfileForTest(Profile* profile) {
+  SetProfile(profile);
+}
+
+// static
+void AccessibilityManager::SetBrailleControllerForTest(
+    BrailleController* controller) {
+  g_braille_controller_for_test = controller;
+}
+
+void AccessibilityManager::FlushForTesting() {
+  accessibility_controller_.FlushForTesting();
 }
 
 }  // namespace chromeos

@@ -12,6 +12,7 @@
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
 #include "components/signin/core/browser/account_tracker_service.h"
+#include "components/signin/core/browser/profile_management_switches.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_error_controller.h"
 #include "components/webdata/common/web_data_service_base.h"
@@ -19,16 +20,27 @@
 #include "net/base/backoff_entry.h"
 #include "net/base/network_change_notifier.h"
 
+namespace user_prefs {
+class PrefRegistrySyncable;
+}
+
 class MutableProfileOAuth2TokenServiceDelegate
     : public OAuth2TokenServiceDelegate,
       public WebDataServiceConsumer,
       public net::NetworkChangeNotifier::NetworkChangeObserver {
  public:
+  // Refresh token guaranteed to be invalid. Can be passed to
+  // UpdateCredentials() to force an authentication error.
+  static const char kInvalidRefreshToken[];
+
   MutableProfileOAuth2TokenServiceDelegate(
       SigninClient* client,
       SigninErrorController* signin_error_controller,
-      AccountTrackerService* account_tracker_service);
+      AccountTrackerService* account_tracker_service,
+      signin::AccountConsistencyMethod account_consistency);
   ~MutableProfileOAuth2TokenServiceDelegate() override;
+
+  static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
   // OAuth2TokenServiceDelegate overrides.
   OAuth2AccessTokenFetcher* CreateAccessTokenFetcher(
@@ -110,6 +122,10 @@ class MutableProfileOAuth2TokenServiceDelegate
   FRIEND_TEST_ALL_PREFIXES(MutableProfileOAuth2TokenServiceDelegateTest,
                            RevokeOnUpdate);
   FRIEND_TEST_ALL_PREFIXES(MutableProfileOAuth2TokenServiceDelegateTest,
+                           UpdateInvalidToken);
+  FRIEND_TEST_ALL_PREFIXES(MutableProfileOAuth2TokenServiceDelegateTest,
+                           LoadInvalidToken);
+  FRIEND_TEST_ALL_PREFIXES(MutableProfileOAuth2TokenServiceDelegateTest,
                            GetAccounts);
   FRIEND_TEST_ALL_PREFIXES(MutableProfileOAuth2TokenServiceDelegateTest,
                            RetryBackoff);
@@ -128,6 +144,10 @@ class MutableProfileOAuth2TokenServiceDelegate
   // Loads credentials into in memory stucture.
   void LoadAllCredentialsIntoMemory(
       const std::map<std::string, std::string>& db_tokens);
+
+  // Updates the in-memory representation of the credentials.
+  void UpdateCredentialsInMemory(const std::string& account_id,
+                                 const std::string& refresh_token);
 
   // Persists credentials for |account_id|. Enables overriding for
   // testing purposes, or other cases, when accessing the DB is not desired.
@@ -176,6 +196,7 @@ class MutableProfileOAuth2TokenServiceDelegate
   SigninClient* client_;
   SigninErrorController* signin_error_controller_;
   AccountTrackerService* account_tracker_service_;
+  signin::AccountConsistencyMethod account_consistency_;
 
   DISALLOW_COPY_AND_ASSIGN(MutableProfileOAuth2TokenServiceDelegate);
 };

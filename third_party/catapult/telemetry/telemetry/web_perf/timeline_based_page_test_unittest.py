@@ -11,6 +11,7 @@ from telemetry.util import wpr_modes
 from telemetry.web_perf import timeline_based_measurement as tbm_module
 from telemetry.web_perf.metrics import smoothness
 from tracing.value import histogram
+from tracing.value import histogram_set
 from tracing.value.diagnostics import generic_set
 from tracing.value.diagnostics import reserved_infos
 
@@ -80,7 +81,7 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     tbm = tbm_module.TimelineBasedMeasurement(options)
     results = self.RunMeasurement(tbm, ps, options=self._options)
 
-    self.assertEquals(0, len(results.failures))
+    self.assertFalse(results.had_failures)
     v = results.FindAllPageSpecificValuesFromIRNamed(
         'CenterAnimation', 'frame_time_discrepancy')
     self.assertEquals(len(v), 1)
@@ -101,7 +102,7 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     tbm = tbm_module.TimelineBasedMeasurement(options)
     results = self.RunMeasurement(tbm, ps, options=self._options)
 
-    self.assertEquals(0, len(results.failures))
+    self.assertFalse(results.had_failures)
     v = results.FindAllPageSpecificValuesFromIRNamed(
         'Gesture_Scroll', 'frame_time_discrepancy')
     self.assertEquals(len(v), 1)
@@ -119,7 +120,7 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     tbm = tbm_module.TimelineBasedMeasurement(options)
     results = self.RunMeasurement(tbm, ps, self._options)
 
-    self.assertEquals(1, len(results.failures))
+    self.assertTrue(results.had_failures)
     self.assertEquals(1, len(results.FindAllTraceValues()))
 
   # Fails on chromeos: crbug.com/483212
@@ -136,12 +137,13 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     tbm = tbm_module.TimelineBasedMeasurement(options)
     results = self.RunMeasurement(tbm, ps, self._options)
 
-    self.assertEquals(0, len(results.failures))
+    self.assertFalse(results.had_failures)
 
-    self.assertEquals(1, len(results.histograms))
-    foos = results.histograms.GetHistogramsNamed('foo')
-    self.assertEquals(1, len(foos))
-    hist = foos[0]
+    histogram_dicts = results.AsHistogramDicts()
+    hs = histogram_set.HistogramSet()
+    hs.ImportDicts(histogram_dicts)
+    self.assertEquals(1, len(hs))
+    hist = hs.GetFirstHistogram()
     benchmarks = hist.diagnostics.get(reserved_infos.BENCHMARKS.name)
     self.assertIsInstance(benchmarks, generic_set.GenericSet)
     self.assertEquals(1, len(benchmarks))
@@ -154,7 +156,7 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     self.assertIsInstance(repeats, generic_set.GenericSet)
     self.assertEquals(1, len(repeats))
     self.assertEquals(0, list(repeats)[0])
-    hist = list(results.histograms)[0]
+    hist = hs.GetFirstHistogram()
     trace_start = hist.diagnostics.get(reserved_infos.TRACE_START.name)
     self.assertIsInstance(trace_start, histogram.DateRange)
 
@@ -184,7 +186,7 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     tbm = tbm_module.TimelineBasedMeasurement(options)
     results = self.RunMeasurement(tbm, ps, runner_options)
 
-    self.assertEquals(0, len(results.failures))
+    self.assertFalse(results.had_failures)
 
     DUMP_COUNT_METRIC = 'memory:chrome:all_processes:dump_count'
     dumps_detailed = results.FindAllPageSpecificValuesNamed(
@@ -215,7 +217,7 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     tbm = tbm_module.TimelineBasedMeasurement(options)
     results = self.RunMeasurement(tbm, ps, self._options)
 
-    self.assertEquals(0, len(results.failures), results.failures)
+    self.assertFalse(results.had_failures)
     v_ttfcp_max = results.FindAllPageSpecificValuesNamed(
         'timeToFirstContentfulPaint_max')
     self.assertEquals(len(v_ttfcp_max), 1)

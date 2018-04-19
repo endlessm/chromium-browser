@@ -45,14 +45,15 @@ class KeepAliveOperation : public MessageTransferOperation {
         std::unique_ptr<DeviceStatus> device_status) = 0;
   };
 
-  KeepAliveOperation(const cryptauth::RemoteDevice& device_to_connect,
-                     BleConnectionManager* connection_manager);
   ~KeepAliveOperation() override;
 
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
 
  protected:
+  KeepAliveOperation(const cryptauth::RemoteDevice& device_to_connect,
+                     BleConnectionManager* connection_manager);
+
   // MessageTransferOperation:
   void OnDeviceAuthenticated(
       const cryptauth::RemoteDevice& remote_device) override;
@@ -66,10 +67,10 @@ class KeepAliveOperation : public MessageTransferOperation {
  private:
   friend class KeepAliveOperationTest;
 
-  void SetClockForTest(std::unique_ptr<base::Clock> clock_for_test);
+  void SetClockForTest(base::Clock* clock_for_test);
 
   cryptauth::RemoteDevice remote_device_;
-  std::unique_ptr<base::Clock> clock_;
+  base::Clock* clock_;
   base::ObserverList<Observer> observer_list_;
 
   base::Time keep_alive_tickle_request_start_time_;

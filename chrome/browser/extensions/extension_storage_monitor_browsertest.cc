@@ -16,7 +16,6 @@
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_storage_monitor.h"
-#include "chrome/browser/extensions/test_extension_dir.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
@@ -30,8 +29,9 @@
 #include "extensions/common/constants.h"
 #include "extensions/common/value_builder.h"
 #include "extensions/test/extension_test_message_listener.h"
+#include "extensions/test/test_extension_dir.h"
 #include "net/dns/mock_host_resolver.h"
-#include "ui/message_center/notification.h"
+#include "ui/message_center/public/cpp/notification.h"
 
 namespace extensions {
 
@@ -102,11 +102,6 @@ class ExtensionStorageMonitorTest : public ExtensionBrowserTest {
     host_resolver()->AddRule("*", "127.0.0.1");
 
     InitStorageMonitor();
-  }
-
-  void TearDownOnMainThread() override {
-    display_service_.reset();
-    ExtensionBrowserTest::TearDownOnMainThread();
   }
 
   ExtensionStorageMonitor* monitor() {

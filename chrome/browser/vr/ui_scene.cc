@@ -38,15 +38,20 @@ UiScene::Elements GetVisibleElements(UiElement* root,
 
 void UiScene::AddUiElement(UiElementName parent,
                            std::unique_ptr<UiElement> element) {
-  CHECK_GE(element->id(), 0);
-  CHECK_EQ(GetUiElementById(element->id()), nullptr);
-  CHECK_GE(element->draw_phase(), 0);
-  if (gl_initialized_) {
-    for (auto& child : *element) {
-      child.Initialize(provider_);
-    }
-  }
+  InitializeElement(element.get());
   GetUiElementByName(parent)->AddChild(std::move(element));
+  is_dirty_ = true;
+}
+
+void UiScene::AddParentUiElement(UiElementName child,
+                                 std::unique_ptr<UiElement> element) {
+  InitializeElement(element.get());
+  auto* child_ptr = GetUiElementByName(child);
+  CHECK_NE(nullptr, child_ptr);
+  auto* parent_ptr = child_ptr->parent();
+  CHECK_NE(nullptr, parent_ptr);
+  element->AddChild(parent_ptr->RemoveChild(child_ptr));
+  parent_ptr->AddChild(std::move(element));
   is_dirty_ = true;
 }
 
@@ -75,7 +80,7 @@ bool UiScene::OnBeginFrame(const base::TimeTicks& current_time,
   }
 
   {
-    TRACE_EVENT0("gpu", "UiScene::OnBeginFrame.UpdateAnimations");
+    TRACE_EVENT0("gpu", "UiScene::OnBeginFrame.UpdateAnimationsAndOpacity");
 
     // Process all animations and pre-binding work. I.e., induce any
     // time-related "dirtiness" on the scene graph.
@@ -196,8 +201,6 @@ UiScene::Elements UiScene::GetPotentiallyVisibleElements() const {
 UiScene::UiScene() {
   root_element_ = std::make_unique<UiElement>();
   root_element_->SetName(kRoot);
-  root_element_->SetDrawPhase(kPhaseNone);
-  root_element_->set_hit_testable(false);
 }
 
 UiScene::~UiScene() = default;
@@ -207,6 +210,17 @@ void UiScene::OnGlInitialized(SkiaSurfaceProvider* provider) {
   provider_ = provider;
   for (auto& element : *root_element_)
     element.Initialize(provider_);
+}
+
+void UiScene::InitializeElement(UiElement* element) {
+  CHECK_GE(element->id(), 0);
+  CHECK_EQ(GetUiElementById(element->id()), nullptr);
+  CHECK_GE(element->draw_phase(), 0);
+  if (gl_initialized_) {
+    for (auto& child : *element) {
+      child.Initialize(provider_);
+    }
+  }
 }
 
 }  // namespace vr

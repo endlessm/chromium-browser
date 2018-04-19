@@ -249,13 +249,8 @@ bool IsTabDetachingInFullscreenEnabled() {
 @implementation BrowserWindowController
 
 + (BrowserWindowController*)browserWindowControllerForWindow:(NSWindow*)window {
-  while (window) {
-    id controller = [window windowController];
-    if ([controller isKindOfClass:[BrowserWindowController class]])
-      return (BrowserWindowController*)controller;
-    window = [window parentWindow];
-  }
-  return nil;
+  return base::mac::ObjCCast<BrowserWindowController>(
+      [TabWindowController tabWindowControllerForWindow:window]);
 }
 
 + (BrowserWindowController*)browserWindowControllerForView:(NSView*)view {
@@ -663,9 +658,10 @@ bool IsTabDetachingInFullscreenEnabled() {
 
 // Called right after our window became the main window.
 - (void)windowDidBecomeMain:(NSNotification*)notification {
-  // Set this window as active even if the previously active windows was the
+  // Set this window as active even if the previously active window was the
   // same one. This is needed for tracking visibility changes of a browser.
-  BrowserList::SetLastActive(browser_.get());
+  if (browser_->window())
+    BrowserList::SetLastActive(browser_.get());
 
   // Always saveWindowPositionIfNeeded when becoming main, not just
   // when |browser_| is not the last active browser. See crbug.com/536280 .
@@ -691,7 +687,8 @@ bool IsTabDetachingInFullscreenEnabled() {
   extensions::ExtensionCommandsGlobalRegistry::Get(browser_->profile())
       ->set_registry_for_active_window(nullptr);
 
-  BrowserList::NotifyBrowserNoLongerActive(browser_.get());
+  if (browser_->window())
+    BrowserList::NotifyBrowserNoLongerActive(browser_.get());
 }
 
 // Called when we have been minimized.
@@ -748,10 +745,9 @@ bool IsTabDetachingInFullscreenEnabled() {
 
   WebContents* contents = browser_->tab_strip_model()->GetActiveWebContents();
   if (contents) {
+    CGFloat intrinsicWidth =
+        static_cast<CGFloat>(contents->GetPreferredSize().width());
     // If the intrinsic width is bigger, then make it the zoomed width.
-    const int kScrollbarWidth = 16;  // TODO(viettrungluu): ugh.
-    CGFloat intrinsicWidth = static_cast<CGFloat>(
-        contents->GetPreferredSize().width() + kScrollbarWidth);
     zoomedWidth = std::max(zoomedWidth,
                            std::min(intrinsicWidth, NSWidth(frame)));
   }
@@ -774,7 +770,7 @@ bool IsTabDetachingInFullscreenEnabled() {
 }
 
 - (void)activate {
-  [BrowserWindowUtils activateWindowForController:self];
+  [BrowserWindowUtils activateWindowForController:[self nsWindowController]];
 }
 
 // Determine whether we should let a window zoom/unzoom to the given |newFrame|.
@@ -1286,9 +1282,8 @@ bool IsTabDetachingInFullscreenEnabled() {
       CreateNewStripWithContents(contentses, browserRect, false);
 
   // Get the new controller by asking the new window for its delegate.
-  BrowserWindowController* controller =
-      reinterpret_cast<BrowserWindowController*>(
-          [newBrowser->window()->GetNativeWindow() delegate]);
+  BrowserWindowController* controller = [BrowserWindowController
+      browserWindowControllerForWindow:newBrowser->window()->GetNativeWindow()];
   DCHECK(controller && [controller isKindOfClass:[TabWindowController class]]);
 
   // Ensure that the window will appear on top of the source window in
@@ -2040,7 +2035,7 @@ willAnimateFromState:(BookmarkBar::State)oldState
   // TODO(erikchen): Fullscreen modes should stack. Should be able to exit
   // Immersive Fullscreen and still be in AppKit Fullscreen.
   if ([self isInAppKitFullscreen])
-    [self exitAppKitFullscreen];
+    [self exitAppKitFullscreenAsync:NO];
   if ([self isInImmersiveFullscreen])
     [self exitImmersiveFullscreen];
 }

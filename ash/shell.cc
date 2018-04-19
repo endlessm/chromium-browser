@@ -16,6 +16,7 @@
 #include "ash/accelerators/spoken_feedback_toggler.h"
 #include "ash/accessibility/accessibility_controller.h"
 #include "ash/accessibility/accessibility_delegate.h"
+#include "ash/app_list/app_list_controller_impl.h"
 #include "ash/app_list/app_list_delegate_impl.h"
 #include "ash/ash_constants.h"
 #include "ash/autoclick/autoclick_controller.h"
@@ -28,6 +29,7 @@
 #include "ash/display/display_shutdown_observer.h"
 #include "ash/display/event_transformation_handler.h"
 #include "ash/display/mouse_cursor_event_filter.h"
+#include "ash/display/persistent_window_controller.h"
 #include "ash/display/projecting_observer_chromeos.h"
 #include "ash/display/resolution_notification_controller.h"
 #include "ash/display/screen_ash.h"
@@ -46,6 +48,7 @@
 #include "ash/laser/laser_pointer_controller.h"
 #include "ash/login/login_screen_controller.h"
 #include "ash/login_status.h"
+#include "ash/magnifier/docked_magnifier_controller.h"
 #include "ash/magnifier/magnification_controller.h"
 #include "ash/magnifier/partial_magnification_controller.h"
 #include "ash/media_controller.h"
@@ -53,6 +56,7 @@
 #include "ash/metrics/time_to_first_present_recorder.h"
 #include "ash/new_window_controller.h"
 #include "ash/note_taking_controller.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/config.h"
 #include "ash/public/cpp/shelf_model.h"
@@ -104,7 +108,6 @@
 #include "ash/virtual_keyboard_controller.h"
 #include "ash/voice_interaction/voice_interaction_controller.h"
 #include "ash/wallpaper/wallpaper_controller.h"
-#include "ash/wallpaper/wallpaper_delegate.h"
 #include "ash/wm/ash_focus_rules.h"
 #include "ash/wm/container_finder.h"
 #include "ash/wm/event_client_impl.h"
@@ -138,16 +141,15 @@
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
 #include "base/sys_info.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/trace_event/trace_event.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/system/devicemode.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/viz/host/host_frame_sink_manager.h"
-#include "mash/public/interfaces/launchable.mojom.h"
+#include "mash/public/mojom/launchable.mojom.h"
 #include "services/preferences/public/cpp/pref_service_factory.h"
-#include "services/preferences/public/interfaces/preferences.mojom.h"
+#include "services/preferences/public/mojom/preferences.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "services/ui/public/interfaces/constants.mojom.h"
 #include "ui/app_list/presenter/app_list.h"
@@ -380,6 +382,7 @@ void Shell::RegisterLocalStatePrefs(PrefRegistrySimple* registry) {
 void Shell::RegisterProfilePrefs(PrefRegistrySimple* registry, bool for_test) {
   AccessibilityController::RegisterProfilePrefs(registry, for_test);
   BluetoothPowerController::RegisterProfilePrefs(registry);
+  DockedMagnifierController::RegisterProfilePrefs(registry);
   LoginScreenController::RegisterProfilePrefs(registry, for_test);
   LogoutButtonTray::RegisterProfilePrefs(registry);
   NightLightController::RegisterProfilePrefs(registry);
@@ -454,6 +457,11 @@ bool Shell::ShouldSaveDisplaySettings() {
       resolution_notification_controller_->DoesNotificationTimeout());
 }
 
+DockedMagnifierController* Shell::docked_magnifier_controller() {
+  DCHECK(features::IsDockedMagnifierEnabled());
+  return docked_magnifier_controller_.get();
+}
+
 NightLightController* Shell::night_light_controller() {
   DCHECK(switches::IsNightLightEnabled());
   return night_light_controller_.get();
@@ -525,7 +533,8 @@ void Shell::DoInitialWorkspaceAnimation() {
 }
 
 bool Shell::IsSplitViewModeActive() const {
-  return split_view_controller_->IsSplitViewModeActive();
+  return split_view_controller_.get() &&
+         split_view_controller_->IsSplitViewModeActive();
 }
 
 void Shell::AddShellObserver(ShellObserver* observer) {
@@ -546,6 +555,11 @@ void Shell::NotifyOverviewModeStarting() {
     observer.OnOverviewModeStarting();
 }
 
+void Shell::NotifyOverviewModeEnding() {
+  for (auto& observer : shell_observers_)
+    observer.OnOverviewModeEnding();
+}
+
 void Shell::NotifyOverviewModeEnded() {
   for (auto& observer : shell_observers_)
     observer.OnOverviewModeEnded();
@@ -554,6 +568,11 @@ void Shell::NotifyOverviewModeEnded() {
 void Shell::NotifySplitViewModeStarting() {
   for (auto& observer : shell_observers_)
     observer.OnSplitViewModeStarting();
+}
+
+void Shell::NotifySplitViewModeStarted() {
+  for (auto& observer : shell_observers_)
+    observer.OnSplitViewModeStarted();
 }
 
 void Shell::NotifySplitViewModeEnded() {
@@ -720,6 +739,8 @@ Shell::~Shell() {
   // Controllers who have WindowObserver added must be deleted
   // before |window_tree_host_manager_| is deleted.
 
+  persistent_window_controller_.reset();
+
   // VideoActivityNotifier must be deleted before |video_detector_| is
   // deleted because it's observing video activity through
   // VideoDetector::Observer interface.
@@ -795,11 +816,14 @@ Shell::~Shell() {
   shelf_window_watcher_.reset();
 
   // Removes itself as an observer of |pref_service_|.
+  // TODO(jamescook): Uses tablet_mode_controller_. Add separate shutdown pass.
   shelf_controller_.reset();
 
   // NightLightController depends on the PrefService as well as the window tree
   // host manager, and must be destructed before them. crbug.com/724231.
   night_light_controller_ = nullptr;
+  // Similarly for DockedMagnifierController.
+  docked_magnifier_controller_ = nullptr;
 
   shell_port_->Shutdown();
   window_tree_host_manager_->Shutdown();
@@ -830,7 +854,6 @@ Shell::~Shell() {
   // Needs to happen right before |instance_| is reset.
   shell_port_.reset();
   session_controller_->RemoveObserver(this);
-  wallpaper_delegate_.reset();
   // BluetoothPowerController depends on the PrefService and must be destructed
   // before it.
   bluetooth_power_controller_ = nullptr;
@@ -858,8 +881,6 @@ void Shell::Init(ui::ContextFactory* context_factory,
     night_light_controller_ = std::make_unique<NightLightController>();
   touch_devices_controller_ = std::make_unique<TouchDevicesController>();
   bluetooth_power_controller_ = std::make_unique<BluetoothPowerController>();
-
-  wallpaper_delegate_ = shell_delegate_->CreateWallpaperDelegate();
 
   // Connector can be null in tests.
   if (shell_delegate_->GetShellConnector()) {
@@ -961,6 +982,7 @@ void Shell::Init(ui::ContextFactory* context_factory,
   }
 
   accelerator_controller_ = shell_port_->CreateAcceleratorController();
+  app_list_controller_ = std::make_unique<AppListControllerImpl>();
   tablet_mode_controller_ = std::make_unique<TabletModeController>();
   shelf_controller_ = std::make_unique<ShelfController>();
 
@@ -1052,6 +1074,11 @@ void Shell::Init(ui::ContextFactory* context_factory,
 
   high_contrast_controller_.reset(new HighContrastController);
 
+  if (features::IsDockedMagnifierEnabled()) {
+    docked_magnifier_controller_ =
+        std::make_unique<DockedMagnifierController>();
+  }
+
   viz::mojom::VideoDetectorObserverPtr observer;
   video_detector_ =
       std::make_unique<VideoDetector>(mojo::MakeRequest(&observer));
@@ -1128,7 +1155,7 @@ void Shell::Init(ui::ContextFactory* context_factory,
   if (config == Config::MASH && shell_delegate_->GetShellConnector() &&
       base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kShowTaps)) {
     mash::mojom::LaunchablePtr launchable;
-    shell_delegate_->GetShellConnector()->BindInterface("touch_hud",
+    shell_delegate_->GetShellConnector()->BindInterface("touch_hud_app",
                                                         &launchable);
     launchable->Launch(mash::mojom::kWindow, mash::mojom::LaunchMode::DEFAULT);
   }
@@ -1153,6 +1180,8 @@ void Shell::InitializeDisplayManager() {
           display_manager_.get(), window_tree_host_manager_.get());
   display_configurator_->Init(shell_port_->CreateNativeDisplayDelegate(),
                               false);
+  persistent_window_controller_ =
+      std::make_unique<PersistentWindowController>();
 
   projecting_observer_ =
       std::make_unique<ProjectingObserver>(display_configurator_.get());
@@ -1329,7 +1358,8 @@ void Shell::OnLocalStatePrefServiceInitialized(
     std::unique_ptr<::PrefService> pref_service) {
   DCHECK(!local_state_);
   // |pref_service| is null if can't connect to Chrome (as happens when
-  // running mash outside of chrome --mash and chrome isn't built).
+  // running mash outside of chrome --enable-features=Mash and chrome isn't
+  // built).
   if (!pref_service)
     return;
 

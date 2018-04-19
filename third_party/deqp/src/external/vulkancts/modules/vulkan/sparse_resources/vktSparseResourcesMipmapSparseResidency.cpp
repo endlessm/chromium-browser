@@ -125,7 +125,6 @@ MipmapSparseResidencyInstance::MipmapSparseResidencyInstance (Context&					conte
 tcu::TestStatus MipmapSparseResidencyInstance::iterate (void)
 {
 	const InstanceInterface&	instance		= m_context.getInstanceInterface();
-	const DeviceInterface&		deviceInterface = m_context.getDeviceInterface();
 	const VkPhysicalDevice		physicalDevice	= m_context.getPhysicalDevice();
 	VkImageCreateInfo			imageSparseInfo;
 	std::vector<DeviceMemorySp>	deviceMemUniquePtrVec;
@@ -185,14 +184,15 @@ tcu::TestStatus MipmapSparseResidencyInstance::iterate (void)
 		createDeviceSupportingQueues(queueRequirements);
 	}
 
-	const Queue& sparseQueue	= getQueue(VK_QUEUE_SPARSE_BINDING_BIT, 0);
-	const Queue& computeQueue	= getQueue(VK_QUEUE_COMPUTE_BIT, 0);
+	const DeviceInterface&	deviceInterface	= getDeviceInterface();
+	const Queue&			sparseQueue		= getQueue(VK_QUEUE_SPARSE_BINDING_BIT, 0);
+	const Queue&			computeQueue	= getQueue(VK_QUEUE_COMPUTE_BIT, 0);
 
 	// Create sparse image
 	const Unique<VkImage> imageSparse(createImage(deviceInterface, getDevice(), &imageSparseInfo));
 
 	// Create sparse image memory bind semaphore
-	const Unique<VkSemaphore> imageMemoryBindSemaphore(makeSemaphore(deviceInterface, getDevice()));
+	const Unique<VkSemaphore> imageMemoryBindSemaphore(createSemaphore(deviceInterface, getDevice()));
 
 	{
 		// Get sparse image general memory requirements
@@ -209,7 +209,8 @@ tcu::TestStatus MipmapSparseResidencyInstance::iterate (void)
 
 		DE_ASSERT(sparseMemoryRequirements.size() != 0);
 
-		const deUint32 colorAspectIndex = getSparseAspectRequirementsIndex(sparseMemoryRequirements, VK_IMAGE_ASPECT_COLOR_BIT);
+		const deUint32 colorAspectIndex		= getSparseAspectRequirementsIndex(sparseMemoryRequirements, VK_IMAGE_ASPECT_COLOR_BIT);
+		const deUint32 metadataAspectIndex	= getSparseAspectRequirementsIndex(sparseMemoryRequirements, VK_IMAGE_ASPECT_METADATA_BIT);
 
 		if (colorAspectIndex == NO_MATCH_FOUND)
 			TCU_THROW(NotSupportedError, "Not supported image aspect - the test supports currently only VK_IMAGE_ASPECT_COLOR_BIT");
@@ -255,6 +256,24 @@ tcu::TestStatus MipmapSparseResidencyInstance::iterate (void)
 
 				imageMipTailMemoryBinds.push_back(imageMipTailMemoryBind);
 			}
+
+			// Metadata
+			if (metadataAspectIndex != NO_MATCH_FOUND)
+			{
+				const VkSparseImageMemoryRequirements metadataAspectRequirements = sparseMemoryRequirements[metadataAspectIndex];
+
+				if (!(metadataAspectRequirements.formatProperties.flags & VK_SPARSE_IMAGE_FORMAT_SINGLE_MIPTAIL_BIT))
+				{
+					const VkSparseMemoryBind imageMipTailMemoryBind = makeSparseMemoryBind(deviceInterface, getDevice(),
+						metadataAspectRequirements.imageMipTailSize, memoryType,
+						metadataAspectRequirements.imageMipTailOffset + layerNdx * metadataAspectRequirements.imageMipTailStride,
+						VK_SPARSE_MEMORY_BIND_METADATA_BIT);
+
+					deviceMemUniquePtrVec.push_back(makeVkSharedPtr(Move<VkDeviceMemory>(check<VkDeviceMemory>(imageMipTailMemoryBind.memory), Deleter<VkDeviceMemory>(deviceInterface, getDevice(), DE_NULL))));
+
+					imageMipTailMemoryBinds.push_back(imageMipTailMemoryBind);
+				}
+			}
 		}
 
 		if ((aspectRequirements.formatProperties.flags & VK_SPARSE_IMAGE_FORMAT_SINGLE_MIPTAIL_BIT) && aspectRequirements.imageMipTailFirstLod < imageSparseInfo.mipLevels)
@@ -265,6 +284,23 @@ tcu::TestStatus MipmapSparseResidencyInstance::iterate (void)
 			deviceMemUniquePtrVec.push_back(makeVkSharedPtr(Move<VkDeviceMemory>(check<VkDeviceMemory>(imageMipTailMemoryBind.memory), Deleter<VkDeviceMemory>(deviceInterface, getDevice(), DE_NULL))));
 
 			imageMipTailMemoryBinds.push_back(imageMipTailMemoryBind);
+		}
+
+		// Metadata
+		if (metadataAspectIndex != NO_MATCH_FOUND)
+		{
+			const VkSparseImageMemoryRequirements metadataAspectRequirements = sparseMemoryRequirements[metadataAspectIndex];
+
+			if (metadataAspectRequirements.formatProperties.flags & VK_SPARSE_IMAGE_FORMAT_SINGLE_MIPTAIL_BIT)
+			{
+				const VkSparseMemoryBind imageMipTailMemoryBind = makeSparseMemoryBind(deviceInterface, getDevice(),
+					metadataAspectRequirements.imageMipTailSize, memoryType, metadataAspectRequirements.imageMipTailOffset,
+					VK_SPARSE_MEMORY_BIND_METADATA_BIT);
+
+				deviceMemUniquePtrVec.push_back(makeVkSharedPtr(Move<VkDeviceMemory>(check<VkDeviceMemory>(imageMipTailMemoryBind.memory), Deleter<VkDeviceMemory>(deviceInterface, getDevice(), DE_NULL))));
+
+				imageMipTailMemoryBinds.push_back(imageMipTailMemoryBind);
+			}
 		}
 
 		VkBindSparseInfo bindSparseInfo =
@@ -312,7 +348,7 @@ tcu::TestStatus MipmapSparseResidencyInstance::iterate (void)
 
 	// Create command buffer for compute and transfer oparations
 	const Unique<VkCommandPool>	  commandPool(makeCommandPool(deviceInterface, getDevice(), computeQueue.queueFamilyIndex));
-	const Unique<VkCommandBuffer> commandBuffer(makeCommandBuffer(deviceInterface, getDevice(), *commandPool));
+	const Unique<VkCommandBuffer> commandBuffer(allocateCommandBuffer(deviceInterface, getDevice(), *commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY));
 
 	std::vector <VkBufferImageCopy> bufferImageCopy(imageSparseInfo.mipLevels);
 

@@ -7,9 +7,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/task_scheduler/post_task.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "components/drive/chromeos/file_system_interface.h"
-#include "components/drive/file_system_core_util.h"
 #include "content/public/browser/browser_thread.h"
 
 using content::BrowserThread;
@@ -53,7 +51,7 @@ void WriteOnCacheFile(FileSystemInterface* file_system,
                       const std::string& mime_type,
                       const WriteOnCacheFileCallback& callback) {
   WriteOnCacheFileAndReply(file_system, path, mime_type, callback,
-                           base::Bind(&util::EmptyFileOperationCallback));
+                           base::DoNothing());
 }
 
 void WriteOnCacheFileAndReply(FileSystemInterface* file_system,

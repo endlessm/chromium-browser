@@ -26,6 +26,8 @@
 
       Si cette règle est définie, l'écran de connexion est toujours affiché dans les paramètres régionaux indiqués par la première valeur de cette règle (cette dernière est définie en tant que liste pour la compatibilité ascendante). Si cette règle n'est pas définie, ou si elle est définie sur une liste vide, l'écran de connexion est affiché dans les paramètres régionaux de la dernière session de l'utilisateur. Si cette règle est définie sur une valeur qui ne constitue pas des paramètres régionaux valides, l'écran de connexion est affiché dans des paramètres régionaux de remplacement (actuellement "en-US").</translation>
 <translation id="1062011392452772310">Activer l'attestation à distance pour l'appareil</translation>
+<translation id="1062407476771304334">Remplacer</translation>
+<translation id="109166998561583554">Déclencheur du signalement de compte à risque au niveau de la protection par mot de passe</translation>
 <translation id="1093082332347834239">Si ce paramètre est activé, l'hôte d'assistance à distance est exécuté dans un processus avec des autorisations <ph name="UIACCESS_PERMISSION_NAME" />. Cela permet aux utilisateurs distants d'interagir avec des fenêtres élevées sur le bureau de l'utilisateur local.
 
           Si ce paramètre est désactivé ou non configuré, l'hôte d'assistance à distance est exécuté dans le contexte de l'utilisateur et les utilisateurs distants ne peuvent pas interagir avec des fenêtres élevées sur le Bureau.</translation>
@@ -61,6 +63,9 @@
       Si cette règle n'est pas définie, le délai par défaut entre deux transmissions
       est de 3 heures. Le délai minimal autorisé est de 60 secondes.</translation>
 <translation id="1204263402976895730">Imprimantes d'entreprise activées</translation>
+<translation id="1219695476179627719">Spécifie si la version définie par <ph name="DEVICE_TARGET_VERSION_PREFIX_POLICY_NAME" /> doit être rétablie sur l'appareil s'il exécute une version ultérieure.
+
+      La valeur par défaut est RollbackDisabled.</translation>
 <translation id="1221359380862872747">Charger les URL spécifiées lors de la connexion à la démonstration</translation>
 <translation id="123081309365616809">Activer la diffusion de contenus sur l'appareil</translation>
 <translation id="1257550411839719984">Définir le répertoire de téléchargement par défaut</translation>
@@ -87,14 +92,9 @@
 
       Si cette règle est définie sur "False", <ph name="PRODUCT_NAME" /> n'autorisera pas la création de profils d'invités.</translation>
 <translation id="1363275621236827384">Activer l'envoi de requêtes de profils matériels à Quirks Server</translation>
+<translation id="1387596372902085462">Faire confiance à l'ancienne infrastructure PKI de Symantec Corporation</translation>
 <translation id="1393485621820363363">Imprimantes d'appareils d'entreprise activées</translation>
 <translation id="1397855852561539316">URL de suggestions de recherche du moteur de recherche par défaut</translation>
-<translation id="1420281424655200442">Détermine les imprimantes de <ph name="DEVICE_PRINTERS_POLICY" /> qui sont à la disposition des utilisateurs.
-
-      Indique quelle règle d'accès est utilisée pour la configuration groupée des imprimantes. Si <ph name="PRINTERS_ALLOW_ALL" /> est sélectionné, toutes les imprimantes sont affichées. Si <ph name="PRINTERS_BLACKLIST" /> est sélectionné, <ph name="DEVICE_PRINTERS_BLACKLIST" /> est utilisé pour limiter l'accès aux imprimantes spécifiées. Si <ph name="PRINTERS_WHITELIST" /> est sélectionné, <ph name="DEVICE_PRINTERS_WHITELIST" /> indique uniquement les imprimantes qui peuvent être choisies.
-
-      Si cette règle n'est pas définie, <ph name="PRINTERS_BLACKLIST" /> est supposé s'appliquer.
-      </translation>
 <translation id="1426410128494586442">Oui</translation>
 <translation id="1427655258943162134">Adresse ou URL du serveur proxy</translation>
 <translation id="1435659902881071157">Configuration réseau au niveau de l'appareil</translation>
@@ -103,6 +103,7 @@
 
 Si cette règle n'est pas configurée, la valeur par défaut globale sera utilisée pour tous les sites à partir de la règle "DefaultJavaScriptSetting", si elle est définie, ou à défaut, à partir de la configuration personnelle de l'utilisateur.</translation>
 <translation id="1456822151187621582">Windows (clients <ph name="PRODUCT_OS_NAME" />) :</translation>
+<translation id="1457305643416399820">Le signalement de compte à risque au niveau de la protection par mot de passe est désactivé</translation>
 <translation id="1464848559468748897">Contrôle le comportement des utilisateurs dans une session multiprofil sur des appareils <ph name="PRODUCT_OS_NAME" />.
 
      Si cette règle est définie sur "MultiProfileUserBehaviorUnrestricted", l'utilisateur peut être utilisateur principal ou secondaire dans une session multiprofil.
@@ -152,6 +153,11 @@ Pour consulter des exemples détaillés, rendez-vous sur :
 <translation id="1503487916067509762">Active le blocage de l'injection de logiciels tiers</translation>
 <translation id="1504431521196476721">Attestation à distance</translation>
 <translation id="1509692106376861764">Cette règle a été supprimée à partir de la version 29 de <ph name="PRODUCT_NAME" />.</translation>
+<translation id="1519337829779572350">Cette règle est obsolète. (Utilisez à la place celle intitulée "SafeBrowsingExtendedReportingEnabled". L'activation ou la désactivation de cette dernière équivaut à définir "SafeBrowsingExtendedReportingOptInAllowed" sur "False".)
+
+      Si cette règle est définie sur "False", les utilisateurs ne peuvent pas envoyer d'informations système ni de contenu de pages aux serveurs Google. En revanche, si cette règle est définie sur "True" ou si elle n'est pas configurée, les utilisateurs sont autorisés à envoyer des informations système et le contenu de pages au service de navigation sécurisée afin de contribuer à la détection des applications et des sites dangereux.
+
+      Pour en savoir plus sur la navigation sécurisée, consultez la page https://developers.google.com/safe-browsing.</translation>
 <translation id="1522425503138261032">Autoriser les sites à suivre la position géographique des utilisateurs</translation>
 <translation id="152657506688053119">Liste d'URL alternatives pour le moteur de recherche par défaut</translation>
 <translation id="1530812829012954197">Toujours rendre les formats d'URL suivants dans le navigateur hôte</translation>
@@ -214,6 +220,7 @@ Pour consulter des exemples détaillés, rendez-vous sur :
       La règle doit être définie sur une URL à partir de laquelle <ph name="PRODUCT_OS_NAME" /> peut télécharger les conditions d'utilisation. Ces conditions doivent être en texte brut, et proposées au format texte/brut au type MIME. Aucun balisage n'est autorisé.</translation>
 <translation id="1750315445671978749">Bloquer tous les téléchargements</translation>
 <translation id="1781356041596378058">Cette règle permet également de contrôler l'accès aux options pour les développeurs Android. Si vous définissez cette règle sur "True", les utilisateurs ne pourront pas accéder aux options pour les développeurs. Si vous la définissez sur "False" ou si vous ne la modifiez pas, les utilisateurs pourront accéder aux options pour les développeurs en appuyant sept fois sur le numéro de version dans l'application des paramètres Android.</translation>
+<translation id="1797233582739332495">Afficher une invite récurrente indiquant qu'un redémarrage est nécessaire</translation>
 <translation id="1803646570632580723">Liste des applications épinglées à afficher dans le lanceur d'applications</translation>
 <translation id="1808715480127969042">Bloquer les cookies sur ces sites</translation>
 <translation id="1827523283178827583">Utiliser des serveurs proxy déterminés</translation>
@@ -251,7 +258,21 @@ Si ce paramètre n'est pas défini, les utilisateurs peuvent ouvrir normalement 
       Le format de la valeur correspond aux noms des fuseaux horaires de la "IANA Time Zone Database" (voir la page https://en.wikipedia.org/wiki/Tz_database). La plupart des fuseaux horaires se présentent sous la forme "continent/grande_ville" ou "océan/grande_ville".
 
       Si cette règle est définie, la mise à jour automatique du fuseau horaire selon la position de l'appareil est désactivée et la règle SystemTimezoneAutomaticDetection est également ignorée.</translation>
+<translation id="1888871729456797026">Jeton d'enregistrement des règles relatives au cloud sur ordinateur</translation>
 <translation id="1897365952389968758">Autoriser tous les sites à exécuter JavaScript</translation>
+<translation id="1906888171268104594">Détermine si les statistiques d'utilisation et les données de diagnostic, telles que des rapports d'erreurs, doivent être envoyées à Google.
+
+      Si cette règle est définie sur "true", <ph name="PRODUCT_OS_NAME" /> envoie les rapports sur les statistiques d'utilisation et les données de diagnostic.
+
+      Si elle est définie sur "false", les rapports sur les statistiques et les données de diagnostic ne sont pas envoyés.
+
+      Si cette règle n'est pas configurée, les rapports sur les statistiques et les données de diagnostic ne sont pas envoyés sur les appareils non gérés, mais sont transmis sur les appareils gérés.</translation>
+<translation id="1911099080312850139">Configurez l'URL de modification de mot de passe (protocoles HTTP et HTTPS uniquement). Le service de protection par mot de passe redirigera les utilisateurs vers cette URL afin qu'ils modifient leur mot de passe s'ils ont été victimes d'une attaque d'hameçonnage.
+      Seuls les utilisateurs de GSuite disposant d'un système SSO/SAML peuvent se servir de ce paramètre.
+
+      Si ce paramètre est activé, le service de protection par mot de passe redirigera les utilisateurs vers cette URL afin qu'ils modifient leur mot de passe s'ils ont été victimes d'une attaque d'hameçonnage.
+      Si ce paramètre est désactivé ou n'est pas configuré, le service redirigera les utilisateurs vers la page https://myaccounts.google.com afin qu'ils modifient leur mot de passe.
+      Cette règle n'est pas disponible sur les instances de Windows qui ne sont pas associées à un domaine <ph name="MS_AD_NAME" />.</translation>
 <translation id="193259052151668190">Liste blanche d'appareils USB amovibles</translation>
 <translation id="1933378685401357864">Image de fond d'écran</translation>
 <translation id="1956493342242507974">Configurer la gestion de l'alimentation sur l'écran de connexion dans <ph name="PRODUCT_OS_NAME" />.
@@ -286,23 +307,25 @@ Si ce paramètre n'est pas défini, les utilisateurs peuvent ouvrir normalement 
 <translation id="2030905906517501646">Mot clé du moteur de recherche par défaut</translation>
 <translation id="203096360153626918">Cette règle n'a aucun effet sur les applications Android. L'utilisation du mode plein écran est possible même si cette règle est définie sur "<ph name="FALSE" />".</translation>
 <translation id="2043770014371753404">Imprimantes d'entreprise désactivées</translation>
-<translation id="2063380907529983889">Détermine les imprimantes de <ph name="BULK_PRINTERS_POLICY" /> qui sont à la disposition des utilisateurs.
-
-      Indique quelle règle d'accès est utilisée pour la configuration groupée des imprimantes. Si <ph name="PRINTERS_ALLOW_ALL" /> est sélectionné, toutes les imprimantes sont affichées. Si <ph name="PRINTERS_BLACKLIST" /> est sélectionné, <ph name="BULK_PRINTERS_BLACKLIST" /> est utilisé pour limiter l'accès aux imprimantes spécifiées. Si <ph name="PRINTERS_WHITELIST" /> est sélectionné, <ph name="BULK_PRINTERS_WHITELIST" /> indique uniquement les imprimantes qui peuvent être choisies.
-
-      Si cette règle n'est pas définie, <ph name="PRINTERS_BLACKLIST" /> est supposé s'appliquer.
-      </translation>
 <translation id="206623763829450685">Indique les modèles d'authentification HTTP compatibles avec <ph name="PRODUCT_NAME" />.
 
           Les valeurs possibles sont "basic", "digest", "ntlm" et "negotiate". Si vous spécifiez plusieurs valeurs, séparez-les par une virgule.
 
           Si cette règle n'est pas définie, les quatre modèles seront utilisés.</translation>
 <translation id="2067011586099792101">Bloquer l'accès aux sites en dehors des packs de contenu</translation>
-<translation id="2075030897098958514">Contrôle si l'authentification NTLMv2 est activée.
+<translation id="2070270043919235595">Avertir les utilisateurs que <ph name="PRODUCT_NAME" /> doit être redémarré pour qu'une mise à jour en cours puisse être appliquée.
 
-          Toutes les versions récentes des serveurs Samba et Windows incluent l'authentification NTLMv2. La désactivation de cette fonctionnalité, qui réduit la sécurité de l'authentification, n'est conseillée qu'à des fins de rétrocompatibilité.
+      Cette règle active l'envoi de notifications pour avertir l'utilisateur qu'un redémarrage du navigateur est recommandé ou requis. Si cette règle n'est pas configurée, <ph name="PRODUCT_NAME" /> indique à l'utilisateur, par le biais de modifications discrètes du menu, qu'un redémarrage est nécessaire. Si elle est définie sur "Recommandé", un avertissement récurrent s'affiche, indiquant qu'un redémarrage est recommandé. L'utilisateur peut ignorer cet avertissement et redémarrer le navigateur plus tard. Si elle est définie sur "Requis", un avertissement récurrent s'affiche, indiquant que le redémarrage du navigateur sera forcé à l'issue de la période de notification. Par défaut, ce délai est de sept jours, et peut être configuré à l'aide du paramètre <ph name="RELAUNCH_NOTIFICATION_PERIOD_POLICY_NAME" />.
 
-          Lorsque cette règle n'est pas définie, la valeur par défaut indique "false" afin de permettre la rétrocompatibilité. Toutefois, il est prévu de la remplacer par "true".</translation>
+      La session de l'utilisateur est restaurée après le redémarrage.</translation>
+<translation id="2075434678547407637">Permet de définir si des vidéos avec du contenu audio peuvent être lues automatiquement (sans le consentement de l'utilisateur) dans <ph name="PRODUCT_NAME" />.
+
+      Si cette règle est définie sur "True", la lecture automatique de contenu multimédia est autorisée dans <ph name="PRODUCT_NAME" />.
+      Si cette règle est définie sur "False", la lecture automatique de contenu multimédia n'est pas autorisée dans <ph name="PRODUCT_NAME" />.
+      Par défaut, la lecture automatique de contenu multimédia n'est pas autorisée dans <ph name="PRODUCT_NAME" />.
+
+      Notez que si cette règle est modifiée pendant que <ph name="PRODUCT_NAME" /> est en cours d'exécution, elle ne s'applique qu'aux onglets ouverts après cette modification. Il est donc possible que les onglets ouverts avant appliquent encore l'ancien paramètre.
+      </translation>
 <translation id="2077129598763517140">Utiliser l'accélération matérielle (le cas échéant)</translation>
 <translation id="2077273864382355561">Délai d'arrêt de l'écran (batterie)</translation>
 <translation id="2082205219176343977">Configurer la version Chrome minimale autorisée de l'appareil.</translation>
@@ -353,6 +376,9 @@ Si ce paramètre n'est pas défini, les utilisateurs peuvent ouvrir normalement 
 
 
           Si ce paramètre n'est pas configuré, les utilisateurs sont invités à saisir leur mot de passe tous les jours dans l'écran de verrouillage.</translation>
+<translation id="2188722565665306629">Vous permet de définir la période au cours de laquelle les notifications de redémarrage de <ph name="PRODUCT_NAME" /> concernant l'application d'une mise à jour en cours s'affichent.
+
+      Ce paramètre peut être utilisé pour définir la période, en millisecondes, pendant laquelle un utilisateur est régulièrement averti que <ph name="PRODUCT_NAME" /> (ou <ph name="PRODUCT_OS_NAME" />) doit être redémarré pour être mis à jour. Au cours de cette période, l'utilisateur est régulièrement informé de la nécessité de la mise à jour en fonction du paramètre de la règle <ph name="RELAUNCH_NOTIFICATION_POLICY_NAME" />. Si ce paramètre n'est pas défini, la période par défaut utilisée est de 604 800 000 millisecondes (une semaine).</translation>
 <translation id="2194470398825717446">Cette stratégie est obsolète dans M61. Veuillez appliquer "EcryptfsMigrationStrategy" à la place.
 
       Indique le comportement à adopter par un appareil qui a été fourni avec eCryptfs et qui doit faire la transition vers un chiffrement ext4.
@@ -424,7 +450,14 @@ Si cette règle n'est pas configurée, la valeur par défaut globale est utilis�
 
 Si cette règle n'est pas configurée, la valeur par défaut globale sera utilisée pour tous les sites à partir de la règle "DefaultNotificationsSetting", si elle est définie, ou à défaut, à partir de la configuration personnelle de l'utilisateur.</translation>
 <translation id="2386362615870139244">Autoriser les WakeLock forçant l'activation de l'écran</translation>
+<translation id="2411817661175306360">L'avertissement relatif à la protection par mot de passe est désactivé</translation>
 <translation id="2411919772666155530">Bloquer les notifications sur ces sites</translation>
+<translation id="2415979855753196119">Vous permet de définir les conditions de signalement d'un compte dont la protection par mot de passe est en danger. Ce type de signalement permet d'informer Google que le compte concerné risque d'être piraté.
+
+      Si cette règle est définie sur "PasswordProtectionRiskOff", aucun signalement n'est déclenché.
+      Si elle est définie sur "PasswordProtectionRiskOnPasswordReuse", les comptes dont la protection par mot de passe est en péril sont signalés lorsque les utilisateurs réutilisent leurs mots de passe Google sur des sites qui ne figurent pas sur la liste blanche.
+      Si elle est définie sur "PasswordProtectionRiskOnPhishingReuse", les comptes à risque sont signalés lorsque les utilisateurs réutilisent leurs mots de passe Google sur des sites d'hameçonnage.
+      Il en va de même lorsque la règle n'est pas configurée, excepté que les utilisateurs peuvent modifier ce paramètre.</translation>
 <translation id="2418507228189425036">Désactive l'enregistrement de l'historique du navigateur dans <ph name="PRODUCT_NAME" /> et empêche les utilisateurs de modifier ce paramètre.
 
       Si ce paramètre est activé, l'historique de navigation n'est pas enregistré. Il désactive également la synchronisation des onglets.
@@ -536,6 +569,11 @@ Cette règle n'est respectée que si la règle "DefaultSearchProviderEnabled" es
       Si cette règle n'est pas définie, l'utilisateur peut décider s'il veut ou non utiliser la fonctionnalité de proxy pour la compression de données.</translation>
 <translation id="2587719089023392205">Définir <ph name="PRODUCT_NAME" /> comme navigateur par défaut</translation>
 <translation id="2592091433672667839">Durée d'inactivité préalable à l'affichage de l'économiseur d'écran sur l'écran de connexion en mode Point de vente</translation>
+<translation id="2596260130957832043">Contrôle si l'authentification NTLMv2 est activée.
+
+          Toutes les versions récentes des serveurs Samba et Windows incluent l'authentification NTLMv2. La désactivation de cette fonctionnalité, qui réduit la sécurité de l'authentification, n'est conseillée qu'à des fins de rétrocompatibilité.
+
+          Lorsque cette règle n'est pas définie, la valeur par défaut "true" indique que l'authentification NTLMv2 est activée.</translation>
 <translation id="2623014935069176671">Attendre l'activité utilisateur initiale</translation>
 <translation id="262740370354162807">Activer l'envoi de documents à <ph name="CLOUD_PRINT_NAME" /></translation>
 <translation id="2633084400146331575">Activer les commentaires audio</translation>
@@ -556,6 +594,14 @@ Cette règle est facultative. Si elle n'est pas configurée, la valeur par défa
 Cette règle n'est respectée que si la règle "DefaultSearchProviderEnabled" est activée.</translation>
 <translation id="2682225790874070339">Désactiver Drive dans l'application Fichiers de <ph name="PRODUCT_OS_NAME" /></translation>
 <translation id="268577405881275241">Activer la fonctionnalité de proxy pour la compression de données</translation>
+<translation id="2693108589792503178">Configurez l'URL de modification de mot de passe.</translation>
+<translation id="2726613915126661822">Vous permet d'autoriser l'exécution de machines virtuelles sur Chrome OS.
+
+      Si la règle est définie sur "true", l'appareil est autorisé à exécuter des machines virtuelles.
+      Si elle est définie sur "false", l'appareil n'est pas autorisé à exécuter des machines virtuelles.
+      Lorsque la valeur de cette règle est modifiée et passe de "true" à "false", la règle s'applique au démarrage de nouvelles machines virtuelles. Les machines virtuelles qui s'exécutent déjà ne sont pas arrêtées.
+      Si cette règle n'est pas définie sur un appareil géré, l'appareil n'est pas autorisé à exécuter des machines virtuelles.
+      Les appareils non gérés sont autorisés à exécuter des machines virtuelles.</translation>
 <translation id="2731627323327011390">Désactiver l'utilisation de certificats <ph name="PRODUCT_OS_NAME" /> pour les applications ARC</translation>
 <translation id="2742843273354638707">Masque l'application Chrome Web Store et le lien de bas de page sur la page Nouvel onglet et dans le lanceur d'applications de <ph name="PRODUCT_OS_NAME" />.
 
@@ -613,6 +659,13 @@ Si cette règle est définie sur "False", les utilisateurs ne pourront pas jouer
       Si vous désactivez ce paramètre ou si vous ne définissez pas de valeur, l'aperçu avant impression utilisera par défaut l'imprimante qui a servi le plus récemment.
 
       Si vous activez ce paramètre, l'aperçu avant impression utilisera l'imprimante par défaut du système d'exploitation.</translation>
+<translation id="2867699958489427143">Rétablissez et conservez la version cible si elle est antérieure à la version de l'OS. Effectuez un Powerwash complet pendant le processus.</translation>
+<translation id="286802604195763750">Vous permet de contrôler le déclenchement de l'avertissement relatif à la protection par mot de passe. La protection par mot de passe affiche une alerte lorsque les utilisateurs réutilisent leur mot de passe protégé sur des sites potentiellement suspects.
+
+      Si cette règle est définie sur "PasswordProtectionWarningOff", aucun avertissement ne s'affiche.
+      Si elle est définie sur "PasswordProtectionWarningOnPasswordReuse", l'avertissement s'affiche lorsque les utilisateurs réutilisent leurs mots de passe Google sur des sites qui ne figurent pas sur la liste blanche.
+      Si elle est définie sur "PasswordProtectionWarningOnPhishingReuse", il s'affiche lorsqu'ils les réutilisent sur des sites d'hameçonnage.
+      Il en va de même lorsque la règle n'est pas configurée, excepté que les utilisateurs peuvent modifier ce paramètre.</translation>
 <translation id="2872961005593481000">Éteindre</translation>
 <translation id="2874209944580848064">Remarque concernant les appareils <ph name="PRODUCT_OS_NAME" /> compatibles avec les applications Android :</translation>
 <translation id="2877225735001246144">Désactiver la consultation CNAME lors de la négociation de l'authentification Kerberos</translation>
@@ -620,6 +673,12 @@ Si cette règle est définie sur "False", les utilisateurs ne pourront pas jouer
 <translation id="2893546967669465276">Envoyer des journaux système au serveur de gestion</translation>
 <translation id="2899002520262095963">Les applications Android peuvent utiliser les configurations réseau et les certificats CA définis par cette règle, mais elles n'ont pas accès à certaines options de configuration.</translation>
 <translation id="2906874737073861391">Liste des extensions AppPack</translation>
+<translation id="2907992746861405243">Détermine les imprimantes de <ph name="BULK_PRINTERS_POLICY" /> qui sont à la disposition des utilisateurs.
+
+      Indique quelle règle d'accès est utilisée pour la configuration groupée des imprimantes. Si <ph name="PRINTERS_ALLOW_ALL" /> est sélectionné, toutes les imprimantes sont affichées. Si <ph name="PRINTERS_BLACKLIST" /> est sélectionné, <ph name="BULK_PRINTERS_BLACKLIST" /> est utilisé pour limiter l'accès aux imprimantes spécifiées. Si <ph name="PRINTERS_WHITELIST" /> est sélectionné, <ph name="BULK_PRINTERS_WHITELIST" /> indique uniquement les imprimantes qui peuvent être choisies.
+
+      Si cette règle n'est pas définie, <ph name="PRINTERS_ALLOW_ALL" /> est supposé s'appliquer.
+      </translation>
 <translation id="2908277604670530363">Nombre maximal de connexions simultanées au serveur proxy</translation>
 <translation id="2956777931324644324">Cette règle a été supprimée dès la version 36 de <ph name="PRODUCT_NAME" />.
 
@@ -641,10 +700,8 @@ Si cette règle est définie sur "False", les utilisateurs ne pourront pas jouer
                       La valeur de cette règle doit être indiquée en millisecondes. Les valeurs doivent être inférieures ou égales au délai d'arrêt de l'écran (le cas échéant) et au délai d'inactivité.</translation>
 <translation id="2987155890997901449">Activer ARC</translation>
 <translation id="2987227569419001736">Contrôler l'utilisation de l'API Web Bluetooth</translation>
-<translation id="3001534538097271560">Si cette règle est définie sur "False", les utilisateurs ne peuvent pas envoyer d'informations système ni de contenu de pages aux serveurs Google. Si elle est définie sur "True" ou si elle n'est pas configurée, ils sont autorisés à envoyer des informations système et le contenu des pages au service de navigation sécurisée afin de contribuer à la détection des applications et des sites dangereux.
-
-      Consultez la page https://developers.google.com/safe-browsing pour en savoir plus sur la navigation sécurisée.</translation>
 <translation id="3016255526521614822">Les applications de prise de note ajoutées à la liste blanche sont autorisées sur l'écran de verrouillage de <ph name="PRODUCT_OS_NAME" /></translation>
+<translation id="3021562480854470924">Nombre de versions intermédiaires autorisées pour le rollback</translation>
 <translation id="3030000825273123558">Activer la génération de rapports sur les statistiques</translation>
 <translation id="3034580675120919256">Permet de définir si les sites Web sont autorisés à exécuter JavaScript. L'exécution de JavaScript peut être soit autorisée pour tous les sites, soit refusée pour tous les sites. 
 
@@ -751,16 +808,6 @@ Si elle n'est pas configurée, l'utilisateur peut être invité à effectuer l'i
 <translation id="332771718998993005">Détermine le nom de la destination <ph name="PRODUCT_NAME" />.
 
           Si cette règle est définie sur une chaîne non vide, cette chaîne devient le nom de la destination <ph name="PRODUCT_NAME" />. Sinon, le nom de la destination est le nom de l'appareil. Si cette règle n'est pas définie, le nom de la destination est celui de l'appareil, et le propriétaire de l'appareil (ou un utilisateur du domaine gérant l'appareil) peut le modifier. Le nom est limité à 24 caractères.</translation>
-<translation id="3356249700768900657">
-      REMARQUE : Il s'agit d'une règle expérimentale qui peut bloquer certaines fonctionnalités.
-      Nous vous conseillons d'examiner le paramètre de la règle IsolateOrigins pour obtenir
-      le meilleur résultat, c'est-à-dire l'isolation avec un impact limité sur les utilisateurs, et d'utiliser
-      IsolateOrigins avec une liste des sites que vous souhaitez isoler. Le paramètre
-      SitePerProcess isole tous les sites.
-      Si cette règle est activée, chaque site exécute son propre processus.
-      Si elle est désactivée, la logique préliminaire de gestion du processus d'isolation de site prend effet.
-      Si elle n'est pas configurée, l'utilisateur peut modifier ce paramètre.
-      </translation>
 <translation id="3381968327636295719">Utiliser le navigateur hôte par défaut</translation>
 <translation id="3395348522300156660">Indique les imprimantes qu'un utilisateur peut employer.
 
@@ -768,6 +815,9 @@ Si elle n'est pas configurée, l'utilisateur peut être invité à effectuer l'i
 
       Si cette règle est appliquée, seules les imprimantes dont l'ID correspond aux valeurs de la règle sont à la disposition de l'utilisateur. Les ID doivent correspondre aux entrées du fichier spécifié dans <ph name="DEVICE_PRINTERS_POLICY" />.
       </translation>
+<translation id="3414260318408232239">Si cette règle n'est pas configurée, <ph name="PRODUCT_NAME" /> utilise une version minimale par défaut qui est TLS 1.0.
+
+      Sinon, l'une des valeurs suivantes peut être définie : "tls1", "tls1.1" ou "tls1.2". Si elle est configurée, <ph name="PRODUCT_NAME" /> n'utilisera pas de versions SSL/TLS antérieures à la version précisée. Toute valeur non reconnue sera ignorée.</translation>
 <translation id="3417418267404583991">Si cette règle est définie sur "true" ou si elle n'est pas configurée, <ph name="PRODUCT_OS_NAME" /> autorise les connexions en mode invité. Les connexions en mode invité correspondent à des sessions utilisateur anonymes et ne nécessitent pas de mot de passe.
 
        Si cette règle est définie sur "false", <ph name="PRODUCT_OS_NAME" /> n'autorise pas les sessions en mode invité.</translation>
@@ -789,6 +839,7 @@ Si elle n'est pas configurée, l'utilisateur peut être invité à effectuer l'i
           Cette règle est facultative. Si elle n'est pas définie, aucune page Nouvel onglet ne s'affiche.
 
           Cette règle n'est appliquée que si la règle "DefaultSearchProviderEnabled" est activée.</translation>
+<translation id="3465852069254497664">Avertir un utilisateur qu'un redémarrage du navigateur est recommandé ou requis</translation>
 <translation id="346731943813722404">Indiquer si les délais liés à la gestion de l'alimentation et la limite relative à la durée de la session ne doivent être activés que lorsque l'utilisateur a effectué une première activité au cours d'une session.
 
           Si la règle est définie sur "True", les délais liés à la gestion de l'alimentation et la limite relative à la durée de la session ne sont activés que lorsque l'utilisateur a effectué une première activité au cours d'une session.
@@ -796,6 +847,10 @@ Si elle n'est pas configurée, l'utilisateur peut être invité à effectuer l'i
           Si la règle est définie sur "False" ou si elle n'a pas été configurée, les délais liés à la gestion de l'alimentation et la limite relative à la durée de la session sont activés dès que la session débute.</translation>
 <translation id="3478024346823118645">Effacer les données utilisateur à la déconnexion</translation>
 <translation id="348495353354674884">Activer le clavier virtuel</translation>
+<translation id="3487623755010328395">
+        Si cette règle est activée, <ph name="PRODUCT_NAME" /> tente de s'enregistrer et d'appliquer la règle relative au cloud associée à tous les profils.
+
+        La valeur de cette règle est un jeton d'inscription qui peut être récupéré depuis la console d'administration Google.</translation>
 <translation id="3496296378755072552">Gestionnaire de mots de passe</translation>
 <translation id="350443680860256679">Configurer ARC</translation>
 <translation id="3504791027627803580">Spécifie l'URL du moteur de recherche utilisé pour la recherche d'image. Les requêtes de recherche seront envoyées à l'aide la méthode GET. Si la règle "DefaultSearchProviderImageURLPostParams" est activée, elles seront envoyées à l'aide la méthode POST à la place de GET.
@@ -820,15 +875,9 @@ Si elle n'est pas configurée, l'utilisateur peut être invité à effectuer l'i
       Consultez la page https://developers.google.com/safe-browsing pour en savoir plus sur la navigation sécurisée.</translation>
 <translation id="3709266154059827597">Configurer la liste noire d'installation des extensions</translation>
 <translation id="3711895659073496551">Arrêter</translation>
-<translation id="3732106275571017176">Ce paramètre permet aux utilisateurs de basculer d'un compte Google à l'autre dans la zone de contenu de la fenêtre de leur navigateur une fois qu'ils sont connectés sur leur appareil <ph name="PRODUCT_OS_NAME" />.
-
-      Si cette règle est définie sur "false", ils ne seront pas autorisés à se connecter à un autre compte depuis la zone de contenu d'un navigateur n'étant pas en mode navigation privée.
-
-      Si elle est définie sur "true" ou si elle n'est pas configurée, le comportement par défaut sera utilisé : ils pourront se connecter à un autre compte depuis la zone de contenu du navigateur, sauf pour les comptes enfant où cela sera bloqué pour la zone de contenu hors navigation privée.
-
-      Dans le cas où la connexion à un autre compte ne doit pas être autorisée par l'intermédiaire du mode navigation privée, pensez à bloquer ce mode à l'aide de la règle IncognitoModeAvailability.</translation>
 <translation id="3736879847913515635">Autoriser l'ajout de personnes dans le gestionnaire d'utilisateurs</translation>
 <translation id="3737544779868348650">Nom d'hôte du réseau de l'appareil</translation>
+<translation id="3740754010292550733">Définir la période d'affichage des notifications de redémarrage pour mise à jour</translation>
 <translation id="3750220015372671395">Bloquer la génération de clé sur ces sites</translation>
 <translation id="3756011779061588474">Bloquer le mode développeur</translation>
 <translation id="3758089716224084329">Permet de préciser le serveur proxy utilisé par <ph name="PRODUCT_NAME" /> et d'empêcher les utilisateurs de modifier les paramètres de proxy.
@@ -886,6 +935,13 @@ Si elle n'est pas configurée, l'utilisateur peut être invité à effectuer l'i
 
           Si vous ne définissez pas cette règle, le clavier à l'écran est initialement désactivé, mais l'utilisateur peut l'activer à tout moment.</translation>
 <translation id="382476126209906314">Configurer le préfixe TalkGadget pour les hôtes d'accès à distance</translation>
+<translation id="3831376478177535007">Lorsque ce paramètre est activé, <ph name="PRODUCT_NAME" /> accepte de faire confiance aux certificats émis par l'ancienne infrastructure PKI de Symantec Corporation s'ils sont correctement validés et que leur chaîne de confiance renvoie à un certificat CA reconnu.
+
+      Notez que cette règle dépend de la reconnaissance des certificats de l'ancienne infrastructure de Symantec par le système d'exploitation. Si une mise à jour du système d'exploitation modifie sa gestion de ces certificats, cette règle n'aura plus d'effet. En outre, cette règle n'est qu'une solution temporaire destinée à laisser suffisamment de temps aux entreprises pour cesser d'utiliser les anciens certificats Symantec. Elle sera supprimée aux alentours du 1er janvier 2019.
+
+      Si cette règle n'est pas définie, ou qu'elle est définie sur "False", <ph name="PRODUCT_NAME" /> suivra le calendrier annoncé publiquement pour l'abandon.
+
+      Consultez la page https://g.co/chrome/symantecpkicerts pour en savoir plus sur cet abandon.</translation>
 <translation id="383466854578875212">Cette règle vous permet de spécifier les hôtes de messagerie native à exclure de la liste noire.
 
           Si vous définissez la valeur liée à la liste noire sur "*", cela signifie que tous les hôtes de messagerie native sont ajoutés à la liste noire et que seuls les hôtes de messagerie native figurant sur la liste blanche sont chargés.
@@ -1036,16 +1092,6 @@ Cette option est habituellement désactivée dans le cadre de la protection cont
 
           Cette règle n'est respectée que si la règle "DefaultSearchProviderEnabled" est activée.</translation>
 <translation id="4285674129118156176">Autoriser les utilisateurs non affiliés à utiliser ARC</translation>
-<translation id="4294280661005713627">Permet de définir une version cible pour les mises à jour automatiques.
-
-      Cette règle spécifie le préfixe de la version cible que <ph name="PRODUCT_OS_NAME" /> doit installer. Si la version installée sur l'appareil est antérieure au préfixe spécifié, la dernière version associée à ce préfixe est installée. Si l'appareil dispose déjà de la dernière version, aucune opération n'est effectuée (aucune réinstallation d'une version antérieure n'est effectuée), et la version actuellement installée est conservée. Le format du préfixe tient compte des composants, comme illustré dans l'exemple ci-dessous :
-
-      "" (ou non configuré) : installation de la dernière version à jour.
-      "1412." : installation d'une version 1412 mineure (1412.24.34 ou 1412.60.2, par exemple)
-      "1412.2." : installation d'une version 1412.2 mineure (1412.2.34 ou 1412.2.2, par exemple)
-      "1412.24.34" : installation de cette version seulement
-
-      Avertissement : Il est recommandé de ne pas configurer les limitations de version, car les utilisateurs risqueraient de ne pas recevoir les mises à jour logicielles et les correctifs de sécurité essentiels. Limiter les mises à jour à un préfixe de version spécifique constituerait un risque pour les utilisateurs.</translation>
 <translation id="4298509794364745131">Liste des applications qui peuvent être activées pour la prise de notes sur l'écran de verrouillage de <ph name="PRODUCT_OS_NAME" />.
 
       Si l'application de prise de notes préférée est activée sur l'écran de verrouillage, ce dernier présente un élément permettant de la lancer.
@@ -1069,6 +1115,13 @@ Cette option est habituellement désactivée dans le cadre de la protection cont
 <translation id="4347908978527632940">Si la valeur est définie sur "True" et si l'utilisateur est supervisé, d'autres applications Android peuvent envoyer une requête concernant les restrictions Web de ce dernier via un fournisseur de contenu.
 
           Si la valeur est définie sur "False" ou si elle n'est pas définie, le fournisseur de contenu n'envoie aucune information.</translation>
+<translation id="435461861920493948">Contient une liste de schémas utilisés pour contrôler la visibilité des comptes dans <ph name="PRODUCT_NAME" />.
+
+      Chaque compte Google sur l'appareil sera comparé aux schémas enregistrés dans cette règle pour que la visibilité du compte dans <ph name="PRODUCT_NAME" /> soit définie. Le compte sera visible si son nom correspond à l'un des schémas de la liste. Sinon, il sera masqué.
+
+      Utilisez le caractère générique "*" pour remplacer des caractères arbitraires. Le caractère d'échappement est "\". Pour spécifier les caractères "*" ou "\", vous devez donc saisir "\" devant ceux-ci.
+
+      Si cette règle n'est pas configurée, tous les comptes Google présents sur l'appareil seront visibles dans <ph name="PRODUCT_NAME" />.</translation>
 <translation id="436581050240847513">Générer un rapport sur les interfaces réseau de l'appareil</translation>
 <translation id="4372704773119750918">Ne pas autoriser l'utilisateur d'entreprise à participer aux sessions à plusieurs profils, que ce soit en tant qu'utilisateur principal ou secondaire</translation>
 <translation id="4377599627073874279">Autoriser tous les sites à afficher toutes les images</translation>
@@ -1081,6 +1134,8 @@ Cette option est habituellement désactivée dans le cadre de la protection cont
       Si cette règle n'est pas définie, l'utilisateur peut décider d'afficher ou de masquer le raccourci des applications dans le menu contextuel de la barre des favoris.
 
       Si cette règle est définie, l'utilisateur ne peut pas la modifier, et le raccourci des applications est soit toujours visible, soit toujours masqué.</translation>
+<translation id="4432762137771104529">Autoriser la création de rapports détaillés dans le cadre de la navigation sécurisée</translation>
+<translation id="443454694385851356">Anciens types de chiffrement (option non sécurisée)</translation>
 <translation id="443665821428652897">Effacer les données de sites à la fermeture du navigateur (obsolète)</translation>
 <translation id="4439336120285389675">Répertorier les fonctionnalités abandonnées de la plate-forme en ligne à réactiver provisoirement.
 
@@ -1092,6 +1147,12 @@ Cette option est habituellement désactivée dans le cadre de la protection cont
       </translation>
 <translation id="4442582539341804154">Activer le verrouillage lorsque l'appareil est inactif ou en veille</translation>
 <translation id="4449545651113180484">Faire pivoter l'écran vers la droite de 270 degrés</translation>
+<translation id="4459359100627756769">Permet de configurer la liste des URL de connexion d'entreprise (protocoles HTTP et HTTPS uniquement). L'empreinte numérique du mot de passe est capturée au niveau de ces URL et sert à détecter les mots de passe réutilisés.
+      Seuls les utilisateurs de GSuite disposant d'un système SSO/SMAL peuvent tirer parti de ce paramètre.
+
+      Si ce paramètre est activé, le service de protection par mot de passe capture l'empreinte numérique du mot de passe au niveau de ces URL afin de détecter les mots de passe réutilisés.
+      Si ce paramètre est désactivé, le service de protection par mot de passe ne capture que l'empreinte numérique du mot de passe sur https://accounts.google.com.
+      Cette règle n'est pas disponible sur les instances Windows non associées à un domaine <ph name="MS_AD_NAME" />.</translation>
 <translation id="4467952432486360968">Bloquer les cookies tiers</translation>
 <translation id="4474167089968829729">Activer l'enregistrement des mots de passe dans le gestionnaire de mots de passe</translation>
 <translation id="4476769083125004742">Si cette règle est définie sur "<ph name="BLOCK_GEOLOCATION_SETTING" />", les applications Android n'ont pas accès aux informations de localisation. Si vous la définissez sur une autre valeur ou si vous ne la modifiez pas, l'utilisateur est invité à donner son autorisation lorsqu'une application Android requiert ces informations.</translation>
@@ -1141,6 +1202,7 @@ Si cette règle n'est pas configurée, la valeur par défaut globale est utilis�
 
           Pour accéder à une description complète de la structure et des paramètres possibles pour cette règle, veuillez consulter https://www.chromium.org/administrators/policy-list-3/extension-settings-full.
           </translation>
+<translation id="4554651132977135445">Mode de traitement du bouclage pour les règles relatives aux utilisateurs</translation>
 <translation id="4555850956567117258">Activer l'attestation à distance pour l'utilisateur</translation>
 <translation id="4557134566541205630">URL de la page Nouvel onglet du moteur de recherche par défaut</translation>
 <translation id="4600786265870346112">Activer le grand curseur</translation>
@@ -1180,7 +1242,6 @@ Si cette règle n'est pas configurée, la valeur par défaut globale est utilis�
 
           Par défaut, les utilisateurs recevront un avertissement, et non un message d'erreur, si le code saisi est considéré comme étant trop faible.</translation>
 <translation id="4723829699367336876">Activer la traversée de pare-feu depuis le client d'accès à distance</translation>
-<translation id="4725123658714754485">Détermine si les statistiques d'utilisation et les données de diagnostic, telles que des rapports d'erreurs, doivent être envoyées à Google. Si cette règle est définie sur "true", <ph name="PRODUCT_OS_NAME" /> les envoie. Si cette règle n'est pas configurée ou si elle est définie sur "false", les rapports sur les statistiques et les données de diagnostic ne sont pas envoyés.</translation>
 <translation id="4725528134735324213">Activer Android Backup Service</translation>
 <translation id="4733471537137819387">Stratégies liées à l'authentification HTTP intégrée</translation>
 <translation id="4744190513568488164">Serveurs susceptibles d'être utilisés par <ph name="PRODUCT_NAME" />
@@ -1262,6 +1323,7 @@ Si cette règle n'est pas configurée, la valeur par défaut globale est utilis�
 <translation id="489803897780524242">Paramètre contrôlant le positionnement des termes de recherche pour le moteur de recherche par défaut</translation>
 <translation id="4899708173828500852">Activer la navigation sécurisée</translation>
 <translation id="4906194810004762807">Fréquence d'actualisation des règles de l'appareil</translation>
+<translation id="4917385247580444890">Très bon</translation>
 <translation id="4923806312383904642">Autoriser WebDriver à ignorer les règles incompatibles</translation>
 <translation id="494613465159630803">Récepteur Cast</translation>
 <translation id="4962262530309732070">Si cette règle est définie sur "True" ou n'est pas définie, <ph name="PRODUCT_NAME" /> permettra d'ajouter une personne à partir du gestionnaire d'utilisateurs.
@@ -1277,17 +1339,6 @@ Si cette règle n'est pas configurée, la valeur par défaut globale est utilis�
 <translation id="4983201894483989687">Autoriser l'exécution de plug-ins obsolètes</translation>
 <translation id="4988291787868618635">Action à effectuer au terme du délai d'inactivité</translation>
 <translation id="4995548127349206948">Contrôler l'activation ou la désactivation de l'authentification NTLMv2.</translation>
-<translation id="5027819375434797927">
-      REMARQUE : Il s'agit d'une règle expérimentale qui peut bloquer certaines fonctionnalités.
-      Si cette règle est activée, chacune des origines définies et répertoriées dans
-      une liste d'éléments séparés par des virgules exécute son propre processus. Elle isole également
-      les origines par sous-domaines. Par exemple, si vous indiquez
-      "https://example.com/",
-      https://foo.example.com/ est également isolé en tant que partie du site
-      https://example.com/.
-      Si cette règle est désactivée, la logique préliminaire de gestion du processus d'isolation de site prend effet.
-      Si cette règle n'est pas configurée, l'utilisateur peut modifier ce paramètre.
-      </translation>
 <translation id="5047604665028708335">Autoriser l'accès aux sites en dehors des packs de contenu</translation>
 <translation id="5052081091120171147">Lorsqu'elle est activée, cette règle force l'importation de l'historique de navigation à partir du navigateur par défaut actuel. Si elle est activée, elle affecte également la boîte de dialogue d'importation. 
 
@@ -1299,7 +1350,29 @@ Si elle n'est pas configurée, l'utilisateur peut être invité à effectuer l'i
 <translation id="5068140065960598044">Les règles relatives au cloud <ph name="PRODUCT_NAME" /> remplacent celles de la machine.</translation>
 <translation id="5085647276663819155">Désactiver l'aperçu avant impression</translation>
 <translation id="5090209345759901501">Appliquer le paramètre de contenu Flash à tous les contenus</translation>
+<translation id="5093540029655764852">Spécifie la fréquence (en jours) à laquelle un client modifie le mot de passe machine. Ce mot de passe, généré de manière aléatoire par le client, n'est pas accessible à l'utilisateur.
+
+      Tout comme les mots de passe utilisateur, les mots de passe machine doivent être modifiés régulièrement. La désactivation de cette règle ou la définition d'un nombre de jours élevé peut nuire à la sécurité, dans la mesure où elle laisse plus de temps aux pirates informatiques pour trouver le mot de passe machine et l'exploiter.
+
+      Si cette règle n'est pas définie, le mot de passe machine est modifié tous les 30 jours.
+
+      Si cette règle indique 0, la modification du mot de passe machine est désactivée.
+
+      Notez que la validité des mots de passe peut dépasser le délai spécifié en cas de mise hors connexion du client pendant une période plus longue.</translation>
 <translation id="5105313908130842249">Délai de verrouillage de l'écran (batterie)</translation>
+<translation id="5106504910236139235">Active la création de rapports détaillées dans le cadre de la navigation sécurisée dans <ph name="PRODUCT_NAME" /> et empêche les utilisateurs de modifier cette règle.
+
+      Ces rapports détaillés fournissent aux serveurs Google des informations système et du contenu de pages qui aident à détecter les applications et les sites dangereux.
+
+      Si cette règle est définie sur "True", des rapports sont créés et envoyés si nécessaire (ex. : lorsqu'un interstitiel de sécurité est affiché).
+
+      Si cette règle est définie sur "False", aucun rapport n'est envoyé.
+
+      Si cette règle est définie sur "True" ou "False", l'utilisateur ne peut pas modifier le paramètre correspondant.
+
+      Si cette règle n'est pas définie, l'utilisateur peut la configurer afin de spécifier si des rapports doivent être envoyés ou non.
+
+      Pour en savoir plus sur la navigation sécurisée, consultez la page https://developers.google.com/safe-browsing.</translation>
 <translation id="5108031557082757679">Imprimantes d'appareils d'entreprise désactivées</translation>
 <translation id="5130288486815037971">Activation ou non des suites de chiffrement RC4 dans TLS</translation>
 <translation id="5141670636904227950">Activer la loupe plein écran sur l'écran de connexion</translation>
@@ -1325,6 +1398,7 @@ Si elle n'est pas configurée, l'utilisateur peut être invité à effectuer l'i
           Définir la liste noire sur la valeur * revient à interdire toutes les extensions. Les utilisateurs ne peuvent alors installer que celles expressément répertoriées dans la liste blanche.
 
           Par défaut, toutes les extensions figurent sur la liste blanche. Toutefois, si toutes les extensions ont été mises sur la liste noire par la stratégie, seules les extensions expressément indiquées dans la liste blanche pourront être utilisées.</translation>
+<translation id="519247340330463721">Configurez les règles associées à la navigation sécurisée.</translation>
 <translation id="5192837635164433517">Permet l'utilisation de pages d'erreur alternatives qui sont intégrées à <ph name="PRODUCT_NAME" /> (comme "page introuvable") et empêche les utilisateurs de modifier ce paramètre. 
 
 Si vous activez ce paramètre, les pages d'erreur alternatives sont utilisées. 
@@ -1345,6 +1419,15 @@ Si cette règle n'est pas configurée, la valeur par défaut globale sera utilis
 <translation id="5219844027738217407">Cette règle ne s'applique qu'au micro pour les applications Android. Lorsqu'elle est définie sur "True", le son du micro est coupé pour toutes les applications Android sans exception.</translation>
 <translation id="523505283826916779">Paramètres d'accessibilité</translation>
 <translation id="5247006254130721952">Bloquer les téléchargements dangereux</translation>
+<translation id="5248863213023520115">Définit les types de chiffrement autorisés lors des demandes de tickets Kerberos à partir d'un serveur <ph name="MS_AD_NAME" />.
+
+      Si cette règle indique "All", les types de chiffrement AES "aes256-cts-hmac-sha1-96" et "aes128-cts-hmac-sha1-96", ainsi que le type de chiffrement RC4 "rc4-hmac" sont autorisés. Le chiffrement AES prévaut toujours. Notez que le type de chiffrement RC4 n'est pas sécurisé et qu'il est donc conseillé de reconfigurer le serveur pour qu'il accepte le chiffrement AES, lorsque cela est possible.
+
+      Si cette règle indique "Strong" ou si elle n'est pas configurée, seuls les types de chiffrement AES sont autorisés.
+
+      Si cette règle indique "Legacy", seul le type de chiffrement RC4 est autorisé. Cette option n'est pas sécurisée et doit uniquement être utilisée dans des cas particuliers.
+
+      Consultez également la page https://wiki.samba.org/index.php/Samba_4.6_Features_added/changed#Kerberos_client_encryption_types.</translation>
 <translation id="5255162913209987122">Peut être recommandée</translation>
 <translation id="527237119693897329">Cette règle vous permet de spécifier les hôtes de messagerie native qui ne doivent pas être chargés.
 
@@ -1436,6 +1519,7 @@ Si cette règle n'est pas configurée, la valeur par défaut globale sera utilis
       Si cette règle est définie, le système se connecte automatiquement à la session spécifiée après expiration du délai d'inactivité. La session publique doit être configurée au préalable (voir |DeviceLocalAccounts|).
 
       Si cette règle n'est pas définie, aucune connexion automatique n'a lieu.</translation>
+<translation id="5526701598901867718">Tous les types de chiffrement (option non sécurisée)</translation>
 <translation id="5529037166721644841">Indique la fréquence en millisecondes à laquelle le service de gestion des appareils est interrogé sur les informations concernant les règles relatives aux appareils.
 
       La définition de cette règle remplace la valeur par défaut de 3 heures. Les valeurs valides pour cette règle sont comprises entre 1 800 000 (30 minutes) et 86,4 millions (1 jour). Les valeurs situées en dehors de cette plage sont remplacées par la valeur limite la plus proche.
@@ -1444,6 +1528,7 @@ Si cette règle n'est pas configurée, la valeur par défaut globale sera utilis
 
       Notez que si la plate-forme est compatible avec les notifications relatives aux règles, le délai d'actualisation sera défini sur 24 heures (ignorant ainsi toutes les valeurs par défaut et celle de cette règle). En effet, les notifications relatives aux règles forceront une actualisation automatique chaque fois qu'une règle est modifiée, ce qui rend inutile toute actualisation supplémentaire.</translation>
 <translation id="5530347722229944744">Bloquer les téléchargements potentiellement dangereux</translation>
+<translation id="5530586312297447592">Le signalement d'un compte à risque au niveau de la protection par mot de passe est déclenché par la réutilisation d'un mot de passe sur une page d'hameçonnage</translation>
 <translation id="5535973522252703021">Liste blanche des serveurs de délégation Kerberos</translation>
 <translation id="555077880566103058">Autoriser tous les sites à exécuter le plug-in "<ph name="FLASH_PLUGIN_NAME" />" automatiquement</translation>
 <translation id="5559079916187891399">Cette règle n'a aucun effet sur les applications Android.</translation>
@@ -1501,6 +1586,19 @@ Si cette règle n'est pas configurée, la valeur par défaut globale sera utilis
                       Si cette règle n'est pas définie, une durée par défaut est utilisée.
 
                       La valeur de cette règle doit être indiquée en millisecondes.</translation>
+<translation id="5784370777704871674">Active la fonctionnalité de navigation sécurisée de <ph name="PRODUCT_NAME" /> et empêche les utilisateurs de modifier ce paramètre.
+
+      Si vous activez ce paramètre, la navigation sécurisée est active en permanence.
+
+      Si vous désactivez ce paramètre, la navigation sécurisée n'est jamais active.
+
+      Si vous activez ou désactivez ce paramètre, les utilisateurs ne peuvent pas modifier ni remplacer le paramètre "Activer la protection contre le hameçonnage et les logiciels malveillants" dans <ph name="PRODUCT_NAME" />.
+
+      Si cette règle n'est pas configurée, la navigation sécurisée est activée, mais les utilisateurs peuvent modifier ce paramètre.
+
+      Pour en savoir plus sur la navigation sécurisée, consultez la page https://developers.google.com/safe-browsing.
+
+      Cette règle n'est pas disponible sur les instances Windows non associées à un domaine <ph name="MS_AD_NAME" />.</translation>
 <translation id="5795001131770861387">Active la compatibilité avec HTTP 0.9 sur les ports non utilisés par défaut</translation>
 <translation id="5809728392451418079">Définir le nom à afficher pour les comptes locaux des appareils</translation>
 <translation id="5814301096961727113">Définir l'état par défaut des commentaires audio sur l'écran de connexion</translation>
@@ -1571,6 +1669,7 @@ Si l'option "Forcé" est sélectionnée, les pages peuvent être ouvertes UNIQUE
           Si vous définissez cette règle, les utilisateurs peuvent l'ignorer temporairement en activant ou en désactivant le grand curseur. Toutefois, cette option n'est pas définitive, et la valeur par défaut est restaurée dès que l'écran de connexion est affiché de nouveau ou que l'utilisateur reste inactif pendant une minute sur l'écran de connexion.
 
           Si vous ne définissez pas cette règle, le grand curseur est désactivé au premier affichage de l'écran de connexion. Les utilisateurs peuvent l'activer ou le désactiver à tout moment, et son état sur l'écran de connexion est appliqué à tous les utilisateurs.</translation>
+<translation id="5929855945144989709">Autoriser les appareils à exécuter des machines virtuelles sur Chrome OS</translation>
 <translation id="5932767795525445337">Ces règles peuvent également être utilisées pour épingler des applications Android.</translation>
 <translation id="5936622343001856595">SafeSearch est obligatoirement activé pour les recherches sur le Web Google et ce paramètre ne peut être modifié par l'utilisateur.
 
@@ -1585,17 +1684,6 @@ Si l'option "Forcé" est sélectionnée, les pages peuvent être ouvertes UNIQUE
 <translation id="5983708779415553259">Comportement par défaut des sites ne figurant dans aucun pack de contenu</translation>
 <translation id="5997543603646547632">Utiliser le format d'horloge 24 h par défaut</translation>
 <translation id="5997846976342452720">Indiquer si l'outil de recherche de plug-ins doit être désactivé (obsolète)</translation>
-<translation id="6005179188836322782">Active la fonctionnalité de navigation sécurisée de <ph name="PRODUCT_NAME" /> et empêche les utilisateurs de modifier ce paramètre.
-
-      Si vous activez ce paramètre, la navigation sécurisée est toujours active.
-
-      Si vous désactivez ce paramètre, la navigation sécurisée n'est jamais active.
-
-      Si vous activez ou désactivez ce paramètre, les utilisateurs ne peuvent pas modifier ni ignorer le paramètre "Activer la protection contre le hameçonnage et les logiciels malveillants" dans <ph name="PRODUCT_NAME" />.
-
-      Si vous ne définissez pas cette règle, la navigation sécurisée est activée, mais les utilisateurs peuvent la modifier.
-
-      Consultez la page https://developers.google.com/safe-browsing pour en savoir plus sur la navigation sécurisée.</translation>
 <translation id="6017568866726630990">Affiche la boîte de dialogue d'impression du système au lieu de l'aperçu avant impression.
 
       Lorsque ce paramètre est activé, <ph name="PRODUCT_NAME" /> ouvre la boîte de dialogue d'impression du système au lieu de l'aperçu avant impression intégré lorsqu'un utilisateur souhaite imprimer une page.
@@ -1680,13 +1768,6 @@ Si cette règle n'est pas configurée, la valeur par défaut globale sera utilis
 <translation id="6157537876488211233">Liste de règles de contournement de proxy séparées par des virgules</translation>
 <translation id="6158324314836466367">Nom de boutique en ligne d'entreprise (abandonné)</translation>
 <translation id="6161405879872578475">Active <ph name="PRODUCT_NAME" /></translation>
-<translation id="6167074305866468481">Attention : La compatibilité SSLv3 sera supprimée de <ph name="PRODUCT_NAME" /> après la version 43 (vers juillet 2015). Cette règle sera alors supprimée.
-
-      Si cette règle n'est pas configurée, <ph name="PRODUCT_NAME" /> utilise une version minimale par défaut qui correspond à SSLv3 dans <ph name="PRODUCT_NAME" /> 39 et à TLS 1.0 dans les versions ultérieures.
-
-      Dans les autres cas, les valeurs suivantes peuvent être utilisées : "sslv3", "tls1", "tls1.1" ou "tls1.2". Dans ce cas, <ph name="PRODUCT_NAME" /> n'utilisera pas de versions SSL/TLS plus anciennes que la version précisée. Toute valeur non reconnue sera ignorée.
-
-      Veuillez noter que malgré son numéro, "sslv3" est une version plus ancienne que "tls1".</translation>
 <translation id="6181608880636987460">Cette règle permet de définir une liste de formats d'URL spécifiant les sites qui ne sont pas autorisés à exécuter le plug-in "<ph name="FLASH_PLUGIN_NAME" />".
 
           Si cette règle n'est pas configurée, la valeur par défaut globale sera utilisée pour tous les sites à partir de la règle "DefaultPluginsSetting", si elle est définie, ou à défaut, à partir de la configuration personnelle de l'utilisateur.</translation>
@@ -1760,6 +1841,7 @@ Si cette règle n'est pas configurée, la valeur par défaut globale est utilis�
           Si vous choisissez de détecter automatiquement le serveur proxy, l'URL de script "http://wpad/wpad.dat" est transmise aux applications Android. Aucune autre partie du protocole d'auto-détection du proxy n'est utilisée.
 
           Si vous sélectionnez le script de proxy .pac, l'URL de script est fournie aux applications Android.</translation>
+<translation id="6473623140202114570">Configurez la liste des domaines sur lesquels la navigation sécurisée ne déclenchera aucun avertissement.</translation>
 <translation id="6491139795995924304">Autoriser le Bluetooth sur l'appareil</translation>
 <translation id="6520802717075138474">Importer les moteurs de recherche du navigateur par défaut à la première exécution</translation>
 <translation id="6525955212636890608">Si vous activez ce paramètre, tout le contenu Flash intégré aux sites Web qui ont été définis pour autoriser Flash dans les paramètres de contenu (soit par l'utilisateur, soit par la règle d'entreprise) sera exécuté, y compris le contenu provenant d'autres sources ou de petite taille.
@@ -1824,6 +1906,7 @@ Si cette règle n'est pas configurée, la valeur par défaut globale est utilis�
       Si vous ne définissez pas cette règle, la prédiction de réseau sera activée, mais les utilisateurs pourront la modifier.</translation>
 <translation id="6658245400435704251">Indique le nombre maximal de secondes pendant lesquelles un appareil peut retarder de façon aléatoire le téléchargement d'une mise à jour à partir du moment où celle-ci est disponible sur le serveur. L'appareil peut attendre pendant une certaine partie de ce temps en termes de temps de l'horloge et pendant la partie restante en termes de nombre de recherches de mise à jour. Dans tous les cas, le facteur de dispersion est limité à une quantité de temps constante, de sorte qu'un appareil ne reste jamais bloqué dans l'attente d'une mise à jour.</translation>
 <translation id="6689792153960219308">Envoyer des rapports sur l'état du matériel</translation>
+<translation id="6698071416141001300">Le signalement d'un compte à risque au niveau de la protection par mot de passe est déclenché par la réutilisation d'un mot de passe</translation>
 <translation id="6699880231565102694">Activer l'authentification forte pour les hôtes d'accès à distance</translation>
 <translation id="6724842112053619797">Si vous activez cette option, les paramètres stockés dans les profils <ph name="PRODUCT_NAME" />, comme les favoris, les données de saisie automatique et les mots de passe, sont également enregistrés dans un fichier stocké dans le dossier des profils utilisateur itinérants ou à un emplacement défini par l'administrateur tel que spécifié dans la règle <ph name="ROAMING_PROFILE_LOCATION_POLICY_NAME" />. L'activation de cette règle entraîne la désactivation de la synchronisation cloud.
 
@@ -1831,6 +1914,15 @@ Si cette règle n'est pas configurée, la valeur par défaut globale est utilis�
 
       La règle <ph name="SYNC_DISABLED_POLICY_NAME" /> entraîne la désactivation de la synchronisation des données, remplaçant ainsi RoamingProfileSupportEnabled.</translation>
 <translation id="6735701345096330595">Forcer l'activation des langues de la vérification orthographique</translation>
+<translation id="673699536430961464">Ce paramètre permet aux utilisateurs de basculer d'un compte Google à l'autre dans la zone de contenu de la fenêtre de leur navigateur une fois qu'ils sont connectés sur leur appareil <ph name="PRODUCT_OS_NAME" />.
+
+      Si cette règle est définie sur "false", ils ne seront pas autorisés à se connecter à un autre compte depuis la zone de contenu d'un navigateur n'étant pas en mode navigation privée.
+
+      Si elle est définie sur "true" ou si elle n'est pas configurée, le comportement par défaut sera utilisé : ils pourront se connecter à un autre compte depuis la zone de contenu du navigateur, sauf pour les comptes enfant où cela sera bloqué pour la zone de contenu hors navigation privée.
+
+      Dans le cas où la connexion à un autre compte ne doit pas être autorisée par l'intermédiaire du mode navigation privée, pensez à bloquer ce mode à l'aide de la règle IncognitoModeAvailability.
+
+      Notez que les utilisateurs pourront accéder aux services Google dans un état non authentifié en bloquant leurs cookies.</translation>
 <translation id="6757438632136860443">Cette règle permet de définir une liste de formats d'URL spécifiant les sites qui sont autorisés à exécuter le plug-in "<ph name="FLASH_PLUGIN_NAME" />".
 
           Si cette règle n'est pas configurée, la valeur par défaut globale sera utilisée pour tous les sites à partir de la règle "DefaultPluginsSetting", si elle est définie, ou à défaut, à partir de la configuration personnelle de l'utilisateur.</translation>
@@ -1840,6 +1932,10 @@ Si cette règle n'est pas configurée, la valeur par défaut globale est utilis�
 <translation id="6786967369487349613">Définir le répertoire des profils itinérants</translation>
 <translation id="6810445994095397827">Bloquer JavaScript sur ces sites</translation>
 <translation id="681446116407619279">Modèles d'authentification compatibles</translation>
+<translation id="6835883744948188639">Afficher une invite récurrente indiquant qu'un redémarrage est recommandé</translation>
+<translation id="6856743875250214792">Cette règle désormais obsolète a été supprimée dans M66, car elle servait uniquement aux tests internes et ne permettait pas de garantir la sécurité.
+
+      Spécifie les indicateurs à appliquer à <ph name="PRODUCT_NAME" /> au démarrage. Ceux-ci ne sont appliqués que sur l'écran de connexion. Les indicateurs définis par cette règle ne sont pas répercutés dans les sessions utilisateur.</translation>
 <translation id="685769593149966548">Appliquer le mode restreint strict sur YouTube</translation>
 <translation id="687046793986382807">Cette règle a été supprimée de la version 35 de <ph name="PRODUCT_NAME" />.
 
@@ -1943,7 +2039,16 @@ Si elle est désactivée, les favoris ne sont pas importés.
 Si elle n'est pas configurée, l'utilisateur peut être invité à effectuer l'importation, ou celle-ci peut se faire automatiquement.</translation>
 <translation id="7063895219334505671">Autoriser les fenêtres pop-up sur ces sites</translation>
 <translation id="706669471845501145">Autoriser les sites à afficher des notifications sur le bureau</translation>
+<translation id="7072208053150563108">Fréquence de modification du mot de passe machine</translation>
 <translation id="7072406291414141328">Active la limitation de la bande passante réseau</translation>
+<translation id="7074513465313721551">Configurez la liste des domaines de confiance pour la navigation privée. Cela signifie que, pour les domaines de cette liste :
+      la navigation privée ne recherchera pas la présence de ressources dangereuses (par exemple, hameçonnage, logiciels malveillants ou logiciels indésirables) si leur URL correspond à ces domaines ;
+      le service de protection des téléchargements de la navigation privée ne vérifiera pas les téléchargements hébergés sur ces domaines ;
+      le service de protection de mot de passe de la navigation privée ne contrôlera pas la réutilisation des mots de passe si l'URL de la page correspond à ces domaines.
+
+      Si ce paramètre est activé, la navigation privée fait confiance à ces domaines.
+      S'il est désactivé ou qu'il n'est pas configuré, la protection par défaut offerte par la navigation privée est appliquée à toutes les ressources.
+      Cette règle n'est pas disponible sur les instances de Windows qui ne sont pas associées à un domaine <ph name="MS_AD_NAME" />.</translation>
 <translation id="7079519252486108041">Bloquer les fenêtres pop-up sur ces sites</translation>
 <translation id="7106631983877564505">Activer le verrouillage lorsque les appareils exécutant <ph name="PRODUCT_OS_NAME" /> sont inactifs ou en veille.
 
@@ -1961,6 +2066,7 @@ Si elle n'est pas configurée, l'utilisateur peut être invité à effectuer l'i
       Si cette règle est définie sur "False", le mode arrière-plan est désactivé et ne peut pas être contrôlé par l'utilisateur dans les paramètres du navigateur.
 
       Si cette règle n'est pas définie, le mode arrière-plan est désactivé initialement et peut être contrôlé par l'utilisateur dans les paramètres du navigateur.</translation>
+<translation id="7127892035367404455">Rétablir la version cible</translation>
 <translation id="7128918109610518786">Permet de répertorier les identifiants des applications épinglées que <ph name="PRODUCT_OS_NAME" /> affiche dans la barre du lanceur d'applications.
 
       Si cette règle est configurée, le groupe d'applications est figé et ne peut plus être modifié par l'utilisateur.
@@ -2048,6 +2154,7 @@ Si elle est définie sur "False" ou si elle n'est pas configurée, ces publicit�
 
       Si cette règle n'est pas définie, le nettoyage automatique utilise la stratégie intégrée par défaut. Actuellement, il s'agit de la stratégie "RemoveLRUIfDormant".</translation>
 <translation id="7336878834592315572">Conserver les cookies pendant toute la durée de la session</translation>
+<translation id="733838170182967492">Autorise la lecture automatique de contenus multimédias</translation>
 <translation id="7340034977315324840">Indiquer les périodes d'activité de l'appareil</translation>
 <translation id="7343497214039883642">Fichier de configuration des imprimantes d'entreprise pour des appareils</translation>
 <translation id="7384999953864505698">Permet d'utiliser le protocole QUIC</translation>
@@ -2063,6 +2170,7 @@ Si elle est définie sur "False" ou si elle n'est pas configurée, ces publicit�
        Si cette règle est désactivée, l'utilisateur n'est pas autorisé à utiliser la vérification orthographique. La règle SpellcheckLanguage est également ignorée lorsque cette règle est désactivée.
       </translation>
 <translation id="7443616896860707393">Invites d'authentification de base HTTP (Basic Auth) multi-domaine</translation>
+<translation id="7458437477941640506">Ne rétablissez pas la version cible si elle est antérieure à la version de l'OS. Les mises à jour seront également désactivées.</translation>
 <translation id="7469554574977894907">Activer les suggestions de recherche</translation>
 <translation id="7474249562477552702">Définir si les certificats signés par SHA-1 émis par les ancres d'approbation locales sont autorisés</translation>
 <translation id="7485481791539008776">Instructions de sélection de l'imprimante par défaut</translation>
@@ -2077,6 +2185,7 @@ Si elle est définie sur "False" ou si elle n'est pas configurée, ces publicit�
 Si cette règle n'est pas configurée, la valeur par défaut globale sera utilisée pour tous les sites à partir de la règle "DefaultPopupsSetting", si elle est définie, ou à défaut, à partir de la configuration personnelle de l'utilisateur.</translation>
 <translation id="7529144158022474049">Facteur de dispersion des mises à jour automatiques</translation>
 <translation id="7534199150025803530">Cette règle n'a aucun effet sur l'application Google Drive pour Android. Si vous voulez empêcher l'utilisation de Google Drive en cas de connexion au réseau mobile, vous ne devez pas autoriser l'installation de cette application.</translation>
+<translation id="7547549430720182663">Fusionner</translation>
 <translation id="7553535237300701827">Lorsque cette règle est définie, l'authentification s'effectue de l'une des deux façons suivantes, selon la valeur du paramètre :
 
       Si la valeur est GAIA, la connexion s'effectue suivant le flux d'authentification GAIA normale.
@@ -2094,6 +2203,7 @@ Si cette règle n'est pas configurée, la valeur par défaut globale sera utilis
       Si la valeur de cette règle est définie sur 0, la taille du cache par défaut est utilisée, mais l'utilisateur n'est pas en mesure de la modifier.
 
       Si cette règle n'est pas définie, la taille par défaut est utilisée, et l'utilisateur est en mesure de la remplacer à l'aide de l'indicateur "--disk-cache-size".</translation>
+<translation id="759957074386651883">Paramètres de navigation sécurisée</translation>
 <translation id="7604169113182304895">Les applications Android peuvent avoir été volontairement conçues pour respecter cette liste, mais vous ne pouvez pas les forcer à effectuer cette opération.</translation>
 <translation id="7612157962821894603">Options système à appliquer au démarrage de <ph name="PRODUCT_NAME" /></translation>
 <translation id="7614663184588396421">Liste des schémas de protocole désactivés</translation>
@@ -2199,7 +2309,15 @@ Si cette règle n'est pas configurée, la règle "AllowImages" est utilisée, et
       En l'absence de définition de cette règle, la valeur par défaut de 5 000 millisecondes est utilisée dans <ph name="PRODUCT_NAME" />.</translation>
 <translation id="7841880500990419427">Version minimale de TLS à utiliser en remplacement</translation>
 <translation id="7842869978353666042">Configurer les options Google Drive</translation>
-<translation id="7843525027689416831">Spécifie les indicateurs à appliquer à <ph name="PRODUCT_NAME" /> au démarrage. Ceux-ci ne sont appliqués que sur l'écran de connexion. Les indicateurs définis par cette règle ne se propagent pas dans les sessions utilisateur.</translation>
+<translation id="78627993030515046">Spécifie le nombre minimal de versions intermédiaires <ph name="PRODUCT_OS_NAME" /> autorisées pour le rollback à partir de la version stable.
+
+      La valeur par défaut s'élève à 0 pour les particuliers et à 8 (environ un an) pour les appareils enregistrés par les entreprises.
+
+      La définition de cette règle empêche la protection contre le rollback de s'appliquer pour le nombre de versions intermédiaires spécifiées.
+
+      La sélection d'une valeur inférieure pour cette règle a un effet permanent : il n'est pas toujours possible de rétablir une version précédente, même en définissant une valeur supérieure.
+
+      Dans certains cas, les possibilités de rollback réelles dépendent également du modèle d'appareil et des correctifs de vulnérabilité essentiels.</translation>
 <translation id="787125417158068494">Si la règle est définie sur SyncDisabled ou n'est pas configurée, les certificats <ph name="PRODUCT_OS_NAME" /> ne sont pas disponibles pour les applications ARC.
 
       Si la règle est définie sur CopyCaCerts, tous les certificats CA installés via ONC avec <ph name="WEB_TRUSTED_BIT" /> sont disponibles pour les applications ARC.</translation>
@@ -2223,7 +2341,6 @@ Si cette règle n'est pas configurée, la règle "AllowImages" est utilisée, et
 <translation id="7937766917976512374">Autoriser ou interdire la capture vidéo</translation>
 <translation id="7941975817681987555">Ne pas prédire d'actions réseau lors d'une connexion au réseau</translation>
 <translation id="7953256619080733119">Hôtes d'exception manuelle des utilisateurs gérés</translation>
-<translation id="7971839631300653352">SSL 3.0</translation>
 <translation id="7974114691960514888">Cette règle n'est plus disponible. 
 Permet l'utilisation de serveurs STUN et relais lors de la connexion à un client distant. 
 
@@ -2364,16 +2481,18 @@ Il est conseillé de configurer les règles sur Windows via GPO, même si la ges
       Si cette règle n'est pas définie ou si elle est désactivée, le plug-in PDF est utilisé pour ouvrir les fichiers PDF, sauf si l'utilisateur le désactive.</translation>
 <translation id="8402079500086185021">Toujours ouvrir les fichiers PDF en externe</translation>
 <translation id="8412312801707973447">Si des contrôles OCSP/CRL en ligne sont effectués</translation>
+<translation id="841977920223099909">Déclencheur de l'avertissement relatif à la protection par mot de passe</translation>
 <translation id="8424255554404582727">Définir la rotation de l'écran par défaut (réappliquée à chaque redémarrage)</translation>
 <translation id="8426231401662877819">Faire pivoter l'écran vers la droite de 90 degrés</translation>
+<translation id="8433423491036718210">Configurez la liste des URL de connexion d'entreprise pour lesquelles le service de protection par mot de passe doit capturer l'empreinte numérique du mot de passe.</translation>
 <translation id="8451988835943702790">Utiliser la page "Nouvel onglet" comme page d'accueil</translation>
-<translation id="8460677879226618710">Contient une liste de schémas utilisés pour contrôler la visibilité des comptes dans <ph name="PRODUCT_NAME" />.
+<translation id="8459216513698220096">Détermine si la règle utilisateur du GPO de l'ordinateur est traitée et la méthode employée.
 
-      Le compte sur cet appareil sera visible dans <ph name="PRODUCT_NAME" /> si son nom correspond à l'un des schémas de la liste. Sinon, le compte sera filtré et masqué.
+      Si la règle est définie sur "Par défaut" ou si elle n'est pas configurée, la règle utilisateur n'est lue qu'à partir des GPO utilisateur (les GPO des ordinateurs sont ignorés).
 
-      Le caractère générique "*" peut être utilisé pour remplacer des caractères arbitraires. Le caractère d'échappement est "\". Ainsi, pour spécifier les caractères "*" ou "\", saisissez "\" devant ceux-ci.
+      Si la règle est définie sur "Fusionner", la règle utilisateur des GPO utilisateur est fusionnée avec celle des GPO des ordinateurs (les GPO des ordinateurs sont prioritaires).
 
-      Si cette règle n'est pas configurée, tous les comptes Google présents sur l'appareil seront visibles dans <ph name="PRODUCT_NAME" />.</translation>
+      Si la règle est définie sur "Remplacer", la règle utilisateur des GPO des utilisateurs est remplacée par celle des GPO des ordinateurs (les GPO des utilisateurs sont ignorés).</translation>
 <translation id="8465065632133292531">Paramètres pour l'URL instantanée utilisant POST</translation>
 <translation id="847472800012384958">Interdire à tous les sites d'afficher des fenêtres pop-up</translation>
 <translation id="8477885780684655676">TLS 1.0</translation>
@@ -2384,6 +2503,16 @@ Il est conseillé de configurer les règles sur Windows via GPO, même si la ges
           Pour voir des exemples de formats, accédez à l'adresse https://www.chromium.org/developers/how-tos/chrome-frame-getting-started.</translation>
 <translation id="8493645415242333585">Désactiver l'enregistrement de l'historique du navigateur</translation>
 <translation id="8499172469244085141">Paramètres par défaut (les utilisateurs peuvent les contourner)</translation>
+<translation id="8507835864888987300">Définit une version cible pour les mises à jour automatiques.
+
+      Cette règle spécifie le préfixe de la version cible que <ph name="PRODUCT_OS_NAME" /> doit installer. Si la version installée sur l'appareil est antérieure au préfixe défini, la dernière version associée à ce préfixe est installée. Si l'appareil exécute déjà une version ultérieure, les effets varient en fonction de la valeur de la règle <ph name="DEVICE_ROLLBACK_TO_TARGET_VERSION_POLICY_NAME" />. Comme l'illustre l'exemple suivant, le format du préfixe tient compte des composants :
+
+      "" (ou non configuré) : installation de la dernière version disponible
+      "1412." : installation d'une version mineure de 1412 (par exemple, 1412.24.34 ou 1412.60.2)
+      "1412.2." : installation d'une version mineure de 1412.2 (par exemple, 1412.2.34 ou 1412.2.2)
+      "1412.24.34" : installation de cette version spécifique seulement
+
+      Avertissement : Il est déconseillé de configurer des restrictions de version, car cela pourrait empêcher les utilisateurs de recevoir des mises à jour logicielles et des correctifs de sécurité essentiels. Limiter les mises à jour à un préfixe de version spécifique pourrait constituer un risque pour les utilisateurs.</translation>
 <translation id="8519264904050090490">URL d'exception manuelle des utilisateurs gérés</translation>
 <translation id="8527932539502116028">Indique les imprimantes auxquelles un utilisateur n'a pas accès.
 
@@ -2422,6 +2551,7 @@ Il est conseillé de configurer les règles sur Windows via GPO, même si la ges
           Si vous ne définissez pas cette règle, <ph name="PRODUCT_NAME" /> tente d'identifier si le serveur est sur l'Intranet, auquel cas il répond aux requêtes IWA. Si le serveur est sur Internet, les requêtes IWA sont ignorées par <ph name="PRODUCT_NAME" />.</translation>
 <translation id="8672321184841719703">Cibler une version pour les mises à jour automatiques</translation>
 <translation id="867410340948518937">U2F (Deuxième facteur universel)</translation>
+<translation id="8685024486845674965">L'avertissement relatif à la protection par mot de passe est déclenché par la réutilisation d'un mot de passe</translation>
 <translation id="8693243869659262736">Utiliser le client DNS intégré</translation>
 <translation id="8704831857353097849">Liste des plug-ins désactivés</translation>
 <translation id="8711086062295757690">Indique le mot clé qui est le raccourci utilisé dans l'Omnibox pour déclencher la recherche de ce moteur.
@@ -2438,6 +2568,7 @@ Cette règle n'est prise en compte que si la règle "DefaultSearchProviderEnable
       Si ce paramètre est activé ou s'il n'est pas défini, la suppression de l'historique du navigateur et de l'historique des téléchargements est possible.
 
       Si ce paramètre est désactivé, la suppression de l'historique du navigateur et de l'historique des téléchargements n'est pas possible.</translation>
+<translation id="8759829385824155666">Types de chiffrement Kerberos autorisés</translation>
 <translation id="8764119899999036911">Indique si le SPN Kerberos généré est basé sur le nom DNS canonique ou sur le nom d'origine saisi. 
 
 Si vous activez ce paramètre, la recherche du CNAME sera ignorée et le nom du serveur sera utilisé tel qu'il a été saisi. 
@@ -2451,11 +2582,13 @@ Si vous désactivez ce paramètre ou s'il n'est pas défini, le nom canonique du
           Si vous ne la définissez pas, un facteur d'adaptation par défaut est appliqué.
 
           Ce facteur doit être de 100 % ou plus. Les valeurs qui auraient pour conséquence de rendre le délai d'assombrissement de l'écran en mode Présentation plus court que le délai d'assombrissement de l'écran standard ne sont pas autorisées.</translation>
+<translation id="8798099450830957504">Par défaut</translation>
 <translation id="8818173863808665831">Permet d'indiquer l'emplacement géographique de l'appareil.
 
       Si cette règle n'est pas définie, ou si la valeur "false" lui est attribuée, l'emplacement n'est pas indiqué.</translation>
 <translation id="8818768076343557335">Prédire les actions réseau sur tous les réseaux, sauf les réseaux mobiles
           (Option abandonnée dans la version 50 et supprimée dans la version 52. Au-delà de la version 52, si la valeur 1 est définie, elle est traitée comme la valeur 0 : Prédire les actions réseau lors d'une connexion au réseau.)</translation>
+<translation id="8825782996899863372">L'avertissement relatif à la protection par mot de passe est déclenché par la réutilisation d'un mot de passe sur une page d'hameçonnage</translation>
 <translation id="8828766846428537606">Configure la page d'accueil par défaut de <ph name="PRODUCT_NAME" /> et empêche les utilisateurs de modifier cette dernière.
 
       Les paramètres de page d'accueil de l'utilisateur ne sont complètement verrouillés que si vous définissez la page "Nouvel onglet" ou une URL spécifique comme page d'accueil. Si vous ne précisez pas l'URL de la page d'accueil, l'utilisateur est toujours en mesure de définir la page d'accueil sur la page "Nouvel onglet" au moyen de la valeur "chrome://newtab".</translation>
@@ -2516,6 +2649,13 @@ Si vous désactivez ce paramètre ou s'il n'est pas défini, le nom canonique du
       Si cette règle est configurée, l'utilisateur ne peut ni la modifier, ni la remplacer.
 
       Cette règle n'a aucune incidence sur la capacité ou non des utilisateurs à configurer des imprimantes sur différents appareils. Elle est destinée à compléter la configuration des imprimantes effectuée par les utilisateurs.
+      </translation>
+<translation id="8934944553121392674">Détermine les imprimantes de <ph name="DEVICE_PRINTERS_POLICY" /> qui sont à la disposition des utilisateurs.
+
+      Indique quelle règle d'accès est utilisée pour la configuration groupée des imprimantes. Si <ph name="PRINTERS_ALLOW_ALL" /> est sélectionné, toutes les imprimantes sont affichées. Si <ph name="PRINTERS_BLACKLIST" /> est sélectionné, <ph name="DEVICE_PRINTERS_BLACKLIST" /> est utilisé pour limiter l'accès aux imprimantes spécifiées. Si <ph name="PRINTERS_WHITELIST" /> est sélectionné, <ph name="DEVICE_PRINTERS_WHITELIST" /> 
+indique uniquement les imprimantes qui peuvent être choisies.
+
+      Si cette règle n'est pas définie, <ph name="PRINTERS_ALLOW_ALL" /> est supposé s'appliquer.
       </translation>
 <translation id="8947415621777543415">Indiquer l'emplacement de l'appareil</translation>
 <translation id="8951350807133946005">Définir le répertoire du cache disque</translation>

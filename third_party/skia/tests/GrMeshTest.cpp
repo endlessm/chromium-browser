@@ -18,6 +18,7 @@
 #include "GrRenderTargetContextPriv.h"
 #include "GrResourceProvider.h"
 #include "GrResourceKey.h"
+#include "SkBitmap.h"
 #include "SkMakeUnique.h"
 #include "glsl/GrGLSLVertexGeoBuilder.h"
 #include "glsl/GrGLSLFragmentShaderBuilder.h"
@@ -340,7 +341,7 @@ class GLSLMeshTestProcessor : public GrGLSLGeometryProcessor {
         }
         gpArgs->fPositionVar.set(kFloat2_GrSLType, "vertex");
 
-        GrGLSLPPFragmentBuilder* f = args.fFragBuilder;
+        GrGLSLFPFragmentBuilder* f = args.fFragBuilder;
         f->codeAppendf("%s = half4(1);", args.fOutputCoverage);
     }
 };

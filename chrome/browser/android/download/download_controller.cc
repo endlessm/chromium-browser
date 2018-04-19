@@ -26,10 +26,12 @@
 #include "chrome/browser/ui/android/view_android_helper.h"
 #include "chrome/browser/vr/vr_tab_helper.h"
 #include "chrome/grit/chromium_strings.h"
+#include "components/download/public/common/download_url_parameters.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/download_item_utils.h"
 #include "content/public/browser/download_manager.h"
-#include "content/public/browser/download_url_parameters.h"
+#include "content/public/browser/download_request_utils.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/common/referrer.h"
@@ -46,7 +48,7 @@ using base::android::ScopedJavaLocalRef;
 using content::BrowserContext;
 using content::BrowserThread;
 using content::ContextMenuParams;
-using content::DownloadItem;
+using download::DownloadItem;
 using content::DownloadManager;
 using content::WebContents;
 
@@ -58,16 +60,6 @@ base::LazyInstance<base::Lock>::DestructorAtExit g_download_controller_lock_;
 // from the beginning, throttle it.
 int kDefaultAutoResumptionSizeLimit = 10 * 1024 * 1024;  // 10 MB
 const char kAutoResumptionSizeLimitParamName[] = "AutoResumptionSizeLimit";
-
-WebContents* GetWebContents(int render_process_id, int render_view_id) {
-  content::RenderViewHost* render_view_host =
-      content::RenderViewHost::FromID(render_process_id, render_view_id);
-
-  if (!render_view_host)
-    return nullptr;
-
-  return WebContents::FromRenderViewHost(render_view_host);
-}
 
 void CreateContextMenuDownload(
     const content::ResourceRequestInfo::WebContentsGetter& wc_getter,
@@ -92,13 +84,16 @@ void CreateContextMenuDownload(
   content::DownloadManager* dlm =
       content::BrowserContext::GetDownloadManager(
           web_contents->GetBrowserContext());
-  std::unique_ptr<content::DownloadUrlParameters> dl_params(
-      content::DownloadUrlParameters::CreateForWebContentsMainFrame(
+  std::unique_ptr<download::DownloadUrlParameters> dl_params(
+      content::DownloadRequestUtils::CreateDownloadForWebContentsMainFrame(
           web_contents, url, NO_TRAFFIC_ANNOTATION_YET));
   content::Referrer referrer = content::Referrer::SanitizeForRequest(
       url,
       content::Referrer(referring_url.GetAsReferrer(), params.referrer_policy));
-  dl_params->set_referrer(referrer);
+  dl_params->set_referrer(referrer.url);
+  dl_params->set_referrer_policy(
+      content::Referrer::ReferrerPolicyForUrlRequest(referrer.policy));
+
   if (is_link)
     dl_params->set_referrer_encoding(params.frame_charset);
   net::HttpRequestHeaders headers;
@@ -112,7 +107,7 @@ void CreateContextMenuDownload(
       offline_pages::android::OfflinePageBridge::GetEncodedOriginApp(
           web_contents));
   RecordDownloadSource(DOWNLOAD_INITIATED_BY_CONTEXT_MENU);
-  dl_params->set_download_source(content::DownloadSource::CONTEXT_MENU);
+  dl_params->set_download_source(download::DownloadSource::CONTEXT_MENU);
   dlm->DownloadUrl(std::move(dl_params));
 }
 
@@ -308,7 +303,7 @@ void DownloadController::AboutToResumeDownload(DownloadItem* download_item) {
   // validators so we know whether the resumption causes a restart.
   if (download_item->GetState() == DownloadItem::IN_PROGRESS ||
       download_item->GetLastReason() ==
-          content::DOWNLOAD_INTERRUPT_REASON_NONE) {
+          download::DOWNLOAD_INTERRUPT_REASON_NONE) {
     return;
   }
   if (download_item->GetETag().empty() &&
@@ -384,7 +379,8 @@ void DownloadController::OnDownloadStarted(
   if (!download_item->IsDangerous())
     Java_DownloadController_onDownloadStarted(env);
 
-  WebContents* web_contents = download_item->GetWebContents();
+  WebContents* web_contents =
+      content::DownloadItemUtils::GetWebContents(download_item);
   if (web_contents) {
     TabAndroid* tab = TabAndroid::FromWebContents(web_contents);
     if (tab && !tab->GetJavaObject().is_null()) {
@@ -446,10 +442,11 @@ void DownloadController::OnDownloadUpdated(DownloadItem* item) {
 }
 
 void DownloadController::OnDangerousDownload(DownloadItem* item) {
-  WebContents* web_contents = item->GetWebContents();
+  WebContents* web_contents = content::DownloadItemUtils::GetWebContents(item);
   if (!web_contents) {
     auto download_manager_getter = std::make_unique<DownloadManagerGetter>(
-        BrowserContext::GetDownloadManager(item->GetBrowserContext()));
+        BrowserContext::GetDownloadManager(
+            content::DownloadItemUtils::GetBrowserContext(item)));
     BrowserThread::PostTask(
         BrowserThread::UI, FROM_HERE,
         base::BindOnce(&RemoveDownloadItem,
@@ -478,7 +475,7 @@ void DownloadController::StartContextMenuDownload(
 }
 
 bool DownloadController::IsInterruptedDownloadAutoResumable(
-    content::DownloadItem* download_item) {
+    download::DownloadItem* download_item) {
   if (!download_item->GetURL().SchemeIsHTTPOrHTTPS())
     return false;
 
@@ -503,11 +500,11 @@ bool DownloadController::IsInterruptedDownloadAutoResumable(
   }
 
   int interrupt_reason = download_item->GetLastReason();
-  DCHECK_NE(interrupt_reason, content::DOWNLOAD_INTERRUPT_REASON_NONE);
+  DCHECK_NE(interrupt_reason, download::DOWNLOAD_INTERRUPT_REASON_NONE);
   return interrupt_reason ==
-             content::DOWNLOAD_INTERRUPT_REASON_NETWORK_TIMEOUT ||
+             download::DOWNLOAD_INTERRUPT_REASON_NETWORK_TIMEOUT ||
          interrupt_reason ==
-             content::DOWNLOAD_INTERRUPT_REASON_NETWORK_FAILED ||
+             download::DOWNLOAD_INTERRUPT_REASON_NETWORK_FAILED ||
          interrupt_reason ==
-             content::DOWNLOAD_INTERRUPT_REASON_NETWORK_DISCONNECTED;
+             download::DOWNLOAD_INTERRUPT_REASON_NETWORK_DISCONNECTED;
 }

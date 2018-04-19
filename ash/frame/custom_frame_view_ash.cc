@@ -14,6 +14,7 @@
 #include "ash/frame/header_view.h"
 #include "ash/public/cpp/immersive/immersive_fullscreen_controller.h"
 #include "ash/public/cpp/immersive/immersive_fullscreen_controller_delegate.h"
+#include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
 #include "ash/wm/overview/window_selector_controller.h"
 #include "ash/wm/resize_handle_window_targeter.h"
@@ -52,8 +53,9 @@ class CustomFrameViewAshWindowStateDelegate : public wm::WindowStateDelegate,
  public:
   CustomFrameViewAshWindowStateDelegate(wm::WindowState* window_state,
                                         CustomFrameViewAsh* custom_frame_view,
+                                        HeaderView* header_view,
                                         bool enable_immersive)
-      : window_state_(nullptr) {
+      : window_state_(nullptr), header_view_(header_view) {
     // Add a window state observer to exit fullscreen properly in case
     // fullscreen is exited without going through
     // WindowState::ToggleFullscreen(). This is the case when exiting
@@ -89,7 +91,8 @@ class CustomFrameViewAshWindowStateDelegate : public wm::WindowStateDelegate,
     if (window_state_->IsFullscreen())
       return;
 
-    if (Shell::Get()->tablet_mode_controller()->ShouldAutoHideTitlebars()) {
+    if (Shell::Get()->tablet_mode_controller()->ShouldAutoHideTitlebars(
+            nullptr)) {
       immersive_fullscreen_controller_->SetEnabled(
           ImmersiveFullscreenController::WINDOW_TYPE_OTHER, true);
     }
@@ -127,11 +130,32 @@ class CustomFrameViewAshWindowStateDelegate : public wm::WindowStateDelegate,
     window_state_ = nullptr;
   }
 
+  void OnWindowPropertyChanged(aura::Window* window,
+                               const void* key,
+                               intptr_t old) override {
+    DCHECK_EQ(window_state_->window(), window);
+    if (key != ash::kFrameActiveColorKey &&
+        key != ash::kFrameInactiveColorKey) {
+      return;
+    }
+
+    if (key == ash::kFrameActiveColorKey) {
+      header_view_->SetFrameColors(
+          window->GetProperty(ash::kFrameActiveColorKey),
+          header_view_->GetInactiveFrameColor());
+      return;
+    }
+    header_view_->SetFrameColors(
+        header_view_->GetActiveFrameColor(),
+        window->GetProperty(ash::kFrameInactiveColorKey));
+  }
+
   // wm::WindowStateObserver:
   void OnPostWindowStateTypeChange(wm::WindowState* window_state,
                                    mojom::WindowStateType old_type) override {
     if (Shell::Get()->tablet_mode_controller() &&
-        Shell::Get()->tablet_mode_controller()->ShouldAutoHideTitlebars()) {
+        Shell::Get()->tablet_mode_controller()->ShouldAutoHideTitlebars(
+            nullptr)) {
       DCHECK(immersive_fullscreen_controller_);
       if (window_state->IsMinimized() &&
           immersive_fullscreen_controller_->IsEnabled()) {
@@ -155,6 +179,7 @@ class CustomFrameViewAshWindowStateDelegate : public wm::WindowStateDelegate,
   }
 
   wm::WindowState* window_state_;
+  HeaderView* const header_view_;
   std::unique_ptr<ImmersiveFullscreenController>
       immersive_fullscreen_controller_;
 
@@ -313,14 +338,17 @@ CustomFrameViewAsh::CustomFrameViewAsh(
   frame->non_client_view()->SetOverlayView(overlay_view_);
   frame_window->SetProperty(aura::client::kTopViewColor,
                             header_view_->GetInactiveFrameColor());
-
+  frame_window->SetProperty(ash::kFrameActiveColorKey,
+                            header_view_->GetActiveFrameColor());
+  frame_window->SetProperty(ash::kFrameInactiveColorKey,
+                            header_view_->GetInactiveFrameColor());
   // A delegate for a more complex way of fullscreening the window may already
   // be set. This is the case for packaged apps.
   wm::WindowState* window_state = wm::GetWindowState(frame_window);
   if (!window_state->HasDelegate()) {
     window_state->SetDelegate(std::unique_ptr<wm::WindowStateDelegate>(
-        new CustomFrameViewAshWindowStateDelegate(window_state, this,
-                                                  enable_immersive)));
+        new CustomFrameViewAshWindowStateDelegate(
+            window_state, this, header_view_, enable_immersive)));
   }
   Shell::Get()->AddShellObserver(this);
   Shell::Get()->split_view_controller()->AddObserver(this);
@@ -343,6 +371,10 @@ void CustomFrameViewAsh::SetFrameColors(SkColor active_frame_color,
   header_view_->SetFrameColors(active_frame_color, inactive_frame_color);
   aura::Window* frame_window = frame_->GetNativeWindow();
   frame_window->SetProperty(aura::client::kTopViewColor,
+                            header_view_->GetInactiveFrameColor());
+  frame_window->SetProperty(ash::kFrameActiveColorKey,
+                            header_view_->GetActiveFrameColor());
+  frame_window->SetProperty(ash::kFrameInactiveColorKey,
                             header_view_->GetInactiveFrameColor());
 }
 
@@ -483,24 +515,12 @@ const views::View* CustomFrameViewAsh::GetAvatarIconViewForTest() const {
   return header_view_->avatar_icon();
 }
 
-void CustomFrameViewAsh::MaybePaintHeaderForSplitview(
-    SplitViewController::State state) {
-  if (state == SplitViewController::NO_SNAP) {
-    header_view_->SetShouldPaintHeader(/*paint=*/false);
-    return;
-  }
+SkColor CustomFrameViewAsh::GetActiveFrameColorForTest() const {
+  return header_view_->GetActiveFrameColor();
+}
 
-  SplitViewController* controller = Shell::Get()->split_view_controller();
-  aura::Window* window = nullptr;
-  if (state == SplitViewController::LEFT_SNAPPED)
-    window = controller->left_window();
-  else if (state == SplitViewController::RIGHT_SNAPPED)
-    window = controller->right_window();
-
-  // TODO(sammiequon): This works for now, but we may have to check if
-  // |frame_|'s native window is in the overview list instead.
-  if (window && window == frame_->GetNativeWindow())
-    header_view_->SetShouldPaintHeader(/*paint=*/true);
+SkColor CustomFrameViewAsh::GetInactiveFrameColorForTest() const {
+  return header_view_->GetInactiveFrameColor();
 }
 
 void CustomFrameViewAsh::SetShouldPaintHeader(bool paint) {
@@ -509,19 +529,18 @@ void CustomFrameViewAsh::SetShouldPaintHeader(bool paint) {
 
 void CustomFrameViewAsh::OnOverviewModeStarting() {
   in_overview_mode_ = true;
-  SetShouldPaintHeader(false);
+  OnOverviewOrSplitViewModeChanged();
 }
 
 void CustomFrameViewAsh::OnOverviewModeEnded() {
   in_overview_mode_ = false;
-  SetShouldPaintHeader(true);
+  OnOverviewOrSplitViewModeChanged();
 }
 
 void CustomFrameViewAsh::OnSplitViewStateChanged(
     SplitViewController::State /* previous_state */,
-    SplitViewController::State state) {
-  if (in_overview_mode_)
-    MaybePaintHeaderForSplitview(state);
+    SplitViewController::State /* current_state */) {
+  OnOverviewOrSplitViewModeChanged();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -549,13 +568,26 @@ int CustomFrameViewAsh::NonClientTopBorderHeight() const {
 
   const bool should_hide_titlebar_in_tablet_mode =
       Shell::Get()->tablet_mode_controller() &&
-      Shell::Get()->tablet_mode_controller()->ShouldAutoHideTitlebars() &&
-      frame_->IsMaximized();
+      Shell::Get()->tablet_mode_controller()->ShouldAutoHideTitlebars(frame_);
 
   if (should_hide_titlebar_in_tablet_mode)
     return 0;
 
   return header_view_->GetPreferredHeight();
+}
+
+void CustomFrameViewAsh::OnOverviewOrSplitViewModeChanged() {
+  SplitViewController* split_view_controller =
+      Shell::Get()->split_view_controller();
+  if (in_overview_mode_ && split_view_controller->IsSplitViewModeActive() &&
+      split_view_controller->GetDefaultSnappedWindow() ==
+          frame_->GetNativeWindow()) {
+    // TODO(sammiequon): This works for now, but we may have to check if
+    // |frame_|'s native window is in the overview list instead.
+    SetShouldPaintHeader(true);
+  } else {
+    SetShouldPaintHeader(!in_overview_mode_);
+  }
 }
 
 }  // namespace ash

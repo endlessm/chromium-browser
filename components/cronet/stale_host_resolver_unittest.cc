@@ -26,8 +26,8 @@
 #include "net/http/http_network_session.h"
 #include "net/log/net_log.h"
 #include "net/log/net_log_with_source.h"
-#include "net/proxy/proxy_config.h"
-#include "net/proxy/proxy_config_service_fixed.h"
+#include "net/proxy_resolution/proxy_config.h"
+#include "net/proxy_resolution/proxy_config_service_fixed.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_builder.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -379,8 +379,9 @@ TEST_F(StaleHostResolverTest, CancelWithStaleCache) {
 // CancelWithFreshCache makes no sense; the request would've returned
 // synchronously.
 
-// crbug.com/792173
-#if defined(OS_IOS)
+// Limited expired time cases are flaky under iOS (crbug.com/792173).
+// Disallow other networks cases fail under Fuchsia (crbug.com/816143).
+#if defined(OS_IOS) || defined(OS_FUCHSIA)
 #define MAYBE_StaleUsability DISABLED_StaleUsability
 #else
 #define MAYBE_StaleUsability StaleUsability
@@ -501,6 +502,8 @@ TEST_F(StaleHostResolverTest, CreatedByContext) {
       false,
       // Storage path for http cache and cookie storage.
       "/data/data/org.chromium.net/app_cronet_test/test_storage",
+      // Accept-Language request header field.
+      "foreign-language",
       // User-Agent request header field.
       "fake agent",
       // JSON encoded experimental options.

@@ -49,36 +49,36 @@ const int kUpdateIntervalSeconds = 60 * 60 * 24;
 
 // In case of an error while getting the family info, retry with exponential
 // backoff.
-const net::BackoffEntry::Policy kBackoffPolicy = {
-  // Number of initial errors (in sequence) to ignore before applying
-  // exponential back-off rules.
-  0,
+const net::BackoffEntry::Policy kFamilyFetchBackoffPolicy = {
+    // Number of initial errors (in sequence) to ignore before applying
+    // exponential back-off rules.
+    0,
 
-  // Initial delay for exponential backoff in ms.
-  2000,
+    // Initial delay for exponential backoff in ms.
+    2000,
 
-  // Factor by which the waiting time will be multiplied.
-  2,
+    // Factor by which the waiting time will be multiplied.
+    2,
 
-  // Fuzzing percentage. ex: 10% will spread requests randomly
-  // between 90%-100% of the calculated time.
-  0.2, // 20%
+    // Fuzzing percentage. ex: 10% will spread requests randomly
+    // between 90%-100% of the calculated time.
+    0.2,  // 20%
 
-  // Maximum amount of time we are willing to delay our request in ms.
-  1000 * 60 * 60 * 4, // 4 hours.
+    // Maximum amount of time we are willing to delay our request in ms.
+    1000 * 60 * 60 * 4,  // 4 hours.
 
-  // Time to keep an entry from being discarded even when it
-  // has no significant state, -1 to never discard.
-  -1,
+    // Time to keep an entry from being discarded even when it
+    // has no significant state, -1 to never discard.
+    -1,
 
-  // Don't use initial delay unless the last request was an error.
-  false,
+    // Don't use initial delay unless the last request was an error.
+    false,
 };
 
 ChildAccountService::ChildAccountService(Profile* profile)
     : profile_(profile),
       active_(false),
-      family_fetch_backoff_(&kBackoffPolicy),
+      family_fetch_backoff_(&kFamilyFetchBackoffPolicy),
       sync_service_observer_(this),
       gaia_cookie_manager_(
           GaiaCookieManagerServiceFactory::GetForProfile(profile)),
@@ -150,8 +150,8 @@ ChildAccountService::AuthState ChildAccountService::GetGoogleAuthState() {
                                           kGaiaCookieManagerSource)) {
     return AuthState::PENDING;
   }
-  return accounts.empty() ? AuthState::NOT_AUTHENTICATED
-                          : AuthState::AUTHENTICATED;
+  return (accounts.empty() || !accounts[0].valid) ? AuthState::NOT_AUTHENTICATED
+                                                  : AuthState::AUTHENTICATED;
 }
 
 std::unique_ptr<base::CallbackList<void()>::Subscription>
@@ -176,26 +176,26 @@ bool ChildAccountService::SetActive(bool active) {
 
     settings_service->SetLocalSetting(
         supervised_users::kRecordHistoryIncludesSessionSync,
-        base::MakeUnique<base::Value>(false));
+        std::make_unique<base::Value>(false));
 
     // In contrast to legacy SUs, child account SUs must sign in.
     settings_service->SetLocalSetting(supervised_users::kSigninAllowed,
-                                      base::MakeUnique<base::Value>(true));
+                                      std::make_unique<base::Value>(true));
 
     // Always allow cookies, to avoid website compatibility issues.
     settings_service->SetLocalSetting(supervised_users::kCookiesAlwaysAllowed,
-                                      base::MakeUnique<base::Value>(true));
+                                      std::make_unique<base::Value>(true));
 
     // SafeSearch is controlled at the account level, so don't override it
     // client-side.
     settings_service->SetLocalSetting(supervised_users::kForceSafeSearch,
-                                      base::MakeUnique<base::Value>(false));
+                                      std::make_unique<base::Value>(false));
 
 #if defined(OS_CHROMEOS)
     // Mirror account consistency is required for child accounts on Chrome OS.
     settings_service->SetLocalSetting(
         supervised_users::kAccountConsistencyMirrorRequired,
-        base::MakeUnique<base::Value>(true));
+        std::make_unique<base::Value>(true));
 #endif
 
 #if !defined(OS_CHROMEOS)

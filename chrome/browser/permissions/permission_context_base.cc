@@ -11,7 +11,6 @@
 
 #include "base/callback.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -28,6 +27,7 @@
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/common/url_constants.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/db/database_manager.h"
@@ -45,17 +45,33 @@ namespace {
 const char kPermissionBlockedKillSwitchMessage[] =
     "%s permission has been blocked.";
 
+#if defined(OS_ANDROID)
 const char kPermissionBlockedRepeatedDismissalsMessage[] =
     "%s permission has been blocked as the user has dismissed the permission "
-    "prompt several times. See "
+    "prompt several times. This can be reset in Site Settings. See "
     "https://www.chromestatus.com/features/6443143280984064 for more "
     "information.";
 
 const char kPermissionBlockedRepeatedIgnoresMessage[] =
     "%s permission has been blocked as the user has ignored the permission "
-    "prompt several times. See "
+    "prompt several times. This can be reset in Site Settings. See "
     "https://www.chromestatus.com/features/6443143280984064 for more "
     "information.";
+#else
+const char kPermissionBlockedRepeatedDismissalsMessage[] =
+    "%s permission has been blocked as the user has dismissed the permission "
+    "prompt several times. This can be reset in Page Info which can be "
+    "accessed by clicking the lock icon next to the URL. See "
+    "https://www.chromestatus.com/features/6443143280984064 for more "
+    "information.";
+
+const char kPermissionBlockedRepeatedIgnoresMessage[] =
+    "%s permission has been blocked as the user has ignored the permission "
+    "prompt several times. This can be reset in Page Info which can be "
+    "accessed by clicking the lock icon next to the URL. See "
+    "https://www.chromestatus.com/features/6443143280984064 for more "
+    "information.";
+#endif
 
 const char kPermissionBlockedBlacklistMessage[] =
     "this origin is not allowed to request %s permission.";
@@ -85,7 +101,7 @@ const char PermissionContextBase::kPermissionsKillSwitchBlockedValue[] =
 PermissionContextBase::PermissionContextBase(
     Profile* profile,
     ContentSettingsType content_settings_type,
-    blink::FeaturePolicyFeature feature_policy_feature)
+    blink::mojom::FeaturePolicyFeature feature_policy_feature)
     : profile_(profile),
       content_settings_type_(content_settings_type),
       feature_policy_feature_(feature_policy_feature),
@@ -287,19 +303,6 @@ void PermissionContextBase::ResetPermission(const GURL& requesting_origin,
                                       CONTENT_SETTING_DEFAULT);
 }
 
-void PermissionContextBase::CancelPermissionRequest(
-    content::WebContents* web_contents,
-    const PermissionRequestID& id) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  auto it = pending_requests_.find(id.ToString());
-  if (it != pending_requests_.end() && web_contents != nullptr &&
-      PermissionRequestManager::FromWebContents(web_contents) != nullptr) {
-    PermissionRequestManager::FromWebContents(web_contents)
-        ->CancelRequest(it->second.get());
-  }
-}
-
 bool PermissionContextBase::IsPermissionKillSwitchOn() const {
   const std::string param = variations::GetVariationParamValue(
       kPermissionsKillSwitchFieldStudy,
@@ -326,6 +329,17 @@ void PermissionContextBase::DecidePermission(
     const BrowserPermissionCallback& callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
+  // Under permission delegation, when we display a permission prompt, the
+  // origin displayed in the prompt should never differ from the top-level
+  // origin. The New Tab Page is excluded from this check as its effective
+  // requesting origin may be the Default Search Engine origin. Extensions are
+  // also excluded as currently they can request permission from iframes when
+  // embedded in non-secure contexts (https://crbug.com/530507).
+  DCHECK(!base::FeatureList::IsEnabled(features::kPermissionDelegation) ||
+         embedding_origin == GURL(chrome::kChromeUINewTabURL).GetOrigin() ||
+         requesting_origin.SchemeIs(extensions::kExtensionScheme) ||
+         requesting_origin == embedding_origin);
+
   PermissionRequestManager* permission_request_manager =
       PermissionRequestManager::FromWebContents(web_contents);
   // TODO(felt): sometimes |permission_request_manager| is null. This check is
@@ -334,7 +348,7 @@ void PermissionContextBase::DecidePermission(
     return;
 
   std::unique_ptr<PermissionRequest> request_ptr =
-      base::MakeUnique<PermissionRequestImpl>(
+      std::make_unique<PermissionRequestImpl>(
           requesting_origin, content_settings_type_, user_gesture,
           base::Bind(&PermissionContextBase::PermissionDecided,
                      weak_factory_.GetWeakPtr(), id, requesting_origin,
@@ -424,7 +438,7 @@ bool PermissionContextBase::PermissionAllowedByFeaturePolicy(
   }
 
   // Some features don't have an associated feature policy yet. Allow those.
-  if (feature_policy_feature_ == blink::FeaturePolicyFeature::kNotFound)
+  if (feature_policy_feature_ == blink::mojom::FeaturePolicyFeature::kNotFound)
     return true;
 
   return rfh->IsFeatureEnabled(feature_policy_feature_);

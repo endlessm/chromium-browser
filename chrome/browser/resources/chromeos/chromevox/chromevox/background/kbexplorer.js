@@ -9,7 +9,7 @@
 
 goog.provide('cvox.KbExplorer');
 
-goog.require('BrailleCommandHandler');
+goog.require('BrailleCommandData');
 goog.require('Spannable');
 goog.require('cvox.BrailleKeyCommand');
 goog.require('cvox.ChromeVoxKbHandler');
@@ -38,6 +38,7 @@ cvox.KbExplorer.init = function() {
       cvox.KbExplorer.onBrailleKeyEvent);
   chrome.accessibilityPrivate.onAccessibilityGesture.addListener(
       cvox.KbExplorer.onAccessibilityGesture);
+  chrome.accessibilityPrivate.setKeyboardListener(true, true);
 
   window.onbeforeunload = function(evt) {
     backgroundWindow.removeEventListener(
@@ -50,6 +51,7 @@ cvox.KbExplorer.init = function() {
         cvox.KbExplorer.onBrailleKeyEvent);
     chrome.accessibilityPrivate.onAccessibilityGesture.removeListener(
         cvox.KbExplorer.onAccessibilityGesture);
+    chrome.accessibilityPrivate.setKeyboardListener(true, false);
   };
   if (localStorage['useClassic'] != 'true') {
     cvox.ChromeVoxKbHandler.handlerKeyMap = cvox.KeyMap.fromNext();
@@ -172,10 +174,10 @@ cvox.KbExplorer.onBrailleKeyEvent = function(evt) {
         break;
       }
 
-      var command = BrailleCommandHandler.getCommand(dots);
+      var command = BrailleCommandData.getCommand(dots);
       if (command && cvox.KbExplorer.onCommand(command))
         return;
-      text = BrailleCommandHandler.makeShortcutText(dots, true);
+      text = BrailleCommandData.makeShortcutText(dots, true);
       break;
     case cvox.BrailleKeyCommand.DOTS:
       var dots = evt.brailleDots;
@@ -200,7 +202,7 @@ cvox.KbExplorer.onBrailleKeyEvent = function(evt) {
 
 /**
  * Handles accessibility gestures from the touch screen.
- * @param {string} gesture The gesture to handle, based on the AXGesture enum
+ * @param {string} gesture The gesture to handle, based on the ax::mojom::Gesture enum
  *     defined in ui/accessibility/ax_enums.idl
  */
 cvox.KbExplorer.onAccessibilityGesture = function(gesture) {

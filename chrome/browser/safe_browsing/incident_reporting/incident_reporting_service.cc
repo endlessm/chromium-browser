@@ -39,9 +39,10 @@
 #include "components/safe_browsing/common/safe_browsing_prefs.h"
 #include "components/safe_browsing/proto/csd.pb.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/download_item_utils.h"
 #include "content/public/browser/notification_service.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "services/preferences/public/interfaces/tracked_preference_validation_delegate.mojom.h"
+#include "services/preferences/public/mojom/tracked_preference_validation_delegate.mojom.h"
 
 namespace safe_browsing {
 
@@ -241,7 +242,7 @@ void IncidentReportingService::Receiver::AddIncidentForProcess(
         FROM_HERE,
         base::BindOnce(
             &IncidentReportingService::Receiver::AddIncidentOnMainThread,
-            service_, nullptr, base::Passed(&incident)));
+            service_, nullptr, std::move(incident)));
   }
 }
 
@@ -254,7 +255,7 @@ void IncidentReportingService::Receiver::ClearIncidentForProcess(
         FROM_HERE,
         base::BindOnce(
             &IncidentReportingService::Receiver::ClearIncidentOnMainThread,
-            service_, nullptr, base::Passed(&incident)));
+            service_, nullptr, std::move(incident)));
   }
 }
 
@@ -691,7 +692,7 @@ void IncidentReportingService::BeginEnvironmentCollection() {
           base::BindOnce(collect_environment_data_fn_, environment_data),
           base::BindOnce(&IncidentReportingService::OnEnvironmentDataCollected,
                          weak_ptr_factory_.GetWeakPtr(),
-                         base::Passed(base::WrapUnique(environment_data))));
+                         base::WrapUnique(environment_data)));
 
   // Posting the task will fail if the runner has been shut down. This should
   // never happen since the blocking pool is shut down after this service.
@@ -1008,10 +1009,11 @@ void IncidentReportingService::OnReportUploadResult(
 }
 
 void IncidentReportingService::OnClientDownloadRequest(
-    content::DownloadItem* download,
+    download::DownloadItem* download,
     const ClientDownloadRequest* request) {
-  if (download->GetBrowserContext() &&
-      !download->GetBrowserContext()->IsOffTheRecord()) {
+  if (content::DownloadItemUtils::GetBrowserContext(download) &&
+      !content::DownloadItemUtils::GetBrowserContext(download)
+           ->IsOffTheRecord()) {
     download_metadata_manager_.SetRequest(download, request);
   }
 }

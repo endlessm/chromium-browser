@@ -66,7 +66,7 @@ class KeywordProviderTest : public testing::Test {
     // a DCHECK.
     field_trial_list_.reset();
     field_trial_list_.reset(new base::FieldTrialList(
-        std::make_unique<metrics::SHA1EntropyProvider>("foo")));
+        std::make_unique<variations::SHA1EntropyProvider>("foo")));
     variations::testing::ClearAllVariationParams();
   }
   ~KeywordProviderTest() override {}
@@ -131,10 +131,9 @@ const TemplateURLService::Initializer KeywordProviderTest::kTestData[] = {
 };
 
 void KeywordProviderTest::SetUpClientAndKeywordProvider() {
-  std::unique_ptr<TemplateURLService> template_url_service(
-      new TemplateURLService(kTestData, arraysize(kTestData)));
   client_.reset(new MockAutocompleteProviderClient());
-  client_->set_template_url_service(std::move(template_url_service));
+  client_->set_template_url_service(
+      std::make_unique<TemplateURLService>(kTestData, arraysize(kTestData)));
   kw_provider_ = new KeywordProvider(client_.get(), nullptr);
 }
 

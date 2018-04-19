@@ -35,7 +35,7 @@
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/md_history_ui.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -47,7 +47,6 @@
 #include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/content_features.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/url_loader_interceptor.h"
@@ -57,6 +56,7 @@
 #include "net/url_request/url_request_filter.h"
 #include "net/url_request/url_request_interceptor.h"
 #include "net/url_request/url_request_test_job.h"
+#include "services/network/public/cpp/features.h"
 
 #if defined(OS_MACOSX)
 #include "base/mac/scoped_nsautorelease_pool.h"
@@ -185,7 +185,7 @@ class BetterSessionRestoreTest : public InProcessBrowserTest {
     // SetUpOnMainThread(), because during a session restore the restored tab
     // comes up before SetUpOnMainThread().  Note that at this point, we do not
     // have a profile.
-    if (base::FeatureList::IsEnabled(features::kNetworkService)) {
+    if (base::FeatureList::IsEnabled(network::features::kNetworkService)) {
       url_loader_interceptor_ = std::make_unique<content::URLLoaderInterceptor>(
           base::BindLambdaForTesting(
               [&](content::URLLoaderInterceptor::RequestParams* params) {
@@ -225,8 +225,7 @@ class BetterSessionRestoreTest : public InProcessBrowserTest {
                   return true;
                 }
                 return false;
-              }),
-          true, true);
+              }));
       return;
     }
 

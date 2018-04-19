@@ -13,9 +13,11 @@
 #include "cc/trees/layer_tree_frame_sink_client.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
+#include "components/viz/common/resources/shared_bitmap_manager.h"
 #include "components/viz/service/display/direct_renderer.h"
 #include "components/viz/service/display/output_surface.h"
 #include "components/viz/service/frame_sinks/compositor_frame_sink_support.h"
+#include "mojo/public/cpp/system/platform_handle.h"
 
 namespace viz {
 
@@ -53,6 +55,12 @@ TestLayerTreeFrameSink::TestLayerTreeFrameSink(
 
 TestLayerTreeFrameSink::~TestLayerTreeFrameSink() {
   DCHECK(copy_requests_.empty());
+
+  // The shared_bitmap_manager() has ownership of shared memory for each
+  // SharedBitmapId that has been reported from the client. Since the client is
+  // gone that memory can be freed. If we don't then it would leak.
+  for (const auto& id : owned_bitmaps_)
+    shared_bitmap_manager()->ChildDeletedSharedBitmap(id);
 }
 
 void TestLayerTreeFrameSink::SetDisplayColorSpace(
@@ -106,7 +114,7 @@ bool TestLayerTreeFrameSink::BindToClient(
       std::move(display_output_surface), std::move(scheduler),
       compositor_task_runner_);
 
-  constexpr bool is_root = false;
+  constexpr bool is_root = true;
   constexpr bool needs_sync_points = true;
   support_ = std::make_unique<CompositorFrameSinkSupport>(
       this, frame_sink_manager_.get(), frame_sink_id_, is_root,
@@ -163,9 +171,7 @@ void TestLayerTreeFrameSink::SubmitCompositorFrame(CompositorFrame frame) {
     device_scale_factor_ = device_scale_factor;
   }
 
-  bool result =
-      support_->SubmitCompositorFrame(local_surface_id_, std::move(frame));
-  DCHECK(result);
+  support_->SubmitCompositorFrame(local_surface_id_, std::move(frame));
 
   for (auto& copy_request : copy_requests_)
     support_->RequestCopyOfSurface(std::move(copy_request));
@@ -186,6 +192,20 @@ void TestLayerTreeFrameSink::DidNotProduceFrame(const BeginFrameAck& ack) {
   DCHECK(!ack.has_damage);
   DCHECK_LE(BeginFrameArgs::kStartingFrameNumber, ack.sequence_number);
   support_->DidNotProduceFrame(ack);
+}
+
+void TestLayerTreeFrameSink::DidAllocateSharedBitmap(
+    mojo::ScopedSharedBufferHandle buffer,
+    const SharedBitmapId& id) {
+  bool ok = shared_bitmap_manager()->ChildAllocatedSharedBitmap(
+      std::move(buffer), id);
+  DCHECK(ok);
+  owned_bitmaps_.insert(id);
+}
+
+void TestLayerTreeFrameSink::DidDeleteSharedBitmap(const SharedBitmapId& id) {
+  shared_bitmap_manager()->ChildDeletedSharedBitmap(id);
+  owned_bitmaps_.erase(id);
 }
 
 void TestLayerTreeFrameSink::DidReceiveCompositorFrameAck(

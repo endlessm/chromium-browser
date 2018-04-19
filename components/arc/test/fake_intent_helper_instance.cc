@@ -72,7 +72,7 @@ void FakeIntentHelperInstance::HandleUrlList(
 
 void FakeIntentHelperInstance::InitDeprecated(
     mojom::IntentHelperHostPtr host_ptr) {
-  Init(std::move(host_ptr), base::BindOnce(&base::DoNothing));
+  Init(std::move(host_ptr), base::DoNothing());
 }
 
 void FakeIntentHelperInstance::Init(mojom::IntentHelperHostPtr host_ptr,
@@ -103,8 +103,7 @@ void FakeIntentHelperInstance::RequestIntentHandlerList(
   }
   // Post the reply to run asynchronously to match the real implementation.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::BindOnce(std::move(callback), base::Passed(std::move(handlers))));
+      FROM_HERE, base::BindOnce(std::move(callback), std::move(handlers)));
 }
 
 void FakeIntentHelperInstance::RequestUrlHandlerList(

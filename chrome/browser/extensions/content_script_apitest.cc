@@ -18,7 +18,6 @@
 #include "chrome/browser/extensions/extension_management_test_util.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_with_management_policy_apitest.h"
-#include "chrome/browser/extensions/test_extension_dir.h"
 #include "chrome/browser/search/search.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/javascript_dialogs/javascript_dialog_tab_helper.h"
@@ -35,6 +34,7 @@
 #include "extensions/common/extension_features.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
+#include "extensions/test/test_extension_dir.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "url/gurl.h"
@@ -259,6 +259,13 @@ IN_PROC_BROWSER_TEST_P(ContentScriptApiTest, ContentScriptOtherExtensions) {
       << message_;
 }
 
+// https://crbug.com/825111 -- content scripts may fetch() a blob URL from their
+// chrome-extension:// origin.
+IN_PROC_BROWSER_TEST_P(ContentScriptApiTest, ContentScriptBlobFetch) {
+  ASSERT_TRUE(StartEmbeddedTestServer());
+  ASSERT_TRUE(RunExtensionTest("content_scripts/blob_fetch")) << message_;
+}
+
 class ContentScriptCssInjectionTest : public ExtensionApiTest {
  protected:
   // TODO(rdevlin.cronin): Make a testing switch that looks like FeatureSwitch,
@@ -407,14 +414,7 @@ IN_PROC_BROWSER_TEST_P(ContentScriptApiTest, ContentScriptExtensionAPIs) {
   EXPECT_TRUE(catcher.GetNextResult());
 }
 
-// Flaky on Windows. http://crbug.com/248418
-#if defined(OS_WIN)
-#define MAYBE_ContentScriptPermissionsApi DISABLED_ContentScriptPermissionsApi
-#else
-#define MAYBE_ContentScriptPermissionsApi ContentScriptPermissionsApi
-#endif
-IN_PROC_BROWSER_TEST_P(ContentScriptApiTest,
-                       MAYBE_ContentScriptPermissionsApi) {
+IN_PROC_BROWSER_TEST_P(ContentScriptApiTest, ContentScriptPermissionsApi) {
   extensions::PermissionsRequestFunction::SetIgnoreUserGestureForTests(true);
   extensions::PermissionsRequestFunction::SetAutoConfirmForTests(true);
   ASSERT_TRUE(StartEmbeddedTestServer());
@@ -688,10 +688,8 @@ IN_PROC_BROWSER_TEST_P(ContentScriptApiTest, CannotScriptTheNewTabPage) {
   ResultCatcher catcher;
   test_listener.Reply(std::string());
   ASSERT_TRUE(catcher.GetNextResult()) << catcher.message();
-  EXPECT_EQ(GURL("chrome://newtab"), browser()
-                                         ->tab_strip_model()
-                                         ->GetActiveWebContents()
-                                         ->GetLastCommittedURL());
+  EXPECT_TRUE(search::IsInstantNTP(
+      browser()->tab_strip_model()->GetActiveWebContents()));
   EXPECT_FALSE(
       did_script_inject(browser()->tab_strip_model()->GetActiveWebContents()));
 

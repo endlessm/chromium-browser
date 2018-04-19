@@ -32,7 +32,7 @@ class ArcAppItem : public ChromeAppListItem,
 
   void SetName(const std::string& name);
 
-  // AppListItem overrides:
+  // ChromeAppListItem overrides:
   void Activate(int event_flags) override;
   ui::MenuModel* GetContextMenuModel() override;
   const char* GetItemType() const override;
@@ -48,6 +48,9 @@ class ArcAppItem : public ChromeAppListItem,
  private:
   // Updates the app item's icon, if necessary making it gray.
   void UpdateIcon();
+
+  // ChromeAppListItem overrides:
+  app_list::AppContextMenu* GetAppContextMenu() override;
 
   std::unique_ptr<ArcAppIcon> arc_app_icon_;
   std::unique_ptr<ArcAppContextMenu> context_menu_;

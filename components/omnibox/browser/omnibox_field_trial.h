@@ -37,7 +37,8 @@ namespace omnibox {
 extern const base::Feature kOmniboxEntitySuggestions;
 extern const base::Feature kOmniboxRichEntitySuggestions;
 extern const base::Feature kOmniboxTailSuggestions;
-extern const base::Feature kOmniboxTabSwitchSuggestions;
+extern const char kOmniboxTabSwitchSuggestionsFlag[];
+extern const char kOmniboxTabSwitchWithButton[];
 extern const base::Feature kEnableClipboardProvider;
 extern const base::Feature kAndroidChromeHomePersonalizedSuggestions;
 extern const base::Feature kSearchProviderWarmUpOnFocus;
@@ -98,6 +99,10 @@ struct HUPScoringParams {
     std::vector<CountMaxRelevance>& buckets() { return buckets_; }
     const std::vector<CountMaxRelevance>& buckets() const { return buckets_; }
 
+    // Estimates dynamic memory usage.
+    // See base/trace_event/memory_usage_estimator.h for more info.
+    size_t EstimateMemoryUsage() const;
+
    private:
     // History matches with relevance score greater or equal to |relevance_cap_|
     // are not affected by this experiment.
@@ -127,6 +132,10 @@ struct HUPScoringParams {
   };
 
   HUPScoringParams() {}
+
+  // Estimates dynamic memory usage.
+  // See base/trace_event/memory_usage_estimator.h for more info.
+  size_t EstimateMemoryUsage() const;
 
   ScoreBuckets typed_count_buckets;
 
@@ -437,6 +446,16 @@ class OmniboxFieldTrial {
   // Returns the base relevance score for Physical Web omnibox suggestions when
   // the user has started typing in the omnibox.
   static int GetPhysicalWebAfterTypingBaseRelevance();
+
+  // ---------------------------------------------------------
+  // For tab switch suggestions related experiments.
+
+  // Returns whether the tab switch suggestion experiment is enabled.
+  static bool InTabSwitchSuggestionTrial();
+
+  // Returns whether the tab switch suggestion experiment using
+  // a button is selected.
+  static bool InTabSwitchSuggestionWithButtonTrial();
 
   // ---------------------------------------------------------
   // Clipboard URL suggestions:

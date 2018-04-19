@@ -21,7 +21,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/drive/drive.pb.h"
 #include "components/drive/drive_pref_names.h"
@@ -125,9 +124,6 @@ std::string NormalizeFileName(const std::string& input) {
   if (!output.empty() && output.find_first_not_of('.', 0) == std::string::npos)
     output = "_";
   return output;
-}
-
-void EmptyFileOperationCallback(FileError error) {
 }
 
 bool CreateGDocFile(const base::FilePath& file_path,

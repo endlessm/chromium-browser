@@ -5,11 +5,11 @@
 #import "ios/chrome/browser/ui/toolbar/adaptive/secondary_toolbar_view.h"
 
 #include "base/logging.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_button.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_button_factory.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_configuration.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_tab_grid_button.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_tools_menu_button.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button_factory.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tab_grid_button.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tools_menu_button.h"
 #import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -17,6 +17,8 @@
 #endif
 
 @interface SecondaryToolbarView ()
+// Factory used to create the buttons.
+@property(nonatomic, strong) ToolbarButtonFactory* buttonFactory;
 
 // Redefined as readwrite
 @property(nonatomic, strong, readwrite) NSArray<ToolbarButton*>* allButtons;
@@ -48,16 +50,26 @@
 @synthesize bookmarkButton = _bookmarkButton;
 @synthesize tabGridButton = _tabGridButton;
 
+#pragma mark - Public
+
+- (instancetype)initWithButtonFactory:(ToolbarButtonFactory*)factory {
+  self = [super initWithFrame:CGRectZero];
+  if (self) {
+    _buttonFactory = factory;
+    [self setUp];
+  }
+  return self;
+}
+
 #pragma mark - UIView
 
-- (void)willMoveToSuperview:(UIView*)newSuperview {
-  [self setUp];
-  [super willMoveToSuperview:newSuperview];
+- (CGSize)intrinsicContentSize {
+  return CGSizeMake(UIViewNoIntrinsicMetric, kAdaptiveToolbarHeight);
 }
 
 #pragma mark - Setup
 
-// Sets all the subviews and constraints of this view.
+// Sets all the subviews and constraints of the view.
 - (void)setUp {
   if (self.subviews.count > 0) {
     // Make sure the view is instantiated only once.
@@ -65,9 +77,29 @@
   }
   DCHECK(self.buttonFactory);
 
-  self.backgroundColor =
-      self.buttonFactory.toolbarConfiguration.backgroundColor;
   self.translatesAutoresizingMaskIntoConstraints = NO;
+
+  UIBlurEffect* blurEffect = self.buttonFactory.toolbarConfiguration.blurEffect;
+  UIVisualEffectView* blur =
+      [[UIVisualEffectView alloc] initWithEffect:blurEffect];
+  blur.contentView.backgroundColor =
+      self.buttonFactory.toolbarConfiguration.blurEffectBackgroundColor;
+
+  [self addSubview:blur];
+  blur.translatesAutoresizingMaskIntoConstraints = NO;
+  AddSameConstraints(blur, self);
+
+  UIView* contentView = self;
+  if (UIVisualEffect* vibrancy = [self.buttonFactory.toolbarConfiguration
+          vibrancyEffectForBlurEffect:blurEffect]) {
+    // Add vibrancy only if we have a vibrancy effect.
+    UIVisualEffectView* vibrancyView =
+        [[UIVisualEffectView alloc] initWithEffect:vibrancy];
+    [self addSubview:vibrancyView];
+    vibrancyView.translatesAutoresizingMaskIntoConstraints = NO;
+    AddSameConstraints(self, vibrancyView);
+    contentView = vibrancyView.contentView;
+  }
 
   self.tabGridButton = [self.buttonFactory tabGridButton];
   self.shareButton = [self.buttonFactory shareButton];
@@ -84,9 +116,21 @@
       [[UIStackView alloc] initWithArrangedSubviews:self.allButtons];
   self.stackView.distribution = UIStackViewDistributionEqualSpacing;
   self.stackView.translatesAutoresizingMaskIntoConstraints = NO;
-  [self addSubview:self.stackView];
+  [contentView addSubview:self.stackView];
 
-  PinToSafeArea(self.stackView, self);
+  id<LayoutGuideProvider> safeArea = SafeAreaLayoutGuideForView(self);
+
+  [NSLayoutConstraint activateConstraints:@[
+    [self.stackView.leadingAnchor
+        constraintEqualToAnchor:safeArea.leadingAnchor
+                       constant:kAdaptiveToolbarMargin],
+    [self.stackView.trailingAnchor
+        constraintEqualToAnchor:safeArea.trailingAnchor
+                       constant:-kAdaptiveToolbarMargin],
+    [self.stackView.topAnchor
+        constraintEqualToAnchor:self.topAnchor
+                       constant:kBottomButtonsBottomMargin],
+  ]];
 }
 
 #pragma mark - AdaptiveToolbarView

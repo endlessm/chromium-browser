@@ -166,7 +166,8 @@ static jboolean JNI_PrefServiceBridge_IsContentSettingEnabled(
   // that the functionality provided below is correct.
   DCHECK(content_settings_type == CONTENT_SETTINGS_TYPE_JAVASCRIPT ||
          content_settings_type == CONTENT_SETTINGS_TYPE_POPUPS ||
-         content_settings_type == CONTENT_SETTINGS_TYPE_ADS);
+         content_settings_type == CONTENT_SETTINGS_TYPE_ADS ||
+         content_settings_type == CONTENT_SETTINGS_TYPE_CLIPBOARD_READ);
   ContentSettingsType type =
       static_cast<ContentSettingsType>(content_settings_type);
   return GetBooleanForContentSetting(type);
@@ -653,6 +654,17 @@ static void JNI_PrefServiceBridge_SetAutoplayEnabled(
   host_content_settings_map->SetDefaultContentSetting(
       CONTENT_SETTINGS_TYPE_AUTOPLAY,
       allow ? CONTENT_SETTING_ALLOW : CONTENT_SETTING_BLOCK);
+}
+
+static void JNI_PrefServiceBridge_SetClipboardEnabled(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    jboolean allow) {
+  HostContentSettingsMap* host_content_settings_map =
+      HostContentSettingsMapFactory::GetForProfile(GetOriginalProfile());
+  host_content_settings_map->SetDefaultContentSetting(
+      CONTENT_SETTINGS_TYPE_CLIPBOARD_READ,
+      allow ? CONTENT_SETTING_ASK : CONTENT_SETTING_BLOCK);
 }
 
 static void JNI_PrefServiceBridge_SetSoundEnabled(
@@ -1240,6 +1252,12 @@ static jboolean JNI_PrefServiceBridge_IsBlockedLanguage(
   std::string language_code(ConvertJavaStringToUTF8(env, language));
   translate::ToTranslateLanguageSynonym(&language_code);
 
+  // Application language is always blocked.
+  std::string app_locale = g_browser_process->GetApplicationLocale();
+  translate::ToTranslateLanguageSynonym(&app_locale);
+  if (app_locale == language_code)
+    return true;
+
   return translate_prefs->IsBlockedLanguage(language_code);
 }
 
@@ -1267,13 +1285,28 @@ JNI_PrefServiceBridge_GetDownloadDefaultDirectory(
       env, GetPrefService()->GetString(prefs::kDownloadDefaultDirectory));
 }
 
-static void JNI_PrefServiceBridge_SetDownloadDefaultDirectory(
+static void JNI_PrefServiceBridge_SetDownloadAndSaveFileDefaultDirectory(
     JNIEnv* env,
     const JavaParamRef<jobject>& obj,
     const JavaParamRef<jstring>& directory) {
   std::string path(ConvertJavaStringToUTF8(env, directory));
   GetPrefService()->SetFilePath(prefs::kDownloadDefaultDirectory,
                                 base::FilePath(FILE_PATH_LITERAL(path)));
+  GetPrefService()->SetFilePath(prefs::kSaveFileDefaultDirectory,
+                                base::FilePath(FILE_PATH_LITERAL(path)));
+}
+
+static jint JNI_PrefServiceBridge_GetPromptForDownloadAndroid(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
+  return GetPrefService()->GetInteger(prefs::kPromptForDownloadAndroid);
+}
+
+static void JNI_PrefServiceBridge_SetPromptForDownloadAndroid(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const jint status) {
+  GetPrefService()->SetInteger(prefs::kPromptForDownloadAndroid, status);
 }
 
 const char* PrefServiceBridge::GetPrefNameExposedToJava(int pref_index) {

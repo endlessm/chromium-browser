@@ -13,7 +13,7 @@
 #include "ios/chrome/browser/experimental_flags.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_text_field_ios.h"
 #include "ios/chrome/test/app/navigation_test_util.h"
-#include "ios/chrome/test/app/web_view_interaction_test_util.h"
+#import "ios/chrome/test/app/web_view_interaction_test_util.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
@@ -100,7 +100,8 @@ id<GREYMatcher> WaitForOmniboxText(std::string text) {
   LoadWebUIUrl(kChromeUIChromeURLsHost);
 
   // Tap on chrome://terms link on the page.
-  chrome_test_util::TapWebViewElementWithId(kChromeUITermsHost);
+  GREYAssert(TapWebViewElementWithId(kChromeUITermsHost), @"Failed to tap %s",
+             kChromeUITermsHost);
 
   // Verify that the resulting page is chrome://terms.
   [[EarlGrey selectElementWithMatcher:WaitForOmniboxText("chrome://terms")]
@@ -115,7 +116,8 @@ id<GREYMatcher> WaitForOmniboxText(std::string text) {
   LoadWebUIUrl(kChromeUIChromeURLsHost);
 
   // Tap on chrome://version link on the page.
-  chrome_test_util::TapWebViewElementWithId(kChromeUIVersionHost);
+  GREYAssert(TapWebViewElementWithId(kChromeUIVersionHost), @"Failed to tap %s",
+             kChromeUIVersionHost);
 
   // Verify that the resulting page is chrome://version.
   [[EarlGrey selectElementWithMatcher:WaitForOmniboxText("chrome://version")]

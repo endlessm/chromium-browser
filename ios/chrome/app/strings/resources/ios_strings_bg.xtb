@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">Адрес 1</translation>
 <translation id="1545749641540134597">Сканирайте код за бърза реакция</translation>
 <translation id="1580783302095112590">Пощата е изпратена.</translation>
+<translation id="1582732959743469162">Текущото изтегляне ще бъде прекратено.</translation>
 <translation id="1612730193129642006">Показване на мрежа с раздели</translation>
+<translation id="1644574205037202324">История</translation>
 <translation id="1646446875146297738">Активирането на „Do Not Track“ означава, че с трафика ви на сърфиране ще се включва заявка. Ефектите зависят от това, дали уебсайтът ще отговори на нея и как ще я изтълкува.
 
 Някои уебсайтове например може да отговорят на тази заявка, като ви покажат реклами, които не са въз основа на други посетени от вас сайтове. Много уебсайтове пак ще събират и използват данните ви за сърфиране – например за подобряване на сигурността, за предоставяне на съдържание, услуги, реклами и препоръки, както и за генериране на статистически данни за отчитане. <ph name="BEGIN_LINK" />Научете повече<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@
 <translation id="3175081911749765310">Уеб услуги</translation>
 <translation id="3207960819495026254">С отметка</translation>
 <translation id="3210163015918861891">Синхронизирането е изключено</translation>
+<translation id="3224641773458703735">За да експортирате паролите, трябва първо да зададете код за достъп на устройството си.</translation>
 <translation id="3240426699337459095">Връзката е копирана</translation>
 <translation id="3244271242291266297">ММ</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> от <ph name="NUM_SUGGESTIONS" /></translation>
@@ -153,6 +156,7 @@
 <translation id="3771033907050503522">Раздели „инкогнито“</translation>
 <translation id="3779810277399252432">Няма връзка с интернет.</translation>
 <translation id="3783017676699494206">Запазване на изобрaжението</translation>
+<translation id="3789841737615482174">Инсталиране</translation>
 <translation id="385051799172605136">Назад</translation>
 <translation id="3897092660631435901">Меню</translation>
 <translation id="3928666092801078803">Комбиниране на данните ми</translation>
@@ -220,7 +224,6 @@
 <translation id="5300589172476337783">Показване</translation>
 <translation id="5317780077021120954">Запазване</translation>
 <translation id="5327248766486351172">Име</translation>
-<translation id="533632423981297619">Паролите ви ще бъдат видими за всички, които могат да видят експортирания файл. Не го споделяйте с никого.</translation>
 <translation id="5388358297987318779">Отваряне на изображението</translation>
 <translation id="5409365236829784218">Няма инсталирани приложения, които могат да отворят файла.</translation>
 <translation id="5433691172869980887">Потребителското име е копирано</translation>
@@ -249,6 +252,7 @@
 <translation id="5871497086027727873">Преместихте 1 елемент</translation>
 <translation id="5911030830365207728">Google Преводач</translation>
 <translation id="5916664084637901428">Включено</translation>
+<translation id="5938160824633642847">Хранилището на устройството ви е почти пълно. Освободете място и опитайте отново.</translation>
 <translation id="5948291296578561264">Това ви позволява да запазвате снимки във фотобиблиотеката си.</translation>
 <translation id="5955891643922670672">Гледате офлайн версията</translation>
 <translation id="5964480694698977962">Създаване на нов раздел в режим „инкогнито“.</translation>
@@ -280,7 +284,9 @@
 <translation id="633809752005859102">Нещо сериозно се обърка. Ще работим по него.</translation>
 <translation id="6342069812937806050">Току-що</translation>
 <translation id="6344783595350022745">Изчистване на текста</translation>
+<translation id="6346549652287021269">Да се стартира ли ново изтегляне?</translation>
 <translation id="6362362396625799311">Няма раздели в режим „инкогнито“</translation>
+<translation id="6374469231428023295">Нов опит</translation>
 <translation id="6380866119319257197">Ако забравите пропуска си или искате да промените тази настройка, <ph name="BEGIN_LINK" />нулирайте синхронизирането<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">Име върху картата</translation>
 <translation id="6406506848690869874">Синхронизиранe</translation>
@@ -289,6 +295,7 @@
 
 На <ph name="TIME" /> данните ви бяха шифровани с пропуска ви за синхронизиране. Въведете го, за да стартирате синхронизирането.</translation>
 <translation id="6418346271604475326">PDF файлът се подготвя</translation>
+<translation id="6434591244308415567">Възникна грешка. Опитайте отново по-късно.</translation>
 <translation id="6445051938772793705">Държава</translation>
 <translation id="6445981559479772097">Съобщ. е изпратено.</translation>
 <translation id="6464071786529933911">Отв. в нов раздел „инкогнито“</translation>
@@ -299,6 +306,7 @@
 <translation id="6657585470893396449">Парола</translation>
 <translation id="667999046851023355">Документ</translation>
 <translation id="6713747756340119864">Google Apps</translation>
+<translation id="6730682669179532099">Паролите не могат да бъдат експортирани</translation>
 <translation id="6762156594045689028">За да промените тази настройка, <ph name="BEGIN_LINK" />нулирайте синхронизирането<ph name="END_LINK" /></translation>
 <translation id="6780034285637185932">Пощенски код</translation>
 <translation id="6785453220513215166">Сигналите за сривове се изпращат...</translation>
@@ -308,13 +316,16 @@
 <translation id="681368974849482173">Елементът е създаден</translation>
 <translation id="6896758677409633944">Копиране</translation>
 <translation id="6903907808598579934">Включване на синхронизирането</translation>
+<translation id="6914783257214138813">Паролите ви ще бъдат видими за всички, които могат да видят експортирания файл.</translation>
 <translation id="6945221475159498467">Изберете</translation>
 <translation id="6973630695168034713">Папки</translation>
 <translation id="7004499039102548441">Скорошни раздели</translation>
 <translation id="7006788746334555276">Настройки за съдържанието</translation>
+<translation id="7029809446516969842">Пароли</translation>
 <translation id="7031882061095297553">Синхронизиране със</translation>
 <translation id="7053983685419859001">Блокиране</translation>
 <translation id="7062545763355031412">Приемане и превключване на профилите</translation>
+<translation id="7102005569666697658">Изтегля се… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">Скриване</translation>
 <translation id="7133798577887235672">Име и фамилия</translation>
 <translation id="7136892417564438900">Няма достъп до камерата</translation>
@@ -325,6 +336,7 @@
 <translation id="7203585745079012652">Изговаряне на отговорите</translation>
 <translation id="722055596168483966">Персонализиране на услугите на Google</translation>
 <translation id="7272437679830969316">Паролата не бе копирана поради неуспешно удостоверяване.</translation>
+<translation id="7291368939935408496">Паролите се подготвят...</translation>
 <translation id="7336264872878993241">Изтеглено: <ph name="PERCENT" />%</translation>
 <translation id="7346909386216857016">Добре, разбрах</translation>
 <translation id="7400418766976504921">URL адрес</translation>
@@ -349,6 +361,7 @@
 <translation id="7769602470925380267">Приемане и излизане от профила</translation>
 <translation id="7772032839648071052">Потвърдете пропуска</translation>
 <translation id="780301667611848630">Не, благодаря</translation>
+<translation id="7856733331829174190">Неуспешно изтегляне</translation>
 <translation id="7859704718976024901">История на сърфирането</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">Експортиране на паролите...</translation>
@@ -409,6 +422,7 @@
 <translation id="9083392325882095631">1 елемент</translation>
 <translation id="9100610230175265781">Изисква се пропуск</translation>
 <translation id="9148126808321036104">Влезте отново</translation>
+<translation id="915371508759614899">Да се анулира ли изтеглянето?</translation>
 <translation id="9157836665414082580">Диалогови прозорци: Блокиране</translation>
 <translation id="9188680907066685419">Излизане от управляван профил</translation>
 <translation id="9203116392574189331">Handoff</translation>

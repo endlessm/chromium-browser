@@ -41,8 +41,8 @@
 #include "content/public/browser/ssl_host_state_delegate.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
-#include "net/proxy/proxy_config_service_android.h"
-#include "net/proxy/proxy_service.h"
+#include "net/proxy_resolution/proxy_config_service_android.h"
+#include "net/proxy_resolution/proxy_service.h"
 
 using base::FilePath;
 using content::BrowserThread;
@@ -77,7 +77,7 @@ AwBrowserContext* g_browser_context = NULL;
 
 std::unique_ptr<net::ProxyConfigService> CreateProxyConfigService() {
   std::unique_ptr<net::ProxyConfigService> config_service =
-      net::ProxyService::CreateSystemProxyConfigService(
+      net::ProxyResolutionService::CreateSystemProxyConfigService(
           BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
 
   // TODO(csharrison) Architect the wrapper better so we don't need a cast for

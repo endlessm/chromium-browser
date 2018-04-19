@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <set>
 #include <string>
 
 #include "base/compiler_specific.h"
@@ -16,6 +17,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "chrome/browser/net/reporting_permissions_checker.h"
 #include "chrome/browser/net/safe_search_util.h"
 #include "components/domain_reliability/monitor.h"
 #include "components/prefs/pref_member.h"
@@ -109,6 +111,16 @@ class ChromeNetworkDelegate : public net::NetworkDelegateImpl {
     return domain_reliability_monitor_.get();
   }
 
+  void set_reporting_permissions_checker(
+      std::unique_ptr<ReportingPermissionsChecker>
+          reporting_permissions_checker) {
+    reporting_permissions_checker_ = std::move(reporting_permissions_checker);
+  }
+
+  ReportingPermissionsChecker* reporting_permissions_checker() {
+    return reporting_permissions_checker_.get();
+  }
+
   void set_data_use_aggregator(
       data_usage::DataUseAggregator* data_use_aggregator,
       bool is_data_usage_off_the_record);
@@ -189,7 +201,9 @@ class ChromeNetworkDelegate : public net::NetworkDelegateImpl {
       const GURL& target_url,
       const GURL& referrer_url) const override;
   bool OnCanQueueReportingReport(const url::Origin& origin) const override;
-  bool OnCanSendReportingReport(const url::Origin& origin) const override;
+  void OnCanSendReportingReports(std::set<url::Origin> origins,
+                                 base::OnceCallback<void(std::set<url::Origin>)>
+                                     result_callback) const override;
   bool OnCanSetReportingClient(const url::Origin& origin,
                                const GURL& endpoint) const override;
   bool OnCanUseReportingClient(const url::Origin& origin,
@@ -217,6 +231,7 @@ class ChromeNetworkDelegate : public net::NetworkDelegateImpl {
   // Weak, owned by our owner.
   std::unique_ptr<domain_reliability::DomainReliabilityMonitor>
       domain_reliability_monitor_;
+  std::unique_ptr<ReportingPermissionsChecker> reporting_permissions_checker_;
 
   bool experimental_web_platform_features_enabled_;
 

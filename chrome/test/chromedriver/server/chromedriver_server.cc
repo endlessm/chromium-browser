@@ -46,6 +46,7 @@
 #include "net/server/http_server_request_info.h"
 #include "net/server/http_server_response_info.h"
 #include "net/socket/tcp_server_socket.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 
 namespace {
 
@@ -121,7 +122,8 @@ class HttpServer : public net::HttpServer::Delegate {
                   std::unique_ptr<net::HttpServerResponseInfo> response) {
     if (!keep_alive)
       response->AddHeader("Connection", "close");
-    server_->SendResponse(connection_id, *response);
+    server_->SendResponse(connection_id, *response,
+                          TRAFFIC_ANNOTATION_FOR_TESTS);
     // Don't need to call server_->Close(), since SendResponse() will handle
     // this for us.
   }
@@ -135,8 +137,8 @@ void SendResponseOnCmdThread(
     const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner,
     const HttpResponseSenderFunc& send_response_on_io_func,
     std::unique_ptr<net::HttpServerResponseInfo> response) {
-  io_task_runner->PostTask(FROM_HERE, base::BindOnce(send_response_on_io_func,
-                                                     base::Passed(&response)));
+  io_task_runner->PostTask(
+      FROM_HERE, base::BindOnce(send_response_on_io_func, std::move(response)));
 }
 
 void HandleRequestOnCmdThread(
@@ -254,9 +256,11 @@ int main(int argc, char *argv[]) {
         "adb-port=PORT", "adb server port",
         "log-path=FILE", "write server log to file instead of stderr, "
             "increases log level to INFO",
-        "verbose", "log verbosely",
+        "log-level=LEVEL", "set log level: ALL, DEBUG, INFO, WARNING, "
+            "SEVERE, OFF",
+        "verbose", "log verbosely (equivalent to --log-level=ALL)",
+        "silent", "log nothing (equivalent to --log-level=OFF)",
         "version", "print the version number and exit",
-        "silent", "log nothing",
         "url-base", "base URL path prefix for commands, e.g. wd/url",
         "port-server", "address of server to contact for reserving a port",
         "whitelisted-ips", "comma-separated whitelist of remote IPv4 addresses "
@@ -319,7 +323,8 @@ int main(int argc, char *argv[]) {
     whitelisted_ips = base::SplitString(
         whitelist, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   }
-  if (!cmd_line->HasSwitch("silent")) {
+  if (!cmd_line->HasSwitch("silent") &&
+      cmd_line->GetSwitchValueASCII("log-level") != "OFF") {
     printf("Starting ChromeDriver %s on port %u\n", kChromeDriverVersion, port);
     if (!allow_remote) {
       printf("Only local connections are allowed.\n");

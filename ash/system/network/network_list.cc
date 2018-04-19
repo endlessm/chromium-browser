@@ -473,8 +473,7 @@ class WifiHeaderRowView : public NetworkListView::SectionHeaderRowView {
     gfx::ImageSkia disabled_image = network_icon::GetImageForNewWifiNetwork(
         SkColorSetA(prominent_color, kDisabledJoinIconAlpha),
         SkColorSetA(prominent_color, kDisabledJoinBadgeAlpha));
-    join_ = new SystemMenuButton(this, TrayPopupInkDropStyle::HOST_CENTERED,
-                                 normal_image, disabled_image,
+    join_ = new SystemMenuButton(this, normal_image, disabled_image,
                                  IDS_ASH_STATUS_TRAY_OTHER_WIFI);
     join_->SetInkDropColor(prominent_color);
     join_->SetEnabled(enabled);
@@ -568,7 +567,7 @@ void NetworkListView::UpdateNetworks(
     if (!NetworkTypePattern::NonVirtual().MatchesType(network->type()))
       continue;
     // If cellular is disabled, skip the default cellular service.
-    if (network->Matches(NetworkTypePattern::Cellular()) && !cellular_enabled)
+    if (network->IsDefaultCellular() && !cellular_enabled)
       continue;
     network_list_.push_back(std::make_unique<NetworkInfo>(network->guid()));
   }
@@ -875,8 +874,10 @@ void NetworkListView::PlaceViewAtIndex(views::View* view, int index) {
     scroll_content()->AddChildViewAt(view, index);
   } else {
     // No re-order and re-layout is necessary if |view| is already at |index|.
-    if (scroll_content()->child_at(index) == view)
+    if (index < scroll_content()->child_count() &&
+        scroll_content()->child_at(index) == view) {
       return;
+    }
     scroll_content()->ReorderChildView(view, index);
   }
   needs_relayout_ = true;

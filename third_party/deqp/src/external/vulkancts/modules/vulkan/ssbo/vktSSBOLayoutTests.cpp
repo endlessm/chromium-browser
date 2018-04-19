@@ -28,9 +28,19 @@
 
 #include "deUniquePtr.hpp"
 #include "tcuCommandLine.hpp"
+#include "tcuTestLog.hpp"
 #include "deRandom.hpp"
 #include "deStringUtil.hpp"
 #include "deString.h"
+#include "vktTestCaseUtil.hpp"
+#include "vktTestGroupUtil.hpp"
+#include "vkRef.hpp"
+#include "vkRefUtil.hpp"
+#include "vkBuilderUtil.hpp"
+#include "vkPrograms.hpp"
+#include "vkQueryUtil.hpp"
+#include "vkMemUtil.hpp"
+#include "vkTypeUtil.hpp"
 
 namespace vkt
 {
@@ -43,6 +53,7 @@ using std::string;
 using std::vector;
 using glu::VarType;
 using glu::StructType;
+using namespace vk;
 
 enum FeatureBits
 {
@@ -58,7 +69,8 @@ enum FeatureBits
 	FEATURE_STD430_LAYOUT		= (1<<9),
 	FEATURE_MATRIX_LAYOUT		= (1<<10),	//!< Matrix layout flags.
 	FEATURE_UNSIZED_ARRAYS		= (1<<11),
-	FEATURE_ARRAYS_OF_ARRAYS	= (1<<12)
+	FEATURE_ARRAYS_OF_ARRAYS	= (1<<12),
+	FEATURE_RELAXED_LAYOUT		= (1<<13)
 };
 
 class RandomSSBOLayoutCase : public SSBOLayoutCase
@@ -127,9 +139,17 @@ void RandomSSBOLayoutCase::generateBlock (de::Random& rnd, deUint32 layoutFlags)
 
 	// Layout flag candidates.
 	vector<deUint32> layoutFlagCandidates;
-	layoutFlagCandidates.push_back(0);
+
+	if (m_features & FEATURE_STD430_LAYOUT)
+		layoutFlagCandidates.push_back(LAYOUT_STD430);
+
 	if (m_features & FEATURE_STD140_LAYOUT)
 		layoutFlagCandidates.push_back(LAYOUT_STD140);
+
+	if (m_features & FEATURE_RELAXED_LAYOUT)
+		layoutFlagCandidates.push_back(LAYOUT_RELAXED);
+
+	DE_ASSERT(!layoutFlagCandidates.empty());
 
 	layoutFlags |= rnd.choose<deUint32>(layoutFlagCandidates.begin(), layoutFlagCandidates.end());
 
@@ -613,11 +633,11 @@ private:
 class BlockMultiBasicTypesCase : public SSBOLayoutCase
 {
 public:
-	BlockMultiBasicTypesCase (tcu::TestContext& testCtx, const char* name, const char* description, deUint32 flagsA, deUint32 flagsB, BufferMode bufferMode, int numInstances, MatrixLoadFlags matrixLoadFlag)
-		: SSBOLayoutCase	(testCtx, name, description, bufferMode, matrixLoadFlag)
-		, m_flagsA			(flagsA)
-		, m_flagsB			(flagsB)
-		, m_numInstances	(numInstances)
+	BlockMultiBasicTypesCase	(tcu::TestContext& testCtx, const char* name, const char* description, deUint32 flagsA, deUint32 flagsB, BufferMode bufferMode, int numInstances, MatrixLoadFlags matrixLoadFlag)
+		: SSBOLayoutCase		(testCtx, name, description, bufferMode, matrixLoadFlag)
+		, m_flagsA				(flagsA)
+		, m_flagsB				(flagsB)
+		, m_numInstances		(numInstances)
 	{
 		BufferBlock& blockA = m_interface.allocBlock("BlockA");
 		blockA.addMember(BufferVar("a", VarType(glu::TYPE_FLOAT, glu::PRECISION_HIGHP), ACCESS_READ|ACCESS_WRITE));
@@ -697,6 +717,245 @@ private:
 	deUint32	m_flagsB;
 	int			m_numInstances;
 };
+
+// unsized_array_length
+
+struct UnsizedArrayCaseParams
+{
+	int					elementSize;
+	vk::VkDeviceSize	bufferSize;
+	vk::VkDeviceSize	bufferBindOffset;
+	vk::VkDeviceSize	bufferBindLength;
+	const char*			name;
+};
+
+void createUnsizedArrayLengthProgs (SourceCollections& dst, UnsizedArrayCaseParams)
+{
+	dst.glslSources.add("comp") << glu::ComputeSource(
+		"#version 310 es\n"
+		"layout(set=0, binding=0, std430) readonly buffer x {\n"
+		"   int xs[];\n"
+		"};\n"
+		"layout(set=0, binding=1, std430) writeonly buffer y {\n"
+		"   int observed_size;\n"
+		"};\n"
+		"layout(local_size_x=1) in;\n"
+		"void main (void) {\n"
+		"   observed_size = xs.length();\n"
+		"}\n");
+}
+
+tcu::TestStatus ssboUnsizedArrayLengthTest (Context& context, UnsizedArrayCaseParams params)
+{
+	const DeviceInterface&					vk						= context.getDeviceInterface();
+	const VkDevice							device					= context.getDevice();
+	const VkQueue							queue					= context.getUniversalQueue();
+	Allocator&								allocator				= context.getDefaultAllocator();
+
+	DescriptorSetLayoutBuilder				builder;
+	builder.addSingleBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);	// input buffer
+	builder.addSingleBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);	// result buffer
+
+	const Unique<VkDescriptorSetLayout>		descriptorSetLayout		(builder.build(vk, device));
+	const Unique<VkDescriptorPool>			descriptorPool			(vk::DescriptorPoolBuilder()
+																	.addType(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2u)
+																	.build(vk, device, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT, 1));
+
+	const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo		=
+	{
+		VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+		DE_NULL,
+		(VkPipelineLayoutCreateFlags)0,
+		1,															// setLayoutCount,
+		&descriptorSetLayout.get(),									// pSetLayouts
+		0,															// pushConstantRangeCount
+		DE_NULL,													// pPushConstantRanges
+	};
+	const Unique<VkPipelineLayout>			pipelineLayout			(createPipelineLayout(vk, device, &pipelineLayoutCreateInfo));
+
+	const Unique<VkShaderModule>			computeModule			(createShaderModule(vk, device, context.getBinaryCollection().get("comp"), (VkShaderModuleCreateFlags)0u));
+
+	const VkPipelineShaderStageCreateInfo	shaderCreateInfo		=
+	{
+		VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+		DE_NULL,
+		(VkPipelineShaderStageCreateFlags)0,
+		VK_SHADER_STAGE_COMPUTE_BIT,								// stage
+		*computeModule,												// shader
+		"main",
+		DE_NULL,													// pSpecializationInfo
+	};
+
+	const VkComputePipelineCreateInfo		pipelineCreateInfo		=
+	{
+		VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+		DE_NULL,
+		0u,															// flags
+		shaderCreateInfo,											// cs
+		*pipelineLayout,											// layout
+		(vk::VkPipeline)0,											// basePipelineHandle
+		0u,															// basePipelineIndex
+	};
+
+	const Unique<VkPipeline>				pipeline				(createComputePipeline(vk, device, (VkPipelineCache)0u, &pipelineCreateInfo));
+
+	// Input buffer
+	const VkBufferCreateInfo inputBufferCreateInfo =
+	{
+		VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		DE_NULL,
+		0,															// flags
+		(VkDeviceSize) params.bufferSize,							// size
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,							// usage TODO: also test _DYNAMIC case.
+		VK_SHARING_MODE_EXCLUSIVE,
+		0u,															// queueFamilyCount
+		DE_NULL,													// pQueueFamilyIndices
+	};
+	const Unique<VkBuffer>					inputBuffer				(createBuffer(vk, device, &inputBufferCreateInfo));
+	const VkMemoryRequirements				inputBufferRequirements	= getBufferMemoryRequirements(vk, device, *inputBuffer);
+	const de::MovePtr<Allocation>			inputBufferMemory		= allocator.allocate(inputBufferRequirements, MemoryRequirement::HostVisible);
+
+	VK_CHECK(vk.bindBufferMemory(device, *inputBuffer, inputBufferMemory->getMemory(), inputBufferMemory->getOffset()));
+	// Note: don't care about the contents of the input buffer -- we only determine a size.
+
+	// Output buffer
+	const VkBufferCreateInfo outputBufferCreateInfo =
+	{
+		VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		DE_NULL,
+		0,
+		(VkDeviceSize) 4,
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		VK_SHARING_MODE_EXCLUSIVE,
+		0u,
+		DE_NULL,
+	};
+	const Unique<VkBuffer>					outputBuffer			(createBuffer(vk, device, &outputBufferCreateInfo));
+	const VkMemoryRequirements				outputBufferRequirements= getBufferMemoryRequirements(vk, device, *outputBuffer);
+	const de::MovePtr<Allocation>			outputBufferMemory		= allocator.allocate(outputBufferRequirements, MemoryRequirement::HostVisible);
+
+	VK_CHECK(vk.bindBufferMemory(device, *outputBuffer, outputBufferMemory->getMemory(), outputBufferMemory->getOffset()));
+
+	// Initialize output buffer contents
+	const VkMappedMemoryRange	range			=
+	{
+		VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,	// sType
+		DE_NULL,								// pNext
+		outputBufferMemory->getMemory(),		// memory
+		0,										// offset
+		VK_WHOLE_SIZE,							// size
+	};
+	int *							outputBufferPtr			= (int *)outputBufferMemory->getHostPtr();
+	*outputBufferPtr = -1;
+	VK_CHECK(vk.flushMappedMemoryRanges(device, 1u, &range));
+
+	// Build descriptor set
+	const VkDescriptorBufferInfo			inputBufferDesc			= makeDescriptorBufferInfo(*inputBuffer, params.bufferBindOffset, params.bufferBindLength);
+	const VkDescriptorBufferInfo			outputBufferDesc		= makeDescriptorBufferInfo(*outputBuffer, 0u, VK_WHOLE_SIZE);
+
+	const VkDescriptorSetAllocateInfo		descAllocInfo			=
+	{
+		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		DE_NULL,
+		*descriptorPool,											// pool
+		1u,															// setLayoutCount
+		&descriptorSetLayout.get(),									// pSetLayouts
+	};
+	const Unique<VkDescriptorSet>			descSet					(allocateDescriptorSet(vk, device, &descAllocInfo));
+
+	DescriptorSetUpdateBuilder()
+		.writeSingle(*descSet, DescriptorSetUpdateBuilder::Location::binding(0u), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &inputBufferDesc)
+		.writeSingle(*descSet, DescriptorSetUpdateBuilder::Location::binding(1u), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &outputBufferDesc)
+		.update(vk, device);
+
+	const VkCommandPoolCreateInfo			cmdPoolParams			=
+	{
+		VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,					// sType
+		DE_NULL,													// pNext
+		VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,			// flags
+		context.getUniversalQueueFamilyIndex(),						// queueFamilyIndex
+	};
+	const Unique<VkCommandPool>				cmdPool					(createCommandPool(vk, device, &cmdPoolParams));
+
+	// Command buffer
+	const VkCommandBufferAllocateInfo		cmdBufParams			=
+	{
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,			// sType
+		DE_NULL,												// pNext
+		*cmdPool,												// pool
+		VK_COMMAND_BUFFER_LEVEL_PRIMARY,						// level
+		1u,														// bufferCount
+	};
+	const Unique<VkCommandBuffer>			cmdBuf					(allocateCommandBuffer(vk, device, &cmdBufParams));
+
+	const VkCommandBufferBeginInfo			cmdBufBeginParams		=
+	{
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,			// sType
+		DE_NULL,												// pNext
+		0u,														// flags
+		(const VkCommandBufferInheritanceInfo*)DE_NULL,
+	};
+
+	// Record commands
+	VK_CHECK(vk.beginCommandBuffer(*cmdBuf, &cmdBufBeginParams));
+
+	vk.cmdBindPipeline(*cmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline);
+	vk.cmdBindDescriptorSets(*cmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, *pipelineLayout, 0u, 1u, &descSet.get(), 0u, DE_NULL);
+	vk.cmdDispatch(*cmdBuf, 1, 1, 1);
+
+	const VkMemoryBarrier					barrier					=
+	{
+		VK_STRUCTURE_TYPE_MEMORY_BARRIER,	// sType
+		DE_NULL,							// pNext
+		VK_ACCESS_SHADER_WRITE_BIT,			// srcAccessMask
+		VK_ACCESS_HOST_READ_BIT,			// dstAccessMask
+	};
+	vk.cmdPipelineBarrier(*cmdBuf, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_HOST_BIT, (VkDependencyFlags)0, 1, &barrier, 0, DE_NULL, 0, DE_NULL);
+
+	VK_CHECK(vk.endCommandBuffer(*cmdBuf));
+
+	const VkSubmitInfo						submitInfo				=
+	{
+		VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		DE_NULL,
+		0,														// waitSemaphoreCount
+		DE_NULL,												// pWaitSemaphores
+		DE_NULL,												// pWaitDstStageMask
+		1,														// commandBufferCount
+		&cmdBuf.get(),											// pCommandBuffers
+		0,														// signalSemaphoreCount
+		DE_NULL,												// pSignalSemaphores
+	};
+	VK_CHECK(vk.queueSubmit(queue, 1, &submitInfo, (vk::VkFence)0));
+
+	// Force all work to have completed
+	VK_CHECK(vk.deviceWaitIdle(device));
+
+	// Read back output buffer contents
+	VK_CHECK(vk.invalidateMappedMemoryRanges(device, 1, &range));
+
+	// Expected number of elements in array at end of storage buffer
+	const VkDeviceSize						boundLength				= params.bufferBindLength == VK_WHOLE_SIZE
+																	? params.bufferSize - params.bufferBindOffset
+																	: params.bufferBindLength;
+	const int								expectedResult			= (int)(boundLength / params.elementSize);
+	const int								actualResult			= *outputBufferPtr;
+
+	context.getTestContext().getLog()
+	<< tcu::TestLog::Message
+	<< "Buffer size " << params.bufferSize
+	<< " offset " << params.bufferBindOffset
+	<< " length " << params.bufferBindLength
+	<< " element size " << params.elementSize
+	<< " expected array size: " << expectedResult
+	<< " actual array size: " << actualResult
+	<< tcu::TestLog::EndMessage;
+
+	if (expectedResult == actualResult)
+		return tcu::TestStatus::pass("Got expected array size");
+	else
+		return tcu::TestStatus::fail("Mismatch array size");
+}
 
 class SSBOLayoutTests : public tcu::TestCaseGroup
 {
@@ -1284,6 +1543,18 @@ void SSBOLayoutTests::init (void)
 					modeGroup->addChild(new BlockMultiBasicTypesCase(m_testCtx, (baseName + "_comp_access").c_str(), "", baseFlags, baseFlags, bufferModes[modeNdx].mode, isArray ? 3 : 0, LOAD_MATRIX_COMPONENTS));
 				}
 			}
+
+			for (int isArray = 0; isArray < 2; isArray++)
+			{
+				std::string	baseName	= "relaxed_block";
+				deUint32	baseFlags	= LAYOUT_RELAXED;
+
+				if (isArray)
+					baseName += "_instance_array";
+
+				modeGroup->addChild(new BlockMultiBasicTypesCase(m_testCtx, baseName.c_str(),					 "", baseFlags, baseFlags, bufferModes[modeNdx].mode, isArray ? 3 : 0, LOAD_FULL_MATRIX));
+				modeGroup->addChild(new BlockMultiBasicTypesCase(m_testCtx, (baseName + "_comp_access").c_str(), "", baseFlags, baseFlags, bufferModes[modeNdx].mode, isArray ? 3 : 0, LOAD_MATRIX_COMPONENTS));
+			}
 		}
 	}
 
@@ -1316,31 +1587,51 @@ void SSBOLayoutTests::init (void)
 
 	// ssbo.random
 	{
-		const deUint32	allLayouts		= FEATURE_STD140_LAYOUT;
+		const deUint32	allStdLayouts	= FEATURE_STD140_LAYOUT|FEATURE_STD430_LAYOUT;
 		const deUint32	allBasicTypes	= FEATURE_VECTORS|FEATURE_MATRICES;
 		const deUint32	unused			= FEATURE_UNUSED_MEMBERS|FEATURE_UNUSED_VARS;
 		const deUint32	unsized			= FEATURE_UNSIZED_ARRAYS;
 		const deUint32	matFlags		= FEATURE_MATRIX_LAYOUT;
+		const deUint32	allButRelaxed	= ~FEATURE_RELAXED_LAYOUT;
+		const deUint32	allRelaxed		= FEATURE_VECTORS|FEATURE_RELAXED_LAYOUT|FEATURE_INSTANCE_ARRAYS;
 
 		tcu::TestCaseGroup* randomGroup = new tcu::TestCaseGroup(m_testCtx, "random", "Random Uniform Block cases");
 		addChild(randomGroup);
 
 		// Basic types.
-		createRandomCaseGroup(randomGroup, m_testCtx, "scalar_types",		"Scalar types only, per-block buffers",				SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allLayouts|unused,																			25, 0);
-		createRandomCaseGroup(randomGroup, m_testCtx, "vector_types",		"Scalar and vector types only, per-block buffers",	SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allLayouts|unused|FEATURE_VECTORS,															25, 25);
-		createRandomCaseGroup(randomGroup, m_testCtx, "basic_types",		"All basic types, per-block buffers",				SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allLayouts|unused|allBasicTypes|matFlags,													25, 50);
-		createRandomCaseGroup(randomGroup, m_testCtx, "basic_arrays",		"Arrays, per-block buffers",						SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allLayouts|unused|allBasicTypes|matFlags|FEATURE_ARRAYS,									25, 50);
-		createRandomCaseGroup(randomGroup, m_testCtx, "unsized_arrays",		"Unsized arrays, per-block buffers",				SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allLayouts|unused|allBasicTypes|matFlags|unsized|FEATURE_ARRAYS,							25, 50);
-		createRandomCaseGroup(randomGroup, m_testCtx, "arrays_of_arrays",	"Arrays of arrays, per-block buffers",				SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allLayouts|unused|allBasicTypes|matFlags|unsized|FEATURE_ARRAYS|FEATURE_ARRAYS_OF_ARRAYS,	25, 950);
+		createRandomCaseGroup(randomGroup, m_testCtx, "scalar_types",		"Scalar types only, per-block buffers",				SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allStdLayouts|unused,																			25, 0);
+		createRandomCaseGroup(randomGroup, m_testCtx, "vector_types",		"Scalar and vector types only, per-block buffers",	SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allStdLayouts|unused|FEATURE_VECTORS,															25, 25);
+		createRandomCaseGroup(randomGroup, m_testCtx, "basic_types",		"All basic types, per-block buffers",				SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allStdLayouts|unused|allBasicTypes|matFlags,													25, 50);
+		createRandomCaseGroup(randomGroup, m_testCtx, "basic_arrays",		"Arrays, per-block buffers",						SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allStdLayouts|unused|allBasicTypes|matFlags|FEATURE_ARRAYS,									25, 50);
+		createRandomCaseGroup(randomGroup, m_testCtx, "unsized_arrays",		"Unsized arrays, per-block buffers",				SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allStdLayouts|unused|allBasicTypes|matFlags|unsized|FEATURE_ARRAYS,							25, 50);
+		createRandomCaseGroup(randomGroup, m_testCtx, "arrays_of_arrays",	"Arrays of arrays, per-block buffers",				SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allStdLayouts|unused|allBasicTypes|matFlags|unsized|FEATURE_ARRAYS|FEATURE_ARRAYS_OF_ARRAYS,	25, 950);
 
-		createRandomCaseGroup(randomGroup, m_testCtx, "basic_instance_arrays",					"Basic instance arrays, per-block buffers",				SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allLayouts|unused|allBasicTypes|matFlags|unsized|FEATURE_INSTANCE_ARRAYS,															25, 75);
-		createRandomCaseGroup(randomGroup, m_testCtx, "nested_structs",							"Nested structs, per-block buffers",					SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allLayouts|unused|allBasicTypes|matFlags|unsized|FEATURE_STRUCTS,																	25, 100);
-		createRandomCaseGroup(randomGroup, m_testCtx, "nested_structs_arrays",					"Nested structs, arrays, per-block buffers",			SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allLayouts|unused|allBasicTypes|matFlags|unsized|FEATURE_STRUCTS|FEATURE_ARRAYS|FEATURE_ARRAYS_OF_ARRAYS,							25, 150);
-		createRandomCaseGroup(randomGroup, m_testCtx, "nested_structs_instance_arrays",			"Nested structs, instance arrays, per-block buffers",	SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allLayouts|unused|allBasicTypes|matFlags|unsized|FEATURE_STRUCTS|FEATURE_INSTANCE_ARRAYS,											25, 125);
-		createRandomCaseGroup(randomGroup, m_testCtx, "nested_structs_arrays_instance_arrays",	"Nested structs, instance arrays, per-block buffers",	SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allLayouts|unused|allBasicTypes|matFlags|unsized|FEATURE_STRUCTS|FEATURE_ARRAYS|FEATURE_ARRAYS_OF_ARRAYS|FEATURE_INSTANCE_ARRAYS,	25, 175);
+		createRandomCaseGroup(randomGroup, m_testCtx, "basic_instance_arrays",					"Basic instance arrays, per-block buffers",				SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allStdLayouts|unused|allBasicTypes|matFlags|unsized|FEATURE_INSTANCE_ARRAYS,															25, 75);
+		createRandomCaseGroup(randomGroup, m_testCtx, "nested_structs",							"Nested structs, per-block buffers",					SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allStdLayouts|unused|allBasicTypes|matFlags|unsized|FEATURE_STRUCTS,																	25, 100);
+		createRandomCaseGroup(randomGroup, m_testCtx, "nested_structs_arrays",					"Nested structs, arrays, per-block buffers",			SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allStdLayouts|unused|allBasicTypes|matFlags|unsized|FEATURE_STRUCTS|FEATURE_ARRAYS|FEATURE_ARRAYS_OF_ARRAYS,							25, 150);
+		createRandomCaseGroup(randomGroup, m_testCtx, "nested_structs_instance_arrays",			"Nested structs, instance arrays, per-block buffers",	SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allStdLayouts|unused|allBasicTypes|matFlags|unsized|FEATURE_STRUCTS|FEATURE_INSTANCE_ARRAYS,											25, 125);
+		createRandomCaseGroup(randomGroup, m_testCtx, "nested_structs_arrays_instance_arrays",	"Nested structs, instance arrays, per-block buffers",	SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allStdLayouts|unused|allBasicTypes|matFlags|unsized|FEATURE_STRUCTS|FEATURE_ARRAYS|FEATURE_ARRAYS_OF_ARRAYS|FEATURE_INSTANCE_ARRAYS,	25, 175);
+		createRandomCaseGroup(randomGroup, m_testCtx, "all_per_block_buffers",	"All random features, per-block buffers",	SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	allButRelaxed,	50, 200);
+		createRandomCaseGroup(randomGroup, m_testCtx, "all_shared_buffer",		"All random features, shared buffer",		SSBOLayoutCase::BUFFERMODE_SINGLE,		allButRelaxed,	50, 250);
 
-		createRandomCaseGroup(randomGroup, m_testCtx, "all_per_block_buffers",	"All random features, per-block buffers",	SSBOLayoutCase::BUFFERMODE_PER_BLOCK,	~0u,	50, 200);
-		createRandomCaseGroup(randomGroup, m_testCtx, "all_shared_buffer",		"All random features, shared buffer",		SSBOLayoutCase::BUFFERMODE_SINGLE,		~0u,	50, 250);
+		createRandomCaseGroup(randomGroup, m_testCtx, "relaxed",			"VK_KHR_relaxed_block_layout",				SSBOLayoutCase::BUFFERMODE_SINGLE,		allRelaxed, 100, deInt32Hash(313));
+	}
+}
+
+void createUnsizedArrayTests (tcu::TestCaseGroup* testGroup)
+{
+	const UnsizedArrayCaseParams subcases[] =
+	{
+		{ 4, 256, 0, 256,			  "float_no_offset_explicit_size" },
+		{ 4, 256, 0, VK_WHOLE_SIZE,	  "float_no_offset_whole_size" },
+		{ 4, 256, 128, 32,			  "float_offset_explicit_size" },
+		{ 4, 256, 128, VK_WHOLE_SIZE, "float_offset_whole_size" },
+	};
+
+	for (int ndx = 0; ndx < DE_LENGTH_OF_ARRAY(subcases); ndx++)
+	{
+		const UnsizedArrayCaseParams& params = subcases[ndx];
+		addFunctionCaseWithPrograms<UnsizedArrayCaseParams>(testGroup, params.name, "", createUnsizedArrayLengthProgs, ssboUnsizedArrayLengthTest, params);
 	}
 }
 
@@ -1351,6 +1642,7 @@ tcu::TestCaseGroup* createTests (tcu::TestContext& testCtx)
 	de::MovePtr<tcu::TestCaseGroup> ssboTestGroup (new tcu::TestCaseGroup(testCtx, "ssbo", "Shader Storage Buffer Object Tests"));
 
 	ssboTestGroup->addChild(new SSBOLayoutTests(testCtx));
+	addTestGroup(ssboTestGroup.get(), "unsized_array_length", "SSBO unsized array length tests", createUnsizedArrayTests);
 
 	return ssboTestGroup.release();
 }

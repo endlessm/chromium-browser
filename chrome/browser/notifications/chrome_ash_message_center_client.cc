@@ -15,7 +15,7 @@
 #include "content/public/common/service_manager_connection.h"
 #include "mojo/public/cpp/bindings/associated_binding.h"
 #include "services/service_manager/public/cpp/connector.h"
-#include "ui/message_center/notifier_id.h"
+#include "ui/message_center/public/cpp/notifier_id.h"
 
 using ash::mojom::NotifierUiDataPtr;
 using message_center::NotifierId;
@@ -96,8 +96,7 @@ void ChromeAshMessageCenterClient::Display(
 // NotificationPlatformBridge interface.
 void ChromeAshMessageCenterClient::Close(const std::string& /*profile_id*/,
                                          const std::string& notification_id) {
-  // TODO(estade): tell the controller to close the notification.
-  NOTIMPLEMENTED();
+  controller_->CloseClientNotification(notification_id);
 }
 
 // The unused variables here will not be a part of the future
@@ -106,8 +105,10 @@ void ChromeAshMessageCenterClient::GetDisplayed(
     const std::string& /*profile_id*/,
     bool /*incognito*/,
     const GetDisplayedNotificationsCallback& callback) const {
-  // TODO(estade): get the displayed notifications from the controller.
-  NOTIMPLEMENTED();
+  // Right now, this is only used to get web notifications that were created by
+  // and have outlived a previous browser process. Ash itself doesn't outlive
+  // the browser process, so there's no need to implement.
+  callback.Run(std::make_unique<std::set<std::string>>(), false);
 }
 
 void ChromeAshMessageCenterClient::SetReadyCallback(
@@ -128,8 +129,18 @@ void ChromeAshMessageCenterClient::HandleNotificationClicked(
 
 void ChromeAshMessageCenterClient::HandleNotificationButtonClicked(
     const std::string& id,
-    int button_index) {
-  delegate_->HandleNotificationButtonClicked(id, button_index);
+    int button_index,
+    const base::Optional<base::string16>& reply) {
+  delegate_->HandleNotificationButtonClicked(id, button_index, reply);
+}
+
+void ChromeAshMessageCenterClient::HandleNotificationSettingsButtonClicked(
+    const std::string& id) {
+  delegate_->HandleNotificationSettingsButtonClicked(id);
+}
+
+void ChromeAshMessageCenterClient::DisableNotification(const std::string& id) {
+  delegate_->DisableNotification(id);
 }
 
 void ChromeAshMessageCenterClient::SetNotifierEnabled(

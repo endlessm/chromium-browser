@@ -27,6 +27,7 @@ from tracing.value.diagnostics import reserved_infos
 SUITE_LEVEL_SPARSE_DIAGNOSTIC_NAMES = set([
     reserved_infos.ARCHITECTURES.name,
     reserved_infos.BENCHMARKS.name,
+    reserved_infos.BENCHMARK_DESCRIPTIONS.name,
     reserved_infos.BOTS.name,
     reserved_infos.BUG_COMPONENTS.name,
     reserved_infos.GPUS.name,
@@ -121,9 +122,22 @@ def ProcessHistogramSet(histogram_dicts):
   _LogDebugInfo(histograms)
 
   InlineDenseSharedDiagnostics(histograms)
+
+  # TODO(eakuefner): Get rid of this.
+  # https://github.com/catapult-project/catapult/issues/4242
+  _PurgeHistogramBinData(histograms)
+
   revision = ComputeRevision(histograms)
-  master, bot, benchmark = _GetMasterBotBenchmarkFromHistogram(
-      histograms.GetFirstHistogram())
+  master = _GetDiagnosticValue(
+      reserved_infos.MASTERS.name, histograms.GetFirstHistogram())
+  bot = _GetDiagnosticValue(
+      reserved_infos.BOTS.name, histograms.GetFirstHistogram())
+  benchmark = _GetDiagnosticValue(
+      reserved_infos.BENCHMARKS.name, histograms.GetFirstHistogram())
+  benchmark_description = _GetDiagnosticValue(
+      reserved_infos.BENCHMARK_DESCRIPTIONS.name,
+      histograms.GetFirstHistogram(), optional=True)
+
   suite_key = utils.TestKey('%s/%s/%s' % (master, bot, benchmark))
 
   bot_whitelist = bot_whitelist_future.get_result()
@@ -143,7 +157,8 @@ def ProcessHistogramSet(histogram_dicts):
     histograms.ReplaceSharedDiagnostic(
         new_guid, diagnostic.Diagnostic.FromDict(old_diagnostic))
 
-  tasks = _BatchHistogramsIntoTasks(suite_key.id(), histograms, revision)
+  tasks = _BatchHistogramsIntoTasks(
+      suite_key.id(), histograms, revision, benchmark_description)
 
   _QueueHistogramTasks(tasks)
 
@@ -154,7 +169,8 @@ def _MakeTask(params):
       _size_check=False)
 
 
-def _BatchHistogramsIntoTasks(suite_path, histograms, revision):
+def _BatchHistogramsIntoTasks(
+    suite_path, histograms, revision, benchmark_description):
   params = []
   tasks = []
 
@@ -175,7 +191,8 @@ def _BatchHistogramsIntoTasks(suite_path, histograms, revision):
     duplicate_check.add(test_path)
 
     # TODO(eakuefner): Batch these better than one per task.
-    task_dict = _MakeTaskDict(hist, test_path, revision, diagnostics)
+    task_dict = _MakeTaskDict(
+        hist, test_path, revision, benchmark_description, diagnostics)
 
     estimated_size_dict = len(json.dumps(task_dict))
     estimated_size += estimated_size_dict
@@ -210,12 +227,14 @@ def _QueueHistogramTasks(tasks):
     f.get_result()
 
 
-def _MakeTaskDict(hist, test_path, revision, diagnostics):
+def _MakeTaskDict(
+    hist, test_path, revision, benchmark_description, diagnostics):
   # TODO(simonhatch): "revision" is common to all tasks, as is the majority of
   # the test path
   params = {
       'test_path': test_path,
-      'revision': revision
+      'revision': revision,
+      'benchmark_description': benchmark_description
   }
 
   # By changing the GUID just before serializing the task, we're making it
@@ -340,52 +359,34 @@ def ComputeTestPath(suite_path, guid, histograms):
   return path
 
 
-def _GetMasterBotBenchmarkFromHistogram(hist):
-  _CheckRequest(
-      reserved_infos.MASTERS.name in hist.diagnostics,
-      'Histograms must have "%s" diagnostic' % reserved_infos.MASTERS.name)
-  master = hist.diagnostics[reserved_infos.MASTERS.name]
-  _CheckRequest(
-      len(master) == 1,
-      'Histograms must have exactly 1 "%s"' % reserved_infos.MASTERS.name)
-  master = list(master)[0]
+def _GetDiagnosticValue(name, hist, optional=False):
+  if optional:
+    if name not in hist.diagnostics:
+      return None
 
   _CheckRequest(
-      reserved_infos.BOTS.name in hist.diagnostics,
-      'Histograms must have "%s" diagnostic' % reserved_infos.BOTS.name)
-  bot = hist.diagnostics[reserved_infos.BOTS.name]
+      name in hist.diagnostics,
+      'Histograms must have "%s" diagnostic' % name)
+  value = hist.diagnostics[name]
   _CheckRequest(
-      len(bot) == 1,
-      'Histograms must have exactly 1 "%s"' % reserved_infos.BOTS.name)
-  bot = list(bot)[0]
-
-  _CheckRequest(
-      reserved_infos.BENCHMARKS.name in hist.diagnostics,
-      'Histograms must have "%s" diagnostic' % reserved_infos.BENCHMARKS.name)
-  benchmark = hist.diagnostics[reserved_infos.BENCHMARKS.name]
-  _CheckRequest(
-      len(benchmark) == 1,
-      'Histograms must have exactly 1 "%s"' % reserved_infos.BENCHMARKS.name)
-  benchmark = list(benchmark)[0]
-
-  return master, bot, benchmark
+      len(value) == 1,
+      'Histograms must have exactly 1 "%s"' % name)
+  return list(value)[0]
 
 
 def ComputeRevision(histograms):
   _CheckRequest(len(histograms) > 0, 'Must upload at least one histogram')
-  diagnostics = histograms.GetFirstHistogram().diagnostics
-  _CheckRequest(reserved_infos.CHROMIUM_COMMIT_POSITIONS.name in diagnostics,
-                'Histograms must have Chromium commit position attached')
-  chromium_commit_position = list(diagnostics[
-      reserved_infos.CHROMIUM_COMMIT_POSITIONS.name])
-
-  _CheckRequest(len(chromium_commit_position) == 1,
-                'Chromium commit position must have 1 value')
+  commit_position = _GetDiagnosticValue(
+      reserved_infos.CHROMIUM_COMMIT_POSITIONS.name,
+      histograms.GetFirstHistogram())
 
   # TODO(eakuefner): Allow users to specify other types of revisions to be used
   # for computing revisions of dashboard points. See
   # https://github.com/catapult-project/catapult/issues/3623.
-  return chromium_commit_position[0]
+  if not isinstance(commit_position, int):
+    raise api_request_handler.BadRequestError(
+        'Commit Position must be an integer.')
+  return commit_position
 
 
 def InlineDenseSharedDiagnostics(histograms):
@@ -395,3 +396,14 @@ def InlineDenseSharedDiagnostics(histograms):
     for name, diag in diagnostics.iteritems():
       if name not in SPARSE_DIAGNOSTIC_NAMES:
         diag.Inline()
+
+
+def _PurgeHistogramBinData(histograms):
+  # We do this because RelatedEventSet and Breakdown data in bins is
+  # enormous in their current implementation.
+  for cur_hist in histograms:
+    for cur_bin in cur_hist.bins:
+      for dm in cur_bin.diagnostic_maps:
+        keys = dm.keys()
+        for k in keys:
+          del dm[k]

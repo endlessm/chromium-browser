@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/location.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/single_thread_task_runner.h"
@@ -65,7 +66,7 @@ void BluetoothConnection::Disconnect() {
   // this connection is not reused.
   SetStatus(DISCONNECTED);
   if (socket_.get()) {
-    socket_->Disconnect(base::Bind(&base::DoNothing));
+    socket_->Disconnect(base::DoNothing());
     socket_ = nullptr;
   }
   if (adapter_.get()) {

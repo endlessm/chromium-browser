@@ -22,10 +22,13 @@ set(DEQP_VK_SYNCHRONIZATION_SRCS
 	vktSynchronizationInternallySynchronizedObjectsTests.cpp
 	vktSynchronizationInternallySynchronizedObjectsTests.hpp
 	vktSynchronizationOperationTestData.hpp
+	vktSynchronizationCrossInstanceSharingTests.cpp
+	vktSynchronizationCrossInstanceSharingTests.hpp
+	vktSynchronizationWin32KeyedMutexTests.cpp
+	vktSynchronizationWin32KeyedMutexTests.hpp
 	)
 
 set(DEQP_VK_SYNCHRONIZATION_LIBS
-	deqp-vk-common
 	tcutil
 	vkutil
 	)

@@ -10,6 +10,7 @@
 
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_task_environment.h"
 #include "components/omnibox/browser/autocomplete_controller.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/omnibox_edit_model.h"
@@ -31,7 +32,6 @@ class TestOmniboxPopupView : public OmniboxPopupView {
   void OnLineSelected(size_t line) override {}
   void UpdatePopupAppearance() override {}
   void OnMatchIconUpdated(size_t match_index) override {}
-  gfx::Rect GetTargetBounds() override { return gfx::Rect(); }
   void PaintUpdatesNow() override {}
   void OnDragCanceled() override {}
 };
@@ -49,6 +49,7 @@ class OmniboxPopupModelTest : public ::testing::Test {
   OmniboxPopupModel* popup_model() { return &popup_model_; }
 
  private:
+  base::test::ScopedTaskEnvironment task_environment_;
   TestOmniboxEditController controller_;
   TestOmniboxView view_;
   OmniboxEditModel model_;

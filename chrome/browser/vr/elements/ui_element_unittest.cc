@@ -8,7 +8,7 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "cc/animation/animation.h"
+#include "cc/animation/keyframe_model.h"
 #include "cc/animation/keyframed_animation_curve.h"
 #include "cc/test/geometry_test_utils.h"
 #include "chrome/browser/vr/test/animation_utils.h"
@@ -102,9 +102,9 @@ TEST(UiElement, AnimateSize) {
   UiScene scene;
   auto rect = std::make_unique<UiElement>();
   rect->SetSize(10, 100);
-  rect->AddAnimation(CreateBoundsAnimation(1, 1, gfx::SizeF(10, 100),
-                                           gfx::SizeF(20, 200),
-                                           MicrosecondsToDelta(10000)));
+  rect->AddKeyframeModel(CreateBoundsAnimation(1, 1, gfx::SizeF(10, 100),
+                                               gfx::SizeF(20, 200),
+                                               MicrosecondsToDelta(10000)));
   UiElement* rect_ptr = rect.get();
   scene.AddUiElement(kRoot, std::move(rect));
   base::TimeTicks start_time = MicrosecondsToTicks(1);
@@ -125,7 +125,7 @@ TEST(UiElement, AnimationAffectsInheritableTransform) {
   from_operations.AppendTranslate(10, 100, 1000);
   cc::TransformOperations to_operations;
   to_operations.AppendTranslate(20, 200, 2000);
-  rect_ptr->AddAnimation(CreateTransformAnimation(
+  rect_ptr->AddKeyframeModel(CreateTransformAnimation(
       2, 2, from_operations, to_operations, MicrosecondsToDelta(10000)));
 
   base::TimeTicks start_time = MicrosecondsToTicks(1);
@@ -206,16 +206,16 @@ class ElementEventHandlers {
   explicit ElementEventHandlers(UiElement* element) {
     DCHECK(element);
     EventHandlers event_handlers;
-    event_handlers.hover_enter = base::Bind(
+    event_handlers.hover_enter = base::BindRepeating(
         &ElementEventHandlers::HandleHoverEnter, base::Unretained(this));
-    event_handlers.hover_move = base::Bind(
+    event_handlers.hover_move = base::BindRepeating(
         &ElementEventHandlers::HandleHoverMove, base::Unretained(this));
-    event_handlers.hover_leave = base::Bind(
+    event_handlers.hover_leave = base::BindRepeating(
         &ElementEventHandlers::HandleHoverLeave, base::Unretained(this));
-    event_handlers.button_down = base::Bind(
+    event_handlers.button_down = base::BindRepeating(
         &ElementEventHandlers::HandleButtonDown, base::Unretained(this));
-    event_handlers.button_up = base::Bind(&ElementEventHandlers::HandleButtonUp,
-                                          base::Unretained(this));
+    event_handlers.button_up = base::BindRepeating(
+        &ElementEventHandlers::HandleButtonUp, base::Unretained(this));
     element->set_event_handlers(event_handlers);
   }
   void HandleHoverEnter() { hover_enter_ = true; }

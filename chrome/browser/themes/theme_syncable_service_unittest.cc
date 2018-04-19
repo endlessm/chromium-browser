@@ -21,8 +21,6 @@
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/common/extensions/extension_test_util.h"
 #include "chrome/test/base/testing_profile.h"
-#include "components/sync/model/attachments/attachment_id.h"
-#include "components/sync/model/attachments/attachment_service_proxy_for_test.h"
 #include "components/sync/model/fake_sync_change_processor.h"
 #include "components/sync/model/sync_change_processor_wrapper_for_test.h"
 #include "components/sync/model/sync_error.h"
@@ -138,7 +136,7 @@ scoped_refptr<extensions::Extension> MakeThemeExtension(
   base::DictionaryValue source;
   source.SetString(extensions::manifest_keys::kName, name);
   source.Set(extensions::manifest_keys::kTheme,
-             base::MakeUnique<base::DictionaryValue>());
+             std::make_unique<base::DictionaryValue>());
   source.SetString(extensions::manifest_keys::kUpdateURL, update_url);
   source.SetString(extensions::manifest_keys::kVersion, "0.0.0.0");
   string error;
@@ -456,15 +454,9 @@ TEST_F(ThemeSyncableServiceTest, ProcessSyncThemeChange) {
   sync_pb::EntitySpecifics entity_specifics;
   entity_specifics.mutable_theme()->CopyFrom(theme_specifics);
   syncer::SyncChangeList change_list;
-  change_list.push_back(
-      syncer::SyncChange(FROM_HERE,
-                         syncer::SyncChange::ACTION_UPDATE,
-                         syncer::SyncData::CreateRemoteData(
-                             1,
-                             entity_specifics,
-                             base::Time(),
-                             syncer::AttachmentIdList(),
-                             syncer::AttachmentServiceProxyForTest::Create())));
+  change_list.push_back(syncer::SyncChange(
+      FROM_HERE, syncer::SyncChange::ACTION_UPDATE,
+      syncer::SyncData::CreateRemoteData(1, entity_specifics, base::Time())));
   error = theme_sync_service_->ProcessSyncChanges(FROM_HERE, change_list);
   EXPECT_FALSE(error.IsSet()) << error.message();
   EXPECT_EQ(fake_theme_service_->theme_extension(), theme_extension_.get());

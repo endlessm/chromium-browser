@@ -12,6 +12,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/histogram_tester.h"
 #include "base/test/scoped_command_line.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile_window.h"
@@ -21,6 +22,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -46,6 +48,7 @@
 #include "content/public/common/page_type.h"
 #include "content/public/common/referrer.h"
 #include "content/public/test/browser_test_utils.h"
+#include "content/public/test/test_navigation_observer.h"
 #include "net/base/net_errors.h"
 #include "net/cert/cert_status_flags.h"
 #include "net/cert/cert_verify_result.h"
@@ -397,11 +400,9 @@ class SecurityStateTabHelperTest : public CertVerifierBrowserTest {
   }
 
   // Navigates to an empty page and runs |javascript| to create a URL with with
-  // a scheme of |scheme|. If |expect_warning| is true, expects a password
-  // warning.
-  void TestPasswordFieldOnBlobOrFilesystemURL(const std::string& scheme,
-                                              const std::string& javascript,
-                                              bool expect_warning) {
+  // a scheme of |scheme|. Expects a security level of HTTP_SHOW_WARNING.
+  void TestBlobOrFilesystemURL(const std::string& scheme,
+                               const std::string& javascript) {
     content::WebContents* contents =
         browser()->tab_strip_model()->GetActiveWebContents();
     ASSERT_TRUE(contents);
@@ -429,15 +430,7 @@ class SecurityStateTabHelperTest : public CertVerifierBrowserTest {
         contents->GetController().GetVisibleEntry();
     ASSERT_TRUE(entry);
 
-    security_state::InsecureInputEventData input_events = GetInputEvents(entry);
-    if (expect_warning) {
-      EXPECT_EQ(security_state::HTTP_SHOW_WARNING,
-                security_info.security_level);
-      EXPECT_TRUE(input_events.password_field_shown);
-    } else {
-      EXPECT_EQ(security_state::NONE, security_info.security_level);
-      EXPECT_FALSE(input_events.password_field_shown);
-    }
+    EXPECT_EQ(security_state::HTTP_SHOW_WARNING, security_info.security_level);
   }
 
   net::EmbeddedTestServer https_server_;
@@ -1197,8 +1190,16 @@ IN_PROC_BROWSER_TEST_F(SecurityStateLoadingTest, NavigationStateChanges) {
 
 // Tests that when a visible password field is detected on an HTTP page
 // load, the security level is downgraded to HTTP_SHOW_WARNING.
+//
+// Disabled on Mac bots. See crbug.com/812960.
+#if defined(OS_MACOSX)
+#define MAYBE_PasswordSecurityLevelDowngraded \
+  DISABLED_PasswordSecurityLevelDowngraded
+#else
+#define MAYBE_PasswordSecurityLevelDowngraded PasswordSecurityLevelDowngraded
+#endif
 IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
-                       PasswordSecurityLevelDowngraded) {
+                       MAYBE_PasswordSecurityLevelDowngraded) {
   content::WebContents* contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   ASSERT_TRUE(contents);
@@ -1220,57 +1221,31 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
   EXPECT_TRUE(GetInputEvents(entry).password_field_shown);
 }
 
-// Tests that when a visible password field is detected on a blob URL, the
-// security level is downgraded to HTTP_SHOW_WARNING.
-IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
-                       PasswordSecurityLevelDowngradedOnBlobUrl) {
-  TestPasswordFieldOnBlobOrFilesystemURL(
-      "blob",
-      "var blob = new Blob(['<html><form><input type=password></form></html>'],"
-      "                    {type: 'text/html'});"
-      "window.domAutomationController.send(URL.createObjectURL(blob));",
-      true /* expect_warning */);
-}
-
-// Tests that when no password field is detected on a blob URL, the security
-// level is not downgraded to HTTP_SHOW_WARNING.
+// Tests the default security level on blob URLs.
 IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
                        DefaultSecurityLevelOnBlobUrl) {
-  TestPasswordFieldOnBlobOrFilesystemURL(
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeatureWithParameters(
+      security_state::features::kMarkHttpAsFeature,
+      {{security_state::features::kMarkHttpAsFeatureParameterName,
+        security_state::features::kMarkHttpAsParameterWarning}});
+  TestBlobOrFilesystemURL(
       "blob",
-      "var blob = new Blob(['<html>no password or credit card field</html>'],"
+      "var blob = new Blob(['<html>hello</html>'],"
       "                    {type: 'text/html'});"
-      "window.domAutomationController.send(URL.createObjectURL(blob));",
-      false /* expect_warning */);
-}
-
-// Same as PasswordSecurityLevelDowngradedOnBlobUrl, but instead of a blob URL,
-// this creates a filesystem URL.
-IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
-                       PasswordSecurityLevelDowngradedOnFilesystemUrl) {
-  TestPasswordFieldOnBlobOrFilesystemURL(
-      "filesystem",
-      "window.webkitRequestFileSystem(window.TEMPORARY, 4096, function(fs) {"
-      "  fs.root.getFile('test.html', {create: true}, function(fileEntry) {"
-      "    fileEntry.createWriter(function(writer) {"
-      "      writer.onwriteend = function(e) {"
-      "        window.domAutomationController.send(fileEntry.toURL());"
-      "      };"
-      "      var blob ="
-      "          new Blob(['<html><form><input type=password></form></html>'],"
-      "                   {type: 'text/html'});"
-      "      writer.write(blob);"
-      "    });"
-      "  });"
-      "});",
-      true /* expect_warning */);
+      "window.domAutomationController.send(URL.createObjectURL(blob));");
 }
 
 // Same as DefaultSecurityLevelOnBlobUrl, but instead of a blob URL,
 // this creates a filesystem URL.
 IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
                        DefaultSecurityLevelOnFilesystemUrl) {
-  TestPasswordFieldOnBlobOrFilesystemURL(
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeatureWithParameters(
+      security_state::features::kMarkHttpAsFeature,
+      {{security_state::features::kMarkHttpAsFeatureParameterName,
+        security_state::features::kMarkHttpAsParameterWarning}});
+  TestBlobOrFilesystemURL(
       "filesystem",
       "window.webkitRequestFileSystem(window.TEMPORARY, 4096, function(fs) {"
       "  fs.root.getFile('test.html', {create: true}, function(fileEntry) {"
@@ -1279,19 +1254,22 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
       "        window.domAutomationController.send(fileEntry.toURL());"
       "      };"
       "      var blob ="
-      "          new Blob(['<html>no password or credit card field</html>'],"
+      "          new Blob(['<html>hello</html>'],"
       "                   {type: 'text/html'});"
       "      writer.write(blob);"
       "    });"
       "  });"
-      "});",
-      false /* expect_warning */);
+      "});");
 }
 
 // Tests that when an invisible password field is present on an HTTP page load,
 // the security level is *not* downgraded to HTTP_SHOW_WARNING.
 IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
                        PasswordSecurityLevelNotDowngradedForInvisibleInput) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      security_state::features::kMarkHttpAsFeature);
+
   content::WebContents* contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   ASSERT_TRUE(contents);
@@ -1403,83 +1381,17 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
   EXPECT_FALSE(GetInputEvents(entry).password_field_shown);
 }
 
-// Tests that the security level of a HTTP page is downgraded to
-// HTTP_SHOW_WARNING after editing a form field in the relevant configurations.
-IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
-                       SecurityLevelDowngradedAfterEditing) {
-  content::WebContents* contents =
-      browser()->tab_strip_model()->GetActiveWebContents();
-
-  SecurityStateTabHelper* helper =
-      SecurityStateTabHelper::FromWebContents(contents);
-  ASSERT_TRUE(helper);
-
-  // Navigate to an HTTP page. Use a non-local hostname so that it is
-  // not considered secure.
-  ui_test_utils::NavigateToURL(
-      browser(),
-      GetURLWithNonLocalHostname(embedded_test_server(),
-                                 "/textinput/focus_input_on_load.html"));
-  security_state::SecurityInfo security_info;
-  helper->GetSecurityInfo(&security_info);
-  EXPECT_EQ(security_state::NONE, security_info.security_level);
-
-  // Type one character into the focused input control and wait for a security
-  // state change.
-  SecurityStyleTestObserver observer(contents);
-  content::SimulateKeyPress(contents, ui::DomKey::FromCharacter('A'),
-                            ui::DomCode::US_A, ui::VKEY_A, false, false, false,
-                            false);
-  observer.WaitForDidChangeVisibleSecurityState();
-
-  // Verify that the security state degrades as expected.
-  helper->GetSecurityInfo(&security_info);
-  EXPECT_EQ(security_state::HTTP_SHOW_WARNING, security_info.security_level);
-  EXPECT_TRUE(security_info.field_edit_downgraded_security_level);
-  EXPECT_EQ(1u, observer.latest_explanations().neutral_explanations.size());
-
-  content::NavigationEntry* entry = contents->GetController().GetVisibleEntry();
-  ASSERT_TRUE(entry);
-  EXPECT_TRUE(GetInputEvents(entry).insecure_field_edited);
-
-  {
-    // Ensure that the security level remains Dangerous in the
-    // kMarkHttpAsDangerous configuration.
-    base::test::ScopedFeatureList scoped_feature_list;
-    scoped_feature_list.InitAndEnableFeatureWithParameters(
-        security_state::features::kMarkHttpAsFeature,
-        {{security_state::features::kMarkHttpAsFeatureParameterName,
-          security_state::features::kMarkHttpAsParameterDangerous}});
-
-    helper->GetSecurityInfo(&security_info);
-    EXPECT_EQ(security_state::DANGEROUS, security_info.security_level);
-    EXPECT_FALSE(security_info.field_edit_downgraded_security_level);
-  }
-
-  // Verify security state stays degraded after same-page navigation.
-  ui_test_utils::NavigateToURL(
-      browser(), GetURLWithNonLocalHostname(
-                     embedded_test_server(),
-                     "/textinput/focus_input_on_load.html#fragment"));
-  content::WaitForLoadStop(contents);
-  helper->GetSecurityInfo(&security_info);
-  EXPECT_EQ(security_state::HTTP_SHOW_WARNING, security_info.security_level);
-  EXPECT_TRUE(security_info.field_edit_downgraded_security_level);
-  EXPECT_EQ(1u, observer.latest_explanations().neutral_explanations.size());
-
-  // Verify that after a refresh, the HTTP_SHOW_WARNING state is cleared.
-  contents->GetController().Reload(content::ReloadType::NORMAL, false);
-  content::WaitForLoadStop(contents);
-  helper->GetSecurityInfo(&security_info);
-  EXPECT_EQ(security_state::NONE, security_info.security_level);
-  EXPECT_FALSE(security_info.field_edit_downgraded_security_level);
-  EXPECT_EQ(0u, observer.latest_explanations().neutral_explanations.size());
-}
-
 // Tests that the security level of a HTTP page is not downgraded when a form
 // field is modified by JavaScript.
 IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
                        SecurityLevelNotDowngradedAfterScriptModification) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeatureWithParameters(
+      security_state::features::kMarkHttpAsFeature,
+      {{security_state::features::kMarkHttpAsFeatureParameterName,
+        security_state::features::
+            kMarkHttpAsParameterWarningAndDangerousOnFormEdits}});
+
   content::WebContents* contents =
       browser()->tab_strip_model()->GetActiveWebContents();
 
@@ -1495,7 +1407,7 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
                                  "/textinput/focus_input_on_load.html"));
   security_state::SecurityInfo security_info;
   helper->GetSecurityInfo(&security_info);
-  EXPECT_EQ(security_state::NONE, security_info.security_level);
+  EXPECT_EQ(security_state::HTTP_SHOW_WARNING, security_info.security_level);
 
   // Verify a value set operation isn't treated as user-input.
   EXPECT_TRUE(content::ExecuteScript(
@@ -1503,7 +1415,7 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
   InjectScript(contents);
   base::RunLoop().RunUntilIdle();
   helper->GetSecurityInfo(&security_info);
-  ASSERT_EQ(security_state::NONE, security_info.security_level);
+  ASSERT_EQ(security_state::HTTP_SHOW_WARNING, security_info.security_level);
   ASSERT_FALSE(security_info.field_edit_downgraded_security_level);
 
   // Verify an InsertText operation isn't treated as user-input.
@@ -1512,7 +1424,7 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
   InjectScript(contents);
   base::RunLoop().RunUntilIdle();
   helper->GetSecurityInfo(&security_info);
-  ASSERT_EQ(security_state::NONE, security_info.security_level);
+  ASSERT_EQ(security_state::HTTP_SHOW_WARNING, security_info.security_level);
   ASSERT_FALSE(security_info.field_edit_downgraded_security_level);
 }
 
@@ -1572,7 +1484,15 @@ void CheckForOneHttpWarningConsoleMessage(
 // Tests that console messages are printed upon a call to
 // GetSecurityInfo() on an HTTP_SHOW_WARNING page, exactly once per
 // main-frame navigation.
+//
+// TODO(estark): add console messages for the |kMarkHttpAsParameterWarning|
+// configuration of |kMarkHttpAsFeature| and update this test accordingly.
+// https://crbug.com/802921
 IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest, ConsoleMessage) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      security_state::features::kMarkHttpAsFeature);
+
   ConsoleWebContentsDelegate* delegate = new ConsoleWebContentsDelegate(
       Browser::CreateParams(browser()->profile(), true));
   content::WebContents* original_contents =
@@ -1639,8 +1559,16 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest, ConsoleMessage) {
 
 // Tests that additional HTTP_SHOW_WARNING console messages are not
 // printed after subframe navigations.
+//
+// TODO(estark): add console messages for the |kMarkHttpAsParameterWarning|
+// configuration of |kMarkHttpAsFeature| and update this test accordingly.
+// https://crbug.com/802921
 IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
                        ConsoleMessageNotPrintedForFrameNavigation) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      security_state::features::kMarkHttpAsFeature);
+
   ConsoleWebContentsDelegate* delegate = new ConsoleWebContentsDelegate(
       Browser::CreateParams(browser()->profile(), true));
   content::WebContents* original_contents =
@@ -1722,8 +1650,16 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
 
 // Tests that additional HTTP_SHOW_WARNING console messages are not
 // printed after pushState navigations.
+//
+// TODO(estark): add console messages for the |kMarkHttpAsParameterWarning|
+// configuration of |kMarkHttpAsFeature| and update this test accordingly.
+// https://crbug.com/802921
 IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
                        ConsoleMessageNotPrintedForPushStateNavigation) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      security_state::features::kMarkHttpAsFeature);
+
   ConsoleWebContentsDelegate* delegate = new ConsoleWebContentsDelegate(
       Browser::CreateParams(browser()->profile(), true));
   content::WebContents* original_contents =
@@ -1979,6 +1915,10 @@ IN_PROC_BROWSER_TEST_F(DidChangeVisibleSecurityStateTest,
 // to HTTP_SHOW_WARNING.
 IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperIncognitoTest,
                        SecurityLevelDowngradedForHTTPInIncognito) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      security_state::features::kMarkHttpAsFeature);
+
   ConsoleWebContentsDelegate* delegate = new ConsoleWebContentsDelegate(
       Browser::CreateParams(browser()->profile(), true));
   content::WebContents* original_contents =
@@ -2030,8 +1970,16 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperIncognitoTest,
 
 // Tests that additional HTTP_SHOW_WARNING console messages are not
 // printed after aborted navigations.
+//
+// TODO(estark): add console messages for the |kMarkHttpAsParameterWarning|
+// configuration of |kMarkHttpAsFeature| and update this test accordingly.
+// https://crbug.com/802921
 IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperIncognitoTest,
                        ConsoleMessageNotPrintedForAbortedNavigation) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      security_state::features::kMarkHttpAsFeature);
+
   ConsoleWebContentsDelegate* delegate = new ConsoleWebContentsDelegate(
       Browser::CreateParams(browser()->profile(), true));
   content::WebContents* original_contents =
@@ -2098,6 +2046,10 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperIncognitoTest,
 #endif
 IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
                        MAYBE_SecurityLevelNotDowngradedForHTTPInGuestMode) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      security_state::features::kMarkHttpAsFeature);
+
   // Create a new browser in Guest Mode.
   EXPECT_EQ(1U, BrowserList::GetInstance()->size());
   content::WindowedNotificationObserver browser_creation_observer(
@@ -2511,6 +2463,20 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
   helper->GetSecurityInfo(&security_info);
   EXPECT_EQ(security_state::HTTP_SHOW_WARNING, security_info.security_level);
 
+  {
+    // Ensure that the security level remains Dangerous in the
+    // kMarkHttpAsDangerous configuration.
+    base::test::ScopedFeatureList scoped_feature_list;
+    scoped_feature_list.InitAndEnableFeatureWithParameters(
+        security_state::features::kMarkHttpAsFeature,
+        {{security_state::features::kMarkHttpAsFeatureParameterName,
+          security_state::features::kMarkHttpAsParameterDangerous}});
+
+    helper->GetSecurityInfo(&security_info);
+    EXPECT_EQ(security_state::DANGEROUS, security_info.security_level);
+    EXPECT_FALSE(security_info.field_edit_downgraded_security_level);
+  }
+
   // Type one character into the focused input control and wait for a security
   // state change.
   SecurityStyleTestObserver observer(contents);
@@ -2522,6 +2488,21 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
   // Verify that the security state degrades as expected.
   helper->GetSecurityInfo(&security_info);
   EXPECT_EQ(security_state::DANGEROUS, security_info.security_level);
+
+  // Verify security state stays degraded after same-page navigation.
+  ui_test_utils::NavigateToURL(
+      browser(), GetURLWithNonLocalHostname(
+                     embedded_test_server(),
+                     "/textinput/focus_input_on_load.html#fragment"));
+  content::WaitForLoadStop(contents);
+  helper->GetSecurityInfo(&security_info);
+  EXPECT_EQ(security_state::DANGEROUS, security_info.security_level);
+
+  // Verify that after a refresh, the DANGEROUS state is cleared.
+  contents->GetController().Reload(content::ReloadType::NORMAL, false);
+  content::WaitForLoadStop(contents);
+  helper->GetSecurityInfo(&security_info);
+  EXPECT_EQ(security_state::HTTP_SHOW_WARNING, security_info.security_level);
 }
 
 IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
@@ -2667,6 +2648,38 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest, CTComplianceHistogram) {
   histograms.ExpectUniqueSample(
       kHistogramName, net::ct::CTPolicyCompliance::CT_POLICY_NOT_ENOUGH_SCTS,
       1);
+}
+
+// Tests that the Form submission histogram is logged correctly.
+IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest, FormSecurityLevelHistogram) {
+  const char kHistogramName[] = "Security.SecurityLevel.FormSubmission";
+  SetUpMockCertVerifierForHttpsServer(0, net::OK);
+  base::HistogramTester histograms;
+  // Create a server with an expired certificate for the form to target.
+  net::EmbeddedTestServer broken_https_server(
+      net::EmbeddedTestServer::TYPE_HTTPS);
+  broken_https_server.SetSSLConfig(net::EmbeddedTestServer::CERT_EXPIRED);
+  broken_https_server.ServeFilesFromSourceDirectory(base::FilePath(kDocRoot));
+  ASSERT_TRUE(broken_https_server.Start());
+
+  // Make the form target the expired certificate server.
+  std::string replacement_path;
+  net::HostPortPair host_port_pair =
+      net::HostPortPair::FromURL(broken_https_server.GetURL("/google.html"));
+  GetFilePathWithHostAndPortReplacement(
+      "/ssl/page_with_form_targeting_insecure_url.html", host_port_pair,
+      &replacement_path);
+  ui_test_utils::NavigateToURL(browser(),
+                               https_server_.GetURL(replacement_path));
+  content::TestNavigationObserver navigation_observer(
+      browser()->tab_strip_model()->GetActiveWebContents());
+  ASSERT_TRUE(content::ExecuteScript(
+      browser()->tab_strip_model()->GetActiveWebContents(),
+      "document.getElementById('submit').click();"));
+  navigation_observer.Wait();
+  // Check that the histogram count logs the security level of the page
+  // containing the form, not of the form target page.
+  histograms.ExpectUniqueSample(kHistogramName, security_state::SECURE, 1);
 }
 
 }  // namespace

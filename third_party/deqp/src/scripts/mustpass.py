@@ -27,6 +27,7 @@ from build_caselists import Module, getModuleByName, getBuildConfig, genCaseList
 from fnmatch import fnmatch
 from copy import copy
 
+import argparse
 import xml.etree.cElementTree as ElementTree
 import xml.dom.minidom as minidom
 
@@ -304,6 +305,10 @@ def genAndroidTestXml (mustpass):
 	RUNNER_CLASS = "com.drawelements.deqp.runner.DeqpTestRunner"
 	configElement = ElementTree.Element("configuration")
 
+	# add in metadata option for component name
+	ElementTree.SubElement(configElement, "option", name="test-suite-tag", value="cts")
+	ElementTree.SubElement(configElement, "option", name="config-descriptor:metadata", key="component", value="deqp")
+
 	for package in mustpass.packages:
 		for config in package.configurations:
 			testElement = ElementTree.SubElement(configElement, "test")
@@ -372,3 +377,27 @@ def genMustpassLists (mustpassLists, generator, buildCfg):
 
 	for mustpass in mustpassLists:
 		genMustpass(mustpass, moduleCaseLists)
+
+def parseCmdLineArgs ():
+	parser = argparse.ArgumentParser(description = "Build Android CTS mustpass",
+									 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+	parser.add_argument("-b",
+						"--build-dir",
+						dest="buildDir",
+						default=DEFAULT_BUILD_DIR,
+						help="Temporary build directory")
+	parser.add_argument("-t",
+						"--build-type",
+						dest="buildType",
+						default="Debug",
+						help="Build type")
+	parser.add_argument("-c",
+						"--deqp-target",
+						dest="targetName",
+						default=DEFAULT_TARGET,
+						help="dEQP build target")
+	return parser.parse_args()
+
+def parseBuildConfigFromCmdLineArgs ():
+	args = parseCmdLineArgs()
+	return getBuildConfig(args.buildDir, args.targetName, args.buildType)

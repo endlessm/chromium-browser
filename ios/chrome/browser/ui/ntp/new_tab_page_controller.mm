@@ -28,9 +28,7 @@
 #import "ios/chrome/browser/ui/ntp/incognito_view_controller.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_bar_item.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_view.h"
-#import "ios/chrome/browser/ui/ntp/recent_tabs/recent_tabs_table_coordinator.h"
 #import "ios/chrome/browser/ui/rtl_geometry.h"
-#include "ios/chrome/browser/ui/toolbar/toolbar_model_ios.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/web/web_state/ui/crw_swipe_recognizer_provider.h"
@@ -58,7 +56,7 @@ const CGFloat kToolbarHeight = 56;
   __weak id<OmniboxFocuser> _focuser;
 
   // Delegate to fetch the ToolbarModel and current web state from.
-  __weak id<IncognitoViewControllerDelegate> _toolbarDelegate;
+  __weak id<NewTabPageControllerDelegate> _toolbarDelegate;
 
   TabModel* _tabModel;
 }
@@ -113,7 +111,7 @@ const CGFloat kToolbarHeight = 56;
                   loader:(id<UrlLoader>)loader
                  focuser:(id<OmniboxFocuser>)focuser
             browserState:(ios::ChromeBrowserState*)browserState
-         toolbarDelegate:(id<IncognitoViewControllerDelegate>)toolbarDelegate
+         toolbarDelegate:(id<NewTabPageControllerDelegate>)toolbarDelegate
                 tabModel:(TabModel*)tabModel
     parentViewController:(UIViewController*)parentViewController
               dispatcher:(id<ApplicationCommands,
@@ -259,26 +257,16 @@ const CGFloat kToolbarHeight = 56;
   return NO;
 }
 
-- (void)dismissKeyboard {
-  [_currentController dismissKeyboard];
-}
-
 - (void)dismissModals {
   [_currentController dismissModals];
 }
 
 - (void)willUpdateSnapshot {
-  if ([_currentController respondsToSelector:@selector(willUpdateSnapshot)]) {
-    [_currentController willUpdateSnapshot];
-  }
+  [_currentController willUpdateSnapshot];
 }
 
 - (CGPoint)scrollOffset {
-  if (_currentController == self.homePanel &&
-      [self.homePanel respondsToSelector:@selector(scrollOffset)]) {
-    return [self.homePanel scrollOffset];
-  }
-  return CGPointZero;
+  return [_currentController scrollOffset];
 }
 
 #pragma mark -
@@ -306,6 +294,7 @@ const CGFloat kToolbarHeight = 56;
 - (BOOL)loadPanel:(NewTabPageBarItem*)item {
   DCHECK(self.parentViewController);
   UIViewController* panelController = nil;
+  UICollectionView* collectionView = nil;
   // Only load the controllers once.
   if (item.identifier == ntp_home::HOME_PANEL) {
     if (!self.contentSuggestionsCoordinator) {
@@ -316,11 +305,14 @@ const CGFloat kToolbarHeight = 56;
       self.contentSuggestionsCoordinator.dispatcher = self.dispatcher;
       self.contentSuggestionsCoordinator.webStateList =
           [_tabModel webStateList];
+      self.contentSuggestionsCoordinator.toolbarDelegate = _toolbarDelegate;
       [self.contentSuggestionsCoordinator start];
       self.headerController =
           self.contentSuggestionsCoordinator.headerController;
     }
     panelController = [self.contentSuggestionsCoordinator viewController];
+    collectionView =
+        self.contentSuggestionsCoordinator.viewController.collectionView;
     self.homePanel = self.contentSuggestionsCoordinator;
     [self.homePanel setDelegate:self];
   } else if (item.identifier == ntp_home::INCOGNITO_PANEL) {
@@ -356,6 +348,7 @@ const CGFloat kToolbarHeight = 56;
     [self.parentViewController addChildViewController:panelController];
     [self.view insertSubview:view belowSubview:self.view.tabBar];
     self.view.contentView = view;
+    self.view.contentCollectionView = collectionView;
     [panelController didMoveToParentViewController:self.parentViewController];
   }
   return created;

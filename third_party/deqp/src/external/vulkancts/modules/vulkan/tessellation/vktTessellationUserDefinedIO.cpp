@@ -825,12 +825,12 @@ tcu::TestStatus UserDefinedIOTestInstance::iterate (void)
 
 	// Pipeline
 
-	const Unique<VkImageView>      colorAttachmentView(makeImageView     (vk, device, *colorAttachmentImage, VK_IMAGE_VIEW_TYPE_2D, colorFormat, colorImageSubresourceRange));
-	const Unique<VkRenderPass>     renderPass         (makeRenderPass    (vk, device, colorFormat));
-	const Unique<VkFramebuffer>    framebuffer        (makeFramebuffer   (vk, device, *renderPass, *colorAttachmentView, renderSize.x(), renderSize.y(), 1u));
+	const Unique<VkImageView>      colorAttachmentView(makeImageView(vk, device, *colorAttachmentImage, VK_IMAGE_VIEW_TYPE_2D, colorFormat, colorImageSubresourceRange));
+	const Unique<VkRenderPass>     renderPass         (makeRenderPass(vk, device, colorFormat));
+	const Unique<VkFramebuffer>    framebuffer        (makeFramebuffer(vk, device, *renderPass, *colorAttachmentView, renderSize.x(), renderSize.y(), 1u));
 	const Unique<VkPipelineLayout> pipelineLayout     (makePipelineLayout(vk, device, *descriptorSetLayout));
-	const Unique<VkCommandPool>    cmdPool            (makeCommandPool   (vk, device, queueFamilyIndex));
-	const Unique<VkCommandBuffer>  cmdBuffer          (makeCommandBuffer (vk, device, *cmdPool));
+	const Unique<VkCommandPool>    cmdPool            (makeCommandPool(vk, device, queueFamilyIndex));
+	const Unique<VkCommandBuffer>  cmdBuffer          (allocateCommandBuffer (vk, device, *cmdPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY));
 
 	const Unique<VkPipeline> pipeline(GraphicsPipelineBuilder()
 		.setRenderSize                (renderSize)
@@ -888,7 +888,7 @@ tcu::TestStatus UserDefinedIOTestInstance::iterate (void)
 			0u, DE_NULL, 0u, DE_NULL, 1u, &colorAttachmentPreCopyBarrier);
 	}
 	{
-		const VkBufferImageCopy copyRegion = makeBufferImageCopy(makeExtent3D(renderSize.x(), renderSize.y(), 0), makeImageSubresourceLayers(VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u));
+		const VkBufferImageCopy copyRegion = makeBufferImageCopy(makeExtent3D(renderSize.x(), renderSize.y(), 1), makeImageSubresourceLayers(VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u));
 		vk.cmdCopyImageToBuffer(*cmdBuffer, *colorAttachmentImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, *colorBuffer, 1u, &copyRegion);
 	}
 	{

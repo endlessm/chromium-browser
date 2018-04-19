@@ -77,6 +77,11 @@ namespace {
 // new chrome update.
 bool g_did_chrome_update_for_testing = false;
 
+bool ExtensionsDisabled(const base::CommandLine& command_line) {
+  return command_line.HasSwitch(switches::kDisableExtensions) ||
+         command_line.HasSwitch(switches::kDisableExtensionsExcept);
+}
+
 }  // namespace
 
 ChromeExtensionsBrowserClient::ChromeExtensionsBrowserClient() {
@@ -96,7 +101,7 @@ bool ChromeExtensionsBrowserClient::AreExtensionsDisabled(
     const base::CommandLine& command_line,
     content::BrowserContext* context) {
   Profile* profile = static_cast<Profile*>(context);
-  return switches::ExtensionsDisabled(command_line) ||
+  return ExtensionsDisabled(command_line) ||
          profile->GetPrefs()->GetBoolean(prefs::kDisableExtensions);
 }
 
@@ -176,6 +181,27 @@ ChromeExtensionsBrowserClient::MaybeCreateResourceBundleRequestJob(
       directory_path,
       content_security_policy,
       send_cors_header);
+}
+
+base::FilePath ChromeExtensionsBrowserClient::GetBundleResourcePath(
+    const network::ResourceRequest& request,
+    const base::FilePath& extension_resources_path,
+    int* resource_id) const {
+  return chrome_url_request_util::GetBundleResourcePath(
+      request, extension_resources_path, resource_id);
+}
+
+void ChromeExtensionsBrowserClient::LoadResourceFromResourceBundle(
+    const network::ResourceRequest& request,
+    network::mojom::URLLoaderRequest loader,
+    const base::FilePath& resource_relative_path,
+    int resource_id,
+    const std::string& content_security_policy,
+    network::mojom::URLLoaderClientPtr client,
+    bool send_cors_header) {
+  chrome_url_request_util::LoadResourceFromResourceBundle(
+      request, std::move(loader), resource_relative_path, resource_id,
+      content_security_policy, std::move(client), send_cors_header);
 }
 
 bool ChromeExtensionsBrowserClient::AllowCrossRendererResourceLoad(
@@ -264,6 +290,11 @@ void ChromeExtensionsBrowserClient::PermitExternalProtocolHandler() {
 
 bool ChromeExtensionsBrowserClient::IsRunningInForcedAppMode() {
   return chrome::IsRunningInForcedAppMode();
+}
+
+bool ChromeExtensionsBrowserClient::IsAppModeForcedForApp(
+    const ExtensionId& extension_id) {
+  return chrome::IsRunningInForcedAppModeForApp(extension_id);
 }
 
 bool ChromeExtensionsBrowserClient::IsLoggedInAsPublicAccount() {
@@ -451,6 +482,21 @@ ChromeExtensionsBrowserClient::GetExtensionNavigationUIData(
   if (!navigation_data)
     return nullptr;
   return navigation_data->GetExtensionNavigationUIData();
+}
+
+void ChromeExtensionsBrowserClient::GetTabAndWindowIdForWebContents(
+    content::WebContents* web_contents,
+    int* tab_id,
+    int* window_id) {
+  SessionTabHelper* session_tab_helper =
+      SessionTabHelper::FromWebContents(web_contents);
+  if (session_tab_helper) {
+    *tab_id = session_tab_helper->session_id().id();
+    *window_id = session_tab_helper->window_id().id();
+  } else {
+    *tab_id = -1;
+    *window_id = -1;
+  }
 }
 
 KioskDelegate* ChromeExtensionsBrowserClient::GetKioskDelegate() {

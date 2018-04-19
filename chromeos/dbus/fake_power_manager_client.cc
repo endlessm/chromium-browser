@@ -178,9 +178,9 @@ void FakePowerManagerClient::GetInactivityDelays(
       FROM_HERE, base::BindOnce(std::move(callback), inactivity_delays_));
 }
 
-base::Closure FakePowerManagerClient::GetSuspendReadinessCallback() {
+base::Closure FakePowerManagerClient::GetSuspendReadinessCallback(
+    const base::Location& from_where) {
   ++num_pending_suspend_readiness_callbacks_;
-
   return base::Bind(&FakePowerManagerClient::HandleSuspendReadiness,
                     base::Unretained(this));
 }
@@ -204,12 +204,12 @@ void FakePowerManagerClient::SendSuspendImminent(
     render_process_manager_delegate_->SuspendImminent();
 }
 
-void FakePowerManagerClient::SendSuspendDone() {
+void FakePowerManagerClient::SendSuspendDone(base::TimeDelta sleep_duration) {
   if (render_process_manager_delegate_)
     render_process_manager_delegate_->SuspendDone();
 
   for (auto& observer : observers_)
-    observer.SuspendDone(base::TimeDelta());
+    observer.SuspendDone(sleep_duration);
 }
 
 void FakePowerManagerClient::SendDarkSuspendImminent() {

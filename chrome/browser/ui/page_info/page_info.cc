@@ -103,6 +103,7 @@ ContentSettingsType kPermissionType[] = {
     CONTENT_SETTINGS_TYPE_GEOLOCATION,
     CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA,
     CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC,
+    CONTENT_SETTINGS_TYPE_SENSORS,
     CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
     CONTENT_SETTINGS_TYPE_JAVASCRIPT,
 #if !defined(OS_ANDROID)
@@ -181,9 +182,13 @@ bool ShouldShowPermission(
   if (info.type == CONTENT_SETTINGS_TYPE_GEOLOCATION)
     return true;
 #else
-  // Flash will always be shown. See https://crbug.com/791142.
-  if (info.type == CONTENT_SETTINGS_TYPE_PLUGINS)
+  // Flash is shown if the user has ever changed its setting for |site_url|.
+  if (info.type == CONTENT_SETTINGS_TYPE_PLUGINS &&
+      content_settings->GetWebsiteSetting(site_url, site_url,
+                                          CONTENT_SETTINGS_TYPE_PLUGINS_DATA,
+                                          std::string(), nullptr) != nullptr) {
     return true;
+  }
 #endif
 
 #if !defined(OS_ANDROID)
@@ -320,7 +325,8 @@ ChooserContextBase* GetUsbChooserContext(Profile* profile) {
 // email security-dev@chromium.org.
 const PageInfo::ChooserUIInfo kChooserUIInfo[] = {
     {CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA, &GetUsbChooserContext,
-     IDS_PAGE_INFO_USB_DEVICE_LABEL, IDS_PAGE_INFO_DELETE_USB_DEVICE, "name"},
+     IDS_PAGE_INFO_USB_DEVICE_LABEL, IDS_PAGE_INFO_USB_DEVICE_SECONDARY_LABEL,
+     IDS_PAGE_INFO_DELETE_USB_DEVICE, "name"},
 };
 
 }  // namespace
@@ -381,9 +387,11 @@ void PageInfo::RecordPageInfoAction(PageInfoAction action) {
 
   std::string histogram_name;
   if (site_url_.SchemeIsCryptographic()) {
-    if (security_level_ == security_state::SECURE ||
-        security_level_ == security_state::EV_SECURE) {
-      UMA_HISTOGRAM_ENUMERATION("Security.PageInfo.Action.HttpsUrl.Valid",
+    if (security_level_ == security_state::SECURE) {
+      UMA_HISTOGRAM_ENUMERATION("Security.PageInfo.Action.HttpsUrl.ValidNonEV",
+                                action, PAGE_INFO_COUNT);
+    } else if (security_level_ == security_state::EV_SECURE) {
+      UMA_HISTOGRAM_ENUMERATION("Security.PageInfo.Action.HttpsUrl.ValidEV",
                                 action, PAGE_INFO_COUNT);
     } else if (security_level_ == security_state::NONE) {
       UMA_HISTOGRAM_ENUMERATION("Security.PageInfo.Action.HttpsUrl.Downgraded",

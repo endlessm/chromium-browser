@@ -9,22 +9,29 @@
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/command.h"
 #include "chrome/common/extensions/extension_test_util.h"
 #include "chrome/common/extensions/manifest_handlers/content_scripts_handler.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/generated_resources.h"
 #include "components/crx_file/id_util.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/extension_builder.h"
 #include "extensions/common/extension_resource.h"
 #include "extensions/common/file_util.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/permissions/permissions_data.h"
+#include "extensions/common/value_builder.h"
 #include "net/base/mime_sniffer.h"
 #include "net/dns/mock_host_resolver.h"
 #include "skia/ext/image_operations.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "url/gurl.h"
 
@@ -84,6 +91,105 @@ TEST(ExtensionTest, LocationPriorityTest) {
             Manifest::GetHigherPriorityLocation(
                 Manifest::INTERNAL,
                 Manifest::EXTERNAL_PREF));
+}
+
+TEST(ExtensionTest, EnsureNewLinesInExtensionNameAreCollapsed) {
+  DictionaryBuilder manifest;
+  std::string unsanitized_name = "Test\n\n\n\n\n\n\n\n\n\n\n\nNew lines\u0085";
+  manifest.Set("name", unsanitized_name)
+      .Set("manifest_version", 2)
+      .Set("description", "some description");
+  scoped_refptr<const Extension> extension =
+      ExtensionBuilder()
+          .SetManifest(manifest.Build())
+          .MergeManifest(DictionaryBuilder().Set("version", "0.1").Build())
+          .Build();
+  ASSERT_TRUE(extension.get());
+  EXPECT_EQ("TestNew lines", extension->name());
+  // Ensure that non-localized name is not sanitized.
+  EXPECT_EQ(unsanitized_name, extension->non_localized_name());
+}
+
+TEST(ExtensionTest, EnsureWhitespacesInExtensionNameAreCollapsed) {
+  DictionaryBuilder manifest;
+  std::string unsanitized_name = "Test                        Whitespace";
+  manifest.Set("name", unsanitized_name)
+      .Set("manifest_version", 2)
+      .Set("description", "some description");
+  scoped_refptr<const Extension> extension =
+      ExtensionBuilder()
+          .SetManifest(manifest.Build())
+          .MergeManifest(DictionaryBuilder().Set("version", "0.1").Build())
+          .Build();
+  ASSERT_TRUE(extension.get());
+  EXPECT_EQ("Test Whitespace", extension->name());
+  // Ensure that non-localized name is not sanitized.
+  EXPECT_EQ(unsanitized_name, extension->non_localized_name());
+}
+
+// TODO(crbug.com/794252): Disallow empty extension names from being locally
+// loaded.
+TEST(ExtensionTest, EmptyName) {
+  DictionaryBuilder manifest1;
+  manifest1.Set("name", "")
+      .Set("manifest_version", 2)
+      .Set("description", "some description");
+  scoped_refptr<const Extension> extension =
+      ExtensionBuilder()
+          .SetManifest(manifest1.Build())
+          .MergeManifest(DictionaryBuilder().Set("version", "0.1").Build())
+          .Build();
+  ASSERT_TRUE(extension.get());
+  EXPECT_EQ("", extension->name());
+
+  DictionaryBuilder manifest2;
+  manifest2.Set("name", " ")
+      .Set("manifest_version", 2)
+      .Set("description", "some description");
+  extension =
+      ExtensionBuilder()
+          .SetManifest(manifest2.Build())
+          .MergeManifest(DictionaryBuilder().Set("version", "0.1").Build())
+          .Build();
+  ASSERT_TRUE(extension.get());
+  EXPECT_EQ("", extension->name());
+}
+
+TEST(ExtensionTest, RTLNameInLTRLocale) {
+  // Test the case when a directional override is the first character.
+  auto run_rtl_test = [](const wchar_t* name, const wchar_t* expected) {
+    SCOPED_TRACE(
+        base::StringPrintf("Name: %ls, Expected: %ls", name, expected));
+    DictionaryBuilder manifest;
+    manifest.Set("name", base::WideToUTF8(name))
+        .Set("manifest_version", 2)
+        .Set("description", "some description")
+        .Set("version",
+             "0.1");  // <NOTE> Moved this here to avoid the MergeManifest call.
+    scoped_refptr<const Extension> extension =
+        ExtensionBuilder().SetManifest(manifest.Build()).Build();
+    ASSERT_TRUE(extension);
+    const int kResourceId = IDS_EXTENSION_PERMISSIONS_PROMPT_TITLE;
+    const base::string16 expected_utf16 = base::WideToUTF16(expected);
+    EXPECT_EQ(l10n_util::GetStringFUTF16(kResourceId, expected_utf16),
+              l10n_util::GetStringFUTF16(kResourceId,
+                                         base::UTF8ToUTF16(extension->name())));
+    EXPECT_EQ(base::WideToUTF8(expected), extension->name());
+  };
+
+  run_rtl_test(L"\x202emoc.elgoog", L"\x202emoc.elgoog\x202c");
+  run_rtl_test(L"\x202egoogle\x202e.com/\x202eguest",
+               L"\x202egoogle\x202e.com/\x202eguest\x202c\x202c\x202c");
+  run_rtl_test(L"google\x202e.com", L"google\x202e.com\x202c");
+
+  run_rtl_test(L"كبير Google التطبيق",
+#if !defined(OS_WIN)
+               L"\x200e\x202bكبير Google التطبيق\x202c\x200e");
+#else
+               // On Windows for an LTR locale, no changes to the string are
+               // made.
+               L"كبير Google التطبيق");
+#endif  // !OS_WIN
 }
 
 TEST(ExtensionTest, GetResourceURLAndPath) {
@@ -214,22 +320,18 @@ TEST(ExtensionTest, MimeTypeSniffing) {
   ASSERT_TRUE(base::ReadFileToString(path, &data));
 
   std::string result;
-  EXPECT_TRUE(net::SniffMimeType(data.c_str(),
-                                 data.size(),
-                                 GURL("http://www.example.com/foo.crx"),
-                                 std::string(),
-                                 &result));
+  EXPECT_TRUE(net::SniffMimeType(
+      data.c_str(), data.size(), GURL("http://www.example.com/foo.crx"),
+      std::string(), net::ForceSniffFileUrlsForHtml::kDisabled, &result));
   EXPECT_EQ(std::string(Extension::kMimeType), result);
 
   data.clear();
   result.clear();
   path = path.DirName().AppendASCII("bad_magic.crx");
   ASSERT_TRUE(base::ReadFileToString(path, &data));
-  EXPECT_TRUE(net::SniffMimeType(data.c_str(),
-                                 data.size(),
-                                 GURL("http://www.example.com/foo.crx"),
-                                 std::string(),
-                                 &result));
+  EXPECT_TRUE(net::SniffMimeType(
+      data.c_str(), data.size(), GURL("http://www.example.com/foo.crx"),
+      std::string(), net::ForceSniffFileUrlsForHtml::kDisabled, &result));
   EXPECT_EQ("application/octet-stream", result);
 }
 

@@ -518,7 +518,7 @@ class SchemaNodesGenerator:
       min_value = int(schema['minimum'])
       min_value_set = True
     if 'maximum' in schema:
-      max_value = int(schema['minimum'])
+      max_value = int(schema['maximum'])
       max_value_set = True
     if min_value_set and max_value_set and min_value > max_value:
       raise RuntimeError('Invalid ranged type in %s' % name)
@@ -1168,7 +1168,8 @@ std::unique_ptr<base::Value> DecodeJson(const std::string& json) {
 
 void DecodePolicy(const em::CloudPolicySettings& policy,
                   base::WeakPtr<CloudExternalDataManager> external_data_manager,
-                  PolicyMap* map) {
+                  PolicyMap* map,
+                  PolicyScope scope) {
 '''
 
 
@@ -1234,7 +1235,7 @@ def _WriteCloudPolicyDecoderCode(f, policy):
           _CreateExternalDataFetcher(policy.policy_type, policy.name))
   f.write('          map->Set(key::k%s, \n' % policy.name)
   f.write('                   level, \n'
-          '                   POLICY_SCOPE_USER, \n'
+          '                   scope, \n'
           '                   POLICY_SOURCE_CLOUD, \n'
           '                   std::move(value), \n'
           '                   std::move(external_data_fetcher));\n'

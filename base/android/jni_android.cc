@@ -5,13 +5,14 @@
 #include "base/android/jni_android.h"
 
 #include <stddef.h>
+#include <sys/prctl.h>
 
 #include <map>
 
 #include "base/android/build_info.h"
 #include "base/android/jni_string.h"
 #include "base/android/jni_utils.h"
-#include "base/debug/debugging_flags.h"
+#include "base/debug/debugging_buildflags.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/threading/thread_local.h"
@@ -31,6 +32,8 @@ base::LazyInstance<base::ThreadLocalPointer<void>>::Leaky
     g_stack_frame_pointer = LAZY_INSTANCE_INITIALIZER;
 #endif
 
+bool g_fatal_exception_occurred = false;
+
 }  // namespace
 
 namespace base {
@@ -38,9 +41,26 @@ namespace android {
 
 JNIEnv* AttachCurrentThread() {
   DCHECK(g_jvm);
-  JNIEnv* env = NULL;
-  jint ret = g_jvm->AttachCurrentThread(&env, NULL);
-  DCHECK_EQ(JNI_OK, ret);
+  JNIEnv* env = nullptr;
+  jint ret = g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_2);
+  if (ret == JNI_EDETACHED || !env) {
+    JavaVMAttachArgs args;
+    args.version = JNI_VERSION_1_2;
+    args.group = nullptr;
+
+    // 16 is the maximum size for thread names on Android.
+    char thread_name[16];
+    int err = prctl(PR_GET_NAME, thread_name);
+    if (err < 0) {
+      DPLOG(ERROR) << "prctl(PR_GET_NAME)";
+      args.name = nullptr;
+    } else {
+      args.name = thread_name;
+    }
+
+    ret = g_jvm->AttachCurrentThread(&env, &args);
+    DCHECK_EQ(JNI_OK, ret);
+  }
   return env;
 }
 
@@ -222,10 +242,17 @@ void CheckException(JNIEnv* env) {
     env->ExceptionDescribe();
     env->ExceptionClear();
 
-    // Set the exception_string in BuildInfo so that breakpad can read it.
-    // RVO should avoid any extra copies of the exception string.
-    base::android::BuildInfo::GetInstance()->SetJavaExceptionInfo(
-        GetJavaExceptionInfo(env, java_throwable));
+    if (g_fatal_exception_occurred) {
+      // Another exception (probably OOM) occurred during GetJavaExceptionInfo.
+      base::android::BuildInfo::GetInstance()->SetJavaExceptionInfo(
+          "Java OOM'ed in exception handling, check logcat");
+    } else {
+      g_fatal_exception_occurred = true;
+      // Set the exception_string in BuildInfo so that breakpad can read it.
+      // RVO should avoid any extra copies of the exception string.
+      base::android::BuildInfo::GetInstance()->SetJavaExceptionInfo(
+          GetJavaExceptionInfo(env, java_throwable));
+    }
   }
 
   // Now, feel good about it and die.
@@ -253,6 +280,7 @@ std::string GetJavaExceptionInfo(JNIEnv* env, jthrowable java_throwable) {
   ScopedJavaLocalRef<jobject> bytearray_output_stream(env,
       env->NewObject(bytearray_output_stream_clazz.obj(),
                      bytearray_output_stream_constructor));
+  CheckException(env);
 
   // Create an instance of PrintStream.
   ScopedJavaLocalRef<jclass> printstream_clazz =
@@ -264,19 +292,19 @@ std::string GetJavaExceptionInfo(JNIEnv* env, jthrowable java_throwable) {
   ScopedJavaLocalRef<jobject> printstream(env,
       env->NewObject(printstream_clazz.obj(), printstream_constructor,
                      bytearray_output_stream.obj()));
+  CheckException(env);
 
   // Call Throwable.printStackTrace(PrintStream)
   env->CallVoidMethod(java_throwable, throwable_printstacktrace,
       printstream.obj());
+  CheckException(env);
 
   // Call ByteArrayOutputStream.toString()
   ScopedJavaLocalRef<jstring> exception_string(
       env, static_cast<jstring>(
           env->CallObjectMethod(bytearray_output_stream.obj(),
                                 bytearray_output_stream_tostring)));
-  if (ClearException(env)) {
-    return "Java OOM'd in exception handling, check logcat";
-  }
+  CheckException(env);
 
   return ConvertJavaStringToUTF8(exception_string);
 }

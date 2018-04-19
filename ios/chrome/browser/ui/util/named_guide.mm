@@ -12,6 +12,9 @@
 #endif
 
 // Named guide constants.
+GuideName* const kSecondaryToolbar = @"kSecondaryToolbar";
+GuideName* const kSecondaryToolbarNoFullscreen =
+    @"kSecondaryToolbarNoFullscreen";
 GuideName* const kOmniboxGuide = @"kOmniboxGuide";
 GuideName* const kBackButtonGuide = @"kBackButtonGuide";
 GuideName* const kForwardButtonGuide = @"kForwardButtonGuide";
@@ -39,5 +42,6 @@ UILayoutGuide* AddNamedGuide(GuideName* name, UIView* view) {
 
 void ConstrainNamedGuideToView(GuideName* guideName, UIView* view) {
   UILayoutGuide* layoutGuide = FindNamedGuide(guideName, view);
+  DCHECK(layoutGuide);
   AddSameConstraints(view, layoutGuide);
 }

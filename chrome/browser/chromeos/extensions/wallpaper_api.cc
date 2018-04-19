@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "ash/wallpaper/wallpaper_controller.h"
 #include "base/files/file_util.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
@@ -18,7 +19,6 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/extensions/wallpaper_private_api.h"
 #include "chrome/browser/chromeos/file_manager/app_id.h"
-#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
@@ -158,12 +158,12 @@ void WallpaperSetWallpaperFunction::OnWallpaperDecoded(
       extensions::api::wallpaper::ToString(params_->details.layout));
   wallpaper_api_util::RecordCustomWallpaperLayout(layout);
 
-  bool update_wallpaper =
+  bool show_wallpaper =
       account_id_ ==
       user_manager::UserManager::Get()->GetActiveUser()->GetAccountId();
   WallpaperControllerClient::Get()->SetCustomWallpaper(
       account_id_, wallpaper_files_id_, params_->details.filename, layout,
-      wallpaper::CUSTOMIZED, image, update_wallpaper);
+      image, show_wallpaper);
   unsafe_wallpaper_decoder_ = NULL;
 
   // Save current extension name. It will be displayed in the component
@@ -198,7 +198,7 @@ void WallpaperSetWallpaperFunction::OnWallpaperDecoded(
 void WallpaperSetWallpaperFunction::GenerateThumbnail(
     const base::FilePath& thumbnail_path,
     std::unique_ptr<gfx::ImageSkia> image) {
-  chromeos::AssertCalledOnWallpaperSequence(GetBlockingTaskRunner());
+  AssertCalledOnWallpaperSequence(GetBlockingTaskRunner());
   if (!base::PathExists(thumbnail_path.DirName()))
     base::CreateDirectory(thumbnail_path.DirName());
 

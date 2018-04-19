@@ -5,6 +5,7 @@
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 
 #include <set>
+#include <utility>
 
 #include "base/callback.h"
 #include "base/command_line.h"
@@ -363,7 +364,7 @@ base::string16 FakeChromeUserManager::GetResourceStringUTF16(
 
 void FakeChromeUserManager::ScheduleResolveLocale(
     const std::string& locale,
-    const base::Closure& on_resolved_callback,
+    base::OnceClosure on_resolved_callback,
     std::string* out_resolved_locale) const {
   NOTIMPLEMENTED();
   return;
@@ -516,6 +517,10 @@ bool FakeChromeUserManager::IsCurrentUserNonCryptohomeDataEphemeral() const {
   return false;
 }
 
+bool FakeChromeUserManager::IsCurrentUserCryptohomeDataEphemeral() const {
+  return current_user_ephemeral_;
+}
+
 bool FakeChromeUserManager::CanCurrentUserLock() const {
   return false;
 }
@@ -568,7 +573,7 @@ bool FakeChromeUserManager::IsLoggedInAsStub() const {
 
 bool FakeChromeUserManager::IsUserNonCryptohomeDataEphemeral(
     const AccountId& account_id) const {
-  return false;
+  return current_user_ephemeral_;
 }
 
 bool FakeChromeUserManager::AreSupervisedUsersAllowed() const {

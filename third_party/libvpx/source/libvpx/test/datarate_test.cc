@@ -539,6 +539,7 @@ class DatarateTestVP9Large
     denoiser_offon_test_ = 0;
     denoiser_offon_period_ = -1;
     frame_parallel_decoding_mode_ = 1;
+    use_roi_ = 0;
   }
 
   //
@@ -621,6 +622,10 @@ class DatarateTestVP9Large
     encoder->Control(VP9E_SET_FRAME_PARALLEL_DECODING,
                      frame_parallel_decoding_mode_);
 
+    if (use_roi_) {
+      encoder->Control(VP9E_SET_ROI_MAP, &roi_);
+    }
+
     if (cfg_.ts_number_layers > 1) {
       if (video->frame() == 0) {
         encoder->Control(VP9E_SET_SVC, 1);
@@ -701,6 +706,8 @@ class DatarateTestVP9Large
   int denoiser_offon_test_;
   int denoiser_offon_period_;
   int frame_parallel_decoding_mode_;
+  bool use_roi_;
+  vpx_roi_map_t roi_;
 };
 
 // Check basic rate targeting for VBR mode with 0 lag.
@@ -1073,6 +1080,68 @@ TEST_P(DatarateTestVP9Large, BasicRateTargeting3TemporalLayersFrameDropping) {
   }
 }
 
+class DatarateTestVP9RealTime : public DatarateTestVP9Large {
+ public:
+  virtual ~DatarateTestVP9RealTime() {}
+};
+
+// Check VP9 region of interest feature.
+TEST_P(DatarateTestVP9RealTime, RegionOfInterest) {
+  if (deadline_ != VPX_DL_REALTIME || set_cpu_used_ < 5) return;
+  cfg_.rc_buf_initial_sz = 500;
+  cfg_.rc_buf_optimal_sz = 500;
+  cfg_.rc_buf_sz = 1000;
+  cfg_.rc_dropframe_thresh = 0;
+  cfg_.rc_min_quantizer = 0;
+  cfg_.rc_max_quantizer = 63;
+  cfg_.rc_end_usage = VPX_CBR;
+  cfg_.g_lag_in_frames = 0;
+
+  ::libvpx_test::I420VideoSource video("hantro_collage_w352h288.yuv", 352, 288,
+                                       30, 1, 0, 300);
+
+  cfg_.rc_target_bitrate = 450;
+  cfg_.g_w = 352;
+  cfg_.g_h = 288;
+
+  ResetModel();
+
+  // Set ROI parameters
+  use_roi_ = true;
+  memset(&roi_, 0, sizeof(roi_));
+
+  roi_.rows = (cfg_.g_h + 7) / 8;
+  roi_.cols = (cfg_.g_w + 7) / 8;
+
+  roi_.delta_q[1] = -20;
+  roi_.delta_lf[1] = -20;
+  memset(roi_.ref_frame, -1, sizeof(roi_.ref_frame));
+  roi_.ref_frame[1] = 1;
+
+  // Use 2 states: 1 is center square, 0 is the rest.
+  roi_.roi_map = reinterpret_cast<uint8_t *>(
+      calloc(roi_.rows * roi_.cols, sizeof(*roi_.roi_map)));
+  ASSERT_TRUE(roi_.roi_map != NULL);
+
+  for (unsigned int i = 0; i < roi_.rows; ++i) {
+    for (unsigned int j = 0; j < roi_.cols; ++j) {
+      if (i > (roi_.rows >> 2) && i < ((roi_.rows * 3) >> 2) &&
+          j > (roi_.cols >> 2) && j < ((roi_.cols * 3) >> 2)) {
+        roi_.roi_map[i * roi_.cols + j] = 1;
+      }
+    }
+  }
+
+  ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
+  ASSERT_GE(cfg_.rc_target_bitrate, effective_datarate_[0] * 0.90)
+      << " The datarate for the file exceeds the target!";
+
+  ASSERT_LE(cfg_.rc_target_bitrate, effective_datarate_[0] * 1.4)
+      << " The datarate for the file missed the target!";
+
+  free(roi_.roi_map);
+}
+
 #if CONFIG_VP9_TEMPORAL_DENOISING
 class DatarateTestVP9LargeDenoiser : public DatarateTestVP9Large {
  public:
@@ -1224,12 +1293,70 @@ class DatarateOnePassCbrSvc
     base_speed_setting_ = 5;
     spatial_layer_id_ = 0;
     temporal_layer_id_ = 0;
+    update_pattern_ = 0;
     memset(bits_in_buffer_model_, 0, sizeof(bits_in_buffer_model_));
     memset(bits_total_, 0, sizeof(bits_total_));
     memset(layer_target_avg_bandwidth_, 0, sizeof(layer_target_avg_bandwidth_));
     dynamic_drop_layer_ = false;
   }
   virtual void BeginPassHook(unsigned int /*pass*/) {}
+
+  // Example pattern for spatial layers and 2 temporal layers used in the
+  // bypass/flexible mode. The pattern corresponds to the pattern
+  // VP9E_TEMPORAL_LAYERING_MODE_0101 (temporal_layering_mode == 2) used in
+  // non-flexible mode, except that we disable inter-layer prediction.
+  void set_frame_flags_bypass_mode(
+      int tl, int num_spatial_layers, int is_key_frame,
+      vpx_svc_ref_frame_config_t *ref_frame_config) {
+    for (int sl = 0; sl < num_spatial_layers; ++sl) {
+      if (!tl) {
+        if (!sl) {
+          ref_frame_config->frame_flags[sl] =
+              VP8_EFLAG_NO_REF_GF | VP8_EFLAG_NO_REF_ARF | VP8_EFLAG_NO_UPD_GF |
+              VP8_EFLAG_NO_UPD_ARF;
+        } else {
+          if (is_key_frame) {
+            ref_frame_config->frame_flags[sl] =
+                VP8_EFLAG_NO_REF_GF | VP8_EFLAG_NO_REF_ARF |
+                VP8_EFLAG_NO_UPD_LAST | VP8_EFLAG_NO_UPD_ARF;
+          } else {
+            ref_frame_config->frame_flags[sl] =
+                VP8_EFLAG_NO_REF_ARF | VP8_EFLAG_NO_UPD_GF |
+                VP8_EFLAG_NO_UPD_ARF | VP8_EFLAG_NO_REF_GF;
+          }
+        }
+      } else if (tl == 1) {
+        if (!sl) {
+          ref_frame_config->frame_flags[sl] =
+              VP8_EFLAG_NO_REF_GF | VP8_EFLAG_NO_REF_ARF |
+              VP8_EFLAG_NO_UPD_LAST | VP8_EFLAG_NO_UPD_GF;
+        } else {
+          ref_frame_config->frame_flags[sl] =
+              VP8_EFLAG_NO_REF_ARF | VP8_EFLAG_NO_UPD_LAST |
+              VP8_EFLAG_NO_UPD_GF | VP8_EFLAG_NO_REF_GF;
+        }
+      }
+      if (tl == 0) {
+        ref_frame_config->lst_fb_idx[sl] = sl;
+        if (sl) {
+          if (is_key_frame) {
+            ref_frame_config->lst_fb_idx[sl] = sl - 1;
+            ref_frame_config->gld_fb_idx[sl] = sl;
+          } else {
+            ref_frame_config->gld_fb_idx[sl] = sl - 1;
+          }
+        } else {
+          ref_frame_config->gld_fb_idx[sl] = 0;
+        }
+        ref_frame_config->alt_fb_idx[sl] = 0;
+      } else if (tl == 1) {
+        ref_frame_config->lst_fb_idx[sl] = sl;
+        ref_frame_config->gld_fb_idx[sl] = num_spatial_layers + sl - 1;
+        ref_frame_config->alt_fb_idx[sl] = num_spatial_layers + sl;
+      }
+    }
+  }
+
   virtual void PreEncodeFrameHook(::libvpx_test::VideoSource *video,
                                   ::libvpx_test::Encoder *encoder) {
     if (video->frame() == 0) {
@@ -1253,6 +1380,21 @@ class DatarateOnePassCbrSvc
       encoder->Control(VP9E_SET_ROW_MT, 1);
       encoder->Control(VP8E_SET_STATIC_THRESHOLD, 1);
       encoder->Control(VP9E_SET_TUNE_CONTENT, tune_content_);
+    }
+
+    if (update_pattern_ && video->frame() >= 100) {
+      vpx_svc_layer_id_t layer_id;
+      if (video->frame() == 100) {
+        cfg_.temporal_layering_mode = VP9E_TEMPORAL_LAYERING_MODE_BYPASS;
+        encoder->Config(&cfg_);
+      }
+      // Set layer id since the pattern changed.
+      layer_id.spatial_layer_id = 0;
+      layer_id.temporal_layer_id = (video->frame() % 2 != 0);
+      encoder->Control(VP9E_SET_SVC_LAYER_ID, &layer_id);
+      set_frame_flags_bypass_mode(layer_id.temporal_layer_id,
+                                  number_spatial_layers_, 0, &ref_frame_config);
+      encoder->Control(VP9E_SET_SVC_REF_FRAME_CONFIG, &ref_frame_config);
     }
 
     if (dynamic_drop_layer_) {
@@ -1351,6 +1493,14 @@ class DatarateOnePassCbrSvc
               << "Buffer Underrun at frame " << pkt->data.frame.pts;
         }
       }
+
+      ASSERT_EQ(pkt->data.frame.width[sl],
+                top_sl_width_ * svc_params_.scaling_factor_num[sl] /
+                    svc_params_.scaling_factor_den[sl]);
+
+      ASSERT_EQ(pkt->data.frame.height[sl],
+                top_sl_height_ * svc_params_.scaling_factor_num[sl] /
+                    svc_params_.scaling_factor_den[sl]);
     }
   }
 
@@ -1393,6 +1543,10 @@ class DatarateOnePassCbrSvc
   int number_temporal_layers_;
   int layer_target_avg_bandwidth_[VPX_MAX_LAYERS];
   bool dynamic_drop_layer_;
+  unsigned int top_sl_width_;
+  unsigned int top_sl_height_;
+  vpx_svc_ref_frame_config_t ref_frame_config;
+  int update_pattern_;
 };
 static void assign_layer_bitrates(vpx_codec_enc_cfg_t *const enc_cfg,
                                   const vpx_svc_extra_cfg_t *svc_params,
@@ -1486,6 +1640,8 @@ TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc2SL1TLScreenContent1) {
   number_spatial_layers_ = cfg_.ss_number_layers;
   number_temporal_layers_ = cfg_.ts_number_layers;
   ::libvpx_test::Y4mVideoSource video("niklas_1280_720_30.y4m", 0, 60);
+  top_sl_width_ = 1280;
+  top_sl_height_ = 720;
   cfg_.rc_target_bitrate = 500;
   ResetModel();
   tune_content_ = 1;
@@ -1527,6 +1683,8 @@ TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc2SL3TL) {
   number_temporal_layers_ = cfg_.ts_number_layers;
   ::libvpx_test::I420VideoSource video("niklas_640_480_30.yuv", 640, 480, 30, 1,
                                        0, 400);
+  top_sl_width_ = 640;
+  top_sl_height_ = 480;
   // TODO(marpan): Check that effective_datarate for each layer hits the
   // layer target_bitrate.
   for (int i = 200; i <= 800; i += 200) {
@@ -1577,6 +1735,8 @@ TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc2SL3TLDenoiserOn) {
   number_temporal_layers_ = cfg_.ts_number_layers;
   ::libvpx_test::I420VideoSource video("niklas_640_480_30.yuv", 640, 480, 30, 1,
                                        0, 400);
+  top_sl_width_ = 640;
+  top_sl_height_ = 480;
   // TODO(marpan): Check that effective_datarate for each layer hits the
   // layer target_bitrate.
   // For SVC, noise_sen = 1 means denoising only the top spatial layer
@@ -1633,6 +1793,8 @@ TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc2SL3TLSmallKf) {
   number_temporal_layers_ = cfg_.ts_number_layers;
   ::libvpx_test::I420VideoSource video("niklas_640_480_30.yuv", 640, 480, 30, 1,
                                        0, 400);
+  top_sl_width_ = 640;
+  top_sl_height_ = 480;
   // For this 3 temporal layer case, pattern repeats every 4 frames, so choose
   // 4 key neighboring key frame periods (so key frame will land on 0-2-1-2).
   for (int j = 64; j <= 67; j++) {
@@ -1675,6 +1837,8 @@ TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc2SL3TL4Threads) {
   number_spatial_layers_ = cfg_.ss_number_layers;
   number_temporal_layers_ = cfg_.ts_number_layers;
   ::libvpx_test::Y4mVideoSource video("niklas_1280_720_30.y4m", 0, 60);
+  top_sl_width_ = 1280;
+  top_sl_height_ = 720;
   cfg_.rc_target_bitrate = 800;
   ResetModel();
   assign_layer_bitrates(&cfg_, &svc_params_, cfg_.ss_number_layers,
@@ -1722,6 +1886,60 @@ TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc3SL3TL) {
   number_temporal_layers_ = cfg_.ts_number_layers;
   ::libvpx_test::I420VideoSource video("niklas_640_480_30.yuv", 640, 480, 30, 1,
                                        0, 400);
+  top_sl_width_ = 640;
+  top_sl_height_ = 480;
+  cfg_.rc_target_bitrate = 800;
+  ResetModel();
+  assign_layer_bitrates(&cfg_, &svc_params_, cfg_.ss_number_layers,
+                        cfg_.ts_number_layers, cfg_.temporal_layering_mode,
+                        layer_target_avg_bandwidth_, bits_in_buffer_model_);
+  ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
+  CheckLayerRateTargeting(&cfg_, number_spatial_layers_,
+                          number_temporal_layers_, file_datarate_, 0.78, 1.15);
+#if CONFIG_VP9_DECODER
+  // Number of temporal layers > 1, so half of the frames in this SVC pattern
+  // will be non-reference frame and hence encoder will avoid loopfilter.
+  // Since frame dropper is off, we can expect 200 (half of the sequence)
+  // mismatched frames.
+  EXPECT_EQ(static_cast<unsigned int>(200), GetMismatchFrames());
+#endif
+}
+
+// Check basic rate targeting for 1 pass CBR SVC: 3 spatial layers and
+// 2 temporal layers, with a change on the fly from the fixed SVC pattern to one
+// generate via SVC_SET_REF_FRAME_CONFIG. The new pattern also disables
+// inter-layer prediction.
+TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc3SL2TLDynamicPatternChange) {
+  cfg_.rc_buf_initial_sz = 500;
+  cfg_.rc_buf_optimal_sz = 500;
+  cfg_.rc_buf_sz = 1000;
+  cfg_.rc_min_quantizer = 0;
+  cfg_.rc_max_quantizer = 63;
+  cfg_.rc_end_usage = VPX_CBR;
+  cfg_.g_lag_in_frames = 0;
+  cfg_.ss_number_layers = 3;
+  cfg_.ts_number_layers = 2;
+  cfg_.ts_rate_decimator[0] = 2;
+  cfg_.ts_rate_decimator[1] = 1;
+  cfg_.g_error_resilient = 1;
+  cfg_.g_threads = 1;
+  cfg_.temporal_layering_mode = 2;
+  svc_params_.scaling_factor_num[0] = 72;
+  svc_params_.scaling_factor_den[0] = 288;
+  svc_params_.scaling_factor_num[1] = 144;
+  svc_params_.scaling_factor_den[1] = 288;
+  svc_params_.scaling_factor_num[2] = 288;
+  svc_params_.scaling_factor_den[2] = 288;
+  cfg_.rc_dropframe_thresh = 0;
+  cfg_.kf_max_dist = 9999;
+  number_spatial_layers_ = cfg_.ss_number_layers;
+  number_temporal_layers_ = cfg_.ts_number_layers;
+  // Change SVC pattern on the fly.
+  update_pattern_ = 1;
+  ::libvpx_test::I420VideoSource video("niklas_640_480_30.yuv", 640, 480, 30, 1,
+                                       0, 400);
+  top_sl_width_ = 640;
+  top_sl_height_ = 480;
   cfg_.rc_target_bitrate = 800;
   ResetModel();
   assign_layer_bitrates(&cfg_, &svc_params_, cfg_.ss_number_layers,
@@ -1769,6 +1987,8 @@ TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc3SL_to_2SL_dynamic) {
   number_temporal_layers_ = cfg_.ts_number_layers;
   ::libvpx_test::I420VideoSource video("niklas_640_480_30.yuv", 640, 480, 30, 1,
                                        0, 400);
+  top_sl_width_ = 640;
+  top_sl_height_ = 480;
   cfg_.rc_target_bitrate = 800;
   ResetModel();
   dynamic_drop_layer_ = true;
@@ -1812,6 +2032,8 @@ TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc3SL3TLSmallKf) {
   number_temporal_layers_ = cfg_.ts_number_layers;
   ::libvpx_test::I420VideoSource video("niklas_640_480_30.yuv", 640, 480, 30, 1,
                                        0, 400);
+  top_sl_width_ = 640;
+  top_sl_height_ = 480;
   // For this 3 temporal layer case, pattern repeats every 4 frames, so choose
   // 4 key neighboring key frame periods (so key frame will land on 0-2-1-2).
   for (int j = 32; j <= 35; j++) {
@@ -1856,6 +2078,8 @@ TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc3SL3TL4threads) {
   number_spatial_layers_ = cfg_.ss_number_layers;
   number_temporal_layers_ = cfg_.ts_number_layers;
   ::libvpx_test::Y4mVideoSource video("niklas_1280_720_30.y4m", 0, 60);
+  top_sl_width_ = 1280;
+  top_sl_height_ = 720;
   cfg_.rc_target_bitrate = 800;
   ResetModel();
   assign_layer_bitrates(&cfg_, &svc_params_, cfg_.ss_number_layers,
@@ -1911,6 +2135,8 @@ TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc2SL1TL5x5MultipleRuns) {
   bits_in_buffer_model_[1] =
       cfg_.layer_target_bitrate[1] * cfg_.rc_buf_initial_sz;
   ::libvpx_test::Y4mVideoSource video("niklas_1280_720_30.y4m", 0, 60);
+  top_sl_width_ = 1280;
+  top_sl_height_ = 720;
   ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
   CheckLayerRateTargeting(&cfg_, number_spatial_layers_,
                           number_temporal_layers_, file_datarate_, 0.78, 1.15);
@@ -1926,6 +2152,9 @@ VP9_INSTANTIATE_TEST_CASE(DatarateTestVP9Large,
                           ::testing::Values(::libvpx_test::kOnePassGood,
                                             ::libvpx_test::kRealTime),
                           ::testing::Range(2, 9));
+VP9_INSTANTIATE_TEST_CASE(DatarateTestVP9RealTime,
+                          ::testing::Values(::libvpx_test::kRealTime),
+                          ::testing::Range(5, 9));
 #if CONFIG_VP9_TEMPORAL_DENOISING
 VP9_INSTANTIATE_TEST_CASE(DatarateTestVP9LargeDenoiser,
                           ::testing::Values(::libvpx_test::kRealTime),

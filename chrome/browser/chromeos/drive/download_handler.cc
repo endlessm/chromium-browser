@@ -15,7 +15,6 @@
 #include "base/strings/string_util.h"
 #include "base/supports_user_data.h"
 #include "base/task_scheduler/post_task.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/drive/drive_integration_service.h"
 #include "chrome/browser/chromeos/drive/file_system_util.h"
@@ -26,9 +25,10 @@
 #include "components/drive/chromeos/file_system_interface.h"
 #include "components/drive/drive.pb.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/download_item_utils.h"
 
 using content::BrowserThread;
-using content::DownloadItem;
+using download::DownloadItem;
 using content::DownloadManager;
 
 namespace drive {
@@ -121,7 +121,7 @@ bool IsPersistedDriveDownload(const base::FilePath& drive_tmp_download_path,
 
   DownloadCoreService* download_core_service =
       DownloadCoreServiceFactory::GetForBrowserContext(
-          download->GetBrowserContext());
+          content::DownloadItemUtils::GetBrowserContext(download));
   DownloadHistory* download_history =
       download_core_service->GetDownloadHistory();
 
@@ -190,7 +190,7 @@ void DownloadHandler::ObserveIncognitoDownloadManager(
 
 void DownloadHandler::SubstituteDriveDownloadPath(
     const base::FilePath& drive_path,
-    content::DownloadItem* download,
+    download::DownloadItem* download,
     const SubstituteDriveDownloadPathCallback& callback) {
   DVLOG(1) << "SubstituteDriveDownloadPath " << drive_path.value();
 

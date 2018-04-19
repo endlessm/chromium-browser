@@ -52,7 +52,7 @@ std::unique_ptr<browsing_data::BrowsingDataCounter>
 BrowsingDataCounterFactory::GetForProfileAndPref(Profile* profile,
                                                  const std::string& pref_name) {
   if (pref_name == browsing_data::prefs::kDeleteBrowsingHistory) {
-    return base::MakeUnique<browsing_data::HistoryCounter>(
+    return std::make_unique<browsing_data::HistoryCounter>(
         HistoryServiceFactory::GetForProfile(
             profile, ServiceAccessType::EXPLICIT_ACCESS),
         base::Bind(&GetUpdatedWebHistoryService,
@@ -66,12 +66,11 @@ BrowsingDataCounterFactory::GetForProfileAndPref(Profile* profile,
 
   if (pref_name == browsing_data::prefs::kDeleteCache ||
       pref_name == browsing_data::prefs::kDeleteCacheBasic) {
-    return base::MakeUnique<CacheCounter>(profile);
+    return std::make_unique<CacheCounter>(profile);
   }
 
-  if (pref_name == browsing_data::prefs::kDeleteCookies &&
-      IsSiteDataCounterEnabled()) {
-    return base::MakeUnique<SiteDataCounter>(profile);
+  if (pref_name == browsing_data::prefs::kDeleteCookies) {
+    return std::make_unique<SiteDataCounter>(profile);
   }
   if (pref_name == browsing_data::prefs::kDeleteCookiesBasic) {
     // The cookies option on the basic tab doesn't use a counter.
@@ -79,27 +78,29 @@ BrowsingDataCounterFactory::GetForProfileAndPref(Profile* profile,
   }
 
   if (pref_name == browsing_data::prefs::kDeletePasswords) {
-    return base::MakeUnique<browsing_data::PasswordsCounter>(
+    return std::make_unique<browsing_data::PasswordsCounter>(
         PasswordStoreFactory::GetForProfile(profile,
                                             ServiceAccessType::EXPLICIT_ACCESS),
         ProfileSyncServiceFactory::GetForProfile(profile));
   }
 
   if (pref_name == browsing_data::prefs::kDeleteFormData) {
-    return base::MakeUnique<browsing_data::AutofillCounter>(
+    return std::make_unique<browsing_data::AutofillCounter>(
         WebDataServiceFactory::GetAutofillWebDataForProfile(
             profile, ServiceAccessType::EXPLICIT_ACCESS),
         ProfileSyncServiceFactory::GetForProfile(profile));
   }
 
-  if (pref_name == browsing_data::prefs::kDeleteDownloadHistory)
-    return base::MakeUnique<DownloadsCounter>(profile);
+  if (pref_name == browsing_data::prefs::kDeleteDownloadHistory) {
+    return std::make_unique<DownloadsCounter>(profile);
+  }
 
-  if (pref_name == browsing_data::prefs::kDeleteMediaLicenses)
+  if (pref_name == browsing_data::prefs::kDeleteMediaLicenses) {
     return MediaLicensesCounter::Create(profile);
+  }
 
   if (pref_name == browsing_data::prefs::kDeleteSiteSettings) {
-    return base::MakeUnique<browsing_data::SiteSettingsCounter>(
+    return std::make_unique<browsing_data::SiteSettingsCounter>(
         HostContentSettingsMapFactory::GetForProfile(profile),
 #if !defined(OS_ANDROID)
         content::HostZoomMap::GetDefaultForBrowserContext(profile)
@@ -110,8 +111,9 @@ BrowsingDataCounterFactory::GetForProfileAndPref(Profile* profile,
   }
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-  if (pref_name == browsing_data::prefs::kDeleteHostedAppsData)
-    return base::MakeUnique<HostedAppsCounter>(profile);
+  if (pref_name == browsing_data::prefs::kDeleteHostedAppsData) {
+    return std::make_unique<HostedAppsCounter>(profile);
+  }
 #endif
 
   return nullptr;

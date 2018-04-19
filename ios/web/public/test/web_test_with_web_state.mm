@@ -22,6 +22,7 @@
 
 using testing::WaitUntilConditionOrTimeout;
 using testing::kWaitForJSCompletionTimeout;
+using testing::kWaitForPageLoadTimeout;
 
 namespace {
 // Returns CRWWebController for the given |web_state|.
@@ -125,10 +126,11 @@ void WebTestWithWebState::LoadHtml(NSString* html, const GURL& url) {
     return web_controller.loadPhase == PAGE_LOADED;
   });
 
-  // Reload the page if script execution is not possible.
-  if (![ExecuteJavaScript(@"0;") isEqual:@0]) {
-    LoadHtml(html, url);
-  }
+  // Wait until the script execution is possible. Script execution will fail if
+  // WKUserScript was not jet injected by WKWebView.
+  ASSERT_TRUE(WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, ^bool {
+    return [ExecuteJavaScript(@"0;") isEqual:@0];
+  }));
 }
 
 void WebTestWithWebState::LoadHtml(NSString* html) {
@@ -136,8 +138,10 @@ void WebTestWithWebState::LoadHtml(NSString* html) {
   LoadHtml(html, url);
 }
 
-void WebTestWithWebState::LoadHtml(const std::string& html) {
+bool WebTestWithWebState::LoadHtml(const std::string& html) {
   LoadHtml(base::SysUTF8ToNSString(html));
+  // TODO(crbug.com/780062): LoadHtml(NSString*) should return bool.
+  return true;
 }
 
 void WebTestWithWebState::WaitForBackgroundTasks() {

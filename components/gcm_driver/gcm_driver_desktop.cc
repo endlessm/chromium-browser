@@ -15,7 +15,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
 #include "base/task_runner_util.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "components/gcm_driver/gcm_account_mapper.h"
@@ -553,13 +552,10 @@ GCMDriverDesktop::GCMDriverDesktop(
   io_worker_.reset(new IOWorker(ui_thread, io_thread));
   io_thread_->PostTask(
       FROM_HERE,
-      base::Bind(&GCMDriverDesktop::IOWorker::Initialize,
-                 base::Unretained(io_worker_.get()),
-                 base::Passed(&gcm_client_factory),
-                 chrome_build_info,
-                 store_path,
-                 request_context,
-                 blocking_task_runner));
+      base::BindOnce(&GCMDriverDesktop::IOWorker::Initialize,
+                     base::Unretained(io_worker_.get()),
+                     std::move(gcm_client_factory), chrome_build_info,
+                     store_path, request_context, blocking_task_runner));
 }
 
 GCMDriverDesktop::~GCMDriverDesktop() {

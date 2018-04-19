@@ -13,13 +13,13 @@
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/histogram_tester.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/extensions/browser_action_test_util.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
-#include "chrome/browser/extensions/test_extension_dir.h"
 #include "chrome/browser/permissions/permission_request_manager.h"
 #include "chrome/browser/ui/browser_commands.h"
+#include "chrome/browser/ui/extensions/browser_action_test_util.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
@@ -42,9 +42,11 @@
 #include "extensions/browser/app_window/app_window_registry.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/common/manifest_handlers/background_info.h"
+#include "extensions/common/manifest_handlers/web_accessible_resources_info.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/value_builder.h"
 #include "extensions/test/background_page_watcher.h"
+#include "extensions/test/test_extension_dir.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 
@@ -209,7 +211,8 @@ class ProcessManagerBrowserTest : public ExtensionBrowserTest {
              DictionaryBuilder()
                  .Set("pages", ListBuilder().Append("sandboxed.html").Build())
                  .Build())
-        .Set("web_accessible_resources", ListBuilder().Append("*").Build());
+        .Set("web_accessible_resources",
+             ListBuilder().Append("*.html").Build());
 
     if (has_background_process) {
       manifest.Set("background",
@@ -258,7 +261,8 @@ class ProcessManagerBrowserTest : public ExtensionBrowserTest {
   }
 
   content::WebContents* OpenPopup(content::RenderFrameHost* opener,
-                                  const GURL& url) {
+                                  const GURL& url,
+                                  bool expect_success = true) {
     content::WindowedNotificationObserver popup_observer(
         chrome::NOTIFICATION_TAB_ADDED,
         content::NotificationService::AllSources());
@@ -268,7 +272,18 @@ class ProcessManagerBrowserTest : public ExtensionBrowserTest {
     content::WebContents* popup =
         browser()->tab_strip_model()->GetActiveWebContents();
     WaitForLoadStop(popup);
-    EXPECT_EQ(url, popup->GetMainFrame()->GetLastCommittedURL());
+    if (expect_success)
+      EXPECT_EQ(url, popup->GetMainFrame()->GetLastCommittedURL());
+    return popup;
+  }
+
+  content::WebContents* OpenPopupNoOpener(content::RenderFrameHost* opener,
+                                          const GURL& url) {
+    content::WebContentsAddedObserver popup_observer;
+    EXPECT_TRUE(ExecuteScript(
+        opener, "window.open('" + url.spec() + "', '', 'noopener')"));
+    content::WebContents* popup = popup_observer.GetWebContents();
+    WaitForLoadStop(popup);
     return popup;
   }
 
@@ -729,11 +744,20 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest, ExtensionProcessReuse) {
   }
 }
 
+// Time-outs on Win, fails on Mac and Linux (http://crbug.com/806684).
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
+#define MAYBE_NestedURLNavigationsToExtensionBlocked \
+  DISABLED_NestedURLNavigationsToExtensionBlocked
+#else
+#define MAYBE_NestedURLNavigationsToExtensionBlocked \
+  NestedURLNavigationsToExtensionBlocked
+#endif
+
 // Test that navigations to blob: and filesystem: URLs with extension origins
 // are disallowed when initiated from non-extension processes.  See
 // https://crbug.com/645028 and https://crbug.com/644426.
 IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
-                       NestedURLNavigationsToExtensionBlocked) {
+                       MAYBE_NestedURLNavigationsToExtensionBlocked) {
   // Disabling web security is necessary to test the browser enforcement;
   // without it, the loads in this test would be blocked by
   // SecurityOrigin::canDisplay() as invalid local resource loads.
@@ -880,7 +904,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
     EXPECT_TRUE(ExecuteScript(popup, script));
     observer.WaitForFinished();
     EXPECT_EQ(
-        1u, observer.NumDownloadsSeenInState(content::DownloadItem::COMPLETE));
+        1u, observer.NumDownloadsSeenInState(download::DownloadItem::COMPLETE));
 
     // This is a top-level navigation that should have resulted in a download.
     // Ensure that the popup stayed at its original location.
@@ -1063,7 +1087,57 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
 // blob/filesystem extension URL.  See https://crbug.com/656752.
 IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
                        NestedURLNavigationsViaProxyBlocked) {
-  base::HistogramTester uma;
+  // Create a simple extension without a background page.
+  const Extension* extension = CreateExtension("Extension", false);
+  embedded_test_server()->ServeFilesFromDirectory(extension->path());
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  // Navigate main tab to an empty web page.  There should be no extension
+  // frames yet.
+  NavigateToURL(embedded_test_server()->GetURL("/empty.html"));
+  ProcessManager* pm = ProcessManager::Get(profile());
+  EXPECT_EQ(0u, pm->GetAllFrames().size());
+  EXPECT_EQ(0u, pm->GetRenderFrameHostsForExtension(extension->id()).size());
+
+  content::WebContents* tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  content::RenderFrameHost* main_frame = tab->GetMainFrame();
+
+  // Have the web page navigate the popup to each nested URL with extension
+  // origin via the window reference it obtained earlier from window.open.
+  const GURL extension_url(extension->url().Resolve("empty.html"));
+  for (auto create_function : {&CreateBlobURL, &CreateFileSystemURL}) {
+    // Setup the test by navigating popup to an extension page. This is allowed
+    // because it's web accessible.
+    content::WebContents* popup = OpenPopup(main_frame, extension_url);
+
+    // This frame should now be in an extension process.
+    EXPECT_EQ(1u, pm->GetAllFrames().size());
+    EXPECT_EQ(1u, pm->GetRenderFrameHostsForExtension(extension->id()).size());
+
+    // Create a valid blob or filesystem URL in the extension's origin.
+    GURL nested_url = (*create_function)(popup->GetMainFrame(), "foo");
+
+    // Navigate via the proxy to |nested_url|. This should be blocked by
+    // FilterURL.
+    EXPECT_TRUE(ExecuteScript(
+        tab, "window.popup.location.href = '" + nested_url.spec() + "';"));
+    WaitForLoadStop(popup);
+
+    // Because the navigation was blocked, the URL doesn't change.
+    EXPECT_NE(nested_url, popup->GetLastCommittedURL());
+    EXPECT_EQ(extension_url, popup->GetLastCommittedURL().spec());
+    EXPECT_NE("foo", GetTextContent(popup->GetMainFrame()));
+    EXPECT_EQ(1u, pm->GetRenderFrameHostsForExtension(extension->id()).size());
+    EXPECT_EQ(1u, pm->GetAllFrames().size());
+    popup->Close();
+    EXPECT_EQ(0u, pm->GetRenderFrameHostsForExtension(extension->id()).size());
+    EXPECT_EQ(0u, pm->GetAllFrames().size());
+  }
+}
+
+IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
+                       NestedURLNavigationsViaNoOpenerPopupBlocked) {
   // Create a simple extension without a background page.
   const Extension* extension = CreateExtension("Extension", false);
   embedded_test_server()->ServeFilesFromDirectory(extension->path());
@@ -1106,32 +1180,161 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
   GURL filesystem_url(CreateFileSystemURL(extension_frame, "foo"));
   EXPECT_EQ(extension_origin, url::Origin::Create(filesystem_url));
 
-  // Have the web page navigate the popup to each nested URL with extension
-  // origin via the window reference it obtained earlier from window.open.
+  // Attempt opening the nested urls using window.open(url, '', 'noopener').
+  // This should not be allowed.
   GURL nested_urls[] = {blob_url, filesystem_url};
   for (size_t i = 0; i < arraysize(nested_urls); i++) {
-    EXPECT_TRUE(ExecuteScript(
-        tab, "window.popup.location.href = '" + nested_urls[i].spec() + "';"));
-    WaitForLoadStop(popup);
+    content::WebContents* new_popup =
+        OpenPopupNoOpener(tab->GetMainFrame(), nested_urls[i]);
 
-    // This is a top-level navigation that should be blocked since it
-    // originates from a non-extension process.  Ensure that the popup stays at
-    // the original page and doesn't navigate to the nested URL.
-    EXPECT_NE(nested_urls[i], popup->GetLastCommittedURL());
-    EXPECT_NE("foo", GetTextContent(popup->GetMainFrame()));
+    // This is a top-level navigation to a local resource, that should be
+    // blocked by FilterURL, since it originates from a non-extension process.
+    EXPECT_NE(nested_urls[i], new_popup->GetLastCommittedURL());
+    EXPECT_EQ("about:blank", new_popup->GetLastCommittedURL().spec());
+    EXPECT_NE("foo", GetTextContent(new_popup->GetMainFrame()));
 
     EXPECT_EQ(1u, pm->GetRenderFrameHostsForExtension(extension->id()).size());
     EXPECT_EQ(1u, pm->GetAllFrames().size());
+
+    new_popup->Close();
+  }
+}
+
+IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
+                       ServerRedirectToNonWebAccessibleResource) {
+  // Create a simple extension without a background page.
+  const Extension* extension = CreateExtension("Extension", false);
+  embedded_test_server()->ServeFilesFromDirectory(extension->path());
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  // Navigate main tab to an empty web page.  There should be no extension
+  // frames yet.
+  NavigateToURL(embedded_test_server()->GetURL("/empty.html"));
+  ProcessManager* pm = ProcessManager::Get(profile());
+  EXPECT_EQ(0u, pm->GetAllFrames().size());
+  EXPECT_EQ(0u, pm->GetRenderFrameHostsForExtension(extension->id()).size());
+
+  content::WebContents* tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  content::RenderFrameHost* main_frame = tab->GetMainFrame();
+
+  // For this extension, only "*.html" resources are listed as web accessible;
+  // "manifest.json" doesn't match that pattern, so it shouldn't be possible for
+  // a webpage to initiate such a navigation.
+  const GURL inaccessible_extension_resource(
+      extension->url().Resolve("manifest.json"));
+  // This is an HTTP request that redirects to a non-webaccessible resource.
+  const GURL redirect_to_inaccessible(embedded_test_server()->GetURL(
+      "/server-redirect?" + inaccessible_extension_resource.spec()));
+  content::WebContents* sneaky_popup =
+      OpenPopup(main_frame, redirect_to_inaccessible, false);
+  EXPECT_EQ(redirect_to_inaccessible,
+            sneaky_popup->GetLastCommittedURL().spec());
+  EXPECT_EQ(
+      content::PAGE_TYPE_ERROR,
+      sneaky_popup->GetController().GetLastCommittedEntry()->GetPageType());
+  EXPECT_EQ(0u, pm->GetRenderFrameHostsForExtension(extension->id()).size());
+  EXPECT_EQ(0u, pm->GetAllFrames().size());
+
+  // Adding "noopener" to the navigation shouldn't make it work either.
+  content::WebContents* sneaky_noopener_popup =
+      OpenPopupNoOpener(main_frame, redirect_to_inaccessible);
+  EXPECT_EQ(redirect_to_inaccessible,
+            sneaky_noopener_popup->GetLastCommittedURL().spec());
+  EXPECT_EQ(content::PAGE_TYPE_ERROR, sneaky_noopener_popup->GetController()
+                                          .GetLastCommittedEntry()
+                                          ->GetPageType());
+  EXPECT_EQ(0u, pm->GetRenderFrameHostsForExtension(extension->id()).size());
+  EXPECT_EQ(0u, pm->GetAllFrames().size());
+}
+
+IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
+                       CrossExtensionEmbeddingOfWebAccessibleResources) {
+  // Create a simple extension without a background page.
+  const Extension* extension1 = CreateExtension("Extension 1", false);
+  const Extension* extension2 = CreateExtension("Extension 2", false);
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  // Navigate to the "extension 1" page with two iframes.
+  NavigateToURL(extension1->url().Resolve("two_iframes.html"));
+
+  ProcessManager* pm = ProcessManager::Get(profile());
+  content::WebContents* tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  content::RenderFrameHost* main_frame = tab->GetMainFrame();
+
+  // Navigate the first iframe to a webaccessible resource of extension 2. This
+  // should work.
+  GURL extension2_empty = extension2->url().Resolve("/empty.html");
+  EXPECT_TRUE(WebAccessibleResourcesInfo::IsResourceWebAccessible(
+      extension2, extension2_empty.path()));
+  {
+    content::RenderFrameDeletedObserver frame_deleted_observer(
+        ChildFrameAt(main_frame, 0));
+    EXPECT_TRUE(content::NavigateIframeToURL(tab, "frame1", extension2_empty));
+    EXPECT_EQ(extension2_empty,
+              ChildFrameAt(main_frame, 0)->GetLastCommittedURL());
+    frame_deleted_observer.WaitUntilDeleted();
+    EXPECT_EQ(3u, pm->GetAllFrames().size());
+    EXPECT_EQ(2u, pm->GetRenderFrameHostsForExtension(extension1->id()).size());
+    EXPECT_EQ(1u, pm->GetRenderFrameHostsForExtension(extension2->id()).size());
   }
 
-  // Verify that the blocking was recorded correctly in UMA.
-  uma.ExpectTotalCount("Extensions.ShouldAllowOpenURL.Failure", 2);
-  uma.ExpectBucketCount("Extensions.ShouldAllowOpenURL.Failure",
-                        0 /* FAILURE_FILE_SYSTEM_URL */, 1);
-  uma.ExpectBucketCount("Extensions.ShouldAllowOpenURL.Failure",
-                        1 /* FAILURE_BLOB_URL */, 1);
-  uma.ExpectUniqueSample("Extensions.ShouldAllowOpenURL.Failure.Scheme",
-                         2 /* SCHEME_HTTP */, 2);
+  // Manifest.json is not a webaccessible resource. extension1 should not be
+  // able to navigate to extension2's manifest.json.
+  GURL extension2_manifest = extension2->url().Resolve("/manifest.json");
+  EXPECT_FALSE(WebAccessibleResourcesInfo::IsResourceWebAccessible(
+      extension2, extension2_manifest.path()));
+  {
+    EXPECT_TRUE(ExecuteScript(
+        tab, base::StringPrintf("frames[0].location.href = '%s';",
+                                extension2_manifest.spec().c_str())));
+    WaitForLoadStop(tab);
+    EXPECT_EQ(extension2_empty,
+              ChildFrameAt(main_frame, 0)->GetLastCommittedURL())
+        << "The URL of frames[0] should not have changed";
+    EXPECT_EQ(3u, pm->GetAllFrames().size());
+    EXPECT_EQ(2u, pm->GetRenderFrameHostsForExtension(extension1->id()).size());
+    EXPECT_EQ(1u, pm->GetRenderFrameHostsForExtension(extension2->id()).size());
+  }
+
+  // extension1 should not be able to navigate its second iframe to
+  // extension2's manifest by bouncing off an HTTP redirect.
+  const GURL sneaky_extension2_manifest(embedded_test_server()->GetURL(
+      "/server-redirect?" + extension2_manifest.spec()));
+  {
+    EXPECT_TRUE(ExecuteScript(
+        tab, base::StringPrintf("frames[1].location.href = '%s';",
+                                sneaky_extension2_manifest.spec().c_str())));
+    WaitForLoadStop(tab);
+    EXPECT_EQ(extension1->url().Resolve("/empty.html"),
+              ChildFrameAt(main_frame, 1)->GetLastCommittedURL())
+        << "The URL of frames[1] should not have changed";
+    EXPECT_EQ(3u, pm->GetAllFrames().size());
+    EXPECT_EQ(2u, pm->GetRenderFrameHostsForExtension(extension1->id()).size());
+    EXPECT_EQ(1u, pm->GetRenderFrameHostsForExtension(extension2->id()).size());
+  }
+
+  // extension1 can embed a webaccessible resource of extension2 by means of
+  // an HTTP redirect.
+  {
+    content::RenderFrameDeletedObserver frame_deleted_observer(
+        ChildFrameAt(main_frame, 1));
+    const GURL extension2_accessible_redirect(embedded_test_server()->GetURL(
+        "/server-redirect?" + extension2_empty.spec()));
+    EXPECT_TRUE(ExecuteScript(
+        tab,
+        base::StringPrintf("frames[1].location.href = '%s';",
+                           extension2_accessible_redirect.spec().c_str())));
+    WaitForLoadStop(tab);
+    frame_deleted_observer.WaitUntilDeleted();
+    EXPECT_EQ(extension2_empty,
+              ChildFrameAt(main_frame, 1)->GetLastCommittedURL())
+        << "The URL of frames[1] should have changed";
+    EXPECT_EQ(3u, pm->GetAllFrames().size());
+    EXPECT_EQ(1u, pm->GetRenderFrameHostsForExtension(extension1->id()).size());
+    EXPECT_EQ(2u, pm->GetRenderFrameHostsForExtension(extension2->id()).size());
+  }
 }
 
 // Verify that a web popup created via window.open from an extension page can

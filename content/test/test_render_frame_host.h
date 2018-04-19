@@ -79,7 +79,7 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
   void NavigateAndCommitRendererInitiated(bool did_create_new_entry,
                                           const GURL& url) override;
   void SimulateFeaturePolicyHeader(
-      blink::FeaturePolicyFeature feature,
+      blink::mojom::FeaturePolicyFeature feature,
       const std::vector<url::Origin>& whitelist) override;
   const std::vector<std::string>& GetConsoleMessages() override;
 
@@ -99,10 +99,12 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
       const GURL& url,
       const ModificationCallback& callback);
   void SendNavigateWithParams(
-      FrameHostMsg_DidCommitProvisionalLoad_Params* params);
+      FrameHostMsg_DidCommitProvisionalLoad_Params* params,
+      bool was_within_same_document);
   void SendNavigateWithParamsAndInterfaceProvider(
       FrameHostMsg_DidCommitProvisionalLoad_Params* params,
-      service_manager::mojom::InterfaceProviderRequest request);
+      service_manager::mojom::InterfaceProviderRequest request,
+      bool was_within_same_document);
 
   // Simulates a navigation to |url| failing with the error code |error_code|.
   // DEPRECATED: use NavigationSimulator instead.

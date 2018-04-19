@@ -268,7 +268,7 @@ class ManifestServiceProxy : public ManifestServiceChannel::Delegate {
         process_type_ != kPNaClTranslatorProcessType) {
       // Return an error.
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(callback, base::Passed(base::File()), 0, 0));
+          FROM_HERE, base::BindOnce(callback, base::File(), 0, 0));
       return;
     }
 
@@ -284,7 +284,7 @@ class ManifestServiceProxy : public ManifestServiceChannel::Delegate {
     if (!ManifestResolveKey(pp_instance_, is_helper_process, key, &url,
                             &pnacl_options)) {
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(callback, base::Passed(base::File()), 0, 0));
+          FROM_HERE, base::BindOnce(callback, base::File(), 0, 0));
       return;
     }
 
@@ -342,6 +342,12 @@ blink::WebURLRequest CreateWebURLRequest(const blink::WebDocument& document,
     request.SetFetchCredentialsMode(
         network::mojom::FetchCredentialsMode::kOmit);
   }
+
+  // Plug-ins should not load via service workers as plug-ins may have their own
+  // origin checking logic that may get confused if service workers respond with
+  // resources from another origin.
+  // https://w3c.github.io/ServiceWorker/#implementer-concerns
+  request.SetSkipServiceWorker(true);
 
   return request;
 }
@@ -1033,6 +1039,10 @@ void DownloadManifestToBuffer(PP_Instance instance,
   std::unique_ptr<blink::WebAssociatedURLLoader> url_loader(
       CreateAssociatedURLLoader(document, gurl));
   blink::WebURLRequest request = CreateWebURLRequest(document, gurl);
+
+  // Requests from plug-ins must skip service workers, see the comment in
+  // CreateWebURLRequest.
+  DCHECK(request.GetSkipServiceWorker());
 
   // ManifestDownloader deletes itself after invoking the callback.
   ManifestDownloader* manifest_downloader = new ManifestDownloader(

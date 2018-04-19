@@ -36,7 +36,6 @@ class BrowserNonClientFrameViewMus : public BrowserNonClientFrameView,
   int GetTopInset(bool restored) const override;
   int GetThemeBackgroundXInset() const override;
   void UpdateThrobber(bool running) override;
-  views::View* GetProfileSwitcherView() const override;
   void UpdateClientArea() override;
   void UpdateMinimumSize() override;
 
@@ -64,7 +63,7 @@ class BrowserNonClientFrameViewMus : public BrowserNonClientFrameView,
 
  protected:
   // BrowserNonClientFrameView:
-  void UpdateProfileIcons() override;
+  AvatarButtonStyle GetAvatarButtonStyle() const override;
 
  private:
   // TabStripObserver:
@@ -82,9 +81,6 @@ class BrowserNonClientFrameViewMus : public BrowserNonClientFrameView,
   // the header used for packaged apps. Packaged apps use a different color
   // scheme than browser windows.
   bool UsePackagedAppHeaderStyle() const;
-
-  // Layout the incognito button.
-  void LayoutIncognitoButton();
 
   // Layout the profile switcher (if there is one).
   void LayoutProfileSwitcher();
@@ -104,11 +100,6 @@ class BrowserNonClientFrameViewMus : public BrowserNonClientFrameView,
 
   // For popups, the window icon.
   TabIconView* window_icon_;
-
-#if !defined(OS_CHROMEOS)
-  // Wrapper around the in-frame avatar switcher.
-  AvatarButtonManager profile_switcher_;
-#endif
 
   TabStrip* tab_strip_;
 

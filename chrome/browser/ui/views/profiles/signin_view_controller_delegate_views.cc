@@ -5,16 +5,18 @@
 #include "chrome/browser/ui/views/profiles/signin_view_controller_delegate_views.h"
 
 #include "base/macros.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/browser/signin/signin_promo.h"
+#include "chrome/browser/signin/unified_consent_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views_mode_controller.h"
 #include "chrome/browser/ui/webui/signin/sync_confirmation_ui.h"
 #include "chrome/common/url_constants.h"
 #include "components/constrained_window/constrained_window_views.h"
-#include "components/signin/core/browser/profile_management_switches.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
@@ -37,10 +39,9 @@ int GetSyncConfirmationDialogPreferredHeight(Profile* profile) {
 }
 
 int GetSyncConfirmationDialogPreferredWidth(Profile* profile) {
-  // With DICE profiles, we show a different sync confirmation dialog which
-  // uses a different width.
-  return signin::IsDiceEnabledForProfile(profile->GetPrefs()) &&
-                 profile->IsSyncAllowed()
+  // With Unity-enabled profiles, we show a different sync confirmation dialog
+  // which uses a different width.
+  return IsUnifiedConsentEnabled(profile) && profile->IsSyncAllowed()
              ? kModalDialogWidthForDice
              : kModalDialogWidth;
 }
@@ -226,6 +227,12 @@ SigninViewControllerDelegate::CreateModalSigninDelegate(
     profiles::BubbleViewMode mode,
     Browser* browser,
     signin_metrics::AccessPoint access_point) {
+#if defined(OS_MACOSX)
+  if (views_mode_controller::IsViewsBrowserCocoa()) {
+    return CreateModalSigninDelegateCocoa(signin_view_controller, mode, browser,
+                                          access_point);
+  }
+#endif
   return new SigninViewControllerDelegateViews(
       signin_view_controller,
       SigninViewControllerDelegateViews::CreateGaiaWebView(
@@ -237,6 +244,11 @@ SigninViewControllerDelegate*
 SigninViewControllerDelegate::CreateSyncConfirmationDelegate(
     SigninViewController* signin_view_controller,
     Browser* browser) {
+#if defined(OS_MACOSX)
+  if (views_mode_controller::IsViewsBrowserCocoa()) {
+    return CreateSyncConfirmationDelegate(signin_view_controller, browser);
+  }
+#endif
   return new SigninViewControllerDelegateViews(
       signin_view_controller,
       SigninViewControllerDelegateViews::CreateSyncConfirmationWebView(browser),
@@ -247,6 +259,11 @@ SigninViewControllerDelegate*
 SigninViewControllerDelegate::CreateSigninErrorDelegate(
     SigninViewController* signin_view_controller,
     Browser* browser) {
+#if defined(OS_MACOSX)
+  if (views_mode_controller::IsViewsBrowserCocoa()) {
+    return CreateSigninErrorDelegateCocoa(signin_view_controller, browser);
+  }
+#endif
   return new SigninViewControllerDelegateViews(
       signin_view_controller,
       SigninViewControllerDelegateViews::CreateSigninErrorWebView(browser),

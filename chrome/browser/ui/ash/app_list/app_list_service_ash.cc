@@ -15,13 +15,11 @@
 #include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_view_delegate.h"
-#include "chrome/browser/ui/app_list/start_page_service.h"
 #include "chrome/browser/ui/ash/app_list/app_list_controller_ash.h"
 #include "chrome/browser/ui/ash/app_list/app_list_presenter_delegate_mus.h"
 #include "chrome/browser/ui/ash/app_list/app_list_presenter_service.h"
 #include "chrome/browser/ui/ash/ash_util.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
-#include "chrome/browser/ui/ash/session_util.h"
 #include "ui/app_list/app_list_features.h"
 #include "ui/app_list/app_list_switches.h"
 #include "ui/app_list/presenter/app_list_presenter_delegate_factory.h"
@@ -43,8 +41,7 @@ class ViewDelegateFactoryImpl : public app_list::AppListViewDelegateFactory {
 
   // app_list::AppListViewDelegateFactory:
   app_list::AppListViewDelegate* GetDelegate() override {
-    return factory_->GetViewDelegate(
-        Profile::FromBrowserContext(GetActiveBrowserContext()));
+    return factory_->GetViewDelegate();
   }
 
  private:
@@ -113,20 +110,12 @@ app_list::AppListPresenterImpl* AppListServiceAsh::GetAppListPresenter() {
 
 void AppListServiceAsh::Init(Profile* initial_profile) {
   app_list_presenter_service_->Init();
-
-  // Ensure the StartPageService is created here. This early initialization is
-  // necessary to allow the WebContents to load before the app list is shown.
-  app_list::StartPageService* service =
-      app_list::StartPageService::Get(initial_profile);
-  if (service)
-    service->Init();
 }
 
 void AppListServiceAsh::OnProfileWillBeRemoved(
     const base::FilePath& profile_path) {}
 
-void AppListServiceAsh::ShowAndSwitchToState(
-    app_list::AppListModel::State state) {
+void AppListServiceAsh::ShowAndSwitchToState(ash::AppListState state) {
   bool app_list_was_open = true;
   app_list::AppListView* app_list_view = app_list_presenter_->GetView();
   if (!app_list_view) {
@@ -139,7 +128,7 @@ void AppListServiceAsh::ShowAndSwitchToState(
     DCHECK(app_list_view);
   }
 
-  if (state == app_list::AppListModel::INVALID_STATE)
+  if (state == ash::AppListState::kInvalidState)
     return;
 
   app_list::ContentsView* contents_view =
@@ -163,7 +152,7 @@ void AppListServiceAsh::ShowForAppInstall(Profile* profile,
                                           bool start_discovery_tracking) {
   if (app_list::features::IsFullscreenAppListEnabled())
     return;
-  ShowAndSwitchToState(app_list::AppListModel::STATE_APPS);
+  ShowAndSwitchToState(ash::AppListState::kStateApps);
   AppListServiceImpl::ShowForAppInstall(profile, extension_id,
                                         start_discovery_tracking);
 }
@@ -178,10 +167,6 @@ void AppListServiceAsh::DismissAppList() {
 
 void AppListServiceAsh::EnableAppList(Profile* initial_profile,
                                       AppListEnableSource enable_source) {}
-
-gfx::NativeWindow AppListServiceAsh::GetAppListWindow() {
-  return app_list_presenter_->GetWindow();
-}
 
 Profile* AppListServiceAsh::GetCurrentAppListProfile() {
   return ChromeLauncherController::instance()->profile();

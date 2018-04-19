@@ -31,9 +31,9 @@
 #include "chrome/browser/push_messaging/push_messaging_constants.h"
 #include "chrome/browser/push_messaging/push_messaging_service_factory.h"
 #include "chrome/browser/ui/chrome_pages.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
@@ -239,7 +239,7 @@ void PushMessagingServiceImpl::OnStoreReset() {
     // occurs before we finish clearing them.
     ClearPushSubscriptionId(profile_, identifier.origin(),
                             identifier.service_worker_registration_id(),
-                            base::Bind(&base::DoNothing));
+                            base::DoNothing());
     // TODO(johnme): Fire pushsubscriptionchange/pushsubscriptionlost SW event.
   }
   PushMessagingAppIdentifier::DeleteAllFromPrefs(profile_);
@@ -272,7 +272,7 @@ void PushMessagingServiceImpl::OnMessage(const std::string& app_id,
 #endif
 
   base::Closure message_handled_closure =
-      message_callback_for_testing_.is_null() ? base::Bind(&base::DoNothing)
+      message_callback_for_testing_.is_null() ? base::DoNothing()
                                               : message_callback_for_testing_;
   PushMessagingAppIdentifier app_identifier =
       PushMessagingAppIdentifier::FindByAppId(profile_, app_id);
@@ -466,8 +466,15 @@ void PushMessagingServiceImpl::SubscribeFromDocument(
     bool user_gesture,
     const RegisterCallback& callback) {
   PushMessagingAppIdentifier app_identifier =
-      PushMessagingAppIdentifier::Generate(requesting_origin,
-                                           service_worker_registration_id);
+      PushMessagingAppIdentifier::FindByServiceWorker(
+          profile_, requesting_origin, service_worker_registration_id);
+
+  // If there is no existing app identifier for the given Service Worker,
+  // generate a new one. This will create a new subscription on the server.
+  if (app_identifier.is_null()) {
+    app_identifier = PushMessagingAppIdentifier::Generate(
+        requesting_origin, service_worker_registration_id);
+  }
 
   if (push_subscription_count_ + pending_push_subscription_count_ >=
       kMaxRegistrations) {
@@ -507,8 +514,15 @@ void PushMessagingServiceImpl::SubscribeFromWorker(
     const content::PushSubscriptionOptions& options,
     const RegisterCallback& register_callback) {
   PushMessagingAppIdentifier app_identifier =
-      PushMessagingAppIdentifier::Generate(requesting_origin,
-                                           service_worker_registration_id);
+      PushMessagingAppIdentifier::FindByServiceWorker(
+          profile_, requesting_origin, service_worker_registration_id);
+
+  // If there is no existing app identifier for the given Service Worker,
+  // generate a new one. This will create a new subscription on the server.
+  if (app_identifier.is_null()) {
+    app_identifier = PushMessagingAppIdentifier::Generate(
+        requesting_origin, service_worker_registration_id);
+  }
 
   if (push_subscription_count_ + pending_push_subscription_count_ >=
       kMaxRegistrations) {
@@ -882,7 +896,7 @@ void PushMessagingServiceImpl::DidDeleteServiceWorkerRegistration(
       std::string() /* sender_id */,
       base::Bind(&UnregisterCallbackToClosure,
                  service_worker_unregistered_callback_for_testing_.is_null()
-                     ? base::Bind(&base::DoNothing)
+                     ? base::DoNothing()
                      : service_worker_unregistered_callback_for_testing_));
 }
 
@@ -900,7 +914,7 @@ void PushMessagingServiceImpl::DidDeleteServiceWorkerDatabase() {
   base::RepeatingClosure completed_closure = base::BarrierClosure(
       app_identifiers.size(),
       service_worker_database_wiped_callback_for_testing_.is_null()
-          ? base::Bind(&base::DoNothing)
+          ? base::DoNothing()
           : service_worker_database_wiped_callback_for_testing_);
 
   for (const PushMessagingAppIdentifier& app_identifier : app_identifiers) {
@@ -937,7 +951,7 @@ void PushMessagingServiceImpl::OnContentSettingChanged(
   base::Closure barrier_closure = base::BarrierClosure(
       all_app_identifiers.size(),
       content_setting_changed_callback_for_testing_.is_null()
-          ? base::Bind(&base::DoNothing)
+          ? base::DoNothing()
           : content_setting_changed_callback_for_testing_);
 
   for (const PushMessagingAppIdentifier& app_identifier : all_app_identifiers) {
@@ -1071,9 +1085,11 @@ void PushMessagingServiceImpl::GetEncryptionInfoForAppId(
     gcm::GCMEncryptionProvider::EncryptionInfoCallback callback) {
   if (PushMessagingAppIdentifier::UseInstanceID(app_id)) {
     GetInstanceIDDriver()->GetInstanceID(app_id)->GetEncryptionInfo(
-        NormalizeSenderInfo(sender_id), callback);
+        NormalizeSenderInfo(sender_id),
+        base::AdaptCallbackForRepeating(std::move(callback)));
   } else {
-    GetGCMDriver()->GetEncryptionInfo(app_id, callback);
+    GetGCMDriver()->GetEncryptionInfo(
+        app_id, base::AdaptCallbackForRepeating(std::move(callback)));
   }
 }
 

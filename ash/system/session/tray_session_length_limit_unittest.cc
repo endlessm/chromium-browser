@@ -12,8 +12,8 @@
 #include "ash/test/ash_test_base.h"
 #include "base/time/time.h"
 #include "ui/message_center/message_center.h"
-#include "ui/message_center/notification.h"
-#include "ui/message_center/notification_types.h"
+#include "ui/message_center/public/cpp/notification.h"
+#include "ui/message_center/public/cpp/notification_types.h"
 
 namespace ash {
 
@@ -93,7 +93,7 @@ TEST_F(TraySessionLengthLimitTest, Notification) {
   message_center::Notification* notification = GetNotification();
   EXPECT_TRUE(notification);
   EXPECT_EQ(message_center::SYSTEM_PRIORITY, notification->priority());
-  base::string16 first_content = notification->message();
+  base::string16 first_title = notification->title();
   // Should read the content.
   EXPECT_TRUE(notification->rich_notification_data()
                   .should_make_spoken_feedback_for_popup_updates);
@@ -103,8 +103,8 @@ TEST_F(TraySessionLengthLimitTest, Notification) {
   notification = GetNotification();
   EXPECT_TRUE(notification);
   EXPECT_EQ(message_center::SYSTEM_PRIORITY, notification->priority());
-  // The content should be updated.
-  EXPECT_NE(first_content, notification->message());
+  // The title should be updated.
+  EXPECT_NE(first_title, notification->title());
   // Should NOT read, because just update the remaining time.
   EXPECT_FALSE(notification->rich_notification_data()
                    .should_make_spoken_feedback_for_popup_updates);

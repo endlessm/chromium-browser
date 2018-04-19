@@ -6,10 +6,12 @@
 
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/harmony/chrome_typography.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/gfx/color_palette.h"
+#include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/animation/ink_drop_highlight.h"
 #include "ui/views/animation/ink_drop_ripple.h"
 #include "ui/views/background.h"
@@ -94,7 +96,8 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
 HoverButton::HoverButton(views::ButtonListener* button_listener,
                          std::unique_ptr<views::View> icon_view,
                          const base::string16& title,
-                         const base::string16& subtitle)
+                         const base::string16& subtitle,
+                         bool show_submenu_arrow)
     : HoverButton(button_listener, base::string16()) {
   label()->SetHandlesTooltips(false);
   ChromeLayoutProvider* layout_provider = ChromeLayoutProvider::Get();
@@ -117,12 +120,10 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
   const int num_labels = subtitle.empty() ? 1 : 2;
   const int combined_line_height =
       views::style::GetLineHeight(views::style::CONTEXT_LABEL,
-                                  views::style::STYLE_PRIMARY) *
+                                  STYLE_SECONDARY) *
       num_labels;
   if (combined_line_height > icon_height)
     remaining_vert_spacing = (total_height - combined_line_height) / 2;
-
-  SetBorder(CreateBorderWithVerticalSpacing(remaining_vert_spacing));
 
   views::GridLayout* grid_layout =
       SetLayoutManager(std::make_unique<views::GridLayout>(this));
@@ -184,15 +185,38 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
     grid_layout->SkipColumns(1);
     grid_layout->AddView(subtitle_);
   }
+
+  if (show_submenu_arrow) {
+    constexpr int kSubmenuArrowSize = 12;
+    columns->AddColumn(views::GridLayout::CENTER, views::GridLayout::CENTER,
+                       kFixed, views::GridLayout::USE_PREF, 0, 0);
+    views::ImageView* arrow = new views::ImageView();
+    arrow->SetImage(gfx::CreateVectorIcon(
+        kUserMenuRightArrowIcon, kSubmenuArrowSize, gfx::kChromeIconGrey));
+    // Make sure hovering over |arrow| also hovers the |HoverButton|.
+    arrow->set_can_process_events_within_subtree(false);
+    // |arrow| needs a layer otherwise it's obscured by the layer used in
+    // drawing ink drops.
+    arrow->SetPaintToLayer();
+    arrow->layer()->SetFillsBoundsOpaquely(false);
+    // Make sure that the arrow is flipped in RTL mode.
+    arrow->EnableCanvasFlippingForRTLUI(true);
+    grid_layout->AddView(arrow, 1, num_labels);
+  }
   SetTooltipAndAccessibleName(this, title_, subtitle_, GetLocalBounds(),
                               taken_width_, auto_compute_tooltip_);
 
-  // Since this constructor doesn't use the |LabelButton|'s image / label Views,
-  // make sure the minimum size is correct according to the |grid_layout|.
-  SetMinSize(gfx::Size(grid_layout->GetPreferredSize(this)));
+  SetBorder(CreateBorderWithVerticalSpacing(remaining_vert_spacing));
 }
 
 HoverButton::~HoverButton() {}
+
+void HoverButton::SetBorder(std::unique_ptr<views::Border> b) {
+  LabelButton::SetBorder(std::move(b));
+  // Make sure the minimum size is correct according to the layout (if any).
+  if (GetLayoutManager())
+    SetMinSize(GetLayoutManager()->GetPreferredSize(this));
+}
 
 void HoverButton::SetSubtitleElideBehavior(gfx::ElideBehavior elide_behavior) {
   DCHECK(subtitle_);
@@ -227,6 +251,10 @@ views::Button::KeyClickAction HoverButton::GetKeyClickActionForEvent(
   return LabelButton::GetKeyClickActionForEvent(event);
 }
 
+void HoverButton::SetHighlightingView(views::View* highlighting_view) {
+  highlighting_view_ = highlighting_view;
+}
+
 void HoverButton::StateChanged(ButtonState old_state) {
   LabelButton::StateChanged(old_state);
 
@@ -245,7 +273,7 @@ bool HoverButton::ShouldUseFloodFillInkDrop() const {
 
 SkColor HoverButton::GetInkDropBaseColor() const {
   return views::style::GetColor(*this, views::style::CONTEXT_BUTTON,
-                                views::style::STYLE_PRIMARY);
+                                STYLE_SECONDARY);
 }
 
 std::unique_ptr<views::InkDropHighlight> HoverButton::CreateInkDropHighlight()
@@ -254,8 +282,9 @@ std::unique_ptr<views::InkDropHighlight> HoverButton::CreateInkDropHighlight()
   // remove the rounded corners.
   std::unique_ptr<views::InkDropHighlight> highlight(
       new views::InkDropHighlight(
-          size(), 0,
-          gfx::RectF(GetMirroredRect(GetContentsBounds())).CenterPoint(),
+          highlighting_view_->size(), 0,
+          gfx::RectF(GetMirroredRect(highlighting_view_->GetContentsBounds()))
+              .CenterPoint(),
           GetInkDropBaseColor()));
   highlight->set_explode_size(gfx::SizeF(CalculateLargeInkDropSize(size())));
   return highlight;
@@ -291,29 +320,24 @@ void HoverButton::OnBoundsChanged(const gfx::Rect& previous_bounds) {
 }
 
 void HoverButton::SetStyle(Style style) {
-  SkColor background_color = 0, subtitle_text_color = 0;
-  switch (style) {
-    case STYLE_PROMINENT:
-      // White text on |gfx::kGoogleBlue500| would be adjusted by
-      // AutoColorRedability. However, this specific combination has an
-      // exception (http://go/mdcontrast). So, disable AutoColorReadability.
-      title_->set_auto_color_readability_enabled(false);
-      background_color = GetNativeTheme()->GetSystemColor(
-          ui::NativeTheme::kColorId_ProminentButtonColor);
-      subtitle_text_color = GetNativeTheme()->GetSystemColor(
-          ui::NativeTheme::kColorId_TextOnProminentButtonColor);
-      break;
-    case STYLE_ERROR:
-      background_color = gfx::kGoogleRed700;
-      subtitle_text_color = SK_ColorWHITE;
-      break;
-    default:
-      NOTREACHED();
+  if (style == STYLE_PROMINENT) {
+    SkColor background_color = GetNativeTheme()->GetSystemColor(
+        ui::NativeTheme::kColorId_ProminentButtonColor);
+    SetBackground(views::CreateSolidBackground(background_color));
+    // White text on |gfx::kGoogleBlue500| would be adjusted by
+    // AutoColorRedability. However, this specific combination has an
+    // exception (http://go/mdcontrast). So, disable AutoColorReadability.
+    title_->set_auto_color_readability_enabled(false);
+    SetTitleTextStyle(views::style::STYLE_DIALOG_BUTTON_DEFAULT,
+                      background_color);
+    SetSubtitleColor(GetNativeTheme()->GetSystemColor(
+        ui::NativeTheme::kColorId_TextOnProminentButtonColor));
+  } else if (style == STYLE_ERROR) {
+    DCHECK_EQ(nullptr, background());
+    title_->SetDefaultTextStyle(STYLE_RED);
+  } else {
+    NOTREACHED();
   }
-  SetBackground(views::CreateSolidBackground(background_color));
-  SetTitleTextStyle(views::style::STYLE_DIALOG_BUTTON_DEFAULT,
-                    background_color);
-  SetSubtitleColor(subtitle_text_color);
 }
 
 void HoverButton::SetTitleTextStyle(views::style::TextStyle text_style,

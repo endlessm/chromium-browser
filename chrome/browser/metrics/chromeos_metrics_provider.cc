@@ -25,6 +25,7 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
+#include "components/variations/service/variations_field_trial_creator.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/bluetooth_device.h"
@@ -83,8 +84,16 @@ void IncrementPrefValue(const char* path) {
   pref->SetInteger(path, value + 1);
 }
 
+const base::Feature kUmaShortHWClass{"UmaShortHWClass",
+                                     base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Called on a background thread to load hardware class information.
 std::string GetHardwareClassOnBackgroundThread() {
+  // TODO(asvitkine): If we switch to the new API permanently, we should also
+  // move this work off the background thread.
+  if (base::FeatureList::IsEnabled(kUmaShortHWClass))
+    return variations::VariationsFieldTrialCreator::GetShortHardwareClass();
+
   std::string hardware_class;
   chromeos::system::StatisticsProvider::GetInstance()->GetMachineStatistic(
       "hardware_class", &hardware_class);
@@ -193,9 +202,9 @@ void ChromeOSMetricsProvider::ProvideSystemProfileMetrics(
   hardware->set_hardware_class(hardware_class_);
   display::Display::TouchSupport has_touch =
       ui::GetInternalDisplayTouchSupport();
-  if (has_touch == display::Display::TOUCH_SUPPORT_AVAILABLE)
+  if (has_touch == display::Display::TouchSupport::AVAILABLE)
     hardware->set_internal_display_supports_touch(true);
-  else if (has_touch == display::Display::TOUCH_SUPPORT_UNAVAILABLE)
+  else if (has_touch == display::Display::TouchSupport::UNAVAILABLE)
     hardware->set_internal_display_supports_touch(false);
 }
 

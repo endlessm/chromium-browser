@@ -27,9 +27,9 @@
 #include "chrome/browser/plugins/plugins_field_trial.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_otr_state.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_features.h"
-#include "chrome/common/features.h"
 #include "chrome/common/plugin.mojom.h"
 #include "chrome/common/pref_names.h"
 #include "components/component_updater/component_updater_service.h"
@@ -37,7 +37,7 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/keyed_service/content/browser_context_keyed_service_shutdown_notifier_factory.h"
-#include "components/nacl/common/features.h"
+#include "components/nacl/common/buildflags.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 #include "components/rappor/rappor_service_impl.h"
@@ -432,7 +432,7 @@ void PluginInfoHostImpl::ComponentPluginLookupDone(
       output->status = chrome::mojom::PluginStatus::kRestartRequired;
     }
 #endif
-    plugin_metadata = base::MakeUnique<PluginMetadata>(
+    plugin_metadata = std::make_unique<PluginMetadata>(
         cus_plugin_info->id, cus_plugin_info->name, false, GURL(), GURL(),
         base::ASCIIToUTF16(cus_plugin_info->id), std::string());
   }

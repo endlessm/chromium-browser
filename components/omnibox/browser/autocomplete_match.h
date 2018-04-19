@@ -114,8 +114,10 @@ struct AutocompleteMatch {
   // Converts |type| to a string representation.  Used in logging and debugging.
   AutocompleteMatch& operator=(const AutocompleteMatch& match);
 
-  // Gets the vector icon identifier for the icon to be shown for |type|.
-  static const gfx::VectorIcon& TypeToVectorIcon(Type type);
+  // Gets the vector icon identifier for the icon to be shown for |type|. If
+  // |is_bookmark| is true, returns a bookmark icon rather than what the type
+  // would determine.
+  static const gfx::VectorIcon& TypeToVectorIcon(Type type, bool is_bookmark);
 
   // Comparison function for determining when one match is better than another.
   static bool MoreRelevant(const AutocompleteMatch& elem1,
@@ -310,19 +312,25 @@ struct AutocompleteMatch {
   // This is used to decide whether we should call DeleteMatch().
   bool SupportsDeletion() const;
 
-  // Swaps the contents and description fields, and their associated
-  // classifications, if this is a match for which we should emphasize the
-  // title (stored in the description field) over the URL (in the contents
-  // field).  Intended to only be used at the UI level before displaying, lest
-  // other omnibox systems get confused about which is which.  See the code
-  // that sets |swap_contents_and_description| for conditions under which
-  // it is true.
-  void PossiblySwapContentsAndDescriptionForDisplay();
+  // Returns a copy of this match with the contents and description fields, and
+  // their associated classifications, possibly swapped.  We swap these if this
+  // is a match for which we should emphasize the title (stored in the
+  // description field) over the URL (in the contents field).
+  //
+  // We specifically return a copy to prevent the UI code from accidentally
+  // mucking with the matches stored in the model, lest other omnibox systems
+  // get confused about which is which.  See the code that sets
+  // |swap_contents_and_description| for conditions they are swapped.
+  AutocompleteMatch GetMatchWithContentsAndDescriptionPossiblySwapped() const;
 
   // If this match is a tail suggestion, prepends the passed |common_prefix|.
   // If not, but the prefix matches the beginning of the suggestion, dims that
   // portion in the classification.
   void InlineTailPrefix(const base::string16& common_prefix);
+
+  // Estimates dynamic memory usage.
+  // See base/trace_event/memory_usage_estimator.h for more info.
+  size_t EstimateMemoryUsage() const;
 
   // The provider of this match, used to remember which provider the user had
   // selected when the input changes. This may be NULL, in which case there is

@@ -30,14 +30,14 @@
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
-#include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/test/integration/fake_server_invalidation_service.h"
 #include "chrome/browser/sync/test/integration/p2p_invalidation_forwarder.h"
@@ -68,8 +68,6 @@
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/os_crypt/os_crypt_mocker.h"
 #include "components/search_engines/template_url_service.h"
-#include "components/signin/core/browser/profile_identity_provider.h"
-#include "components/signin/core/browser/signin_manager.h"
 #include "components/sync/base/invalidation_helper.h"
 #include "components/sync/driver/sync_driver_switches.h"
 #include "components/sync/engine_impl/sync_scheduler_impl.h"
@@ -92,6 +90,7 @@
 #include "url/gurl.h"
 
 #if defined(OS_CHROMEOS)
+#include "chrome/browser/sync/test/integration/printers_helper.h"
 #include "chrome/browser/sync/test/integration/sync_arc_package_helper.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs_factory.h"
 #include "chromeos/chromeos_switches.h"
@@ -193,11 +192,6 @@ std::unique_ptr<KeyedService> BuildP2PProfileInvalidationProvider(
   return std::make_unique<invalidation::ProfileInvalidationProvider>(
       std::unique_ptr<invalidation::InvalidationService>(
           new invalidation::P2PInvalidationService(
-              std::unique_ptr<IdentityProvider>(new ProfileIdentityProvider(
-                  SigninManagerFactory::GetForProfile(profile),
-                  ProfileOAuth2TokenServiceFactory::GetForProfile(profile),
-                  LoginUIServiceFactory::GetShowLoginPopupCallbackForProfile(
-                      profile))),
               profile->GetRequestContext(), notification_target)));
 }
 
@@ -216,13 +210,11 @@ std::unique_ptr<KeyedService> BuildRealisticP2PProfileInvalidationProvider(
 SyncTest::SyncTest(TestType test_type)
     : test_type_(test_type),
       server_type_(SERVER_TYPE_UNDECIDED),
+      previous_profile_(nullptr),
       num_clients_(-1),
       configuration_refresher_(std::make_unique<ConfigurationRefresher>()),
       use_verifier_(true),
       create_gaia_account_at_runtime_(false) {
-  // TODO(crbug.com/781368) remove once feature enabled.
-  feature_list_.InitWithFeatures({switches::kSyncUSSTypedURL}, {});
-
   sync_datatype_helper::AssociateWithTest(this);
   switch (test_type_) {
     case SINGLE_CLIENT:
@@ -351,6 +343,10 @@ bool SyncTest::CreateProfile(int index) {
     // For multi profile UI signin, profile paths should be outside user data
     // dir to allow signing-in multiple profiles to same account. Otherwise, we
     // get an error that the profile has already signed in on this device.
+    // Note: Various places in Chrome assume that all profiles are within the
+    // user data dir. We violate that assumption here, which can lead to weird
+    // issues, see https://crbug.com/801569 and the workaround in
+    // TearDownOnMainThread.
     if (!tmp_profile_paths_[index]->CreateUniqueTempDir()) {
       ADD_FAILURE();
       return false;
@@ -519,6 +515,9 @@ void SyncTest::DisableVerifier() {
 }
 
 bool SyncTest::SetupClients() {
+  previous_profile_ =
+      g_browser_process->profile_manager()->GetLastUsedProfile();
+
   base::ScopedAllowBlockingForTesting allow_blocking;
   if (num_clients_ <= 0)
     LOG(FATAL) << "num_clients_ incorrectly initialized.";
@@ -752,6 +751,17 @@ bool SyncTest::SetupAndClearClient(size_t index) {
 }
 
 void SyncTest::TearDownOnMainThread() {
+  // Workaround for https://crbug.com/801569: |prefs::kProfileLastUsed| stores
+  // the profile path relative to the user dir, but our testing profiles are
+  // outside the user dir (see CreateProfile). So code trying to access the last
+  // used profile by path will fail. To work around that, set the last used
+  // profile back to the originally created default profile (which does live in
+  // the user data dir, and which we don't use otherwise).
+  if (previous_profile_) {
+    profiles::SetLastUsedProfile(
+        previous_profile_->GetPath().BaseName().MaybeAsASCII());
+  }
+
   for (size_t i = 0; i < clients_.size(); ++i) {
     clients_[i]->service()->RequestStop(ProfileSyncService::CLEAR_DATA);
   }
@@ -801,6 +811,9 @@ void SyncTest::WaitForDataModels(Profile* profile) {
       profile, ServiceAccessType::EXPLICIT_ACCESS));
   search_test_utils::WaitForTemplateURLServiceToLoad(
       TemplateURLServiceFactory::GetForProfile(profile));
+#if defined(OS_CHROMEOS)
+  printers_helper::WaitForPrinterStoreToLoad(profile);
+#endif
 }
 
 void SyncTest::ReadPasswordFile() {

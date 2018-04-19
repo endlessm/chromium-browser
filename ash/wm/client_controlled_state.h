@@ -36,12 +36,19 @@ class ASH_EXPORT ClientControlledState : public BaseState {
     virtual void HandleWindowStateRequest(
         WindowState* window_state,
         mojom::WindowStateType requested_state) = 0;
-    // Handles the bounds change request for |window_state|.  Delegate
-    // may choose to ignore the request, set the given bounds, or set
-    // the different bounds.
+    // Handles the bounds change request for |window_state|. The bounds change
+    // might come from a state change request |requested_state| (currently it
+    // should only be a snapped window state). Delegate may choose to ignore the
+    // request, set the given bounds, or set the different bounds.
     virtual void HandleBoundsRequest(WindowState* window_state,
+                                     mojom::WindowStateType requested_state,
                                      const gfx::Rect& requested_bounds) = 0;
   };
+
+  // Adjust bounds to ensure window visibility, which is used for window added
+  // to a new workspace.
+  static void AdjustBoundsForMinimumWindowVisibility(aura::Window* window,
+                                                     gfx::Rect* bounds);
 
   explicit ClientControlledState(std::unique_ptr<Delegate> delegate);
   ~ClientControlledState() override;

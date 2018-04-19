@@ -51,7 +51,13 @@ VRDeviceManager* VRDeviceManager::GetInstance() {
 #endif
 
 #if BUILDFLAG(ENABLE_OCULUS_VR)
-    providers.emplace_back(std::make_unique<device::OculusVRDeviceProvider>());
+    // For now, only use the Oculus when OpenVR is not enabled.
+    // TODO(billorr): Add more complicated logic to avoid routing Oculus devices
+    // through OpenVR.
+    if (base::FeatureList::IsEnabled(features::kOculusVR) &&
+        providers.size() == 0)
+      providers.emplace_back(
+          std::make_unique<device::OculusVRDeviceProvider>());
 #endif
 
     if (base::FeatureList::IsEnabled(features::kWebXrOrientationSensorDevice)) {
@@ -158,6 +164,12 @@ void VRDeviceManager::RemoveDevice(device::VRDevice* device) {
   }
 }
 
+void VRDeviceManager::RecordVrStartupHistograms() {
+#if BUILDFLAG(ENABLE_OPENVR)
+  device::OpenVRDeviceProvider::RecordRuntimeAvailability();
+#endif
+}
+
 device::VRDevice* VRDeviceManager::GetDevice(unsigned int index) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
@@ -176,11 +188,12 @@ void VRDeviceManager::InitializeProviders() {
     return;
 
   for (const auto& provider : providers_) {
-    provider->Initialize(
-        base::Bind(&VRDeviceManager::AddDevice, base::Unretained(this)),
-        base::Bind(&VRDeviceManager::RemoveDevice, base::Unretained(this)),
-        base::BindOnce(&VRDeviceManager::OnProviderInitialized,
-                       base::Unretained(this)));
+    provider->Initialize(base::BindRepeating(&VRDeviceManager::AddDevice,
+                                             base::Unretained(this)),
+                         base::BindRepeating(&VRDeviceManager::RemoveDevice,
+                                             base::Unretained(this)),
+                         base::BindOnce(&VRDeviceManager::OnProviderInitialized,
+                                        base::Unretained(this)));
   }
 
   providers_initialized_ = true;

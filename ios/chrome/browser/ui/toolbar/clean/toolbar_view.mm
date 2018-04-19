@@ -5,13 +5,11 @@
 #import "ios/chrome/browser/ui/toolbar/clean/toolbar_view.h"
 
 #import "base/mac/foundation_util.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_button.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_button_factory.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_configuration.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_constants.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_tools_menu_button.h"
-#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_constants.h"
-#import "ios/chrome/browser/ui/toolbar/public/web_toolbar_controller_constants.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button_factory.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_constants.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tools_menu_button.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 #include "ios/chrome/grit/ios_theme_resources.h"
@@ -134,7 +132,7 @@
 - (void)setUpToolbarButtons {
   self.backButton = [self.buttonFactory backButton];
   self.forwardButton = [self.buttonFactory leadingForwardButton];
-  self.tabSwitchStripButton = [self.buttonFactory tabSwitcherStripButton];
+  self.tabSwitchStripButton = [self.buttonFactory stackViewButton];
   self.toolsMenuButton = [self.buttonFactory toolsMenuButton];
   self.shareButton = [self.buttonFactory shareButton];
   self.reloadButton = [self.buttonFactory reloadButton];
@@ -217,6 +215,7 @@
         self.buttonFactory.toolbarConfiguration.NTPBackgroundColor;
     [self insertSubview:_backgroundView atIndex:0];
     AddSameConstraints(self, _backgroundView);
+    _backgroundView.alpha = 0;
   }
   return _backgroundView;
 }

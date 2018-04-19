@@ -365,11 +365,17 @@ This file contains the strings for ash.
     system tray to toggle on/off spoken feedback feature.">
         ChromeVox (spoken feedback)
       </message>
+      <message name="IDS_ASH_STATUS_TRAY_ACCESSIBILITY_SELECT_TO_SPEAK" desc="The label used in the accessibility menu of the system tray to toggle on/off the select-to-speak feature.">
+        Select-to-Speak
+      </message>
       <message name="IDS_ASH_STATUS_TRAY_ACCESSIBILITY_HIGH_CONTRAST_MODE" desc="The label used in the accessibility menu of the system tray to toggle on/off high contrast feature.">
         High contrast mode
       </message>
-      <message name="IDS_ASH_STATUS_TRAY_ACCESSIBILITY_SCREEN_MAGNIFIER" desc="The label used in the accessibility menu of the system tray to toggle on/off magnifier feature.">
-        Screen magnifier
+      <message name="IDS_ASH_STATUS_TRAY_ACCESSIBILITY_SCREEN_MAGNIFIER" desc="The label used in the accessibility menu of the system tray to toggle on/off a magnifier that magnifies the entire screen.">
+        Fullscreen magnifier
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_ACCESSIBILITY_DOCKED_MAGNIFIER" desc="The label used in the accessibility menu of the system tray to toggle on/off a magnifier that shows a magnified copy of the screen in a docked viewport at the top of the screen.">
+        Docked magnifier
       </message>
       <message name="IDS_ASH_STATUS_TRAY_ACCESSIBILITY_LARGE_CURSOR" desc="The label used in the accessibility menu of the system tray to toggle on/off large mouse cursor feature.">
         Large mouse cursor
@@ -518,6 +524,9 @@ This file contains the strings for ash.
       <!-- Overview Mode -->
       <message name="IDS_ASH_OVERVIEW_BUTTON_ACCESSIBLE_NAME" desc="The accessible name for the Overview button in the system tray.">
         Toggle window overview
+      </message>
+      <message name="IDS_ASH_OVERVIEW_NO_RECENT_ITEMS" desc="The message that is displayed on overview mode when the user enters it with no open windows.">
+        No recent items
       </message>
 
       <!-- Status tray charging strings. -->
@@ -860,8 +869,11 @@ This file contains the strings for ash.
       <message name="IDS_ASH_STATUS_TRAY_BUBBLE_SESSION_LENGTH_LIMIT" desc="Tray bubble item shown to inform the user that the session length is limited.">
         Session ends in <ph name="session_time_remaining">$1<ex>4 minutes 23 seconds</ex></ph>.
       </message>
-      <message name="IDS_ASH_STATUS_TRAY_NOTIFICATION_SESSION_LENGTH_LIMIT" desc="Notification shown to inform the user that the session length is limited.">
-        Session ends in <ph name="session_time_remaining">$1<ex>4 minutes 23 seconds</ex></ph>. You will be signed out.
+      <message name="IDS_ASH_STATUS_TRAY_NOTIFICATION_SESSION_LENGTH_LIMIT_TITLE" desc="The title of the notification shown to inform the user that the session length is limited.">
+        Your session will end in <ph name="session_time_remaining">$1<ex>4 mins 23 secs</ex></ph>
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_NOTIFICATION_SESSION_LENGTH_LIMIT_MESSAGE" desc="The message of the notification shown to inform the user that the session length is limited.">
+        You will automatically be signed out.
       </message>
       <message name="IDS_ASH_STATUS_TRAY_ROTATION_LOCK_AUTO" desc="The text shown in the tray menu when rotation is set to auto and the user can enable the rotation lock by tapping.">
         Auto rotate
@@ -1147,7 +1159,18 @@ This file contains the strings for ash.
       <message name="IDS_ASH_LOGIN_POD_MENU_BUTTON_ACCESSIBLE_NAME" desc="Text to be spoken when the focus is set to the menu button of the user pod on the login screen.">
         Options menu for <ph name="USER_EMAIL_ADDRESS">$1<ex>john.doe@example.com</ex></ph>
       </message>
-
+      <message name="IDS_ASH_LOGIN_POD_MENU_REMOVE_ITEM_ACCESSIBLE_NAME" desc="Text to be spoken when 'Remove user' item is selected on the pod menu.">
+        Remove this user
+      </message>
+      <message name="IDS_ASH_LOGIN_POD_LEGACY_SUPERVISED_USER_REMOVE_WARNING" desc="Text shown as a warning when attempting to remove legacy supervised user.">
+        All files and local data associated with the supervised user will be permanently deleted once this supervised user is removed. Visited websites and settings for this supervised user may still be visible by the manager at <ph name="MANAGEMENT_URL">$1<ex>www.example.com</ex></ph>.
+      </message>
+      <message name="IDS_ASH_LOGIN_POD_NON_OWNER_USER_REMOVE_WARNING_PART_1" desc="Text shown as a warning when attempting to remove non-owner user. Also see IDS_ASH_LOGIN_POD_NON_OWNER_USER_REMOVE_WARNING_PART_2.">
+        All files and local data associated with this user will be permanently deleted once this user is removed.
+      </message>
+      <message name="IDS_ASH_LOGIN_POD_NON_OWNER_USER_REMOVE_WARNING_PART_2" desc="Text shown as a warning when attempting to remove non-owner user. Also see IDS_ASH_LOGIN_POD_NON_OWNER_USER_REMOVE_WARNING_PART_1.">
+        $1 can still sign in later.
+      </message>
 
       <!-- Multi-profiles intro dialog -->
       <message name="IDS_ASH_MULTIPROFILES_INTRO_HEADLINE" desc="Describes which feature multi-profiles intro dialog presents.">
@@ -1219,6 +1242,26 @@ Subsequent notifications, windows and dialogs may be split between desktops.
       </message>
       <message name="IDS_ASH_MESSAGE_CENTER_NO_NOTIFIERS" desc="The message displayed in the message center when there are no notification sources.">
         Nothing to see just yet
+      </message>
+      <if expr="is_chrome_branded">
+        <message name="IDS_ASH_MESSAGE_CENTER_SYSTEM_APP_NAME" desc="The source of a system-generated notification, as displayed to the user.">
+          Chrome OS
+        </message>
+      </if>
+      <if expr="not is_chrome_branded">
+        <message name="IDS_ASH_MESSAGE_CENTER_SYSTEM_APP_NAME" desc="The source of a system-generated notification, as displayed to the user.">
+          Chromium OS
+        </message>
+      </if>
+
+      <!-- Window Control -->
+      <message name="IDS_ASH_WINDOW_CONTROL_ACCNAME_BACK" desc="The accessible name for the back button on the window frame.">
+        Back button
+      </message>
+
+      <!-- Power off menu  -->
+      <message name="IDS_ASH_POWER_OFF_MENU_POWER_OFF_BUTTON" desc="Text shown on power off button in power off menu.">
+        Power off
       </message>
     </messages>
   </release>

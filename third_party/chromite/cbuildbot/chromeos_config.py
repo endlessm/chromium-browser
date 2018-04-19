@@ -8,6 +8,7 @@
 from __future__ import print_function
 
 import copy
+import os
 
 from chromite.lib.const import waterfall
 from chromite.lib import config_lib
@@ -45,6 +46,21 @@ def GetDefaultWaterfall(build_config, is_release_branch):
   else:
     # No default active waterfall.
     return None
+
+
+def getInfoVMTest():
+  suites = ['vmtest-informational1',
+            'vmtest-informational2',
+            'vmtest-informational3',
+            'vmtest-informational4',
+            'arc-gts']
+  ret = []
+  for suite in suites:
+    ret.append(config_lib.VMTestConfig(
+        constants.VM_SUITE_TEST_TYPE,
+        test_suite=suite,
+        timeout=12 * 60 * 60))
+  return ret
 
 
 class HWTestList(object):
@@ -447,7 +463,8 @@ def remove_images(unsupported_images):
 
 
 TRADITIONAL_VM_TESTS_SUPPORTED = [
-    config_lib.VMTestConfig(constants.VM_SUITE_TEST_TYPE, test_suite='smoke'),
+    config_lib.VMTestConfig(constants.VM_SUITE_TEST_TYPE,
+                            test_suite='smoke', retry=True),
     config_lib.VMTestConfig(constants.SIMPLE_AU_TEST_TYPE),
     config_lib.VMTestConfig(constants.CROS_VM_TEST_TYPE)]
 
@@ -464,6 +481,7 @@ _arm_internal_release_boards = frozenset([
     'beaglebone_servo',
     'bob',
     'capri',
+    'capri-zfpga',
     'cobblepot',
     'daisy',
     'daisy_skate',
@@ -474,6 +492,7 @@ _arm_internal_release_boards = frozenset([
     'gru',
     'hana',
     'kevin',
+    'kevin-arcnext',
     'lasilla-ground',
     'lasilla-sky',
     'macchiato-ground',
@@ -535,6 +554,7 @@ _x86_internal_release_boards = frozenset([
     'edgar',
     'enguarde',
     'eve',
+    'eve-arcnext',
     'expresso',
     'falco',
     'falco_li',
@@ -576,6 +596,7 @@ _x86_internal_release_boards = frozenset([
     'ninja',
     'novato',
     'novato-arc64',
+    'octopus',
     'orco',
     'panther',
     'parrot',
@@ -664,6 +685,7 @@ _cheets_x86_boards = frozenset([
     'newbie',
     'novato',
     'novato-arc64',
+    'octopus',
     'poppy',
     'pyro',
     'reef',
@@ -705,6 +727,7 @@ _lassen_boards = frozenset([
 
 _loonix_boards = frozenset([
     'capri',
+    'capri-zfpga',
     'cobblepot',
     'gonzo',
     'lasilla-ground',
@@ -719,6 +742,10 @@ _moblab_boards = frozenset([
     'fizz-moblab',
     'guado_moblab',
     'moblab-generic-vm',
+])
+
+_scribe_boards = frozenset([
+    'guado-macrophage',
 ])
 
 _termina_boards = frozenset([
@@ -737,7 +764,8 @@ _toolchains_from_source = frozenset([
     'x32-generic',
 ])
 
-_noimagetest_boards = _lakitu_boards | _loonix_boards | _termina_boards
+_noimagetest_boards = (_lakitu_boards | _loonix_boards | _termina_boards
+                       | _scribe_boards)
 
 _nohwqual_boards = (_lakitu_boards | _lassen_boards | _loonix_boards
                     | _termina_boards | _beaglebone_boards)
@@ -776,6 +804,7 @@ _waterfall_config_map = {
 
         # ASAN.
         'amd64-generic-asan',
+        'amd64-generic-fuzzer',
     ]),
 
     waterfall.WATERFALL_INTERNAL: frozenset([
@@ -1092,8 +1121,10 @@ def GeneralTemplates(site_config, ge_build_config):
       chrome_sdk_build_chrome=False,
       doc='http://www.chromium.org/chromium-os/build/builder-overview#TOC-CQ',
       # This only applies to vmtest enabled boards like betty and novato.
-      vm_tests=[config_lib.VMTestConfig(constants.VM_SUITE_TEST_TYPE,
-                                        test_suite='smoke')],
+      vm_tests=[config_lib.VMTestConfig(
+          constants.VM_SUITE_TEST_TYPE,
+          test_suite='smoke',
+          retry=True)],
       vm_tests_override=TRADITIONAL_VM_TESTS_SUPPORTED,
   )
 
@@ -1222,9 +1253,10 @@ def GeneralTemplates(site_config, ge_build_config):
                                           test_suite='gce-smoke')],
   )
 
-  # No GCE tests for lakitu-nc.
+  # No GCE tests for lakitu-nc; Enable 'hsm' profile by default.
   site_config.AddTemplate(
-      'lakitu_nc_test_customizations',
+      'lakitu_nc_customizations',
+      profile='hsm',
       vm_tests=[config_lib.VMTestConfig(constants.VM_SUITE_TEST_TYPE,
                                         test_suite='smoke')],
       vm_tests_override=None,
@@ -1291,6 +1323,19 @@ def GeneralTemplates(site_config, ge_build_config):
       vm_tests_override=None,
       doc='http://www.chromium.org/chromium-os/build/builder-overview#'
           'TOC-ASAN',
+  )
+
+  site_config.AddTemplate(
+      'fuzzer',
+      site_config.templates.default_hw_tests_override,
+      site_config.templates.full,
+      site_config.templates.no_hwtest_builder,
+      profile='fuzzer',
+      chrome_sdk=False,
+      # Run fuzzer builder specific stages.
+      builder_class_name='fuzzer_builders.FuzzerBuilder',
+      # Need larger rootfs since fuzzing also enables asan.
+      disk_layout='2gb-rootfs',
   )
 
   site_config.AddTemplate(
@@ -1582,9 +1627,6 @@ def GeneralTemplates(site_config, ge_build_config):
       site_config.templates.release,
       description='Moblab release builders',
       images=['base', 'recovery', 'test'],
-      paygen_skip_delta_payloads=True,
-      # TODO: re-enable paygen testing when crbug.com/386473 is fixed.
-      paygen_skip_testing=True,
       important=False,
       afdo_use=False,
       signer_tests=False,
@@ -2185,18 +2227,6 @@ def AndroidPfqBuilders(site_config, boards_dict, ge_build_config):
       description='Preflight Android Uprev & Build (internal)',
   )
 
-  # Template for Android MNC.
-  # For historical reason, we want to name MNC Android PFQ builders as
-  # $BOARD-android-pfq, so we should name this template also without mnc-
-  # prefix (see testConfigNamesMatchTemplate in chromeos_config_unittest).
-  site_config.AddTemplate(
-      'android_pfq',
-      site_config.templates.generic_android_pfq,
-      display_label=config_lib.DISPLAY_LABEL_MNC_ANDROID_PFQ,
-      android_package='android-container',
-      android_import_branch=constants.ANDROID_MNC_BUILD_BRANCH,
-  )
-
   # Template for Android NYC.
   site_config.AddTemplate(
       'nyc_android_pfq',
@@ -2205,6 +2235,16 @@ def AndroidPfqBuilders(site_config, boards_dict, ge_build_config):
       android_package='android-container-nyc',
       android_import_branch=constants.ANDROID_NYC_BUILD_BRANCH,
       android_gts_build_branch='git_nyc-mr2-dev',
+  )
+
+  # Template for Android Master.
+  site_config.AddTemplate(
+      'mst_android_pfq',
+      site_config.templates.generic_android_pfq,
+      site_config.templates.internal,
+      display_label=config_lib.DISPLAY_LABEL_MST_ANDROID_PFQ,
+      android_package='android-container-master-arc-dev',
+      android_import_branch=constants.ANDROID_MST_BUILD_BRANCH,
   )
 
   # Mixin for masters.
@@ -2221,6 +2261,20 @@ def AndroidPfqBuilders(site_config, boards_dict, ge_build_config):
   # Android PFQ masters.
   # Any additions of Android PFQ masters should be reflected by a
   # change in lib/constants.py SOM_BUILDS to add Sheriff-o-Matic coverage.
+
+  # Android MST master.
+  mst_master_config = site_config.Add(
+      constants.MST_ANDROID_PFQ_MASTER,
+      site_config.templates.mst_android_pfq,
+      site_config.templates.master_android_pfq_mixin,
+  )
+
+  _mst_hwtest_boards = frozenset([])
+  _mst_no_hwtest_boards = frozenset([
+      'eve-arcnext',
+  ])
+  _mst_no_hwtest_experimental_boards = frozenset([])
+  _mst_vmtest_boards = frozenset([])
 
   # Android NYC master.
   nyc_master_config = site_config.Add(
@@ -2247,6 +2301,41 @@ def AndroidPfqBuilders(site_config, boards_dict, ge_build_config):
       'betty',
       'betty-arc64',
   ])
+
+  # Android MST slaves.
+  mst_master_config.AddSlaves(
+      site_config.AddForBoards(
+          'mst-android-pfq',
+          _mst_hwtest_boards,
+          board_configs,
+          site_config.templates.mst_android_pfq,
+          hw_tests=hw_test_list.SharedPoolAndroidPFQ(),
+      ) +
+      site_config.AddForBoards(
+          'mst-android-pfq',
+          _mst_no_hwtest_boards,
+          board_configs,
+          site_config.templates.mst_android_pfq,
+      ) +
+      site_config.AddForBoards(
+          'mst-android-pfq',
+          _mst_no_hwtest_experimental_boards,
+          board_configs,
+          site_config.templates.mst_android_pfq,
+          important=False,
+          active_waterfall=waterfall.WATERFALL_INTERNAL,
+      ) +
+      site_config.AddForBoards(
+          'mst-android-pfq',
+          _mst_vmtest_boards,
+          board_configs,
+          site_config.templates.mst_android_pfq,
+          vm_tests=[config_lib.VMTestConfig(constants.VM_SUITE_TEST_TYPE,
+                                            test_suite='smoke'),
+                    config_lib.VMTestConfig(constants.SIMPLE_AU_TEST_TYPE)],
+      )
+  )
+
 
   # Android NYC slaves.
   nyc_master_config.AddSlaves(
@@ -2347,6 +2436,7 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
       'edgar',
       'elm',
       'eve',
+      'eve-arcnext',
       'falco',
       'fizz',
       'gale',
@@ -2408,12 +2498,14 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
       'auron_paine',
       'grunt',
       'nami',
+      'octopus',
   ])
 
   # Paladin configs that exist and should stay as experimental until further
   # notice, preferably with a comment indicating why and a bug.
   _paladin_experimental_boards = _paladin_new_boards | frozenset([
       'capri', # contact:ghines@
+      'capri-zfpga', # contact:victoryang@
       'cobblepot', # contact:jkoleszar@
       'fizz-accelerator', # contact:perley@
       'gonzo', # contact:icoolidge@
@@ -2494,9 +2586,8 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
       # build_internals/masters/master.chromeos/board_config.py.
       # TODO(mtennant): Fix this.  There should be some amount of auto-
       # configuration in the board_config.py code.
-      sanity_check_slaves=['wolf-tot-paladin'],
       trybot_list=False,
-      auto_reboot=False,
+      auto_reboot=True,  # TODO(dgarrett): Disable chroot.img stable.
   )
 
   ### Other paladins (CQ builders).
@@ -2508,23 +2599,6 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
   # Something like the following:
   # master_paladin = site_config.AddConfig(internal_paladin, ...)
   # master_paladin.AddSlave(site_config.AddConfig(internal_paladin, ...))
-
-  # Sanity check builder, part of the CQ but builds without the patches
-  # under test.
-  master_config.AddSlave(
-      site_config.Add(
-          'wolf-tot-paladin',
-          site_config.templates.paladin,
-          site_config.templates.internal_paladin,
-          boards=['wolf'],
-          do_not_apply_cq_patches=True,
-          # Temporarily (?) marked as experimental due to crbug.com/765565
-          important=False,
-          prebuilts=False,
-          hw_tests=hw_test_list.SharedPoolCQ(),
-          active_waterfall=waterfall.WATERFALL_INTERNAL,
-      )
-  )
 
   for board in _paladin_boards:
     assert board in board_configs, '%s not in board_configs' % board
@@ -2823,14 +2897,8 @@ def IncrementalBuilders(site_config, boards_dict, ge_build_config):
       site_config.templates.internal_incremental,
       boards=['betty'],
       active_waterfall=waterfall.WATERFALL_INTERNAL,
-      vm_tests=[config_lib.VMTestConfig(
-          constants.VM_SUITE_TEST_TYPE,
-          test_suite='vmtest-informational',
-          timeout=12*60*60)],
-      vm_tests_override=[config_lib.VMTestConfig(
-          constants.VM_SUITE_TEST_TYPE,
-          test_suite='vmtest-informational',
-          timeout=12*60*60)],
+      vm_tests=getInfoVMTest(),
+      vm_tests_override=getInfoVMTest(),
   )
 
   site_config.Add(
@@ -3030,6 +3098,28 @@ def InformationalBuilders(site_config, boards_dict, ge_build_config):
       # THESE IMAGES CAN DAMAGE THE LAB and cannot be used for hardware testing.
       disk_layout='4gb-rootfs',
       boards=['betty'],
+  )
+
+  site_config.Add(
+      'amd64-generic-fuzzer',
+      site_config.templates.fuzzer,
+      boards=['amd64-generic'],
+      description='Build for fuzzing testing',
+      # THESE IMAGES CAN DAMAGE THE LAB and cannot be used for hardware testing.
+      disk_layout='4gb-rootfs',
+      trybot_list=True,
+  )
+
+  site_config.Add(
+      'amd64-generic-goma-canary-chromium-pfq-informational',
+      site_config.templates.chromium_pfq_informational,
+      site_config.templates.no_hwtest_builder,
+      site_config.templates.no_vmtest_builder,
+      important=False,
+      description='Test canary versions of goma.',
+      boards=[
+          'amd64-generic',
+      ],
   )
 
   _chrome_perf_boards = frozenset([
@@ -3345,10 +3435,20 @@ def ReleaseBuilders(site_config, boards_dict, ge_build_config):
       name = model[config_lib.CONFIG_TEMPLATE_MODEL_NAME]
       lab_board_name = model[config_lib.CONFIG_TEMPLATE_MODEL_BOARD_NAME]
       if config_lib.CONFIG_TEMPLATE_MODEL_TEST_SUITES in model:
+        test_suites = model[config_lib.CONFIG_TEMPLATE_MODEL_TEST_SUITES]
+        if 'bvt-arc' in test_suites:
+          # TODO(crbug.com/814793)
+          # We're tying these test suites to bvt-arc because it's not worth
+          # plumbing this all the way through the GE UI since that architecture
+          # was never fully implemented and we shouldn't have tied to it in
+          # the first place.
+          # Once test planning is properly implemented, this will fall out.
+          test_suites.append('arc-cts-qual')
+          test_suites.append('arc-gts-qual')
         models.append(config_lib.ModelTestConfig(
             name,
             lab_board_name,
-            model[config_lib.CONFIG_TEMPLATE_MODEL_TEST_SUITES]))
+            test_suites))
       else:
         no_model_test_suites = []
         models.append(config_lib.ModelTestConfig(
@@ -3367,7 +3467,8 @@ def ReleaseBuilders(site_config, boards_dict, ge_build_config):
         models=models,
         important=not unibuild[config_lib.CONFIG_TEMPLATE_EXPERIMENTAL],
         active_waterfall=active_waterfall,
-        hw_tests=hw_test_list.SharedPoolCanary(pool=pool),
+        hw_tests=(hw_test_list.SharedPoolCanary(pool=pool) +
+                  hw_test_list.CtsGtsQualTests()),
     )
 
     master_config.AddSlave(site_config[config_name])
@@ -3544,7 +3645,7 @@ def ApplyCustomOverrides(site_config, ge_build_config):
           site_config.templates.lakitu_test_customizations,
 
       'lakitu-nc-pre-cq':
-          site_config.templates.lakitu_nc_test_customizations,
+          site_config.templates.lakitu_nc_customizations,
 
       'lakitu-st-pre-cq':
           site_config.templates.lakitu_test_customizations,
@@ -3584,7 +3685,7 @@ def ApplyCustomOverrides(site_config, ge_build_config):
       ),
 
       'lakitu-nc-release': config_lib.BuildConfig().apply(
-          site_config.templates.lakitu_nc_test_customizations,
+          site_config.templates.lakitu_nc_customizations,
           site_config.templates.lakitu_notification_emails,
           signer_tests=False,
       ),
@@ -3632,6 +3733,7 @@ def ApplyCustomOverrides(site_config, ge_build_config):
 
       'chell-chrome-pfq': {
           'afdo_generate': True,
+          'archive_build_debug': True,
           # Disable hugepages before collecting AFDO profile.
           # Disable debug fission before collecting AFDO profile.
           # Disable thinlto before collecting AFDO profile.
@@ -3713,6 +3815,28 @@ def SpecialtyBuilders(site_config, boards_dict, ge_build_config):
   hw_test_list = HWTestList(ge_build_config)
 
   site_config.AddWithoutTemplate(
+      'success-build',
+      site_config.templates.external,
+      site_config.templates.no_hwtest_builder,
+      site_config.templates.no_vmtest_builder,
+      boards=[],
+      display_label=config_lib.DISPLAY_LABEL_TRYJOB,
+      builder_class_name='test_builders.SucessBuilder',
+      description='Builder always passes as quickly as possible.',
+  )
+
+  site_config.AddWithoutTemplate(
+      'fail-build',
+      site_config.templates.external,
+      site_config.templates.no_hwtest_builder,
+      site_config.templates.no_vmtest_builder,
+      boards=[],
+      display_label=config_lib.DISPLAY_LABEL_TRYJOB,
+      builder_class_name='test_builders.FailBuilder',
+      description='Builder always fails as quickly as possible.',
+  )
+
+  site_config.AddWithoutTemplate(
       'chromiumos-sdk',
       site_config.templates.full,
       site_config.templates.no_hwtest_builder,
@@ -3785,6 +3909,10 @@ def SpecialtyBuilders(site_config, boards_dict, ge_build_config):
       builder_class_name='release_builders.CreateBranchBuilder',
       description='Used for creating/deleting branches (TPMs only)',
       active_waterfall=waterfall.WATERFALL_TRYBOT,
+      # This very weird tryjob is only run locally. It should never upload
+      # build artifacts.
+      archive=False,
+      gs_path=os.path.join(constants.TRASH_BUCKET, 'branch-util-noise/')
   )
 
   site_config.AddWithoutTemplate(
@@ -3799,6 +3927,8 @@ def SpecialtyBuilders(site_config, boards_dict, ge_build_config):
       active_waterfall=waterfall.WATERFALL_TRYBOT,
   )
 
+
+
   site_config.AddWithoutTemplate(
       'betty-vmtest-informational',
       site_config.templates.internal,
@@ -3808,14 +3938,8 @@ def SpecialtyBuilders(site_config, boards_dict, ge_build_config):
       build_type=constants.GENERIC_TYPE,
       boards=['betty'],
       builder_class_name='test_builders.VMInformationalBuilder',
-      vm_tests=[config_lib.VMTestConfig(
-          constants.VM_SUITE_TEST_TYPE,
-          test_suite='vmtest-informational',
-          timeout=23*60*60)],
-      vm_tests_override=[config_lib.VMTestConfig(
-          constants.VM_SUITE_TEST_TYPE,
-          test_suite='vmtest-informational',
-          timeout=23*60*60)],
+      vm_tests=getInfoVMTest(),
+      vm_tests_override=getInfoVMTest(),
       active_waterfall=constants.WATERFALL_INTERNAL,
       vm_test_report_to_dashboards=True,
   )
@@ -3857,6 +3981,7 @@ def SpecialtyBuilders(site_config, boards_dict, ge_build_config):
                                 '-debug_fission',
                                 '-thinlto']),
       prebuilts=constants.PRIVATE,
+      archive_build_debug=True,
   )
 
   site_config.Add(

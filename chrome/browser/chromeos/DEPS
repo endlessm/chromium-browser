@@ -1,7 +1,7 @@
 include_rules = [
   # TODO(crbug.com/678705): Convert to using mojo interfaces in
   # //ash/public/interfaces and eliminate this.
-  "+ash",
+  "!ash",
 
   # TODO(ananta): Remove this when we move files which display UI in
   # chrome/browser/chromeos to chrome/browser/ui/views/chromeos
@@ -20,13 +20,14 @@ include_rules = [
   "+cros",
   "+dbus",
   "+device/bluetooth",
-  "+mash/public/interfaces",
+  "+mash/public/mojom",
   "+media/audio/sounds",  # For system sounds
   "+media/base/media_switches.h",  # For media command line switches.
   "+media/mojo/interfaces",  # For platform verification mojom interface.
   "+mojo/edk/embedder",
   "+services/device/public",
   "+services/metrics/public",
+  "+services/tracing/public",
   "+services/viz/public/interfaces",
   # Chromeos should not use ozone directly, it must go through mojo as ozone
   # does not run in process in mus.

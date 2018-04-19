@@ -5,12 +5,12 @@
 #import "ios/chrome/browser/ui/toolbar/adaptive/primary_toolbar_view.h"
 
 #include "base/logging.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_button.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_button_factory.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_configuration.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_constants.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_tab_grid_button.h"
-#import "ios/chrome/browser/ui/toolbar/clean/toolbar_tools_menu_button.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button_factory.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_constants.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tab_grid_button.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tools_menu_button.h"
 #import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 #import "ios/third_party/material_components_ios/src/components/ProgressView/src/MaterialProgressView.h"
 
@@ -19,17 +19,26 @@
 #endif
 
 @interface PrimaryToolbarView ()
-// Container for the location bar.
-@property(nonatomic, strong) UIView* locationBarContainer;
+// Factory used to create the buttons.
+@property(nonatomic, strong) ToolbarButtonFactory* buttonFactory;
+
+// Content view in which the view that might have vibrancy effect should be
+// added.
+@property(nonatomic, strong) UIView* contentView;
+
+// Container for the location bar, redefined as readwrite.
+@property(nonatomic, strong, readwrite) UIView* locationBarContainer;
+// The height of the container for the location bar, redefined as readwrite.
+@property(nonatomic, strong, readwrite) NSLayoutConstraint* locationBarHeight;
 
 // StackView containing the leading buttons (relative to the location bar). It
-// should only contain ToolbarButtons.
-@property(nonatomic, strong) UIStackView* leadingStackView;
+// should only contain ToolbarButtons. Redefined as readwrite.
+@property(nonatomic, strong, readwrite) UIStackView* leadingStackView;
 // Buttons from the leading stack view.
 @property(nonatomic, strong) NSArray<ToolbarButton*>* leadingStackViewButtons;
 // StackView containing the trailing buttons (relative to the location bar). It
-// should only contain ToolbarButtons.
-@property(nonatomic, strong) UIStackView* trailingStackView;
+// should only contain ToolbarButtons. Redefined as readwrite.
+@property(nonatomic, strong, readwrite) UIStackView* trailingStackView;
 // Buttons from the trailing stack view.
 @property(nonatomic, strong) NSArray<ToolbarButton*>* trailingStackViewButtons;
 
@@ -58,12 +67,25 @@
 // Button to display the tools menu, redefined as readwrite.
 @property(nonatomic, strong, readwrite) ToolbarToolsMenuButton* toolsMenuButton;
 
+// Button to cancel the edit of the location bar, redefined as readwrite.
+@property(nonatomic, strong, readwrite) UIButton* cancelButton;
+
+// Constraints to be activated when the location bar is focused, redefined as
+// readwrite.
+@property(nonatomic, strong, readwrite)
+    NSMutableArray<NSLayoutConstraint*>* focusedConstraints;
+// Constraints to be activated when the location bar is unfocused, redefined as
+// readwrite.
+@property(nonatomic, strong, readwrite)
+    NSMutableArray<NSLayoutConstraint*>* unfocusedConstraints;
+
 @end
 
 @implementation PrimaryToolbarView
 
 @synthesize locationBarView = _locationBarView;
-@synthesize topSafeAnchor = _topSafeAnchor;
+@synthesize locationBarBottomConstraint = _locationBarBottomConstraint;
+@synthesize locationBarHeight = _locationBarHeight;
 @synthesize buttonFactory = _buttonFactory;
 @synthesize allButtons = _allButtons;
 @synthesize progressBar = _progressBar;
@@ -81,17 +103,22 @@
 @synthesize shareButton = _shareButton;
 @synthesize bookmarkButton = _bookmarkButton;
 @synthesize toolsMenuButton = _toolsMenuButton;
+@synthesize cancelButton = _cancelButton;
+@synthesize focusedConstraints = _focusedConstraints;
+@synthesize unfocusedConstraints = _unfocusedConstraints;
+@synthesize blur = _blur;
+@synthesize contentView = _contentView;
 
-#pragma mark - UIView
+#pragma mark - Public
 
-- (void)willMoveToSuperview:(UIView*)newSuperview {
-  [self setUp];
-  [super willMoveToSuperview:newSuperview];
+- (instancetype)initWithButtonFactory:(ToolbarButtonFactory*)factory {
+  self = [super initWithFrame:CGRectZero];
+  if (self) {
+    _buttonFactory = factory;
+  }
+  return self;
 }
 
-#pragma mark - Setup
-
-// Sets all the subviews and constraints of this view.
 - (void)setUp {
   if (self.subviews.count > 0) {
     // Setup the view only once.
@@ -99,29 +126,72 @@
   }
   DCHECK(self.buttonFactory);
 
-  self.backgroundColor =
-      self.buttonFactory.toolbarConfiguration.backgroundColor;
   self.translatesAutoresizingMaskIntoConstraints = NO;
 
-  [self setUpLocationBar];
+  [self setUpBlurredBackground];
   [self setUpLeadingStackView];
   [self setUpTrailingStackView];
+  [self setUpCancelButton];
+  [self setUpLocationBar];
   [self setUpProgressBar];
 
   [self setUpConstraints];
+}
+
+#pragma mark - UIView
+
+- (CGSize)intrinsicContentSize {
+  return CGSizeMake(UIViewNoIntrinsicMetric, kAdaptiveToolbarHeight);
+}
+
+#pragma mark - Setup
+
+// Sets the blur effect on the toolbar background.
+- (void)setUpBlurredBackground {
+  UIBlurEffect* blurEffect = self.buttonFactory.toolbarConfiguration.blurEffect;
+  self.blur = [[UIVisualEffectView alloc] initWithEffect:blurEffect];
+  self.blur.contentView.backgroundColor =
+      self.buttonFactory.toolbarConfiguration.blurEffectBackgroundColor;
+
+  self.contentView = self;
+
+  if (UIVisualEffect* vibrancy = [self.buttonFactory.toolbarConfiguration
+          vibrancyEffectForBlurEffect:blurEffect]) {
+    UIVisualEffectView* vibrancyView =
+        [[UIVisualEffectView alloc] initWithEffect:vibrancy];
+    self.contentView = vibrancyView.contentView;
+    [self.blur.contentView addSubview:vibrancyView];
+    vibrancyView.translatesAutoresizingMaskIntoConstraints = NO;
+    AddSameConstraints(self.blur, vibrancyView);
+  }
+
+  [self addSubview:self.blur];
+
+  self.blur.translatesAutoresizingMaskIntoConstraints = NO;
+  AddSameConstraints(self.blur, self);
+}
+
+// Sets the cancel button to stop editing the location bar.
+- (void)setUpCancelButton {
+  self.cancelButton = [self.buttonFactory cancelButton];
+  self.cancelButton.translatesAutoresizingMaskIntoConstraints = NO;
+  [self.contentView addSubview:self.cancelButton];
 }
 
 // Sets the location bar container and its view if present.
 - (void)setUpLocationBar {
   self.locationBarContainer = [[UIView alloc] init];
   self.locationBarContainer.backgroundColor =
-      self.buttonFactory.toolbarConfiguration.omniboxBackgroundColor;
+      [self.buttonFactory.toolbarConfiguration
+          locationBarBackgroundColorWithVisibility:1];
   self.locationBarContainer.layer.cornerRadius =
       kAdaptiveLocationBarCornerRadius;
   [self.locationBarContainer
       setContentHuggingPriority:UILayoutPriorityDefaultLow
                         forAxis:UILayoutConstraintAxisHorizontal];
   self.locationBarContainer.translatesAutoresizingMaskIntoConstraints = NO;
+
+  // The location bar shouldn't have vibrancy.
   [self addSubview:self.locationBarContainer];
 
   if (self.locationBarView) {
@@ -145,7 +215,8 @@
   self.leadingStackView = [[UIStackView alloc]
       initWithArrangedSubviews:self.leadingStackViewButtons];
   self.leadingStackView.translatesAutoresizingMaskIntoConstraints = NO;
-  [self addSubview:self.leadingStackView];
+  self.leadingStackView.spacing = kAdaptiveToolbarStackViewSpacing;
+  [self.contentView addSubview:self.leadingStackView];
 }
 
 // Sets the trailing stack view.
@@ -162,7 +233,8 @@
   self.trailingStackView = [[UIStackView alloc]
       initWithArrangedSubviews:self.trailingStackViewButtons];
   self.trailingStackView.translatesAutoresizingMaskIntoConstraints = NO;
-  [self addSubview:self.trailingStackView];
+  self.trailingStackView.spacing = kAdaptiveToolbarStackViewSpacing;
+  [self.contentView addSubview:self.trailingStackView];
 }
 
 // Sets the progress bar up.
@@ -176,48 +248,79 @@
 // Sets the constraints up.
 - (void)setUpConstraints {
   id<LayoutGuideProvider> safeArea = SafeAreaLayoutGuideForView(self);
+  self.focusedConstraints = [NSMutableArray array];
+  self.unfocusedConstraints = [NSMutableArray array];
 
   // Leading StackView constraints
   [NSLayoutConstraint activateConstraints:@[
     [self.leadingStackView.leadingAnchor
-        constraintEqualToAnchor:safeArea.leadingAnchor],
+        constraintEqualToAnchor:safeArea.leadingAnchor
+                       constant:kAdaptiveToolbarMargin],
     [self.leadingStackView.bottomAnchor
-        constraintEqualToAnchor:safeArea.bottomAnchor],
-    [self.leadingStackView.topAnchor
-        constraintEqualToAnchor:self.topSafeAnchor],
+        constraintEqualToAnchor:safeArea.bottomAnchor
+                       constant:-kTopButtonsBottomMargin],
+    [self.leadingStackView.heightAnchor
+        constraintEqualToConstant:kAdaptiveToolbarButtonHeight],
   ]];
 
   // LocationBar constraints.
+  self.locationBarHeight = [self.locationBarContainer.heightAnchor
+      constraintEqualToConstant:kAdaptiveToolbarHeight -
+                                2 * kAdaptiveLocationBarVerticalMargin];
+  self.locationBarBottomConstraint = [self.locationBarContainer.bottomAnchor
+      constraintEqualToAnchor:self.bottomAnchor
+                     constant:-kAdaptiveLocationBarVerticalMargin];
   [NSLayoutConstraint activateConstraints:@[
-    [self.locationBarContainer.leadingAnchor
-        constraintEqualToAnchor:self.leadingStackView.trailingAnchor],
+    self.locationBarBottomConstraint,
+    self.locationBarHeight,
+  ]];
+  [self.unfocusedConstraints addObjectsFromArray:@[
     [self.locationBarContainer.trailingAnchor
-        constraintEqualToAnchor:self.trailingStackView.leadingAnchor],
-    [self.locationBarContainer.bottomAnchor
-        constraintEqualToAnchor:self.bottomAnchor
-                       constant:-kLocationBarVerticalMargin],
-    [self.locationBarContainer.topAnchor
-        constraintEqualToAnchor:self.topSafeAnchor
-                       constant:kLocationBarVerticalMargin],
-    [self.locationBarContainer.heightAnchor
-        constraintEqualToConstant:kToolbarHeight -
-                                  2 * kLocationBarVerticalMargin],
+        constraintEqualToAnchor:self.trailingStackView.leadingAnchor
+                       constant:-kContractedLocationBarHorizontalMargin],
+    [self.locationBarContainer.leadingAnchor
+        constraintEqualToAnchor:self.leadingStackView.trailingAnchor
+                       constant:kContractedLocationBarHorizontalMargin],
+  ]];
+  [self.focusedConstraints addObjectsFromArray:@[
+    [self.locationBarContainer.trailingAnchor
+        constraintEqualToAnchor:self.cancelButton.leadingAnchor],
+    [self.locationBarContainer.leadingAnchor
+        constraintEqualToAnchor:safeArea.leadingAnchor
+                       constant:kExpandedLocationBarHorizontalMargin]
   ]];
 
   // Trailing StackView constraints.
   [NSLayoutConstraint activateConstraints:@[
     [self.trailingStackView.trailingAnchor
-        constraintEqualToAnchor:safeArea.trailingAnchor],
+        constraintEqualToAnchor:safeArea.trailingAnchor
+                       constant:-kAdaptiveToolbarMargin],
     [self.trailingStackView.bottomAnchor
-        constraintEqualToAnchor:safeArea.bottomAnchor],
-    [self.trailingStackView.topAnchor
-        constraintEqualToAnchor:self.topSafeAnchor],
+        constraintEqualToAnchor:safeArea.bottomAnchor
+                       constant:-kTopButtonsBottomMargin],
+    [self.trailingStackView.heightAnchor
+        constraintEqualToConstant:kAdaptiveToolbarButtonHeight],
   ]];
 
   // locationBarView constraints, if present.
   if (self.locationBarView) {
     AddSameConstraints(self.locationBarContainer, self.locationBarView);
   }
+
+  // Cancel button constraints.
+  [NSLayoutConstraint activateConstraints:@[
+    [self.cancelButton.topAnchor
+        constraintEqualToAnchor:self.trailingStackView.topAnchor],
+    [self.cancelButton.bottomAnchor
+        constraintEqualToAnchor:self.trailingStackView.bottomAnchor],
+  ]];
+  NSLayoutConstraint* focusedTrailing = [self.cancelButton.trailingAnchor
+      constraintEqualToAnchor:safeArea.trailingAnchor
+                     constant:-kExpandedLocationBarHorizontalMargin];
+  [self.focusedConstraints addObject:focusedTrailing];
+  [self.unfocusedConstraints
+      addObject:[self.cancelButton.leadingAnchor
+                    constraintEqualToAnchor:self.trailingAnchor]];
 
   // ProgressBar constraints.
   [NSLayoutConstraint activateConstraints:@[
@@ -228,6 +331,8 @@
     [self.progressBar.heightAnchor
         constraintEqualToConstant:kProgressBarHeight],
   ]];
+
+  [NSLayoutConstraint activateConstraints:self.unfocusedConstraints];
 }
 
 #pragma mark - Property accessors
@@ -256,6 +361,12 @@
         arrayByAddingObjectsFromArray:self.trailingStackViewButtons];
   }
   return _allButtons;
+}
+
+#pragma mark - AdaptiveToolbarView
+
+- (ToolbarButton*)omniboxButton {
+  return nil;
 }
 
 @end

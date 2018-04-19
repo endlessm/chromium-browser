@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
@@ -91,7 +92,7 @@ void BluetoothTestBlueZ::TearDown() {
 
   for (const auto& session : discovery_sessions_) {
     if (session->IsActive())
-      session->Stop(base::Bind(&base::DoNothing), base::Bind(&base::DoNothing));
+      session->Stop(base::DoNothing(), base::DoNothing());
   }
   discovery_sessions_.clear();
 
@@ -109,8 +110,7 @@ void BluetoothTestBlueZ::InitWithFakeAdapter() {
   adapter_ = new bluez::BluetoothAdapterBlueZ(
       base::Bind(&AdapterCallback, run_loop.QuitClosure()));
   run_loop.Run();
-  adapter_->SetPowered(true, base::Bind(&base::DoNothing),
-                       base::Bind(&base::DoNothing));
+  adapter_->SetPowered(true, base::DoNothing(), base::DoNothing());
 }
 
 BluetoothDevice* BluetoothTestBlueZ::SimulateLowEnergyDevice(
@@ -148,6 +148,7 @@ BluetoothDevice* BluetoothTestBlueZ::SimulateLowEnergyDevice(
       break;
     case 5:
       device_name = base::nullopt;
+      break;
     case 6:
       device_address = kTestDeviceAddress2;
       device_type = BLUETOOTH_TRANSPORT_DUAL;

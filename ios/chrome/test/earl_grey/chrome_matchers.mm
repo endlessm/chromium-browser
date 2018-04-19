@@ -26,7 +26,8 @@
 #import "ios/chrome/browser/ui/settings/settings_collection_view_controller.h"
 #import "ios/chrome/browser/ui/settings/sync_settings_collection_view_controller.h"
 #import "ios/chrome/browser/ui/static_content/static_html_view_controller.h"
-#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_constants.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_constants.h"
+#import "ios/chrome/browser/ui/toolbar/legacy/toolbar_controller_constants.h"
 #import "ios/chrome/browser/ui/tools_menu/public/tools_menu_constants.h"
 #import "ios/chrome/browser/ui/tools_menu/tools_popup_controller.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
@@ -43,17 +44,35 @@
 
 namespace {
 
-id<GREYMatcher> CollectionViewSwitchIsOn(BOOL is_on) {
+id<GREYMatcher> CollectionViewSwitchIsToggledOn(BOOL isToggledOn) {
   MatchesBlock matches = ^BOOL(id element) {
     CollectionViewSwitchCell* switch_cell =
         base::mac::ObjCCastStrict<CollectionViewSwitchCell>(element);
     UISwitch* switch_view = switch_cell.switchView;
-    return (switch_view.on && is_on) || (!switch_view.on && !is_on);
+    return (switch_view.on && isToggledOn) || (!switch_view.on && !isToggledOn);
   };
   DescribeToBlock describe = ^void(id<GREYDescription> description) {
     NSString* name =
-        [NSString stringWithFormat:@"collectionViewSwitchInState(%@)",
-                                   is_on ? @"ON" : @"OFF"];
+        [NSString stringWithFormat:@"collectionViewSwitchToggledState(%@)",
+                                   isToggledOn ? @"ON" : @"OFF"];
+    [description appendText:name];
+  };
+  return [[GREYElementMatcherBlock alloc] initWithMatchesBlock:matches
+                                              descriptionBlock:describe];
+}
+
+id<GREYMatcher> CollectionViewSwitchIsEnabled(BOOL isEnabled) {
+  MatchesBlock matches = ^BOOL(id element) {
+    CollectionViewSwitchCell* switch_cell =
+        base::mac::ObjCCastStrict<CollectionViewSwitchCell>(element);
+    UISwitch* switch_view = switch_cell.switchView;
+    return (switch_view.enabled && isEnabled) ||
+           (!switch_view.enabled && !isEnabled);
+  };
+  DescribeToBlock describe = ^void(id<GREYDescription> description) {
+    NSString* name =
+        [NSString stringWithFormat:@"collectionViewSwitchEnabledState(%@)",
+                                   isEnabled ? @"YES" : @"NO"];
     [description appendText:name];
   };
   return [[GREYElementMatcherBlock alloc] initWithMatchesBlock:matches
@@ -165,18 +184,26 @@ id<GREYMatcher> ShowTabsButton() {
 }
 
 id<GREYMatcher> CollectionViewSwitchCell(NSString* accessibilityIdentifier,
-                                         BOOL is_on) {
-  return grey_allOf(grey_accessibilityID(accessibilityIdentifier),
-                    CollectionViewSwitchIsOn(is_on), grey_sufficientlyVisible(),
-                    nil);
+                                         BOOL isToggledOn) {
+  return CollectionViewSwitchCell(accessibilityIdentifier, isToggledOn, YES);
 }
 
-id<GREYMatcher> SyncSwitchCell(NSString* accessibilityLabel, BOOL is_on) {
-  return grey_allOf(grey_accessibilityLabel(accessibilityLabel),
-                    grey_accessibilityValue(
-                        is_on ? l10n_util::GetNSString(IDS_IOS_SETTING_ON)
-                              : l10n_util::GetNSString(IDS_IOS_SETTING_OFF)),
+id<GREYMatcher> CollectionViewSwitchCell(NSString* accessibilityIdentifier,
+                                         BOOL isToggledOn,
+                                         BOOL isEnabled) {
+  return grey_allOf(grey_accessibilityID(accessibilityIdentifier),
+                    CollectionViewSwitchIsToggledOn(isToggledOn),
+                    CollectionViewSwitchIsEnabled(isEnabled),
                     grey_sufficientlyVisible(), nil);
+}
+
+id<GREYMatcher> SyncSwitchCell(NSString* accessibilityLabel, BOOL isToggledOn) {
+  return grey_allOf(
+      grey_accessibilityLabel(accessibilityLabel),
+      grey_accessibilityValue(
+          isToggledOn ? l10n_util::GetNSString(IDS_IOS_SETTING_ON)
+                      : l10n_util::GetNSString(IDS_IOS_SETTING_OFF)),
+      grey_sufficientlyVisible(), nil);
 }
 
 id<GREYMatcher> OpenLinkInNewTabButton() {
@@ -268,7 +295,7 @@ id<GREYMatcher> SettingsMenuPrivacyButton() {
 }
 
 id<GREYMatcher> SettingsMenuPasswordsButton() {
-  return ButtonWithAccessibilityLabelId(IDS_IOS_SAVE_PASSWORDS);
+  return ButtonWithAccessibilityLabelId(IDS_IOS_PASSWORDS);
 }
 
 id<GREYMatcher> PaymentRequestView() {

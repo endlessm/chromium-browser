@@ -12,6 +12,7 @@
 ///
 //===----------------------------------------------------------------------===//
 
+#include "PassPrinters.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/IR/BasicBlock.h"
@@ -34,6 +35,10 @@ using namespace llvm;
 
 namespace {
 
+bool isFunctionSkipped(Function &F) {
+  return F.isDeclaration() || !F.hasExactDefinition();
+}
+
 bool applyDebugifyMetadata(Module &M) {
   // Skip modules with debug info.
   if (M.getNamedMetadata("llvm.dbg.cu")) {
@@ -47,7 +52,8 @@ bool applyDebugifyMetadata(Module &M) {
   // Get a DIType which corresponds to Ty.
   DenseMap<uint64_t, DIType *> TypeCache;
   auto getCachedDIType = [&](Type *Ty) -> DIType * {
-    uint64_t Size = M.getDataLayout().getTypeAllocSizeInBits(Ty);
+    uint64_t Size =
+        Ty->isSized() ? M.getDataLayout().getTypeAllocSizeInBits(Ty) : 0;
     DIType *&DTy = TypeCache[Size];
     if (!DTy) {
       std::string Name = "ty" + utostr(Size);
@@ -65,14 +71,14 @@ bool applyDebugifyMetadata(Module &M) {
 
   // Visit each instruction.
   for (Function &F : M) {
-    if (F.isDeclaration())
+    if (isFunctionSkipped(F))
       continue;
 
     auto SPType = DIB.createSubroutineType(DIB.getOrCreateTypeArray(None));
     bool IsLocalToUnit = F.hasPrivateLinkage() || F.hasInternalLinkage();
     auto SP =
         DIB.createFunction(CU, F.getName(), F.getName(), File, NextLine, SPType,
-                           IsLocalToUnit, F.hasExactDefinition(), NextLine,
+                           IsLocalToUnit, /*isDefinition=*/true, NextLine,
                            DINode::FlagZero, /*isOptimized=*/true);
     F.setSubprogram(SP);
     for (BasicBlock &BB : F) {
@@ -132,6 +138,9 @@ void checkDebugifyMetadata(Module &M) {
   // Find missing lines.
   BitVector MissingLines{OriginalNumLines, true};
   for (Function &F : M) {
+    if (isFunctionSkipped(F))
+      continue;
+
     for (Instruction &I : instructions(F)) {
       if (isa<DbgValueInst>(&I))
         continue;
@@ -154,6 +163,9 @@ void checkDebugifyMetadata(Module &M) {
   // Find missing variables.
   BitVector MissingVars{OriginalNumVars, true};
   for (Function &F : M) {
+    if (isFunctionSkipped(F))
+      continue;
+
     for (Instruction &I : instructions(F)) {
       auto *DVI = dyn_cast<DbgValueInst>(&I);
       if (!DVI)
@@ -202,6 +214,21 @@ struct CheckDebugifyPass : public ModulePass {
 };
 
 } // end anonymous namespace
+
+ModulePass *createDebugifyPass() { return new DebugifyPass(); }
+
+PreservedAnalyses NewPMDebugifyPass::run(Module &M, ModuleAnalysisManager &) {
+  applyDebugifyMetadata(M);
+  return PreservedAnalyses::all();
+}
+
+ModulePass *createCheckDebugifyPass() { return new CheckDebugifyPass(); }
+
+PreservedAnalyses NewPMCheckDebugifyPass::run(Module &M,
+                                              ModuleAnalysisManager &) {
+  checkDebugifyMetadata(M);
+  return PreservedAnalyses::all();
+}
 
 char DebugifyPass::ID = 0;
 static RegisterPass<DebugifyPass> X("debugify",

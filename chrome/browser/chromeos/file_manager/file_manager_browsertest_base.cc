@@ -25,7 +25,7 @@
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/extensions/extension_service.h"
-#include "chrome/browser/notifications/notification_ui_manager.h"
+#include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/common/chrome_switches.h"
 #include "chromeos/chromeos_switches.h"
 #include "components/drive/chromeos/file_system_interface.h"
@@ -39,7 +39,7 @@
 #include "google_apis/drive/test_util.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "storage/browser/fileapi/external_mount_points.h"
-#include "ui/message_center/notification.h"
+#include "ui/message_center/public/cpp/notification.h"
 
 namespace file_manager {
 namespace {
@@ -549,6 +549,9 @@ void FileManagerBrowserTestBase::SetUpOnMainThread() {
     drive_volume_->ConfigureShareUrlBase(share_url_base);
     test_util::WaitUntilDriveMountPointIsAdded(profile());
   }
+
+  display_service_ =
+      std::make_unique<NotificationDisplayServiceTester>(profile());
 }
 
 void FileManagerBrowserTestBase::SetUpCommandLine(
@@ -729,12 +732,13 @@ void FileManagerBrowserTestBase::OnMessage(const std::string& name,
     ASSERT_TRUE(value.GetInteger("index", &index));
 
     const std::string delegate_id = extension_id + "-" + notification_id;
-    const message_center::Notification* notification =
-        g_browser_process->notification_ui_manager()->FindById(delegate_id,
-                                                               profile());
-    ASSERT_TRUE(notification);
 
-    notification->delegate()->ButtonClick(index);
+    base::Optional<message_center::Notification> notification =
+        display_service_->GetNotification(delegate_id);
+    EXPECT_TRUE(notification);
+
+    display_service_->SimulateClick(NotificationHandler::Type::EXTENSION,
+                                    delegate_id, index, base::nullopt);
     return;
   }
 

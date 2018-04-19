@@ -56,10 +56,10 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image.h"
-#include "ui/message_center/notification.h"
-#include "ui/message_center/notification_delegate.h"
-#include "ui/message_center/notification_types.h"
-#include "ui/message_center/notifier_id.h"
+#include "ui/message_center/public/cpp/notification.h"
+#include "ui/message_center/public/cpp/notification_delegate.h"
+#include "ui/message_center/public/cpp/notification_types.h"
+#include "ui/message_center/public/cpp/notifier_id.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/login/user_flow.h"
@@ -74,7 +74,7 @@ using extensions::UnloadedExtensionReason;
 
 namespace {
 
-const char kNotificationPrefix[] = "app.background.crashed.";
+const char kCrashedNotificationPrefix[] = "app.background.crashed.";
 const char kNotifierId[] = "app.background.crashed";
 bool g_disable_close_balloon_for_testing = false;
 
@@ -83,7 +83,8 @@ void CloseBalloon(const std::string& extension_id, Profile* profile) {
     return;
 
   NotificationDisplayService::GetForProfile(profile)->Close(
-      NotificationHandler::Type::TRANSIENT, kNotificationPrefix + extension_id);
+      NotificationHandler::Type::TRANSIENT,
+      kCrashedNotificationPrefix + extension_id);
 }
 
 // Delegate for the app/extension crash notification balloon. Restarts the
@@ -155,7 +156,7 @@ void NotificationImageReady(const std::string extension_name,
   // Origin URL must be different from the crashed extension to avoid the
   // conflict. NotificationSystemObserver will cancel all notifications from
   // the same origin when OnExtensionUnloaded() is called.
-  std::string id = kNotificationPrefix + extension_id;
+  std::string id = kCrashedNotificationPrefix + extension_id;
   message_center::Notification notification(
       message_center::NOTIFICATION_TYPE_SIMPLE, id, base::string16(), message,
       notification_icon, base::string16(), GURL("chrome://extension-crash"),
@@ -278,7 +279,7 @@ void BackgroundContentsService::
 std::string
 BackgroundContentsService::GetNotificationDelegateIdForExtensionForTesting(
     const std::string& extension_id) {
-  return kNotificationPrefix + extension_id;
+  return kCrashedNotificationPrefix + extension_id;
 }
 
 // static
@@ -737,7 +738,7 @@ void BackgroundContentsService::RegisterBackgroundContents(
     return;
 
   // No entry for this application yet, so add one.
-  auto dict = base::MakeUnique<base::DictionaryValue>();
+  auto dict = std::make_unique<base::DictionaryValue>();
   dict->SetString(kUrlKey, background_contents->GetURL().spec());
   dict->SetString(kFrameNameKey, contents_map_[appid].frame_name);
   pref->SetWithoutPathExpansion(appid, std::move(dict));

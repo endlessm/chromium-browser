@@ -124,14 +124,7 @@ void uploadImage (Context&								context,
 
 	// Create command pool and buffer
 	{
-		const VkCommandPoolCreateInfo cmdPoolParams =
-		{
-			VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,		// VkStructureType			sType;
-			DE_NULL,										// const void*				pNext;
-			VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,			// VkCommandPoolCreateFlags	flags;
-			queueFamilyIndex,								// deUint32					queueFamilyIndex;
-		};
-		cmdPool = createCommandPool(vk, device, &cmdPoolParams);
+		cmdPool = createCommandPool(vk, device, VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, queueFamilyIndex);
 
 		const VkCommandBufferAllocateInfo cmdBufferAllocateInfo =
 		{
@@ -145,16 +138,7 @@ void uploadImage (Context&								context,
 	}
 
 	// Create fence
-	{
-		const VkFenceCreateInfo fenceParams =
-		{
-			VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,	// VkStructureType		sType;
-			DE_NULL,								// const void*			pNext;
-			0u										// VkFenceCreateFlags	flags;
-		};
-
-		fence = createFence(vk, device, &fenceParams);
-	}
+	fence = createFence(vk, device);
 
 	// Barriers for copying buffer to image
 	const VkBufferMemoryBarrier preBufferBarrier =
@@ -246,7 +230,7 @@ void uploadImage (Context&								context,
 
 	// Copy buffer to image
 	VK_CHECK(vk.beginCommandBuffer(*cmdBuffer, &cmdBufferBeginInfo));
-	vk.cmdPipelineBarrier(*cmdBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, (VkDependencyFlags)0, 0, (const VkMemoryBarrier*)DE_NULL, 1, &preBufferBarrier, 1, &preImageBarrier);
+	vk.cmdPipelineBarrier(*cmdBuffer, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, (VkDependencyFlags)0, 0, (const VkMemoryBarrier*)DE_NULL, 1, &preBufferBarrier, 1, &preImageBarrier);
 	vk.cmdCopyBufferToImage(*cmdBuffer, *buffer, destImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copyRegions);
 	vk.cmdPipelineBarrier(*cmdBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, (VkDependencyFlags)0, 0, (const VkMemoryBarrier*)DE_NULL, 0, (const VkBufferMemoryBarrier*)DE_NULL, 1, &postImageBarrier);
 	VK_CHECK(vk.endCommandBuffer(*cmdBuffer));
@@ -506,7 +490,7 @@ void VaryingOutputCountTestInstance::bindDescriptorSets (const DeviceInterface& 
 															},											// VkImageSubresourceRange	subresourceRange;
 														};
 		m_imageView										= createImageView(vk, device, &viewParams);
-		const VkDescriptorImageInfo descriptorImageInfo = makeDescriptorImageInfo (*m_sampler, *m_imageView, VK_IMAGE_LAYOUT_GENERAL);
+		const VkDescriptorImageInfo descriptorImageInfo = makeDescriptorImageInfo (*m_sampler, *m_imageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 		DescriptorSetUpdateBuilder()
 			.writeSingle(*m_descriptorSet, DescriptorSetUpdateBuilder::Location::binding(0u), VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &descriptorImageInfo)
 			.update(vk, device);
@@ -742,7 +726,7 @@ void GeometryOutputCountTest::initPrograms (SourceCollections& sourceCollections
 		std::ostringstream src;
 		src	<< "#version 310 es\n"
 			<<"layout(location = 0) out mediump vec4 fragColor;\n"
-			<<"layout(location = 0) in mediump vec4 v_frag_FragColor;\n"
+			<<"layout(location = 0) in highp vec4 v_frag_FragColor;\n"
 			<<"void main (void)\n"
 			<<"{\n"
 			<<"	fragColor = v_frag_FragColor;\n"
@@ -930,7 +914,7 @@ void VaryingOutputCountCase::initPrograms (SourceCollections& sourceCollections)
 		std::ostringstream src;
 		src	<< "#version 310 es\n"
 			<< "layout(location = 0) out mediump vec4 fragColor;\n"
-			<< "layout(location = 0) in mediump vec4 v_frag_FragColor;\n"
+			<< "layout(location = 0) in highp vec4 v_frag_FragColor;\n"
 			<< "void main (void)\n"
 			<< "{\n"
 			<< "	fragColor = v_frag_FragColor;\n"
@@ -1051,12 +1035,13 @@ void BuiltinVariableRenderTest::initPrograms (SourceCollections& sourceCollectio
 					<< "	const vec4 blue = vec4(0.0, 0.0, 1.0, 1.0);\n"
 					<< "	const vec4 yellow = vec4(1.0, 1.0, 0.0, 1.0);\n"
 					<< "	const vec4 colors[4] = vec4[4](red, green, blue, yellow);\n"
-					<< "	for (float percent=0.00; percent < 0.30; percent+=0.10)\n"
-							"{\n"
-					<< "		gl_Position = gl_in[0].gl_Position * vec4(1.0+percent, 1.0+percent, 1.0, 1.0);\n"
+					<< "	for (int counter = 0; counter < 3; ++counter)\n"
+					<< "	{\n"
+					<< "		float percent = 0.1 * counter;\n"
+					<< "		gl_Position = gl_in[0].gl_Position * vec4(1.0 + percent, 1.0 + percent, 1.0, 1.0);\n"
 					<< "		v_frag_FragColor = colors[gl_PrimitiveIDIn % 4];\n"
 					<< "		EmitVertex();\n"
-					<< "		gl_Position = gl_in[1].gl_Position * vec4(1.0+percent, 1.0+percent, 1.0, 1.0);\n"
+					<< "		gl_Position = gl_in[1].gl_Position * vec4(1.0 + percent, 1.0 + percent, 1.0, 1.0);\n"
 					<< "		v_frag_FragColor = colors[gl_PrimitiveIDIn % 4];\n"
 					<< "		EmitVertex();\n"
 					<< "	}\n"

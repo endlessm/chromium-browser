@@ -21,7 +21,6 @@
 #include "base/test/histogram_tester.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
-#include "chrome/browser/extensions/test_extension_dir.h"
 #include "chrome/browser/metrics/metrics_memory_details.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -29,7 +28,6 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/metrics/metrics_service.h"
-#include "components/variations/metrics_util.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/common/content_switches.h"
@@ -37,6 +35,7 @@
 #include "content/public/test/test_utils.h"
 #include "extensions/common/switches.h"
 #include "extensions/common/value_builder.h"
+#include "extensions/test/test_extension_dir.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -55,8 +54,7 @@ namespace {
 
 class TestMemoryDetails : public MetricsMemoryDetails {
  public:
-  TestMemoryDetails()
-      : MetricsMemoryDetails(base::Bind(&base::DoNothing), nullptr) {}
+  TestMemoryDetails() : MetricsMemoryDetails(base::DoNothing(), nullptr) {}
 
   void StartFetchAndWait() {
     uma_.reset(new base::HistogramTester());
@@ -244,49 +242,6 @@ class SiteDetailsBrowserTest : public ExtensionBrowserTest {
     EXPECT_TRUE(extension);
     temp_dirs_.push_back(std::move(dir));
     return extension;
-  }
-
-  // Creates a V2 platform app that loads a web iframe in the app's sandbox
-  // page.
-  // TODO(lazyboy): Deprecate this behavior in https://crbug.com/615585.
-  void CreateAppWithSandboxPage(const std::string& name) {
-    std::unique_ptr<TestExtensionDir> dir(new TestExtensionDir);
-
-    DictionaryBuilder manifest;
-    manifest.Set("name", name)
-        .Set("version", "1.0")
-        .Set("manifest_version", 2)
-        .Set("sandbox",
-             DictionaryBuilder()
-                 .Set("pages", ListBuilder().Append("sandbox.html").Build())
-                 .Build())
-        .Set("app",
-             DictionaryBuilder()
-                 .Set("background",
-                      DictionaryBuilder()
-                          .Set("scripts",
-                               ListBuilder().Append("background.js").Build())
-                          .Build())
-                 .Build());
-
-    dir->WriteFile(FILE_PATH_LITERAL("background.js"),
-                   "var sandboxFrame = document.createElement('iframe');"
-                   "sandboxFrame.src = 'sandbox.html';"
-                   "document.body.appendChild(sandboxFrame);");
-
-    std::string iframe_url =
-        embedded_test_server()->GetURL("/title1.html").spec();
-    dir->WriteFile(
-        FILE_PATH_LITERAL("sandbox.html"),
-        base::StringPrintf("<html><body>%s, web iframe:"
-                           "  <iframe width=80 height=80 src=%s></iframe>"
-                           "</body></html>",
-                           name.c_str(), iframe_url.c_str()));
-    dir->WriteManifest(manifest.ToJSON());
-
-    const Extension* extension = LoadExtension(dir->UnpackedPath());
-    EXPECT_TRUE(extension);
-    temp_dirs_.push_back(std::move(dir));
   }
 
   const Extension* CreateHostedApp(const std::string& name,
@@ -921,19 +876,6 @@ IN_PROC_BROWSER_TEST_F(SiteDetailsBrowserTest, MAYBE_IsolateExtensions) {
   EXPECT_THAT(GetRenderProcessCount(), DependingOnPolicy(2, 4, 3));
   EXPECT_THAT(details->GetOutOfProcessIframeCount(),
               DependingOnPolicy(0, 2, 2));
-}
-
-// Due to http://crbug.com/612711, we are not isolating iframes from platform
-// apps with --isolate-extenions.
-IN_PROC_BROWSER_TEST_F(SiteDetailsBrowserTest, PlatformAppsNotIsolated) {
-  // --site-per-process will still isolate iframes from platform apps, so skip
-  // the test in that case.
-  if (content::AreAllSitesIsolatedForTesting())
-    return;
-  CreateAppWithSandboxPage("Extension One");
-  scoped_refptr<TestMemoryDetails> details = new TestMemoryDetails();
-  details->StartFetchAndWait();
-  EXPECT_EQ(0, details->GetOutOfProcessIframeCount());
 }
 
 // Exercises accounting in the case where an extension has two different-site

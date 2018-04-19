@@ -95,7 +95,7 @@ class PowerManagerClientImpl : public PowerManagerClient {
         pending_suspend_id_(-1),
         suspend_is_pending_(false),
         suspending_from_dark_resume_(false),
-        num_pending_suspend_readiness_callbacks_(0),
+        next_suspend_readiness_callback_id_(1),
         notifying_observers_about_suspend_imminent_(false),
         last_is_projecting_(false),
         weak_ptr_factory_(this) {}
@@ -137,10 +137,9 @@ class PowerManagerClientImpl : public PowerManagerClient {
         power_manager::kDecreaseScreenBrightnessMethod);
     dbus::MessageWriter writer(&method_call);
     writer.AppendBool(allow_off);
-    power_manager_proxy_->CallMethod(
-        &method_call,
-        dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        dbus::ObjectProxy::EmptyResponseCallback());
+    power_manager_proxy_->CallMethod(&method_call,
+                                     dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+                                     base::DoNothing());
   }
 
   void IncreaseScreenBrightness() override {
@@ -168,10 +167,9 @@ class PowerManagerClientImpl : public PowerManagerClient {
         gradual ?
         power_manager::kBrightnessTransitionGradual :
         power_manager::kBrightnessTransitionInstant);
-    power_manager_proxy_->CallMethod(
-        &method_call,
-        dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        dbus::ObjectProxy::EmptyResponseCallback());
+    power_manager_proxy_->CallMethod(&method_call,
+                                     dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+                                     base::DoNothing());
   }
 
   void GetScreenBrightnessPercent(
@@ -211,9 +209,9 @@ class PowerManagerClientImpl : public PowerManagerClient {
     dbus::MessageWriter writer(&method_call);
     writer.AppendInt32(reason);
     writer.AppendString(description);
-    power_manager_proxy_->CallMethod(
-        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        dbus::ObjectProxy::EmptyResponseCallback());
+    power_manager_proxy_->CallMethod(&method_call,
+                                     dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+                                     base::DoNothing());
   }
 
   void RequestShutdown(power_manager::RequestShutdownReason reason,
@@ -225,9 +223,9 @@ class PowerManagerClientImpl : public PowerManagerClient {
     dbus::MessageWriter writer(&method_call);
     writer.AppendInt32(reason);
     writer.AppendString(description);
-    power_manager_proxy_->CallMethod(
-        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        dbus::ObjectProxy::EmptyResponseCallback());
+    power_manager_proxy_->CallMethod(&method_call,
+                                     dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+                                     base::DoNothing());
   }
 
   void NotifyUserActivity(power_manager::UserActivityType type) override {
@@ -237,10 +235,9 @@ class PowerManagerClientImpl : public PowerManagerClient {
     dbus::MessageWriter writer(&method_call);
     writer.AppendInt32(type);
 
-    power_manager_proxy_->CallMethod(
-        &method_call,
-        dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        dbus::ObjectProxy::EmptyResponseCallback());
+    power_manager_proxy_->CallMethod(&method_call,
+                                     dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+                                     base::DoNothing());
   }
 
   void NotifyVideoActivity(bool is_fullscreen) override {
@@ -250,10 +247,9 @@ class PowerManagerClientImpl : public PowerManagerClient {
     dbus::MessageWriter writer(&method_call);
     writer.AppendBool(is_fullscreen);
 
-    power_manager_proxy_->CallMethod(
-        &method_call,
-        dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        dbus::ObjectProxy::EmptyResponseCallback());
+    power_manager_proxy_->CallMethod(&method_call,
+                                     dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+                                     base::DoNothing());
   }
 
   void SetPolicy(const power_manager::PowerManagementPolicy& policy) override {
@@ -266,10 +262,9 @@ class PowerManagerClientImpl : public PowerManagerClient {
       POWER_LOG(ERROR) << "Error calling " << power_manager::kSetPolicyMethod;
       return;
     }
-    power_manager_proxy_->CallMethod(
-        &method_call,
-        dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        dbus::ObjectProxy::EmptyResponseCallback());
+    power_manager_proxy_->CallMethod(&method_call,
+                                     dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+                                     base::DoNothing());
   }
 
   void SetIsProjecting(bool is_projecting) override {
@@ -279,10 +274,9 @@ class PowerManagerClientImpl : public PowerManagerClient {
         power_manager::kSetIsProjectingMethod);
     dbus::MessageWriter writer(&method_call);
     writer.AppendBool(is_projecting);
-    power_manager_proxy_->CallMethod(
-        &method_call,
-        dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        dbus::ObjectProxy::EmptyResponseCallback());
+    power_manager_proxy_->CallMethod(&method_call,
+                                     dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+                                     base::DoNothing());
     last_is_projecting_ = is_projecting;
   }
 
@@ -292,18 +286,18 @@ class PowerManagerClientImpl : public PowerManagerClient {
                                  power_manager::kSetPowerSourceMethod);
     dbus::MessageWriter writer(&method_call);
     writer.AppendString(id);
-    power_manager_proxy_->CallMethod(
-        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        dbus::ObjectProxy::EmptyResponseCallback());
+    power_manager_proxy_->CallMethod(&method_call,
+                                     dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+                                     base::DoNothing());
   }
 
   void SetBacklightsForcedOff(bool forced_off) override {
     dbus::MethodCall method_call(power_manager::kPowerManagerInterface,
                                  power_manager::kSetBacklightsForcedOffMethod);
     dbus::MessageWriter(&method_call).AppendBool(forced_off);
-    power_manager_proxy_->CallMethod(
-        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        dbus::ObjectProxy::EmptyResponseCallback());
+    power_manager_proxy_->CallMethod(&method_call,
+                                     dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+                                     base::DoNothing());
   }
 
   void GetBacklightsForcedOff(DBusMethodCallback<bool> callback) override {
@@ -335,17 +329,20 @@ class PowerManagerClientImpl : public PowerManagerClient {
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
-  base::Closure GetSuspendReadinessCallback() override {
+  base::Closure GetSuspendReadinessCallback(
+      const base::Location& from_where) override {
     DCHECK(OnOriginThread());
     DCHECK(suspend_is_pending_);
-    num_pending_suspend_readiness_callbacks_++;
+
+    const int callback_id = next_suspend_readiness_callback_id_++;
+    pending_suspend_readiness_callbacks_[callback_id] = from_where;
     return base::Bind(&PowerManagerClientImpl::HandleObserverSuspendReadiness,
                       weak_ptr_factory_.GetWeakPtr(), pending_suspend_id_,
-                      suspending_from_dark_resume_);
+                      suspending_from_dark_resume_, callback_id);
   }
 
   int GetNumPendingSuspendReadinessCallbacks() override {
-    return num_pending_suspend_readiness_callbacks_;
+    return pending_suspend_readiness_callbacks_.size();
   }
 
  protected:
@@ -483,10 +480,9 @@ class PowerManagerClientImpl : public PowerManagerClient {
   void SimpleMethodCallToPowerManager(const std::string& method_name) {
     dbus::MethodCall method_call(power_manager::kPowerManagerInterface,
                                  method_name);
-    power_manager_proxy_->CallMethod(
-        &method_call,
-        dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        dbus::ObjectProxy::EmptyResponseCallback());
+    power_manager_proxy_->CallMethod(&method_call,
+                                     dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+                                     base::DoNothing());
   }
 
   void NameOwnerChangedReceived(const std::string& old_owner,
@@ -769,7 +765,7 @@ class PowerManagerClientImpl : public PowerManagerClient {
     pending_suspend_id_ = proto.suspend_id();
     suspend_is_pending_ = true;
     suspending_from_dark_resume_ = in_dark_resume;
-    num_pending_suspend_readiness_callbacks_ = 0;
+    pending_suspend_readiness_callbacks_.clear();
 
     // Record the fact that observers are being notified to ensure that we don't
     // report readiness prematurely if one of them calls
@@ -820,7 +816,14 @@ class PowerManagerClientImpl : public PowerManagerClient {
     pending_suspend_id_ = -1;
     suspend_is_pending_ = false;
     suspending_from_dark_resume_ = false;
-    num_pending_suspend_readiness_callbacks_ = 0;
+
+    // powerd gives clients a limited amount of time to report suspend
+    // readiness. Log the stragglers within Chrome to aid in debugging.
+    for (const auto it : pending_suspend_readiness_callbacks_) {
+      LOG(WARNING) << "Didn't report suspend readiness due to "
+                   << it.second.ToString();
+    }
+    pending_suspend_readiness_callbacks_.clear();
 
     for (auto& observer : observers_)
       observer.SuspendDone(duration);
@@ -876,9 +879,8 @@ class PowerManagerClientImpl : public PowerManagerClient {
           dbus::MessageWriter writer(&method_call);
           writer.AppendInt64(proto.timestamp());
           power_manager_proxy_->CallMethod(
-              &method_call,
-              dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-              dbus::ObjectProxy::EmptyResponseCallback());
+              &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+              base::DoNothing());
         }
         break;
       }
@@ -953,13 +955,15 @@ class PowerManagerClientImpl : public PowerManagerClient {
   // that was blocking a pending suspend attempt and possibly reports
   // suspend readiness to powerd.  Called by callbacks returned via
   // GetSuspendReadinessCallback().
-  void HandleObserverSuspendReadiness(int32_t suspend_id, bool in_dark_resume) {
+  void HandleObserverSuspendReadiness(int32_t suspend_id,
+                                      bool in_dark_resume,
+                                      int callback_id) {
     DCHECK(OnOriginThread());
     if (!suspend_is_pending_ || suspend_id != pending_suspend_id_ ||
         in_dark_resume != suspending_from_dark_resume_)
       return;
 
-    num_pending_suspend_readiness_callbacks_--;
+    pending_suspend_readiness_callbacks_.erase(callback_id);
     MaybeReportSuspendReadiness();
   }
 
@@ -973,7 +977,7 @@ class PowerManagerClientImpl : public PowerManagerClient {
     if (notifying_observers_about_suspend_imminent_)
       return;
 
-    if (num_pending_suspend_readiness_callbacks_ > 0)
+    if (GetNumPendingSuspendReadinessCallbacks() > 0)
       return;
 
     std::string method_name;
@@ -1006,10 +1010,9 @@ class PowerManagerClientImpl : public PowerManagerClient {
       POWER_LOG(ERROR) << "Error constructing message for " << method_name;
       return;
     }
-    power_manager_proxy_->CallMethod(
-        &method_call,
-        dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        dbus::ObjectProxy::EmptyResponseCallback());
+    power_manager_proxy_->CallMethod(&method_call,
+                                     dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+                                     base::DoNothing());
   }
 
   // Origin thread (i.e. the UI thread in production).
@@ -1037,10 +1040,13 @@ class PowerManagerClientImpl : public PowerManagerClient {
   // helps distinguish the context within which these variables are being used.
   bool suspending_from_dark_resume_;
 
-  // Number of callbacks that have been returned by
-  // GetSuspendReadinessCallback() during the currently-pending suspend
-  // attempt but have not yet been called.
-  int num_pending_suspend_readiness_callbacks_;
+  // Next ID to be assigned to a callback returned via
+  // GetSuspendReadinessCallback().
+  int next_suspend_readiness_callback_id_;
+
+  // Map from suspend readiness callback ID to the location of the code that
+  // requested the callback.
+  std::map<int, base::Location> pending_suspend_readiness_callbacks_;
 
   // Inspected by MaybeReportSuspendReadiness() to avoid prematurely notifying
   // powerd about suspend readiness while |observers_|' SuspendImminent()

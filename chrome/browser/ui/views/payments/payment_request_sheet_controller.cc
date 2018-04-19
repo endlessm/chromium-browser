@@ -160,7 +160,8 @@ class BorderedScrollView : public views::ScrollView {
   };
 
   BorderedScrollView() : views::ScrollView() {
-    SetBackgroundColor(SK_ColorWHITE);
+    SetBackground(views::CreateThemedSolidBackground(
+        this, ui::NativeTheme::kColorId_WindowBackground));
     SetBorder(views::CreateBorderPainter(
         std::make_unique<BorderedScrollViewBorderPainter>(
             GetNativeTheme()->GetSystemColor(
@@ -212,7 +213,8 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
   if (GetSheetId(&sheet_id))
     view->set_id(static_cast<int>(sheet_id));
 
-  view->SetBackground(views::CreateSolidBackground(SK_ColorWHITE));
+  view->SetBackground(views::CreateThemedSolidBackground(
+      view.get(), ui::NativeTheme::kColorId_WindowBackground));
 
   // Paint the sheets to layers, otherwise the MD buttons (which do paint to a
   // layer) won't do proper clipping.
@@ -227,10 +229,12 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
                      views::GridLayout::USE_PREF, 0, 0);
 
   layout->StartRow(0, 0);
-  // |header_view| will be deleted when |view| is.
-  layout->AddView(
-      CreateSheetHeaderView(ShouldShowHeaderBackArrow(), GetSheetTitle(), this)
-          .release());
+  header_view_ = std::make_unique<views::View>();
+  PopulateSheetHeaderView(ShouldShowHeaderBackArrow(),
+                          CreateHeaderContentView(), this, header_view_.get(),
+                          GetHeaderBackground());
+  header_view_->set_owned_by_client();
+  layout->AddView(header_view_.get());
 
   layout->StartRow(1, 0);
   // |content_view| will go into a views::ScrollView so it needs to be sized now
@@ -249,7 +253,8 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
   content_view_ = new views::View;
   content_view_->SetPaintToLayer();
   content_view_->layer()->SetFillsBoundsOpaquely(true);
-  content_view_->SetBackground(views::CreateSolidBackground(SK_ColorWHITE));
+  content_view_->SetBackground(views::CreateThemedSolidBackground(
+      content_view_, ui::NativeTheme::kColorId_WindowBackground));
   content_view_->set_id(static_cast<int>(DialogViewID::CONTENT_VIEW));
   pane_layout->AddView(content_view_);
   pane_->SizeToPreferredSize();
@@ -260,8 +265,10 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
   scroll_->SetContents(pane_);
   layout->AddView(scroll_.get());
 
-  layout->StartRow(0, 0);
-  layout->AddView(footer.release());
+  if (footer) {
+    layout->StartRow(0, 0);
+    layout->AddView(footer.release());
+  }
 
   UpdateContentView();
 
@@ -273,6 +280,15 @@ void PaymentRequestSheetController::UpdateContentView() {
   content_view_->RemoveAllChildViews(true);
   FillContentView(content_view_);
   RelayoutPane();
+}
+
+void PaymentRequestSheetController::UpdateHeaderView() {
+  header_view_->RemoveAllChildViews(true);
+  PopulateSheetHeaderView(ShouldShowHeaderBackArrow(),
+                          CreateHeaderContentView(), this, header_view_.get(),
+                          GetHeaderBackground());
+  header_view_->Layout();
+  header_view_->SchedulePaint();
 }
 
 void PaymentRequestSheetController::UpdateFocus(views::View* focused_view) {
@@ -317,6 +333,23 @@ bool PaymentRequestSheetController::ShouldShowHeaderBackArrow() {
 std::unique_ptr<views::View>
 PaymentRequestSheetController::CreateExtraFooterView() {
   return nullptr;
+}
+
+std::unique_ptr<views::View>
+PaymentRequestSheetController::CreateHeaderContentView() {
+  std::unique_ptr<views::Label> title_label = std::make_unique<views::Label>(
+      GetSheetTitle(), views::style::CONTEXT_DIALOG_TITLE);
+  title_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+  title_label->set_id(static_cast<int>(DialogViewID::SHEET_TITLE));
+  title_label->SetFocusBehavior(views::View::FocusBehavior::ACCESSIBLE_ONLY);
+
+  return title_label;
+}
+
+std::unique_ptr<views::Background>
+PaymentRequestSheetController::GetHeaderBackground() {
+  return views::CreateThemedSolidBackground(
+      header_view_.get(), ui::NativeTheme::kColorId_WindowBackground);
 }
 
 void PaymentRequestSheetController::ButtonPressed(views::Button* sender,
@@ -381,6 +414,13 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateFooterView() {
   AddSecondaryButton(trailing_buttons_container.get());
 #endif  // defined(OS_MACOSX)
 
+  if (container->child_count() == 0 &&
+      trailing_buttons_container->child_count() == 0) {
+    // If there's no extra view and no button, return null to signal that no
+    // footer should be rendered.
+    return nullptr;
+  }
+
   layout->AddView(trailing_buttons_container.release());
 
   return container;
@@ -390,9 +430,11 @@ views::View* PaymentRequestSheetController::GetFirstFocusedView() {
   if (primary_button_ && primary_button_->enabled())
     return primary_button_.get();
 
-  DCHECK(secondary_button_);
+  if (secondary_button_)
+    return secondary_button_.get();
 
-  return secondary_button_.get();
+  DCHECK(content_view_);
+  return content_view_;
 }
 
 bool PaymentRequestSheetController::GetSheetId(DialogViewID* sheet_id) {

@@ -81,7 +81,7 @@ IN_PROC_BROWSER_TEST_F(TabUnderBlockerBrowserTest, SimpleTabUnder_IsBlocked) {
 
   EXPECT_TRUE(PopupOpenerTabHelper::FromWebContents(opener)
                   ->has_opened_popup_since_last_user_gesture());
-  EXPECT_FALSE(opener->IsVisible());
+  EXPECT_EQ(opener->GetVisibility(), content::Visibility::HIDDEN);
 
   content::TestNavigationObserver tab_under_observer(opener, 1);
   const GURL cross_origin_url =
@@ -120,7 +120,7 @@ IN_PROC_BROWSER_TEST_F(TabUnderBlockerBrowserTest,
 
   EXPECT_TRUE(PopupOpenerTabHelper::FromWebContents(opener)
                   ->has_opened_popup_since_last_user_gesture());
-  EXPECT_FALSE(opener->IsVisible());
+  EXPECT_EQ(opener->GetVisibility(), content::Visibility::HIDDEN);
 
   // Perform some user gesture on the page.
   content::SimulateMouseClick(opener, 0, blink::WebMouseEvent::Button::kLeft);
@@ -141,4 +141,36 @@ IN_PROC_BROWSER_TEST_F(TabUnderBlockerBrowserTest,
   EXPECT_TRUE(content::ExecuteScript(opener, "var a = 0;"));
   EXPECT_TRUE(console_observer.message().empty());
   EXPECT_FALSE(IsUiShownForUrl(opener, cross_origin_url));
+}
+
+// Test for crbug.com/733736, where a spoof shift-click does not trigger
+// tab-under because the subsequent navigation is not considered to be in the
+// background.
+IN_PROC_BROWSER_TEST_F(TabUnderBlockerBrowserTest,
+                       SpoofShiftClickTabUnder_IsBlocked) {
+  content::WebContents* opener =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ui_test_utils::NavigateToURL(browser(),
+                               embedded_test_server()->GetURL("/links.html"));
+  const std::string cross_origin_url =
+      embedded_test_server()->GetURL("a.com", "/title1.html").spec();
+
+  const std::string script = R"(
+    var evt = new MouseEvent("click", {
+      view : window,
+      shiftKey : true
+    });
+    document.getElementById("title1").dispatchEvent(evt);
+    window.location = "%s";
+  )";
+
+  content::TestNavigationObserver navigation_observer(nullptr, 1);
+  content::TestNavigationObserver tab_under_observer(opener, 1);
+  navigation_observer.StartWatchingNewWebContents();
+  EXPECT_TRUE(content::ExecuteScript(
+      opener,
+      base::StringPrintf(script.c_str(), cross_origin_url.c_str()).c_str()));
+  navigation_observer.Wait();
+  tab_under_observer.Wait();
+  EXPECT_FALSE(tab_under_observer.last_navigation_succeeded());
 }

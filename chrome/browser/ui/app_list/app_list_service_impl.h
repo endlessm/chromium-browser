@@ -39,9 +39,9 @@ class AppListServiceImpl : public AppListService,
                      PrefService* local_state,
                      std::unique_ptr<ProfileStore> profile_store);
 
-  // Lazily create the Chrome AppListViewDelegate and ensure it is set to the
-  // given |profile|.
-  AppListViewDelegate* GetViewDelegate(Profile* profile);
+  // Lazily create the Chrome AppListViewDelegate and set it to the current user
+  // profile.
+  AppListViewDelegate* GetViewDelegate();
 
   void RecordAppListLaunch();
   static void RecordAppListAppLaunch();
@@ -52,10 +52,6 @@ class AppListServiceImpl : public AppListService,
   base::FilePath GetProfilePath(const base::FilePath& user_data_dir) override;
   void SetProfilePath(const base::FilePath& profile_path) override;
   void Show() override;
-  void ShowForVoiceSearch(
-      Profile* profile,
-      const scoped_refptr<content::SpeechRecognitionSessionPreamble>& preamble)
-      override;
   void ShowForAppInstall(Profile* profile,
                          const std::string& extension_id,
                          bool start_discovery_tracking) override;

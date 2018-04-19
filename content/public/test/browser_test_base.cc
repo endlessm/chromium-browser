@@ -21,14 +21,13 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/sys_info.h"
 #include "base/test/test_timeouts.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/tracing/tracing_controller_impl.h"
 #include "content/public/app/content_main.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/common/content_features.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
 #include "content/public/common/service_manager_connection.h"
@@ -40,7 +39,8 @@
 #include "mojo/public/cpp/bindings/sync_call_restrictions.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
-#include "services/network/public/interfaces/network_service_test.mojom.h"
+#include "services/network/public/cpp/features.h"
+#include "services/network/public/mojom/network_service_test.mojom.h"
 #include "services/service_manager/embedder/switches.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "ui/base/platform_window_defaults.h"
@@ -101,6 +101,24 @@ void TraceStopTracingComplete(const base::Closure& quit,
   quit.Run();
 }
 
+// See SetInitialWebContents comment for more information.
+class InitialNavigationObserver : public WebContentsObserver {
+ public:
+  InitialNavigationObserver(WebContents* web_contents,
+                            base::OnceClosure callback)
+      : WebContentsObserver(web_contents), callback_(std::move(callback)) {}
+  // WebContentsObserver implementation:
+  void DidStartNavigation(NavigationHandle* navigation_handle) override {
+    if (callback_)
+      std::move(callback_).Run();
+  }
+
+ private:
+  base::OnceClosure callback_;
+
+  DISALLOW_COPY_AND_ASSIGN(InitialNavigationObserver);
+};
+
 }  // namespace
 
 extern int BrowserMain(const MainFunctionParams&);
@@ -128,13 +146,6 @@ BrowserTestBase::BrowserTestBase()
   base::i18n::AllowMultipleInitializeCallsForTesting();
 
   embedded_test_server_ = std::make_unique<net::EmbeddedTestServer>();
-
-  // SequencedWorkerPool is enabled by default in tests (see
-  // base::TestSuite::Initialize). In browser tests, disable it and expect it
-  // to be re-enabled as part of BrowserMainLoop::PreCreateThreads().
-  // TODO(fdoray): Remove this once the SequencedWorkerPool to TaskScheduler
-  // redirection experiment concludes https://crbug.com/622400.
-  base::SequencedWorkerPool::DisableForProcessForTesting();
 }
 
 BrowserTestBase::~BrowserTestBase() {
@@ -341,7 +352,22 @@ void BrowserTestBase::ProxyRunTestOnMainThreadLoop() {
     base::MessageLoop::ScopedNestableTaskAllower allow(
         base::MessageLoop::current());
     PreRunTestOnMainThread();
+    std::unique_ptr<InitialNavigationObserver> initial_navigation_observer;
+    if (initial_web_contents_ &&
+        base::FeatureList::IsEnabled(network::features::kNetworkService)) {
+      // Some tests may add host_resolver() rules in their SetUpOnMainThread
+      // method and navigate inside of it. This is a best effort to catch that
+      // and sync the host_resolver() rules to the network process in that case,
+      // to avoid navigations silently failing. This won't catch all cases, i.e.
+      // if the test creates a new window or tab and navigates that.
+      initial_navigation_observer = std::make_unique<InitialNavigationObserver>(
+          initial_web_contents_,
+          base::BindOnce(&BrowserTestBase::InitializeNetworkProcess,
+                         base::Unretained(this)));
+    }
+    initial_web_contents_ = nullptr;
     SetUpOnMainThread();
+    initial_navigation_observer.reset();
 
     // Tests would have added their host_resolver() rules by now, so copy them
     // to the network process if it's in use.
@@ -414,11 +440,20 @@ bool BrowserTestBase::UsingSoftwareGL() const {
          gl::GetGLImplementationName(gl::GetSoftwareGLImplementation());
 }
 
+void BrowserTestBase::SetInitialWebContents(WebContents* web_contents) {
+  DCHECK(!initial_web_contents_);
+  initial_web_contents_ = web_contents;
+}
+
 void BrowserTestBase::InitializeNetworkProcess() {
+  if (initialized_network_process_)
+    return;
+
+  initialized_network_process_ = true;
   const testing::TestInfo* const test_info =
       testing::UnitTest::GetInstance()->current_test_info();
   bool network_service =
-      base::FeatureList::IsEnabled(features::kNetworkService);
+      base::FeatureList::IsEnabled(network::features::kNetworkService);
   // ProcessTransferAfterError is the only browser test which needs to modify
   // the host rules (when not using the network service).
   if (network_service ||
@@ -456,8 +491,16 @@ void BrowserTestBase::InitializeNetworkProcess() {
   network::mojom::NetworkServiceTestPtr network_service_test;
   ServiceManagerConnection::GetForProcess()->GetConnector()->BindInterface(
       mojom::kNetworkServiceName, &network_service_test);
-  mojo::SyncCallRestrictions::ScopedAllowSyncCall allow_sync_call;
-  network_service_test->AddRules(std::move(mojo_rules));
+
+  // Allow nested tasks so that the mojo reply is dispatched.
+  base::MessageLoop::ScopedNestableTaskAllower allow(
+      base::MessageLoop::current());
+  // Send the DNS rules to network service process. Android needs the RunLoop
+  // to dispatch a Java callback that makes network process to enter native
+  // code.
+  base::RunLoop loop;
+  network_service_test->AddRules(std::move(mojo_rules), loop.QuitClosure());
+  loop.Run();
 }
 
 }  // namespace content

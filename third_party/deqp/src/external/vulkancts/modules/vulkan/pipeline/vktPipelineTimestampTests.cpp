@@ -703,31 +703,10 @@ TimestampTestInstance::TimestampTestInstance(Context&                context,
 	}
 
 	// Create command pool
-	{
-		const VkCommandPoolCreateInfo cmdPoolParams =
-		{
-			VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,   // VkStructureType      sType;
-			DE_NULL,                                      // const void*          pNext;
-			VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,         // VkCmdPoolCreateFlags flags;
-			queueFamilyIndex,                             // deUint32             queueFamilyIndex;
-		};
-
-		m_cmdPool = createCommandPool(vk, vkDevice, &cmdPoolParams);
-	}
+	m_cmdPool = createCommandPool(vk, vkDevice, VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, queueFamilyIndex);
 
 	// Create command buffer
-	{
-		const VkCommandBufferAllocateInfo cmdAllocateParams =
-		{
-			VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, // VkStructureType         sType;
-			DE_NULL,                                        // const void*             pNext;
-			*m_cmdPool,                                     // VkCommandPool           cmdPool;
-			VK_COMMAND_BUFFER_LEVEL_PRIMARY,                // VkCommandBufferLevel    level;
-			1u,                                             // deUint32                bufferCount;
-		};
-
-		m_cmdBuffer = allocateCommandBuffer(vk, vkDevice, &cmdAllocateParams);
-	}
+	m_cmdBuffer = allocateCommandBuffer(vk, vkDevice, *m_cmdPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
 	// Create fence
 	{
@@ -2016,7 +1995,7 @@ void TransferTestInstance::configCommandBuffer(void)
 				const VkBufferImageCopy bufImageCopy =
 				{
 					0u,                                     // VkDeviceSize            bufferOffset;
-					(deUint32)m_bufSize,                    // deUint32                bufferRowLength;
+					(deUint32)m_imageWidth,                 // deUint32                bufferRowLength;
 					(deUint32)m_imageHeight,                // deUint32                bufferImageHeight;
 					imgSubResCopy,                          // VkImageSubresourceCopy  imageSubresource;
 					nullOffset,                             // VkOffset3D              imageOffset;
@@ -2030,7 +2009,7 @@ void TransferTestInstance::configCommandBuffer(void)
 				const VkBufferImageCopy imgBufferCopy =
 				{
 					0u,                                     // VkDeviceSize            bufferOffset;
-					(deUint32)m_bufSize,                    // deUint32                bufferRowLength;
+					(deUint32)m_imageWidth,                 // deUint32                bufferRowLength;
 					(deUint32)m_imageHeight,                // deUint32                bufferImageHeight;
 					imgSubResCopy,                          // VkImageSubresourceCopy  imageSubresource;
 					nullOffset,                             // VkOffset3D              imageOffset;
@@ -2140,7 +2119,7 @@ void TransferTestInstance::initialImageTransition (VkCommandBuffer cmdBuffer, Vk
 		subRange                                // VkImageSubresourceRange  subresourceRange;
 	};
 
-	vk.cmdPipelineBarrier(cmdBuffer, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, DE_NULL, 0, DE_NULL, 1, &imageMemBarrier);
+	vk.cmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, DE_NULL, 0, DE_NULL, 1, &imageMemBarrier);
 }
 
 } // anonymous

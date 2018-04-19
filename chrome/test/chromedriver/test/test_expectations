@@ -270,18 +270,38 @@ _OS_NEGATIVE_FILTER['android:chrome'] = [
 ]
 _OS_NEGATIVE_FILTER['android:chrome_stable'] = (
     _OS_NEGATIVE_FILTER['android:chrome'] + [
-        # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2076
+         # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2025
+        'PageLoadingTest.testShouldBeAbleToGetAFragmentOnTheCurrentPage',
+         # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2076
         'CorrectEventFiringTest.testShouldReportTheXAndYCoordinatesWhenClicking',
-        # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2077
+         # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2077
         'CorrectEventFiringTest.testShouldEmitClickEventWhenClickingOnATextInputElement',
-        # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2025
-        'MiscTest.testStimulatesStrangeOnloadInteractionInFirefox',
-        'PageLoadingTest.testShouldNotHangIfDocumentOpenCallIsNeverFollowedByDocumentCloseCall',
     ]
 )
 
 _OS_NEGATIVE_FILTER['android:chromium'] = (
     _OS_NEGATIVE_FILTER['android:chrome'] + [
+        # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2286
+        'CorrectEventFiringTest.testClearingAnElementShouldCauseTheOnChangeHandlerToFire',
+        'CorrectEventFiringTest.testClickEventsShouldBubble',
+        'CorrectEventFiringTest.testSubmittingFormFromFormElementShouldFireOnSubmitForThatForm',
+        'CorrectEventFiringTest.testSendingKeysToAFocusedElementShouldNotBlurThatElement',
+        'CorrectEventFiringTest.testShouldReportTheXAndYCoordinatesWhenClicking',
+        'CorrectEventFiringTest.testShouldEmitClickEventWhenClickingOnATextInputElement',
+        'CorrectEventFiringTest.testSendingKeysToAnElementShouldCauseTheFocusEventToFire',
+        'ElementAttributeTest.testShouldReturnAnAbsoluteUrlWhenGettingHrefAttributeOfAValidAnchorTag',
+        'JavascriptEnabledDriverTest.testShouldBeAbleToFindElementAfterJavascriptCausesANewPageToLoad',
+        'JavascriptEnabledDriverTest.testShouldBeAbleToSwitchToFocusedElement',
+        'JavascriptEnabledDriverTest.testShouldBeAbleToDetermineTheLocationOfAnElement',
+        'JavascriptEnabledDriverTest.testIfNoElementHasFocusTheActiveElementIsTheBody',
+        'JavascriptEnabledDriverTest.testShouldWaitForLoadsToCompleteAfterJavascriptCausesANewPageToLoad',
+        'FormHandlingTest.testShouldSubmitAFormUsingTheEnterKey',
+        'FormHandlingTest.testShouldSubmitAFormUsingTheNewlineLiteral',
+        'BasicMouseInterfaceTest.testDoubleClickThenGet',
+        'MiscTest.testShouldReturnTheSourceOfAPage',
+        'MiscTest.testClickingShouldNotTrampleWOrHInGlobalScope',
+        'MiscTest.testShouldReportTheCurrentUrlCorrectly',
+        'MiscTest.testStimulatesStrangeOnloadInteractionInFirefox'
     ]
 )
 _OS_NEGATIVE_FILTER['android:chrome_beta'] = (
@@ -290,7 +310,7 @@ _OS_NEGATIVE_FILTER['android:chrome_beta'] = (
         'PageLoadingTest.testShouldBeAbleToGetAFragmentOnTheCurrentPage',
          # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2076
         'CorrectEventFiringTest.testShouldReportTheXAndYCoordinatesWhenClicking',
-	 # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2077
+         # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2077
         'CorrectEventFiringTest.testShouldEmitClickEventWhenClickingOnATextInputElement',
     ]
 )

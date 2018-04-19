@@ -32,6 +32,7 @@
 #include "vkRef.hpp"
 #include "tcuTexture.hpp"
 #include "tcuCompressedTexture.hpp"
+#include "deSharedPtr.hpp"
 
 namespace vkt
 {
@@ -53,6 +54,11 @@ bool							isSupportedSamplableFormat	(const vk::InstanceInterface&	instanceInte
 															 vk::VkPhysicalDevice			device,
 															 vk::VkFormat					format);
 bool							isLinearFilteringSupported	(const vk::InstanceInterface&	instanceInterface,
+															 vk::VkPhysicalDevice			device,
+															 vk::VkFormat					format,
+															 vk::VkImageTiling				tiling);
+
+bool							isMinMaxFilteringSupported	(const vk::InstanceInterface&	instanceInterface,
 															 vk::VkPhysicalDevice			device,
 															 vk::VkFormat					format,
 															 vk::VkImageTiling				tiling);
@@ -92,6 +98,41 @@ void							uploadTestTexture			(const vk::DeviceInterface&		vk,
 															 vk::Allocator&					allocator,
 															 const TestTexture&				testTexture,
 															 vk::VkImage					destImage);
+
+/*--------------------------------------------------------------------*//*!
+ * Uploads data from a test texture to a destination VK image using sparse
+ * binding.
+ *
+ * The VkImage must be non-multisampled and able to be used as a
+ * destination operand for transfer operations.
+ *//*--------------------------------------------------------------------*/
+void							uploadTestTextureSparse		(const vk::DeviceInterface&						vk,
+															 vk::VkDevice									device,
+															 const vk::VkPhysicalDevice						physicalDevice,
+															 const vk::InstanceInterface&					instance,
+															 const vk::VkImageCreateInfo&					imageCreateInfo,
+															 vk::VkQueue									universalQueue,
+															 deUint32										universalQueueFamilyIndex,
+															 vk::VkQueue									sparseQueue,
+															 vk::Allocator&									allocator,
+															 std::vector<de::SharedPtr<vk::Allocation> >&	allocations,
+															 const TestTexture&								srcTexture,
+															 vk::VkImage									destImage);
+
+/*--------------------------------------------------------------------*//*!
+ * Allocates memory for a sparse image and handles the memory binding.
+ *//*--------------------------------------------------------------------*/
+void							allocateAndBindSparseImage	(const vk::DeviceInterface&						vk,
+															 vk::VkDevice									device,
+															 const vk::VkPhysicalDevice						physicalDevice,
+															 const vk::InstanceInterface&					instance,
+															 const vk::VkImageCreateInfo&					imageCreateInfo,
+															 const vk::VkSemaphore&							signalSemaphore,
+															 vk::VkQueue									queue,
+															 vk::Allocator&									allocator,
+															 std::vector<de::SharedPtr<vk::Allocation> >&	allocations,
+															 tcu::TextureFormat								format,
+															 vk::VkImage									destImage);
 
 class TestTexture
 {

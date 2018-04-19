@@ -5,6 +5,7 @@
 #include "ash/system/tray/tray_details_view.h"
 
 #include "ash/ash_view_ids.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/tray/hover_highlight_view.h"
 #include "ash/system/tray/system_menu_button.h"
@@ -252,8 +253,10 @@ TrayDetailsView::TrayDetailsView(SystemTrayItem* owner)
       back_button_(nullptr) {
   box_layout_ = SetLayoutManager(
       std::make_unique<views::BoxLayout>(views::BoxLayout::kVertical));
-  SetBackground(views::CreateThemedSolidBackground(
-      this, ui::NativeTheme::kColorId_BubbleBackground));
+  SetBackground(features::IsSystemTrayUnifiedEnabled()
+                    ? views::CreateSolidBackground(kUnifiedMenuBackgroundColor)
+                    : views::CreateThemedSolidBackground(
+                          this, ui::NativeTheme::kColorId_BubbleBackground));
 }
 
 TrayDetailsView::~TrayDetailsView() = default;
@@ -308,8 +311,12 @@ void TrayDetailsView::CreateScrollableList() {
   scroller_ = new views::ScrollView;
   scroller_->SetContents(scroll_content_);
   // TODO(varkha): Make the sticky rows work with EnableViewPortLayer().
-  scroller_->SetBackgroundThemeColorId(
-      ui::NativeTheme::kColorId_BubbleBackground);
+  if (features::IsSystemTrayUnifiedEnabled()) {
+    scroller_->SetBackgroundColor(kUnifiedMenuBackgroundColor);
+  } else {
+    scroller_->SetBackgroundThemeColorId(
+        ui::NativeTheme::kColorId_BubbleBackground);
+  }
 
   AddChildView(scroller_);
   box_layout_->SetFlexForView(scroller_, 1);
@@ -410,9 +417,8 @@ void TrayDetailsView::ShowProgress(double value, bool visible) {
 
 views::Button* TrayDetailsView::CreateSettingsButton(
     int setting_accessible_name_id) {
-  SystemMenuButton* button =
-      new SystemMenuButton(this, TrayPopupInkDropStyle::HOST_CENTERED,
-                           kSystemMenuSettingsIcon, setting_accessible_name_id);
+  SystemMenuButton* button = new SystemMenuButton(this, kSystemMenuSettingsIcon,
+                                                  setting_accessible_name_id);
   if (!TrayPopupUtils::CanOpenWebUISettings())
     button->SetEnabled(false);
   return button;
@@ -420,8 +426,7 @@ views::Button* TrayDetailsView::CreateSettingsButton(
 
 views::Button* TrayDetailsView::CreateHelpButton() {
   SystemMenuButton* button =
-      new SystemMenuButton(this, TrayPopupInkDropStyle::HOST_CENTERED,
-                           kSystemMenuHelpIcon, IDS_ASH_STATUS_TRAY_HELP);
+      new SystemMenuButton(this, kSystemMenuHelpIcon, IDS_ASH_STATUS_TRAY_HELP);
   // Help opens a web page, so treat it like Web UI settings.
   if (!TrayPopupUtils::CanOpenWebUISettings())
     button->SetEnabled(false);
@@ -460,8 +465,7 @@ void TrayDetailsView::DoTransitionToDefaultView() {
 
 views::Button* TrayDetailsView::CreateBackButton() {
   SystemMenuButton* button = new SystemMenuButton(
-      this, TrayPopupInkDropStyle::HOST_CENTERED, kSystemMenuArrowBackIcon,
-      IDS_ASH_STATUS_TRAY_PREVIOUS_MENU);
+      this, kSystemMenuArrowBackIcon, IDS_ASH_STATUS_TRAY_PREVIOUS_MENU);
   return button;
 }
 

@@ -29,7 +29,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task_scheduler/post_task.h"
 #include "base/threading/sequenced_task_runner_handle.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/version.h"
 #include "base/win/pe_image.h"
 #include "base/win/registry.h"
@@ -71,8 +70,10 @@
 #include "chrome/installer/util/l10n_string_util.h"
 #include "chrome/installer/util/shell_util.h"
 #include "components/crash/content/app/crash_export_thunks.h"
+#include "components/crash/content/app/dump_hung_process_with_ptype.h"
 #include "components/crash/core/common/crash_key.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
 #include "ui/base/cursor/cursor_loader_win.h"
@@ -95,6 +96,12 @@ void InitializeWindowProcExceptions() {
   base::win::WinProcExceptionFilter exception_filter =
       base::win::SetWinProcExceptionFilter(&CrashForException_ExportThunk);
   DCHECK(!exception_filter);
+}
+
+// TODO(siggi): Remove once https://crbug.com/806661 is resolved.
+void DumpHungRendererProcessImpl(const base::Process& renderer) {
+  // Use a distinguishing process type for these reports.
+  crash_reporter::DumpHungProcessWithPtype(renderer, "hung-renderer");
 }
 
 // gfx::Font callbacks
@@ -359,7 +366,7 @@ void SetupModuleDatabase(std::unique_ptr<ModuleWatcher>* module_watcher) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   ModuleDatabase::SetInstance(
-      base::MakeUnique<ModuleDatabase>(base::SequencedTaskRunnerHandle::Get()));
+      std::make_unique<ModuleDatabase>(base::SequencedTaskRunnerHandle::Get()));
   auto* module_database = ModuleDatabase::GetInstance();
 
   *module_watcher = ModuleWatcher::Create(base::BindRepeating(&OnModuleEvent));
@@ -486,6 +493,11 @@ int ChromeBrowserMainPartsWin::PreCreateThreads() {
   static crash_reporter::CrashKeyString<32> update_cohort_name("cohort-name");
   update_cohort_name.Set(base::UTF16ToUTF8(details.update_cohort_name()));
 
+  if (details.channel().find(L"canary") == 0) {
+    content::RenderProcessHost::SetHungRendererAnalysisFunction(
+        &DumpHungRendererProcessImpl);
+  }
+
   return ChromeBrowserMainParts::PreCreateThreads();
 }
 
@@ -537,7 +549,7 @@ void ChromeBrowserMainPartsWin::PostBrowserStart() {
     safe_browsing::PostCleanupSettingsResetter().ResetTaggedProfiles(
         g_browser_process->profile_manager()->GetLastOpenedProfiles(),
         base::BindOnce(&MaybePostSettingsResetPrompt),
-        base::MakeUnique<
+        std::make_unique<
             safe_browsing::PostCleanupSettingsResetter::Delegate>());
   } else {
     MaybePostSettingsResetPrompt();

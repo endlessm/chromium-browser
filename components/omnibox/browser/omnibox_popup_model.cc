@@ -15,8 +15,6 @@
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/omnibox_popup_model_observer.h"
 #include "components/omnibox/browser/omnibox_popup_view.h"
-#include "components/search_engines/template_url.h"
-#include "components/search_engines/template_url_service.h"
 #include "third_party/icu/source/common/unicode/ubidi.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -291,8 +289,7 @@ gfx::Image OmniboxPopupModel::GetMatchIcon(const AutocompleteMatch& match,
   }
 
   const auto& vector_icon_type =
-      IsStarredMatch(match) ? omnibox::kStarIcon
-                            : AutocompleteMatch::TypeToVectorIcon(match.type);
+      AutocompleteMatch::TypeToVectorIcon(match.type, IsStarredMatch(match));
   return gfx::Image(
       gfx::CreateVectorIcon(vector_icon_type, 16, vector_icon_color));
 }

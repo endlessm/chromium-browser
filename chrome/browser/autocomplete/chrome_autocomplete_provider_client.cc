@@ -71,10 +71,6 @@ const char* const kChromeSettingsSubPages[] = {
 };
 #endif  // !defined(OS_ANDROID)
 
-// A callback that does nothing, called after the search service worker is
-// started.
-void NoopCallback(content::StartServiceWorkerForNavigationHintResult) {}
-
 }  // namespace
 
 ChromeAutocompleteProviderClient::ChromeAutocompleteProviderClient(
@@ -167,7 +163,7 @@ std::unique_ptr<KeywordExtensionsDelegate>
 ChromeAutocompleteProviderClient::GetKeywordExtensionsDelegate(
     KeywordProvider* keyword_provider) {
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-  return base::MakeUnique<KeywordExtensionsDelegateImpl>(profile_,
+  return std::make_unique<KeywordExtensionsDelegateImpl>(profile_,
                                                          keyword_provider);
 #else
   return nullptr;
@@ -355,7 +351,7 @@ void ChromeAutocompleteProviderClient::StartServiceWorker(
     return;
 
   context->StartServiceWorkerForNavigationHint(destination_url,
-                                               base::BindOnce(&NoopCallback));
+                                               base::DoNothing());
 }
 
 void ChromeAutocompleteProviderClient::OnAutocompleteControllerResultReady(

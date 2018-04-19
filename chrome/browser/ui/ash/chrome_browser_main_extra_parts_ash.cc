@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/ash/chrome_browser_main_extra_parts_ash.h"
 
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/mus_property_mirror_ash.h"
 #include "ash/public/cpp/shelf_model.h"
@@ -16,10 +17,10 @@
 #include "ash/public/interfaces/window_properties.mojom.h"
 #include "ash/public/interfaces/window_state_type.mojom.h"
 #include "ash/shell.h"
-#include "base/command_line.h"
 #include "base/memory/ptr_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/ash_config.h"
+#include "chrome/browser/chromeos/docked_magnifier/docked_magnifier_client.h"
 #include "chrome/browser/chromeos/night_light/night_light_client.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/accessibility/accessibility_controller_client.h"
@@ -101,19 +102,10 @@ class ChromeLauncherControllerInitializer
 
     if (session_manager::SessionManager::Get()->session_state() ==
         session_manager::SessionState::ACTIVE) {
-      ash::ShelfModel* model;
-      if (chromeos::GetAshConfig() == ash::Config::MASH ||
-          !base::CommandLine::ForCurrentProcess()->HasSwitch(
-              ash::switches::kAshDisableShelfModelSynchronization)) {
-        // Synchronize shelf models.
-        chrome_shelf_model_ = std::make_unique<ash::ShelfModel>();
-        model = chrome_shelf_model_.get();
-      } else {
-        // Use Ash's shelf model directly.
-        model = ash::Shell::Get()->shelf_model();
-      }
-      chrome_launcher_controller_ =
-          std::make_unique<ChromeLauncherController>(nullptr, model);
+      // Chrome keeps its own ShelfModel copy in sync with Ash's ShelfModel.
+      chrome_shelf_model_ = std::make_unique<ash::ShelfModel>();
+      chrome_launcher_controller_ = std::make_unique<ChromeLauncherController>(
+          nullptr, chrome_shelf_model_.get());
       chrome_launcher_controller_->Init();
 
       session_manager::SessionManager::Get()->RemoveObserver(this);
@@ -141,7 +133,6 @@ void ChromeBrowserMainExtraPartsAsh::ServiceManagerConnectionStarted(
   if (chromeos::GetAshConfig() == ash::Config::MASH) {
     // ash::Shell will not be created because ash is running out-of-process.
     ash::Shell::SetIsBrowserProcessWithMash();
-
     // Register ash-specific window properties with Chrome's property converter.
     // This propagates ash properties set on chrome windows to ash, via mojo.
     DCHECK(views::MusClient::Exists());
@@ -177,6 +168,14 @@ void ChromeBrowserMainExtraPartsAsh::ServiceManagerConnectionStarted(
         aura::PropertyConverter::CreateAcceptAnyValueCallback());
     converter->RegisterStringProperty(
         ash::kShelfIDKey, ui::mojom::WindowManager::kShelfID_Property);
+    converter->RegisterPrimitiveProperty(
+        ash::kRestoreBoundsOverrideKey,
+        ash::mojom::kRestoreBoundsOverride_Property,
+        aura::PropertyConverter::CreateAcceptAnyValueCallback());
+    converter->RegisterPrimitiveProperty(
+        ash::kRestoreWindowStateTypeOverrideKey,
+        ash::mojom::kRestoreWindowStateTypeOverride_Property,
+        base::BindRepeating(&ash::IsValidWindowStateType));
 
     mus_client->SetMusPropertyMirror(
         std::make_unique<ash::MusPropertyMirrorAsh>());
@@ -277,6 +276,11 @@ void ChromeBrowserMainExtraPartsAsh::PostBrowserStart() {
     night_light_client_ = std::make_unique<NightLightClient>(
         g_browser_process->system_request_context());
     night_light_client_->Start();
+  }
+
+  if (ash::features::IsDockedMagnifierEnabled()) {
+    docked_magnifier_client_ = std::make_unique<DockedMagnifierClient>();
+    docked_magnifier_client_->Start();
   }
 }
 

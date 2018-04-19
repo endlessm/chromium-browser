@@ -8,7 +8,7 @@
 #include "ash/frame/caption_buttons/frame_caption_button.h"
 #include "ash/frame/caption_buttons/frame_caption_button_container_view.h"
 #include "ash/frame/frame_header_util.h"
-#include "ash/resources/vector_icons/vector_icons.h"
+#include "ash/public/cpp/vector_icons/vector_icons.h"
 #include "base/logging.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/browser.h"
@@ -196,7 +196,7 @@ void BrowserFrameHeaderAsh::LayoutHeader() {
   UpdateCaptionButtons();
   caption_button_container_->Layout();
 
-  gfx::Size caption_button_container_size =
+  const gfx::Size caption_button_container_size =
       caption_button_container_->GetPreferredSize();
   caption_button_container_->SetBounds(
       view_->width() - caption_button_container_size.width(), 0,
@@ -206,9 +206,8 @@ void BrowserFrameHeaderAsh::LayoutHeader() {
   if (window_icon_) {
     // Vertically center the window icon with respect to the caption button
     // container.
-    gfx::Size icon_size(window_icon_->GetPreferredSize());
-    int icon_offset_y =
-        (caption_button_container_->height() - icon_size.height()) / 2;
+    const gfx::Size icon_size(window_icon_->GetPreferredSize());
+    const int icon_offset_y = (GetHeaderHeight() - icon_size.height()) / 2;
     window_icon_->SetBounds(ash::FrameHeaderUtil::GetLeftViewXInset(),
                             icon_offset_y, icon_size.width(),
                             icon_size.height());
@@ -281,6 +280,10 @@ void BrowserFrameHeaderAsh::PaintTitleBar(gfx::Canvas* canvas) {
 }
 
 void BrowserFrameHeaderAsh::UpdateCaptionButtons() {
+  // When |frame_| minimized, avoid tablet mode toggling to update caption
+  // buttons as it would cause mismatch beteen window state and size button.
+  if (frame_->IsMinimized())
+    return;
   caption_button_container_->SetButtonImage(ash::CAPTION_BUTTON_ICON_MINIMIZE,
                                             ash::kWindowControlMinimizeIcon);
   caption_button_container_->SetButtonImage(ash::CAPTION_BUTTON_ICON_CLOSE,
@@ -312,5 +315,6 @@ gfx::Rect BrowserFrameHeaderAsh::GetPaintedBounds() const {
 gfx::Rect BrowserFrameHeaderAsh::GetTitleBounds() const {
   views::View* left_view = window_icon_ ? window_icon_ : back_button_;
   return ash::FrameHeaderUtil::GetAvailableTitleBounds(
-      left_view, caption_button_container_, BrowserFrame::GetTitleFontList());
+      left_view, caption_button_container_, BrowserFrame::GetTitleFontList(),
+      GetHeaderHeight());
 }

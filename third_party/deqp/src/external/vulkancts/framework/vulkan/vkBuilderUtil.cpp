@@ -66,7 +66,40 @@ DescriptorSetLayoutBuilder& DescriptorSetLayoutBuilder::addBinding (VkDescriptor
 	return *this;
 }
 
-Move<VkDescriptorSetLayout> DescriptorSetLayoutBuilder::build (const DeviceInterface& vk, VkDevice device) const
+DescriptorSetLayoutBuilder& DescriptorSetLayoutBuilder::addIndexedBinding (VkDescriptorType		descriptorType,
+																		   deUint32				descriptorCount,
+																		   VkShaderStageFlags	stageFlags,
+																		   deUint32				dstBinding,
+																		   const VkSampler*		pImmutableSamplers)
+{
+	if (pImmutableSamplers)
+	{
+		const ImmutableSamplerInfo immutableSamplerInfo =
+		{
+			(deUint32)dstBinding,
+			(deUint32)m_immutableSamplers.size()
+		};
+
+		m_immutableSamplerInfos.push_back(immutableSamplerInfo);
+
+		for (size_t descriptorNdx = 0; descriptorNdx < descriptorCount; descriptorNdx++)
+			m_immutableSamplers.push_back(pImmutableSamplers[descriptorNdx]);
+	}
+
+	// pImmutableSamplers will be updated at build time
+	const VkDescriptorSetLayoutBinding binding =
+	{
+		dstBinding,						// binding
+		descriptorType,					// descriptorType
+		descriptorCount,				// descriptorCount
+		stageFlags,						// stageFlags
+		DE_NULL,						// pImmutableSamplers
+	};
+	m_bindings.push_back(binding);
+	return *this;
+}
+
+Move<VkDescriptorSetLayout> DescriptorSetLayoutBuilder::build (const DeviceInterface& vk, VkDevice device, VkDescriptorSetLayoutCreateFlags extraFlags) const
 {
 	// Create new layout bindings with pImmutableSamplers updated
 	std::vector<VkDescriptorSetLayoutBinding>	bindings	= m_bindings;
@@ -74,17 +107,26 @@ Move<VkDescriptorSetLayout> DescriptorSetLayoutBuilder::build (const DeviceInter
 	for (size_t samplerInfoNdx = 0; samplerInfoNdx < m_immutableSamplerInfos.size(); samplerInfoNdx++)
 	{
 		const ImmutableSamplerInfo&	samplerInfo	= m_immutableSamplerInfos[samplerInfoNdx];
+		deUint32					bindingNdx	= 0;
 
-		bindings[samplerInfo.bindingIndex].pImmutableSamplers	= &m_immutableSamplers[samplerInfo.samplerBaseIndex];
+		while (bindings[bindingNdx].binding != samplerInfo.bindingIndex)
+		{
+			bindingNdx++;
+
+			if (bindingNdx >= (deUint32)bindings.size())
+				DE_FATAL("Immutable sampler not found");
+		}
+
+		bindings[bindingNdx].pImmutableSamplers = &m_immutableSamplers[samplerInfo.samplerBaseIndex];
 	}
 
 	const VkDescriptorSetLayoutCreateInfo		createInfo	=
 	{
 		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		DE_NULL,
-		(VkDescriptorSetLayoutCreateFlags)0,					// flags
+		(VkDescriptorSetLayoutCreateFlags)extraFlags,			// flags
 		(deUint32)bindings.size(),								// bindingCount
-		(bindings.empty()) ? (DE_NULL) : (bindings.data()),		// pBinding
+		(bindings.empty()) ? (DE_NULL) : (&bindings.front()),	// pBinding
 	};
 
 	return createDescriptorSetLayout(vk, device, &createInfo);
@@ -241,6 +283,40 @@ void DescriptorSetUpdateBuilder::update (const DeviceInterface& vk, VkDevice dev
 	const VkCopyDescriptorSet* const	copyPtr		= (m_copies.empty()) ? (DE_NULL) : (&m_copies[0]);
 
 	vk.updateDescriptorSets(device, (deUint32)writes.size(), writePtr, (deUint32)m_copies.size(), copyPtr);
+}
+
+void DescriptorSetUpdateBuilder::updateWithPush (const DeviceInterface& vk, VkCommandBuffer cmd, VkPipelineBindPoint bindPoint, VkPipelineLayout pipelineLayout, deUint32 setIdx, deUint32 descriptorIdx, deUint32 numDescriptors) const
+{
+	// Write all descriptors or just a subset?
+	deUint32							count		= (numDescriptors) ? numDescriptors : (deUint32)m_writes.size();
+
+	// Update VkWriteDescriptorSet structures with stored info
+	std::vector<VkWriteDescriptorSet>	writes		= m_writes;
+
+	for (size_t writeNdx = 0; writeNdx < m_writes.size(); writeNdx++)
+	{
+		const WriteDescriptorInfo& writeInfo = m_writeDescriptorInfos[writeNdx];
+
+		if (!writeInfo.imageInfos.empty())
+			writes[writeNdx].pImageInfo			= &writeInfo.imageInfos[0];
+
+		if (!writeInfo.bufferInfos.empty())
+			writes[writeNdx].pBufferInfo		= &writeInfo.bufferInfos[0];
+
+		if (!writeInfo.texelBufferViews.empty())
+			writes[writeNdx].pTexelBufferView	= &writeInfo.texelBufferViews[0];
+	}
+
+	const VkWriteDescriptorSet* const	writePtr	= (m_writes.empty()) ? (DE_NULL) : (&writes[descriptorIdx]);
+
+	vk.cmdPushDescriptorSetKHR(cmd, bindPoint, pipelineLayout, setIdx, count, writePtr);
+}
+
+void DescriptorSetUpdateBuilder::clear(void)
+{
+	m_writeDescriptorInfos.clear();
+	m_writes.clear();
+	m_copies.clear();
 }
 
 } // vk

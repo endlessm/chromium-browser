@@ -6,8 +6,10 @@
 
 #include <memory>
 
+#include "base/single_thread_task_runner.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "platform/scheduler/base/task_queue_manager_impl.h"
 #include "platform/scheduler/renderer/renderer_scheduler_impl.h"
 #include "platform/scheduler/test/lazy_thread_controller_for_test.h"
 
@@ -16,43 +18,12 @@ namespace scheduler {
 
 namespace {
 
-class TaskQueueManagerForRendererSchedulerTest : public TaskQueueManager {
+// TODO(kraynov): Use CreateTaskQueueManagerForTest instead.
+class TaskQueueManagerForRendererSchedulerTest : public TaskQueueManagerImpl {
  public:
   explicit TaskQueueManagerForRendererSchedulerTest(
       std::unique_ptr<internal::ThreadController> thread_controller)
-      : TaskQueueManager(std::move(thread_controller)) {}
-};
-
-class WebTaskRunnerProxy : public WebTaskRunner {
- public:
-  explicit WebTaskRunnerProxy(
-      scoped_refptr<base::SingleThreadTaskRunner> task_runner)
-      : task_runner_(task_runner) {}
-
-  bool PostDelayedTask(const base::Location& location,
-                       base::OnceClosure closure,
-                       base::TimeDelta time_delta) override {
-    return task_runner_->PostDelayedTask(location, std::move(closure),
-                                         time_delta);
-  }
-
-  bool PostNonNestableDelayedTask(const base::Location& location,
-                                  base::OnceClosure closure,
-                                  base::TimeDelta time_delta) override {
-    return task_runner_->PostNonNestableDelayedTask(
-        location, std::move(closure), time_delta);
-  }
-
-  double MonotonicallyIncreasingVirtualTimeSeconds() const override {
-    return 0.0;
-  }
-
-  bool RunsTasksInCurrentSequence() const override {
-    return task_runner_->RunsTasksInCurrentSequence();
-  }
-
- private:
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+      : TaskQueueManagerImpl(std::move(thread_controller)) {}
 };
 
 }  // namespace
@@ -60,7 +31,8 @@ class WebTaskRunnerProxy : public WebTaskRunner {
 std::unique_ptr<RendererScheduler> CreateRendererSchedulerForTests() {
   return std::make_unique<scheduler::RendererSchedulerImpl>(
       std::make_unique<TaskQueueManagerForRendererSchedulerTest>(
-          std::make_unique<LazyThreadControllerForTest>()));
+          std::make_unique<LazyThreadControllerForTest>()),
+      base::nullopt);
 }
 
 void RunIdleTasksForTesting(RendererScheduler* scheduler,
@@ -77,10 +49,6 @@ scoped_refptr<base::SequencedTaskRunner> GetSequencedTaskRunnerForTesting() {
 scoped_refptr<base::SingleThreadTaskRunner>
 GetSingleThreadTaskRunnerForTesting() {
   return base::ThreadTaskRunnerHandle::Get();
-}
-
-scoped_refptr<WebTaskRunner> CreateWebTaskRunnerForTesting() {
-  return new WebTaskRunnerProxy(GetSingleThreadTaskRunnerForTesting());
 }
 
 }  // namespace scheduler

@@ -31,7 +31,7 @@
 #include "vkPlatform.hpp"
 #include "vkPrograms.hpp"
 #include "vkBinaryRegistry.hpp"
-#include "vkGlslToSpirV.hpp"
+#include "vkShaderToSpirV.hpp"
 #include "vkDebugReportUtil.hpp"
 #include "vkQueryUtil.hpp"
 
@@ -59,6 +59,7 @@
 #include "vktShaderRenderTextureGatherTests.hpp"
 #include "vktShaderBuiltinTests.hpp"
 #include "vktOpaqueTypeIndexingTests.hpp"
+#include "vktAtomicOperationTests.hpp"
 #include "vktUniformBlockTests.hpp"
 #include "vktDynamicStateTests.hpp"
 #include "vktSSBOLayoutTests.hpp"
@@ -76,6 +77,8 @@
 #include "vktFragmentOperationsTests.hpp"
 #include "vktTextureTests.hpp"
 #include "vktGeometryTests.hpp"
+#include "vktRobustnessTests.hpp"
+#include "vktYCbCrTests.hpp"
 
 #include <vector>
 #include <sstream>
@@ -83,9 +86,14 @@
 namespace // compilation
 {
 
-vk::ProgramBinary* compileProgram (const glu::ProgramSources& source, glu::ShaderProgramInfo* buildInfo)
+vk::ProgramBinary* compileProgram (const vk::GlslSource& source, glu::ShaderProgramInfo* buildInfo)
 {
-	return vk::buildProgram(source, vk::PROGRAM_FORMAT_SPIRV, buildInfo);
+	return vk::buildProgram(source, buildInfo);
+}
+
+vk::ProgramBinary* compileProgram (const vk::HlslSource& source, glu::ShaderProgramInfo* buildInfo)
+{
+	return vk::buildProgram(source, buildInfo);
 }
 
 vk::ProgramBinary* compileProgram (const vk::SpirVAsmSource& source, vk::SpirVProgramInfo* buildInfo)
@@ -224,7 +232,25 @@ void TestCaseExecutor::init (tcu::TestCase* testCase, const std::string& casePat
 
 	for (vk::GlslSourceCollection::Iterator progIter = sourceProgs.glslSources.begin(); progIter != sourceProgs.glslSources.end(); ++progIter)
 	{
-		vk::ProgramBinary* binProg = buildProgram<glu::ShaderProgramInfo, vk::GlslSourceCollection::Iterator>(casePath, progIter, m_prebuiltBinRegistry, log, &m_progCollection);
+		const vk::ProgramBinary* const binProg = buildProgram<glu::ShaderProgramInfo, vk::GlslSourceCollection::Iterator>(casePath, progIter, m_prebuiltBinRegistry, log, &m_progCollection);
+
+		try
+		{
+			std::ostringstream disasm;
+
+			vk::disassembleProgram(*binProg, &disasm);
+
+			log << vk::SpirVAsmSource(disasm.str());
+		}
+		catch (const tcu::NotSupportedError& err)
+		{
+			log << err;
+		}
+	}
+
+	for (vk::HlslSourceCollection::Iterator progIter = sourceProgs.hlslSources.begin(); progIter != sourceProgs.hlslSources.end(); ++progIter)
+	{
+		const vk::ProgramBinary* const binProg = buildProgram<glu::ShaderProgramInfo, vk::HlslSourceCollection::Iterator>(casePath, progIter, m_prebuiltBinRegistry, log, &m_progCollection);
 
 		try
 		{
@@ -337,6 +363,25 @@ void createGlslTests (tcu::TestCaseGroup* glslTests)
 													 s_es310Tests[ndx].description,
 													 std::string("vulkan/glsl/es310/") + s_es310Tests[ndx].name + ".test").release());
 
+	static const struct
+	{
+		const char*		name;
+		const char*		description;
+	} s_440Tests[] =
+	{
+		{ "linkage",					"Linking"					},
+	};
+
+	de::MovePtr<tcu::TestCaseGroup> glsl440Tests = de::MovePtr<tcu::TestCaseGroup>(new tcu::TestCaseGroup(testCtx, "440", ""));
+
+	for (int ndx = 0; ndx < DE_LENGTH_OF_ARRAY(s_440Tests); ndx++)
+		glsl440Tests->addChild(createShaderLibraryGroup(testCtx,
+													 s_440Tests[ndx].name,
+													 s_440Tests[ndx].description,
+													 std::string("vulkan/glsl/440/") + s_440Tests[ndx].name + ".test").release());
+
+	glslTests->addChild(glsl440Tests.release());
+
 	// ShaderRenderCase-based tests
 	glslTests->addChild(sr::createDerivateTests			(testCtx));
 	glslTests->addChild(sr::createDiscardTests			(testCtx));
@@ -354,6 +399,7 @@ void createGlslTests (tcu::TestCaseGroup* glslTests)
 	// ShaderExecutor-based tests
 	glslTests->addChild(shaderexecutor::createBuiltinTests				(testCtx));
 	glslTests->addChild(shaderexecutor::createOpaqueTypeIndexingTests	(testCtx));
+	glslTests->addChild(shaderexecutor::createAtomicOperationTests		(testCtx));
 }
 
 // TestPackage
@@ -398,6 +444,8 @@ void TestPackage::init (void)
 	addChild(FragmentOperations::createTests(m_testCtx));
 	addChild(texture::createTests			(m_testCtx));
 	addChild(geometry::createTests			(m_testCtx));
+	addChild(robustness::createTests		(m_testCtx));
+	addChild(ycbcr::createTests				(m_testCtx));
 }
 
 } // vkt

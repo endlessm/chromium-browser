@@ -4,6 +4,8 @@
 
 #include "ash/login/ui/login_auth_user_view.h"
 #include "ash/login/ui/login_test_base.h"
+#include "ash/login/ui/login_test_utils.h"
+#include "base/bind_helpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/widget/widget.h"
@@ -21,12 +23,9 @@ class LoginAuthUserViewUnittest : public LoginTestBase {
   void SetUp() override {
     LoginTestBase::SetUp();
 
-    user_ = CreateUser("user");
-    view_ = new LoginAuthUserView(
-        user_, base::Bind([](bool auth_success) {}) /*on_auth*/,
-        base::Bind([]() {}) /*on_easy_unlock_icon_hovered*/,
-        base::Bind([]() {}) /*on_easy_unlock_icon_tapped*/,
-        base::Bind([]() {}) /*on_tap*/);
+    user_ = CreateUser("user@domain.com");
+    view_ = new LoginAuthUserView(user_, base::DoNothing(), base::DoNothing(),
+                                  base::DoNothing(), base::DoNothing());
 
     // We proxy |view_| inside of |container_| so we can control layout.
     container_ = new views::View();

@@ -12,11 +12,11 @@
 #include "base/memory/ptr_util.h"
 #include "chrome/browser/vr/service/vr_device_manager.h"
 #include "chrome/browser/vr/service/vr_service_impl.h"
+#include "device/vr/public/mojom/vr_service.mojom.h"
 #include "device/vr/test/fake_vr_device.h"
 #include "device/vr/test/fake_vr_device_provider.h"
 #include "device/vr/test/fake_vr_service_client.h"
 #include "device/vr/vr_device_provider.h"
-#include "device/vr/vr_service.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace vr {
@@ -68,9 +68,10 @@ class VRDeviceManagerTest : public testing::Test {
     device::mojom::VRServiceClientPtr proxy;
     device::FakeVRServiceClient client(mojo::MakeRequest(&proxy));
     auto service = base::WrapUnique(new VRServiceImplForTesting());
-    service->SetClient(std::move(proxy),
-                       base::Bind(&VRDeviceManagerTest::onDisplaySynced,
-                                  base::Unretained(this)));
+    service->SetClient(
+        std::move(proxy),
+        base::BindRepeating(&VRDeviceManagerTest::onDisplaySynced,
+                            base::Unretained(this)));
     return service;
   }
 

@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">સરનામું 1</translation>
 <translation id="1545749641540134597">QR કોડ સ્કેન કરો</translation>
 <translation id="1580783302095112590">મેઇલ મોકલ્યો છે.</translation>
+<translation id="1582732959743469162">આનાથી તમારું હાલનું ડાઉનલોડ આગળ વધતું અટકી જશે.</translation>
 <translation id="1612730193129642006">ટૅબ ગ્રિડ બતાવો</translation>
+<translation id="1644574205037202324">ઇતિહાસ</translation>
 <translation id="1646446875146297738">‘ટ્રેક કરશો નહીં' સક્ષમ કરવાનો અર્થ એ છે કે વિનંતીને તમારા બ્રાઉઝિંગ ટ્રાફિક સાથે શામેલ કરવામાં આવશે. કોઈપણ પ્રભાવ વેબસાઇટ વિનંતીનો પ્રતિસાદ આપે છે કે કેમ અને કેવી રીતે વિનંતીનું અર્થઘટન થાય છે તેના પર નિર્ભર છે. 
 
 ઉદાહરણ તરીકે, કેટલીક વેબસાઇટ્સ આ વિનંતીનો પ્રતિસાદ તમને તેવી જાહેરાતો બતાવીને આપી શકે છે કે જે તમે મુલાકાત લીધેલી અન્ય વેબસાઇટ્સ પર આધારિત નથી. ઘણી વેબસાઇટ્સ તો પણ તમારા બ્રાઉઝિંગ ડેટાને એકત્રિત કરશે અને તેનો ઉપયોગ - ઉદાહરણ તરીકે, સુરક્ષા વધારવા માટે, તેમની વેબસાઇટ્સ પર સામગ્રી, સેવાઓ, જાહેરાતો અને ભલામણ પ્રદાન કરવા માટે, રિપોર્ટિંગ આંકડા જનરેટ કરવા માટે કરશે. <ph name="BEGIN_LINK" />વધુ જાણો<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@
 <translation id="3175081911749765310">વેબ સેવાઓ</translation>
 <translation id="3207960819495026254">બુકમાર્ક કરેલ</translation>
 <translation id="3210163015918861891">સમન્વયન બંધ છે</translation>
+<translation id="3224641773458703735">પાસવર્ડના નિકાસ માટે, તમારે સૌથી પહેલા તમારા ઉપકરણ પર એક પાસકોડ સેટ કરવો આવશ્યક છે.</translation>
 <translation id="3240426699337459095">લિંક કૉપિ કરી</translation>
 <translation id="3244271242291266297">MM</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="NUM_SUGGESTIONS" /> માનું <ph name="INDEX" /></translation>
@@ -153,6 +156,7 @@
 <translation id="3771033907050503522">છૂપા ટેબ્સ</translation>
 <translation id="3779810277399252432">કોઈ ઇન્ટરનેટ કનેક્શન નથી.</translation>
 <translation id="3783017676699494206">છબી સાચવો</translation>
+<translation id="3789841737615482174">ઇન્સ્ટોલ કરો</translation>
 <translation id="385051799172605136">પાછળ</translation>
 <translation id="3897092660631435901">મેનૂ</translation>
 <translation id="3928666092801078803">મારા ડેટાને સંયોજિત કરો</translation>
@@ -220,7 +224,6 @@
 <translation id="5300589172476337783">બતાવો</translation>
 <translation id="5317780077021120954">સાચવો</translation>
 <translation id="5327248766486351172">નામ</translation>
-<translation id="533632423981297619">તમારા પાસવર્ડ જે નિકાસ કરેલી ફાઇલને જોઈ શકે છે તે કોઈ પણ વ્યક્તિને દૃશ્યક્ષમ હશે. ફાઇલને કોઈની પણ સાથે શેર ન કરશો.</translation>
 <translation id="5388358297987318779">છબી ખોલો</translation>
 <translation id="5409365236829784218">ત્યાં એવી કોઈ ઍપ્લિકેશન ઇન્સ્ટોલ કરેલ નથી જે આ ફાઇલ ખોલી શકે.</translation>
 <translation id="5433691172869980887">વપરાશકર્તાનામ કૉપિ કર્યું</translation>
@@ -249,6 +252,7 @@
 <translation id="5871497086027727873">1 આઇટમ ખસેડી</translation>
 <translation id="5911030830365207728">Google અનુવાદ</translation>
 <translation id="5916664084637901428">ચાલુ</translation>
+<translation id="5938160824633642847">તમારું ઉપકરણ લગભગ ભરાઈ ગયું છે. સ્પેસ બનાવો અને ફરી પ્રયાસ કરો.</translation>
 <translation id="5948291296578561264">આ તમને તમારી ફોટો લાઇબ્રેરીમાં ફોટો સાચવવા દે છે.</translation>
 <translation id="5955891643922670672">ઑફલાઇન સંસ્કરણ જોઈ રહ્યાં છે</translation>
 <translation id="5964480694698977962">નવું છૂપું ટૅબ બનાવો</translation>
@@ -280,7 +284,9 @@
 <translation id="633809752005859102">કંઈક ખરેખર ખોટું થયું. અમે તેના પર કામ કરીશું.</translation>
 <translation id="6342069812937806050">હમણાં જ</translation>
 <translation id="6344783595350022745">ટેક્સ્ટ સાફ કરો</translation>
+<translation id="6346549652287021269">નવું ડાઉનલોડ શરૂ કરીએ?</translation>
 <translation id="6362362396625799311">કોઈ છુપા ટૅબ્સ નથી</translation>
+<translation id="6374469231428023295">ફરી પ્રયાસ કરો</translation>
 <translation id="6380866119319257197">જો તમે તમારો પાસફ્રેઝ ભૂલી જાઓ અથવા આ સેટિંગ બદલવા માંગતા હોવ, તો <ph name="BEGIN_LINK" />સમન્વયનને ફરીથી સેટ કરો<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">કાર્ડ પરનું નામ</translation>
 <translation id="6406506848690869874">સમન્વયન</translation>
@@ -289,6 +295,7 @@
 
 તમારો ડેટા <ph name="TIME" /> ના રોજ તમારા સમન્વયન પાસફ્રેઝ સાથે એન્ક્રિપ્ટ કરવામાં આવ્યો હતો. સમન્વયન શરૂ કરવા માટે તે દાખલ કરો.</translation>
 <translation id="6418346271604475326">PDF તૈયાર કરી રહ્યાં છે</translation>
+<translation id="6434591244308415567">એક ભૂલ આવી છે. થોડા સમય પછી ફરી પ્રયાસ કરો.</translation>
 <translation id="6445051938772793705">દેશ</translation>
 <translation id="6445981559479772097">સંદેશ મોકલ્યો.</translation>
 <translation id="6464071786529933911">નવા છુપા ટૅબમાં ખોલો</translation>
@@ -299,6 +306,7 @@
 <translation id="6657585470893396449">પાસવર્ડ</translation>
 <translation id="667999046851023355">દસ્તાવેજ</translation>
 <translation id="6713747756340119864">Google Apps</translation>
+<translation id="6730682669179532099">બધા પાસવર્ડ નિકાસ કરી શકાતાં નથી</translation>
 <translation id="6762156594045689028">આ સેટિંગ બદલવા માટે, <ph name="BEGIN_LINK" />સમન્વયનને ફરીથી સેટ કરો<ph name="END_LINK" /></translation>
 <translation id="6780034285637185932">પિન કોડ</translation>
 <translation id="6785453220513215166">ક્રેશ રિપોર્ટ મોકલી રહ્યું છે...</translation>
@@ -308,13 +316,16 @@
 <translation id="681368974849482173">આઇટમ બનાવી</translation>
 <translation id="6896758677409633944">કૉપિ કરો</translation>
 <translation id="6903907808598579934">સમન્વયન ચાલુ કરો</translation>
+<translation id="6914783257214138813">જે કોઈપણ તમારી નિકાસ કરેલ પાસવર્ડની ફાઇલને જોઈ શકશે, તેમને તમારા પાસવર્ડ પણ દૃશ્યક્ષમ થશે.</translation>
 <translation id="6945221475159498467">પસંદ કરો</translation>
 <translation id="6973630695168034713">ફોલ્ડર્સ</translation>
 <translation id="7004499039102548441">તાજેતરના ટૅબ્સ</translation>
 <translation id="7006788746334555276">સામગ્રી સેટિંગ્સ</translation>
+<translation id="7029809446516969842">પાસવર્ડ્સ</translation>
 <translation id="7031882061095297553">આના પર સમન્વયિત કરો</translation>
 <translation id="7053983685419859001">અવરોધિત કરો</translation>
 <translation id="7062545763355031412">સ્વીકારો અને એકાઉન્ટ્સ સ્વિચ કરો</translation>
+<translation id="7102005569666697658">ડાઉનલોડ કરી રહ્યાં છીએ… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">છુપાવો</translation>
 <translation id="7133798577887235672">આખું નામ</translation>
 <translation id="7136892417564438900">કૅમેરો અનુપલબ્ધ છે</translation>
@@ -325,6 +336,7 @@
 <translation id="7203585745079012652">જવાબો પાછા બોલો</translation>
 <translation id="722055596168483966">Google સેવાઓને વ્યક્તિગત કરો</translation>
 <translation id="7272437679830969316">તમારી ઓળખની ચકાસણી કરી શકાતી નથી. પાસવર્ડ કૉપિ કરેલો નથી.</translation>
+<translation id="7291368939935408496">પાસવર્ડ તૈયાર કરી રહ્યાં છીએ…</translation>
 <translation id="7336264872878993241"><ph name="PERCENT" /> ટકા ડાઉનલોડ થઈ</translation>
 <translation id="7346909386216857016">બરાબર, સમજાઇ ગયું</translation>
 <translation id="7400418766976504921">URL</translation>
@@ -349,6 +361,7 @@
 <translation id="7769602470925380267">સ્વીકારો અને સાઇન આઉટ કરો</translation>
 <translation id="7772032839648071052">પાસફ્રેઝની પુષ્ટિ કરો</translation>
 <translation id="780301667611848630">નહીં, આભાર</translation>
+<translation id="7856733331829174190">ડાઉનલોડ ન કરી શક્યાં</translation>
 <translation id="7859704718976024901">બ્રાઉઝિંગ ઇતિહાસ</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">પાસવર્ડની નિકાસ કરો...</translation>
@@ -409,6 +422,7 @@
 <translation id="9083392325882095631">1 આઇટમ</translation>
 <translation id="9100610230175265781">પાસફ્રેઝ આવશ્યક છે</translation>
 <translation id="9148126808321036104">ફરીથી સાઇન ઇન કરો </translation>
+<translation id="915371508759614899">ડાઉનલોડ કરવાનું રદ કરીએ?</translation>
 <translation id="9157836665414082580">સંવાદો નાબૂદ કરો</translation>
 <translation id="9188680907066685419">સંચાલિત એકાઉન્ટમાંથી સાઇન આઉટ કરો</translation>
 <translation id="9203116392574189331">હેન્ડઓફ</translation>

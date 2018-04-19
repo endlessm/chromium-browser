@@ -11,7 +11,6 @@
 #include "base/memory/ref_counted.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/keyed_service/core/service_access_type.h"
@@ -36,6 +35,10 @@
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/testing/wait_util.h"
 #import "ios/third_party/material_components_ios/src/components/Snackbar/src/MaterialSnackbar.h"
+#include "ios/web/public/test/earl_grey/web_view_actions.h"
+#include "ios/web/public/test/earl_grey/web_view_matchers.h"
+#include "ios/web/public/test/http_server/http_server.h"
+#include "ios/web/public/test/http_server/http_server_util.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -48,9 +51,6 @@
 // password_details_collection_view_controller_unittest.mm. Very simple
 // integration tests and features which are not currently unittestable should
 // go here, the rest into the unittest.
-// This test only uses the new UI which allows viewing passwords.
-// TODO(crbug.com/159166): Remove the above sentence once the new UI is the
-// default one.
 
 using autofill::PasswordForm;
 using chrome_test_util::ButtonWithAccessibilityLabel;
@@ -400,10 +400,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 
 // Verifies the UI elements are accessible on the Passwords page.
 - (void)testAccessibilityOnPasswords {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Saving a form is needed for using the "password details" view.
   SaveExamplePasswordForm();
 
@@ -431,10 +427,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // Checks that attempts to copy a password provide appropriate feedback,
 // both when reauthentication succeeds and when it fails.
 - (void)testCopyPasswordToast {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Saving a form is needed for using the "password details" view.
   SaveExamplePasswordForm();
 
@@ -479,10 +471,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // Checks that an attempt to show a password provides an appropriate feedback
 // when reauthentication succeeds.
 - (void)testShowPasswordToastAuthSucceeded {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Saving a form is needed for using the "password details" view.
   SaveExamplePasswordForm();
 
@@ -515,10 +503,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // Checks that an attempt to show a password provides an appropriate feedback
 // when reauthentication fails.
 - (void)testShowPasswordToastAuthFailed {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Saving a form is needed for using the "password details" view.
   SaveExamplePasswordForm();
 
@@ -554,10 +538,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 
 // Checks that attempts to copy a username provide appropriate feedback.
 - (void)testCopyUsernameToast {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Saving a form is needed for using the "password details" view.
   SaveExamplePasswordForm();
 
@@ -584,10 +564,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 
 // Checks that attempts to copy a site URL provide appropriate feedback.
 - (void)testCopySiteToast {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Saving a form is needed for using the "password details" view.
   SaveExamplePasswordForm();
 
@@ -615,10 +591,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // Checks that deleting a saved password from password details view goes back
 // to the list-of-passwords view which doesn't display that form anymore.
 - (void)testSavedFormDeletionInDetailView {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Save form to be deleted later.
   SaveExamplePasswordForm();
 
@@ -680,10 +652,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // goes back to the list-of-passwords view which doesn't display that form
 // anymore.
 - (void)testDuplicatedSavedFormDeletionInDetailView {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Save form to be deleted later.
   SaveExamplePasswordForm();
   // Save duplicate of the previously saved form to be deleted at the same time.
@@ -753,10 +721,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // Checks that deleting a blacklisted form from password details view goes
 // back to the list-of-passwords view which doesn't display that form anymore.
 - (void)testBlacklistedFormDeletionInDetailView {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Save blacklisted form to be deleted later.
   PasswordForm blacklisted;
   blacklisted.origin = GURL("https://blacklisted.com");
@@ -821,10 +785,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // goes back to the list-of-passwords view which doesn't display that form
 // anymore.
 - (void)testDuplicatedBlacklistedFormDeletionInDetailView {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Save blacklisted form to be deleted later.
   PasswordForm blacklisted;
   blacklisted.origin = GURL("https://blacklisted.com");
@@ -895,10 +855,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 
 // Checks that deleting a password from password details can be cancelled.
 - (void)testCancelDeletionInDetailView {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Save form to be deleted later.
   SaveExamplePasswordForm();
 
@@ -942,19 +898,23 @@ PasswordForm CreateSampleFormWithIndex(int index) {
       performAction:grey_tap()];
 }
 
-// Checks that if the list view is in edit mode, then the details password view
-// is not accessible on tapping the entries.
+// Checks that if the list view is in edit mode, the "Save Passwords" switch is
+// disabled and the details password view is not accessible on tapping the
+// entries.
 - (void)testEditMode {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Save a form to have something to tap on.
   SaveExamplePasswordForm();
 
   OpenPasswordSettings();
 
   TapEdit();
+
+  // Check that the "Save Passwords" switch is disabled. Disabled switches are
+  // toggled off.
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::CollectionViewSwitchCell(
+                                   @"savePasswordsItem_switch", NO, NO)]
+      assertWithMatcher:grey_notNil()];
 
   [GetInteractionForPasswordEntry(@"example.com, concrete username")
       performAction:grey_tap()];
@@ -973,10 +933,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // Checks that attempts to copy the site via the context menu item provide an
 // appropriate feedback.
 - (void)testCopySiteMenuItem {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Saving a form is needed for using the "password details" view.
   SaveExamplePasswordForm();
 
@@ -1012,10 +968,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // Checks that attempts to copy the username via the context menu item provide
 // an appropriate feedback.
 - (void)testCopyUsernameMenuItem {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Saving a form is needed for using the "password details" view.
   SaveExamplePasswordForm();
 
@@ -1052,10 +1004,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // Checks that attempts to copy the password via the context menu item provide
 // an appropriate feedback.
 - (void)testCopyPasswordMenuItem {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Saving a form is needed for using the "password details" view.
   SaveExamplePasswordForm();
 
@@ -1099,10 +1047,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // Checks that attempts to show and hide the password via the context menu item
 // provide an appropriate feedback.
 - (void)testShowHidePasswordMenuItem {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Saving a form is needed for using the "password details" view.
   SaveExamplePasswordForm();
 
@@ -1153,10 +1097,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 
 // Checks that federated credentials have no password but show the federation.
 - (void)testFederated {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   PasswordForm federated;
   federated.username_value = base::ASCIIToUTF16("federated username");
   federated.origin = GURL("https://example.com");
@@ -1199,10 +1139,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // Checks the order of the elements in the detail view layout for a
 // non-federated, non-blacklisted credential.
 - (void)testLayoutNormal {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   SaveExamplePasswordForm();
 
   OpenPasswordSettings();
@@ -1256,10 +1192,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // Checks the order of the elements in the detail view layout for a blacklisted
 // credential.
 - (void)testLayoutBlacklisted {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   PasswordForm blacklisted;
   blacklisted.origin = GURL("https://example.com");
   blacklisted.signon_realm = blacklisted.origin.spec();
@@ -1302,10 +1234,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // Checks the order of the elements in the detail view layout for a federated
 // credential.
 - (void)testLayoutFederated {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   PasswordForm federated;
   federated.username_value = base::ASCIIToUTF16("federated username");
   federated.origin = GURL("https://example.com");
@@ -1361,10 +1289,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // Check that stored entries are shown no matter what the preference for saving
 // passwords is.
 - (void)testStoredEntriesAlwaysShown {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   SaveExamplePasswordForm();
 
   PasswordForm blacklisted;
@@ -1431,10 +1355,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 
 // Checks that deleting a password from the list view works.
 - (void)testDeletionInListView {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Save a password to be deleted later.
   SaveExamplePasswordForm();
 
@@ -1466,10 +1386,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // Checks that an attempt to copy a password provides appropriate feedback when
 // reauthentication cannot be attempted.
 - (void)testCopyPasswordToastNoReauth {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Saving a form is needed for using the "password details" view.
   SaveExamplePasswordForm();
 
@@ -1498,10 +1414,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // Checks that an attempt to view a password provides appropriate feedback when
 // reauthentication cannot be attempted.
 - (void)testShowPasswordToastNoReauth {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Saving a form is needed for using the "password details" view.
   SaveExamplePasswordForm();
 
@@ -1552,10 +1464,6 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 // any device. To limit the effect of (2), custom large scrolling steps are
 // added to the usual scrolling actions.
 - (void)testManyPasswords {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      password_manager::features::kViewPasswords);
-
   // Enough just to ensure filling more than one page on all devices.
   constexpr int kPasswordsCount = 15;
 
@@ -1629,6 +1537,47 @@ PasswordForm CreateSampleFormWithIndex(int index) {
       performAction:grey_tap()];
   [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
       performAction:grey_tap()];
+}
+
+// Opens a page with password input, focuses it, clocks "Show All" in the
+// keyboard accessory and verifies that the password list is presented.
+- (void)testOpenSettingsFromManualFallback {
+  // Saving a form is needed for using the "password details" view.
+  SaveExamplePasswordForm();
+
+  const GURL kPasswordURL(web::test::HttpServer::MakeUrl("http://form/"));
+  std::map<GURL, std::string> responses;
+  responses[kPasswordURL] = "<input id='password' type='password'>";
+  web::test::SetUpSimpleHttpServer(responses);
+  [ChromeEarlGrey loadURL:kPasswordURL];
+
+  // Focus the password field.
+  // Brings up the keyboard by tapping on one of the form's field.
+  [[EarlGrey
+      selectElementWithMatcher:web::WebViewInWebState(
+                                   chrome_test_util::GetCurrentWebState())]
+      performAction:web::WebViewTapElement(
+                        chrome_test_util::GetCurrentWebState(), "password")];
+
+  // Wait until the keyboard shows up before tapping.
+  id<GREYMatcher> showAll = grey_allOf(
+      grey_accessibilityLabel(@"Show All\u2026"), grey_interactable(), nil);
+  GREYCondition* condition =
+      [GREYCondition conditionWithName:@"Wait for the keyboard to show up."
+                                 block:^BOOL {
+                                   NSError* error = nil;
+                                   [[EarlGrey selectElementWithMatcher:showAll]
+                                       assertWithMatcher:grey_notNil()
+                                                   error:&error];
+                                   return (error == nil);
+                                 }];
+  GREYAssert([condition waitWithTimeout:testing::kWaitForUIElementTimeout],
+             @"No keyboard with 'Show All' button showed up.");
+  [[EarlGrey selectElementWithMatcher:showAll] performAction:grey_tap()];
+
+  [[EarlGrey selectElementWithMatcher:ButtonWithAccessibilityLabel(
+                                          @"example.com, concrete username")]
+      assertWithMatcher:grey_notNil()];
 }
 
 @end

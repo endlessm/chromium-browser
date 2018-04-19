@@ -108,7 +108,7 @@ WindowManager::WindowManager(service_manager::Connector* connector,
   property_converter_->RegisterPrimitiveProperty(
       ::wm::kShadowElevationKey,
       ui::mojom::WindowManager::kShadowElevation_Property,
-      base::Bind(&::wm::IsValidShadowElevation));
+      aura::PropertyConverter::CreateAcceptAnyValueCallback());
   property_converter_->RegisterPrimitiveProperty(
       kWindowStateTypeKey, mojom::kWindowStateType_Property,
       base::Bind(&ash::IsValidWindowStateType));
@@ -121,6 +121,13 @@ WindowManager::WindowManager(service_manager::Connector* connector,
       aura::PropertyConverter::CreateAcceptAnyValueCallback());
   property_converter_->RegisterStringProperty(
       kShelfIDKey, ui::mojom::WindowManager::kShelfID_Property);
+  property_converter_->RegisterPrimitiveProperty(
+      kRestoreBoundsOverrideKey, ash::mojom::kRestoreBoundsOverride_Property,
+      aura::PropertyConverter::CreateAcceptAnyValueCallback());
+  property_converter_->RegisterPrimitiveProperty(
+      kRestoreWindowStateTypeOverrideKey,
+      ash::mojom::kRestoreWindowStateTypeOverride_Property,
+      base::BindRepeating(&ash::IsValidWindowStateType));
 }
 
 WindowManager::~WindowManager() {

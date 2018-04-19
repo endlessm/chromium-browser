@@ -57,7 +57,6 @@
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/referrer.h"
@@ -140,32 +139,7 @@ namespace subresource_filter {
 using subresource_filter::testing::TestRulesetCreator;
 using subresource_filter::testing::TestRulesetPair;
 
-// SubresourceFilterDisabledBrowserTest ---------------------------------------
-
-class SubresourceFilterDisabledByDefaultBrowserTest
-    : public InProcessBrowserTest {
- public:
-  SubresourceFilterDisabledByDefaultBrowserTest() {}
-
- protected:
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(
-        "suppress-enabling-subresource-filter-from-fieldtrial-testing-config");
-  }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SubresourceFilterDisabledByDefaultBrowserTest);
-};
-
 // Tests -----------------------------------------------------------------------
-
-// The RulesetService should not even be instantiated when the feature is
-// disabled, which should be the default state unless there is an override
-// specified in the field trial configuration.
-IN_PROC_BROWSER_TEST_F(SubresourceFilterDisabledByDefaultBrowserTest,
-                       RulesetServiceNotCreated) {
-  EXPECT_FALSE(g_browser_process->subresource_filter_ruleset_service());
-}
 
 IN_PROC_BROWSER_TEST_F(SubresourceFilterListInsertingBrowserTest,
                        MainFrameActivation_SubresourceFilterList) {
@@ -465,13 +439,8 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterBrowserTest,
 
   content::RenderFrameHost* frame = FindFrameByName(kSubframeNames[0]);
   ASSERT_TRUE(frame);
-  if (content::IsBrowserSideNavigationEnabled()) {
-    EXPECT_EQ(disallowed_subdocument_url, frame->GetLastCommittedURL());
-    ExpectFramesIncludedInLayout(kSubframeNames, kExpectOnlySecondSubframe);
-  } else {
-    EXPECT_EQ(allowed_empty_subdocument_url, frame->GetLastCommittedURL());
-    ExpectFramesIncludedInLayout(kSubframeNames, kExpectFirstAndSecondSubframe);
-  }
+  EXPECT_EQ(disallowed_subdocument_url, frame->GetLastCommittedURL());
+  ExpectFramesIncludedInLayout(kSubframeNames, kExpectOnlySecondSubframe);
 }
 
 IN_PROC_BROWSER_TEST_F(SubresourceFilterBrowserTest,

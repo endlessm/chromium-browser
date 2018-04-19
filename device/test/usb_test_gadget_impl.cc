@@ -33,7 +33,7 @@
 #include "device/usb/usb_device_handle.h"
 #include "device/usb/usb_service.h"
 #include "net/base/escape.h"
-#include "net/proxy/proxy_service.h"
+#include "net/proxy_resolution/proxy_service.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_fetcher_delegate.h"
@@ -152,7 +152,8 @@ class URLRequestContextGetter : public net::URLRequestContextGetter {
   net::URLRequestContext* GetURLRequestContext() override {
     if (!context_) {
       net::URLRequestContextBuilder context_builder;
-      context_builder.set_proxy_service(net::ProxyService::CreateDirect());
+      context_builder.set_proxy_resolution_service(
+          net::ProxyResolutionService::CreateDirect());
       context_ = context_builder.Build();
     }
     return context_.get();

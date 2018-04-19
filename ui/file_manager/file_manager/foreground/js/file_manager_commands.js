@@ -348,8 +348,8 @@ var CommandHandler = function(fileManager, selectionHandler) {
       this.updateAvailability.bind(this));
 
   chrome.commandLinePrivate.hasSwitch(
-      'disable-zip-archiver-packer', function(disabled) {
-        CommandHandler.IS_ZIP_ARCHIVER_PACKER_ENABLED_ = !disabled;
+      'enable-zip-archiver-packer', function(enabled) {
+        CommandHandler.IS_ZIP_ARCHIVER_PACKER_ENABLED_ = enabled;
       }.bind(this));
 };
 
@@ -874,6 +874,33 @@ CommandHandler.COMMANDS_['paste'] = /** @type {Command} */ ({
         fileManager.getSelection()));
   }
 });
+
+/**
+ * Pastes files from clipboard. This is basically same as 'paste'.
+ * This command is used for always showing the Paste command to gear menu.
+ * @type {Command}
+ */
+CommandHandler.COMMANDS_['paste-into-current-folder'] =
+    /** @type {Command} */ ({
+      /**
+       * @param {!Event} event Command event.
+       * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
+       */
+      execute: function(event, fileManager) {
+        fileManager.document.execCommand('paste');
+      },
+      /**
+       * @param {!Event} event Command event.
+       * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
+       */
+      canExecute: function(event, fileManager) {
+        var fileTransferController = fileManager.fileTransferController;
+
+        event.canExecute = !!fileTransferController &&
+            fileTransferController.queryPasteCommandEnabled(
+                fileManager.directoryModel.getCurrentDirEntry());
+      }
+    });
 
 /**
  * Pastes files from clipboard into the selected folder.
@@ -1622,6 +1649,32 @@ CommandHandler.COMMANDS_['open-gear-menu'] = /** @type {Command} */ ({
    */
   execute: function(event, fileManager) {
     fileManager.ui.gearButton.showMenu(true);
+  },
+  /**
+   * @param {!Event} event Command event.
+   * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
+   */
+  canExecute: function(event, fileManager) {
+    event.canExecute = CommandUtil.canExecuteAlways;
+  }
+});
+
+/**
+ * Handle back button.
+ * @type {Command}
+ */
+CommandHandler.COMMANDS_['browser-back'] = /** @type {Command} */ ({
+  /**
+   * @param {!Event} event Command event.
+   * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
+   */
+  execute: function(event, fileManager) {
+    // TODO(fukino): It should be better to minimize Files app only when there
+    // is no back stack, and otherwise use BrowserBack for history navigation.
+    // https://crbug.com/624100.
+    const currentWindow = chrome.app.window.current();
+    if (currentWindow)
+      currentWindow.minimize();
   },
   /**
    * @param {!Event} event Command event.

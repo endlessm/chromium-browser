@@ -11,6 +11,8 @@
 #include "ios/chrome/browser/autofill/personal_data_manager_factory.h"
 #include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "ios/chrome/browser/bookmarks/startup_task_runner_service_factory.h"
+#include "ios/chrome/browser/browsing_data/browsing_data_remover_factory.h"
+#include "ios/chrome/browser/consent_auditor/consent_auditor_factory.h"
 #include "ios/chrome/browser/content_settings/cookie_settings_factory.h"
 #include "ios/chrome/browser/desktop_promotion/desktop_promotion_sync_service_factory.h"
 #include "ios/chrome/browser/dom_distiller/dom_distiller_service_factory.h"
@@ -55,7 +57,6 @@
 #include "ios/chrome/browser/ui/browser_list/browser_list_factory.h"
 #include "ios/chrome/browser/ui/browser_list/browser_list_session_service_factory.h"
 #include "ios/chrome/browser/ui/fullscreen/fullscreen_controller_factory.h"
-#include "ios/chrome/browser/ui/fullscreen/fullscreen_features.h"
 #import "ios/chrome/browser/ui/overlays/overlay_service_factory.h"
 #include "ios/chrome/browser/undo/bookmark_undo_service_factory.h"
 #include "ios/chrome/browser/web_data_service_factory.h"
@@ -102,6 +103,8 @@ void EnsureBrowserStateKeyedServiceFactoriesBuilt() {
   AuthenticationServiceFactory::GetInstance();
   BrowserListFactory::GetInstance();
   BrowserListSessionServiceFactory::GetInstance();
+  BrowsingDataRemoverFactory::GetInstance();
+  ConsentAuditorFactory::GetInstance();
   DesktopPromotionSyncServiceFactory::GetInstance();
   feature_engagement::TrackerFactory::GetInstance();
   IOSChromeGCMProfileServiceFactory::GetInstance();
@@ -125,8 +128,6 @@ void EnsureBrowserStateKeyedServiceFactoriesBuilt() {
   TranslateAcceptLanguagesFactory::GetInstance();
   UrlLanguageHistogramFactory::GetInstance();
   BrowserDownloadServiceFactory::GetInstance();
-  if (base::FeatureList::IsEnabled(fullscreen::features::kNewFullscreen)) {
-    FullscreenControllerFactory::GetInstance();
-  }
+  FullscreenControllerFactory::GetInstance();
   OverlayServiceFactory::GetInstance();
 }

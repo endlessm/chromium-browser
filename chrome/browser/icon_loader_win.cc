@@ -65,12 +65,13 @@ void IconLoader::ReadIcon() {
       gfx::ImageSkia image_skia(gfx::ImageSkiaRep(*bitmap,
                                                   display::win::GetDPIScale()));
       image_skia.MakeThreadSafe();
-      image = base::MakeUnique<gfx::Image>(image_skia);
+      image = std::make_unique<gfx::Image>(image_skia);
       DestroyIcon(file_info.hIcon);
     }
   }
 
   target_task_runner_->PostTask(
-      FROM_HERE, base::Bind(callback_, base::Passed(&image), group_));
+      FROM_HERE,
+      base::BindOnce(std::move(callback_), std::move(image), group_));
   delete this;
 }

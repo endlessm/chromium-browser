@@ -23,9 +23,10 @@
 #include "components/prefs/pref_service.h"
 #include "components/search/search.h"
 #include "components/variations/active_field_trials.h"
-#include "components/variations/metrics_util.h"
+#include "components/variations/hashing.h"
 #include "components/variations/variations_associated_data.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
+#include "ui/base/material_design/material_design_controller.h"
 
 #if defined(OS_ANDROID)
 #include "components/omnibox/browser/omnibox_pref_names.h"
@@ -51,11 +52,10 @@ const base::Feature kOmniboxRichEntitySuggestions{
 const base::Feature kOmniboxTailSuggestions{
     "OmniboxTailSuggestions", base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Feature used to enable the identification of open tabs given URLs in
-// suggestions, and converting those suggestions to ones that allow switching to
-// the tab if found.  Currently only on the desktop.
-const base::Feature kOmniboxTabSwitchSuggestions{
-    "OmniboxTabSwitchSuggestions", base::FEATURE_DISABLED_BY_DEFAULT};
+const char kOmniboxTabSwitchSuggestionsFlag[] =
+    "omnibox-tab-switch-suggestions";
+
+const char kOmniboxTabSwitchWithButton[] = "with-button";
 
 // Feature used to enable clipboard provider, which provides the user with
 // suggestions of the URL in the user's clipboard (if any) upon omnibox focus.
@@ -121,13 +121,13 @@ const base::Feature kUIExperimentHideSteadyStateUrlSchemeAndSubdomains{
 // Feature used for hiding the suggestion URL scheme as a UI experiment.
 const base::Feature kUIExperimentHideSuggestionUrlScheme{
     "OmniboxUIExperimentHideSuggestionUrlScheme",
-    base::FEATURE_DISABLED_BY_DEFAULT};
+    base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Feature used for hiding the suggestion URL subdomain as a UI experiment.
 // This only hides some trivially informative subdomains such as "www" or "m".
 const base::Feature kUIExperimentHideSuggestionUrlTrivialSubdomains{
     "OmniboxUIExperimentHideSuggestionUrlTrivialSubdomains",
-    base::FEATURE_DISABLED_BY_DEFAULT};
+    base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Feature used for the omnibox narrow suggestions dropdown UI experiment.
 const base::Feature kUIExperimentNarrowDropdown{
@@ -155,11 +155,7 @@ const base::Feature kUIExperimentVerticalMargin{
 // query.
 const base::Feature kSpeculativeServiceWorkerStartOnQueryInput{
   "OmniboxSpeculativeServiceWorkerStartOnQueryInput",
-#if defined(OS_ANDROID)
       base::FEATURE_ENABLED_BY_DEFAULT
-#else
-      base::FEATURE_DISABLED_BY_DEFAULT
-#endif
 };
 
 // Feature used to allow breaking words at underscores in building
@@ -251,6 +247,10 @@ HUPScoringParams::ScoreBuckets::ScoreBuckets(const ScoreBuckets& other) =
 HUPScoringParams::ScoreBuckets::~ScoreBuckets() {
 }
 
+size_t HUPScoringParams::ScoreBuckets::EstimateMemoryUsage() const {
+  return base::trace_event::EstimateMemoryUsage(buckets_);
+}
+
 double HUPScoringParams::ScoreBuckets::HalfLifeTimeDecay(
     const base::TimeDelta& elapsed_time) const {
   double time_ms;
@@ -261,6 +261,15 @@ double HUPScoringParams::ScoreBuckets::HalfLifeTimeDecay(
   const double half_life_intervals =
       time_ms / base::TimeDelta::FromDays(half_life_days_).InMillisecondsF();
   return pow(2.0, -half_life_intervals);
+}
+
+size_t HUPScoringParams::EstimateMemoryUsage() const {
+  size_t res = 0;
+
+  res += base::trace_event::EstimateMemoryUsage(typed_count_buckets);
+  res += base::trace_event::EstimateMemoryUsage(visited_count_buckets);
+
+  return res;
 }
 
 #if defined(OS_ANDROID)
@@ -288,7 +297,7 @@ void OmniboxFieldTrial::GetActiveSuggestFieldTrialHashes(
   field_trial_hashes->clear();
   if (base::FieldTrialList::TrialExists(kBundledExperimentFieldTrialName)) {
     field_trial_hashes->push_back(
-        metrics::HashName(kBundledExperimentFieldTrialName));
+        variations::HashName(kBundledExperimentFieldTrialName));
   }
 }
 
@@ -684,10 +693,18 @@ int OmniboxFieldTrial::KeywordScoreForSufficientlyCompleteMatch() {
 OmniboxFieldTrial::EmphasizeTitlesCondition
 OmniboxFieldTrial::GetEmphasizeTitlesConditionForInput(
     const AutocompleteInput& input) {
-  // Check the feature that always swaps title and URL (assuming the title is
+  // Check the features that always swaps title and URL (assuming the title is
   // non-empty).
-  if (base::FeatureList::IsEnabled(omnibox::kUIExperimentSwapTitleAndUrl))
+  if (base::FeatureList::IsEnabled(omnibox::kUIExperimentSwapTitleAndUrl) ||
+      base::FeatureList::IsEnabled(omnibox::kUIExperimentVerticalLayout)) {
     return EMPHASIZE_WHEN_NONEMPTY;
+  }
+
+  // Touch devices also always swap title and URL.
+  if (ui::MaterialDesignController::is_mode_initialized() &&
+      ui::MaterialDesignController::IsTouchOptimizedUiEnabled()) {
+    return EMPHASIZE_WHEN_NONEMPTY;
+  }
 
   // Check the feature that swaps the title and URL only for zero suggest
   // suggestions.
@@ -756,6 +773,25 @@ int OmniboxFieldTrial::GetPhysicalWebAfterTypingBaseRelevance() {
   // Default relevance score of the first Physical Web URL autocomplete match
   // when the user is typing in the omnibox.
   return 700;
+}
+
+// static
+bool OmniboxFieldTrial::InTabSwitchSuggestionTrial() {
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
+  return command_line.HasSwitch(omnibox::kOmniboxTabSwitchSuggestionsFlag) &&
+         command_line.GetSwitchValueASCII(
+             omnibox::kOmniboxTabSwitchSuggestionsFlag) != "disabled";
+}
+
+// static
+bool OmniboxFieldTrial::InTabSwitchSuggestionWithButtonTrial() {
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
+  return command_line.HasSwitch(omnibox::kOmniboxTabSwitchSuggestionsFlag) &&
+         command_line.GetSwitchValueASCII(
+             omnibox::kOmniboxTabSwitchSuggestionsFlag) ==
+             omnibox::kOmniboxTabSwitchWithButton;
 }
 
 const char OmniboxFieldTrial::kBundledExperimentFieldTrialName[] =

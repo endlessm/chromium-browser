@@ -108,6 +108,10 @@ class WebContentsTester {
       NavigationHandle* navigation_handle,
       scoped_refptr<net::HttpResponseHeaders> response_headers) = 0;
 
+  // Simulate this WebContents' main frame having an opener that points to the
+  // main frame of |opener|.
+  virtual void SetOpener(WebContents* opener) = 0;
+
   // Returns headers that were passed in the previous SaveFrameWithHeaders(...)
   // call.
   virtual const std::string& GetSaveFrameHeaders() = 0;
@@ -135,6 +139,10 @@ class WebContentsTester {
 
   // Override IsCurrentlyAudible for testing.
   virtual void SetIsCurrentlyAudible(bool audible) = 0;
+
+  // Simulates a direct user interaction.
+  // |render_widget_host| can be equal to nullptr.
+  virtual void TestOnUserInteraction(blink::WebInputEvent::Type type) = 0;
 };
 
 }  // namespace content

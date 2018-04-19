@@ -10,6 +10,7 @@
 #include "ash/host/ash_window_tree_host_mirroring_delegate.h"
 #include "ash/host/root_window_transformer.h"
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/aura/window_targeter.h"
@@ -31,20 +32,9 @@ class MusUnifiedEventTargeter : public aura::WindowTargeter {
 
   ui::EventTarget* FindTargetForEvent(ui::EventTarget* root,
                                       ui::Event* event) override {
-    if (root == src_root_) {
+    if (root == src_root_ && !event->target()) {
       delegate_->SetCurrentEventTargeterSourceHost(src_root_->GetHost());
 
-      if (event->IsLocatedEvent()) {
-        // Mus uses the event's root location (relative to the physical display)
-        // to find the target window's local coordinates, but it incorrectly
-        // assumes that the root location is relative to the unified display.
-        // Pass the root location (now relative to the unified display) into the
-        // event dispatch pipeline, that finds local coordinates for the target.
-        ui::LocatedEvent* located_event = static_cast<ui::LocatedEvent*>(event);
-        located_event->set_location_f(located_event->root_location_f());
-      }
-      if (event->target())
-        ui::Event::DispatcherApi(event).set_target(nullptr);
       ignore_result(
           dst_root_->GetHost()->event_sink()->OnEventFromSource(event));
 
@@ -90,8 +80,7 @@ void AshWindowTreeHostMusUnified::RegisterMirroringHost(
   aura::Window* src_root = mirroring_ash_host->AsWindowTreeHost()->window();
   src_root->SetEventTargeter(
       std::make_unique<MusUnifiedEventTargeter>(src_root, window(), delegate_));
-  DCHECK(std::find(mirroring_hosts_.begin(), mirroring_hosts_.end(),
-                   mirroring_ash_host) == mirroring_hosts_.end());
+  DCHECK(!base::ContainsValue(mirroring_hosts_, mirroring_ash_host));
   mirroring_hosts_.push_back(mirroring_ash_host);
   mirroring_ash_host->AsWindowTreeHost()->window()->AddObserver(this);
 }

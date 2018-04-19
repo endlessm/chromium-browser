@@ -13,7 +13,7 @@
 #include "chrome/renderer/page_load_metrics/page_timing_metrics_sender.h"
 #include "chrome/renderer/page_load_metrics/page_timing_sender.h"
 #include "content/public/renderer/render_frame.h"
-#include "third_party/WebKit/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebDocumentLoader.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
@@ -97,7 +97,7 @@ void MetricsRenderFrameObserver::DidCommitProvisionalLoad(
   if (HasNoRenderFrame())
     return;
 
-  page_timing_metrics_sender_ = base::MakeUnique<PageTimingMetricsSender>(
+  page_timing_metrics_sender_ = std::make_unique<PageTimingMetricsSender>(
       CreatePageTimingSender(), CreateTimer(), GetTiming());
 }
 
@@ -203,7 +203,7 @@ mojom::PageLoadTimingPtr MetricsRenderFrameObserver::GetTiming() const {
 }
 
 std::unique_ptr<base::Timer> MetricsRenderFrameObserver::CreateTimer() {
-  return base::MakeUnique<base::OneShotTimer>();
+  return std::make_unique<base::OneShotTimer>();
 }
 
 std::unique_ptr<PageTimingSender>

@@ -4,7 +4,6 @@
 
 package org.chromium.content_shell;
 
-import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.drawable.ClipDrawable;
@@ -28,13 +27,13 @@ import android.widget.TextView.OnEditorActionListener;
 import org.chromium.base.Callback;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
+import org.chromium.components.content_view.ContentView;
 import org.chromium.content.browser.ActivityContentVideoViewEmbedder;
 import org.chromium.content.browser.ContentVideoViewEmbedder;
-import org.chromium.content.browser.ContentView;
-import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content.browser.ContentViewCoreImpl;
 import org.chromium.content.browser.ContentViewRenderView;
 import org.chromium.content_public.browser.ActionModeCallbackHelper;
+import org.chromium.content_public.browser.ContentViewCore;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.SelectionPopupController;
@@ -144,11 +143,11 @@ public class Shell extends LinearLayout {
     }
 
     @Override
-    @SuppressLint("WrongViewCast") // TODO(crbug.com/799070): File bug.
     protected void onFinishInflate() {
         super.onFinishInflate();
 
-        mProgressDrawable = (ClipDrawable) findViewById(R.id.toolbar).getBackground();
+        View toolbar = findViewById(R.id.toolbar);
+        mProgressDrawable = (ClipDrawable) toolbar.getBackground();
         initializeUrlField();
         initializeNavigationButtons();
     }

@@ -60,6 +60,13 @@ int BsdiffPatchFiles(const base::FilePath& src,
                      const base::FilePath& patch,
                      const base::FilePath& dest);
 
+// Applies a patch file to source file using Zucchini. Returns 0 in case of
+// success. In case of errors, it returns kZucchiniErrorOffset + a Zucchini
+// status code, as defined in chrome/installer/zucchini/zucchini.h
+int ZucchiniPatchFiles(const base::FilePath& src,
+                       const base::FilePath& patch,
+                       const base::FilePath& dest);
+
 // Find the version of Chrome from an install source directory.
 // Chrome_path should contain at least one version folder.
 // Returns the maximum version found or NULL if no version is found.
@@ -154,6 +161,10 @@ base::Time GetConsoleSessionStartTime();
 // Returns true if the current OS vesion suppors drawing dark text on Start Menu
 // tiles.
 bool OsSupportsDarkTextTiles();
+
+// Returns the toast activator registry path if found, or an empty string in
+// case of error.
+base::string16 GetToastActivatorRegistryPath();
 
 }  // namespace installer
 

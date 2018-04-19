@@ -6,6 +6,8 @@
 #define CHROME_BROWSER_UI_APP_LIST_SEARCH_APP_SEARCH_PROVIDER_H_
 
 #include <memory>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "base/macros.h"
@@ -29,9 +31,13 @@ class AppSearchProvider : public SearchProvider {
   class DataSource;
   using Apps = std::vector<std::unique_ptr<App>>;
 
+  // |clock| should be used by tests that needs to overrides the time.
+  // Otherwise, pass a base::DefaultClock instance. This doesn't take the
+  // ownership of the clock. |clock| must outlive the AppSearchProvider
+  // instance.
   AppSearchProvider(Profile* profile,
                     AppListControllerDelegate* list_controller,
-                    std::unique_ptr<base::Clock> clock,
+                    base::Clock* clock,
                     AppListModelUpdater* model_updater);
   ~AppSearchProvider() override;
 
@@ -47,12 +53,15 @@ class AppSearchProvider : public SearchProvider {
  private:
   void RefreshApps();
   void UpdateResults();
+  void UpdateRecommendedResults(
+      const std::unordered_map<std::string, size_t>& id_to_app_list_index);
+  void UpdateQueriedResults();
 
   AppListControllerDelegate* const list_controller_;
   base::string16 query_;
   Apps apps_;
   AppListModelUpdater* const model_updater_;
-  std::unique_ptr<base::Clock> clock_;
+  base::Clock* clock_;
   std::vector<std::unique_ptr<DataSource>> data_sources_;
   base::WeakPtrFactory<AppSearchProvider> update_results_factory_;
 

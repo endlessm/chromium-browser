@@ -6,13 +6,16 @@
 #include <unordered_set>
 
 #include "ash/login/ui/lock_contents_view.h"
+#include "ash/login/ui/lock_screen.h"
 #include "ash/login/ui/login_auth_user_view.h"
 #include "ash/login/ui/login_bubble.h"
 #include "ash/login/ui/login_display_style.h"
+#include "ash/login/ui/login_keyboard_test_base.h"
+#include "ash/login/ui/login_pin_view.h"
 #include "ash/login/ui/login_test_base.h"
 #include "ash/login/ui/login_user_view.h"
+#include "ash/login/ui/scrollable_users_list_view.h"
 #include "ash/public/interfaces/tray_action.mojom.h"
-#include "ash/shell.h"
 #include "base/strings/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/display/manager/display_manager.h"
@@ -24,6 +27,7 @@
 namespace ash {
 
 using LockContentsViewUnitTest = LoginTestBase;
+using LockContentsViewKeyboardUnitTest = LoginKeyboardTestBase;
 
 TEST_F(LockContentsViewUnitTest, DisplayMode) {
   // Build lock screen with 1 user.
@@ -33,21 +37,22 @@ TEST_F(LockContentsViewUnitTest, DisplayMode) {
   std::unique_ptr<views::Widget> widget = CreateWidgetWithContent(contents);
 
   // Verify user list and secondary auth are not shown for one user.
-  LockContentsView::TestApi test_api(contents);
-  EXPECT_EQ(0u, test_api.user_views().size());
-  EXPECT_FALSE(test_api.opt_secondary_auth());
+  LockContentsView::TestApi lock_contents(contents);
+  EXPECT_EQ(nullptr, lock_contents.users_list());
+  EXPECT_FALSE(lock_contents.opt_secondary_auth());
 
   // Verify user list is not shown for two users, but secondary auth is.
   SetUserCount(2);
-  EXPECT_EQ(0u, test_api.user_views().size());
-  EXPECT_TRUE(test_api.opt_secondary_auth());
+  EXPECT_EQ(nullptr, lock_contents.users_list());
+  EXPECT_TRUE(lock_contents.opt_secondary_auth());
 
   // Verify user names and pod style is set correctly for 3-25 users. This also
   // sanity checks that LockContentsView can respond to a multiple user change
   // events fired from the data dispatcher, which is needed for the debug UI.
   for (size_t user_count = 3; user_count < 25; ++user_count) {
     SetUserCount(user_count);
-    EXPECT_EQ(user_count - 1, test_api.user_views().size());
+    ScrollableUsersListView::TestApi users_list(lock_contents.users_list());
+    EXPECT_EQ(user_count - 1, users_list.user_views().size());
 
     // 1 extra user gets large style.
     LoginDisplayStyle expected_style = LoginDisplayStyle::kLarge;
@@ -58,8 +63,8 @@ TEST_F(LockContentsViewUnitTest, DisplayMode) {
     if (user_count >= 7)
       expected_style = LoginDisplayStyle::kExtraSmall;
 
-    for (size_t i = 0; i < test_api.user_views().size(); ++i) {
-      LoginUserView::TestApi user_test_api(test_api.user_views()[i]);
+    for (size_t i = 0; i < users_list.user_views().size(); ++i) {
+      LoginUserView::TestApi user_test_api(users_list.user_views()[i]);
       EXPECT_EQ(expected_style, user_test_api.display_style());
 
       const mojom::LoginUserInfoPtr& user = users()[i + 1];
@@ -117,18 +122,19 @@ TEST_F(LockContentsViewUnitTest, AutoLayoutAfterRotation) {
   // Build lock screen with three users.
   auto* contents = new LockContentsView(mojom::TrayActionState::kNotAvailable,
                                         data_dispatcher());
-  LockContentsView::TestApi test_api(contents);
+  LockContentsView::TestApi lock_contents(contents);
   SetUserCount(3);
   std::unique_ptr<views::Widget> widget = CreateWidgetWithContent(contents);
 
   // Returns the distance between the auth user view and the user view.
   auto calculate_distance = [&]() {
-    if (test_api.opt_secondary_auth()) {
-      return test_api.opt_secondary_auth()->GetBoundsInScreen().x() -
-             test_api.primary_auth()->GetBoundsInScreen().x();
+    if (lock_contents.opt_secondary_auth()) {
+      return lock_contents.opt_secondary_auth()->GetBoundsInScreen().x() -
+             lock_contents.primary_auth()->GetBoundsInScreen().x();
     }
-    return test_api.user_views()[0]->GetBoundsInScreen().x() -
-           test_api.primary_auth()->GetBoundsInScreen().x();
+    ScrollableUsersListView::TestApi users_list(lock_contents.users_list());
+    return users_list.user_views()[0]->GetBoundsInScreen().x() -
+           lock_contents.primary_auth()->GetBoundsInScreen().x();
   };
 
   const display::Display& display =
@@ -140,25 +146,172 @@ TEST_F(LockContentsViewUnitTest, AutoLayoutAfterRotation) {
     // Start at 0 degrees (landscape).
     display_manager()->SetDisplayRotation(
         display.id(), display::Display::ROTATE_0,
-        display::Display::ROTATION_SOURCE_ACTIVE);
+        display::Display::RotationSource::ACTIVE);
     int distance_0deg = calculate_distance();
     EXPECT_NE(distance_0deg, 0);
 
     // Rotate the display to 90 degrees (portrait).
     display_manager()->SetDisplayRotation(
         display.id(), display::Display::ROTATE_90,
-        display::Display::ROTATION_SOURCE_ACTIVE);
+        display::Display::RotationSource::ACTIVE);
     int distance_90deg = calculate_distance();
     EXPECT_GT(distance_0deg, distance_90deg);
 
     // Rotate the display back to 0 degrees (landscape).
     display_manager()->SetDisplayRotation(
         display.id(), display::Display::ROTATE_0,
-        display::Display::ROTATION_SOURCE_ACTIVE);
+        display::Display::RotationSource::ACTIVE);
     int distance_180deg = calculate_distance();
     EXPECT_EQ(distance_0deg, distance_180deg);
     EXPECT_NE(distance_0deg, distance_90deg);
   }
+}
+
+TEST_F(LockContentsViewUnitTest, AutoLayoutExtraSmallUsersListAfterRotation) {
+  // Build lock screen with extra small layout (> 6 users).
+  auto* contents = new LockContentsView(mojom::TrayActionState::kNotAvailable,
+                                        data_dispatcher());
+  SetUserCount(9);
+  ScrollableUsersListView* users_list =
+      LockContentsView::TestApi(contents).users_list();
+  std::unique_ptr<views::Widget> widget = CreateWidgetWithContent(contents);
+
+  // Users list in extra small layout should adjust its height to parent.
+  EXPECT_EQ(contents->height(), users_list->height());
+
+  const display::Display& display =
+      display::Screen::GetScreen()->GetDisplayNearestWindow(
+          widget->GetNativeWindow());
+
+  // Start at 0 degrees (landscape).
+  display_manager()->SetDisplayRotation(
+      display.id(), display::Display::ROTATE_0,
+      display::Display::RotationSource::ACTIVE);
+  EXPECT_EQ(contents->height(), users_list->height());
+
+  // Rotate the display to 90 degrees (portrait).
+  display_manager()->SetDisplayRotation(
+      display.id(), display::Display::ROTATE_90,
+      display::Display::RotationSource::ACTIVE);
+  EXPECT_EQ(contents->height(), users_list->height());
+
+  // Rotate the display back to 0 degrees (landscape).
+  display_manager()->SetDisplayRotation(
+      display.id(), display::Display::ROTATE_0,
+      display::Display::RotationSource::ACTIVE);
+  EXPECT_EQ(contents->height(), users_list->height());
+}
+
+TEST_F(LockContentsViewUnitTest, AutoLayoutSmallUsersListAfterRotation) {
+  // Build lock screen with small layout (3-6 users).
+  auto* contents = new LockContentsView(mojom::TrayActionState::kNotAvailable,
+                                        data_dispatcher());
+  SetUserCount(4);
+  ScrollableUsersListView* users_list =
+      LockContentsView::TestApi(contents).users_list();
+  std::unique_ptr<views::Widget> widget = CreateWidgetWithContent(contents);
+
+  // Calculate top spacing between users list and lock screen contents.
+  auto top_margin = [&]() {
+    return users_list->GetBoundsInScreen().y() -
+           contents->GetBoundsInScreen().y();
+  };
+
+  // Calculate bottom spacing between users list and lock screen contents.
+  auto bottom_margin = [&]() {
+    return contents->GetBoundsInScreen().bottom() -
+           users_list->GetBoundsInScreen().bottom();
+  };
+
+  // Users list in small layout should adjust its height to content and be
+  // vertical centered in parent.
+  EXPECT_EQ(top_margin(), bottom_margin());
+  EXPECT_EQ(users_list->height(), users_list->contents()->height());
+
+  const display::Display& display =
+      display::Screen::GetScreen()->GetDisplayNearestWindow(
+          widget->GetNativeWindow());
+
+  // Start at 0 degrees (landscape).
+  display_manager()->SetDisplayRotation(
+      display.id(), display::Display::ROTATE_0,
+      display::Display::RotationSource::ACTIVE);
+  EXPECT_EQ(top_margin(), bottom_margin());
+  EXPECT_EQ(users_list->height(), users_list->contents()->height());
+
+  // Rotate the display to 90 degrees (portrait).
+  display_manager()->SetDisplayRotation(
+      display.id(), display::Display::ROTATE_90,
+      display::Display::RotationSource::ACTIVE);
+  EXPECT_EQ(top_margin(), bottom_margin());
+  EXPECT_EQ(users_list->height(), users_list->contents()->height());
+
+  // Rotate the display back to 0 degrees (landscape).
+  display_manager()->SetDisplayRotation(
+      display.id(), display::Display::ROTATE_0,
+      display::Display::RotationSource::ACTIVE);
+  EXPECT_EQ(top_margin(), bottom_margin());
+  EXPECT_EQ(users_list->height(), users_list->contents()->height());
+}
+
+TEST_F(LockContentsViewKeyboardUnitTest,
+       AutoLayoutExtraSmallUsersListForKeyboard) {
+  // Build lock screen with extra small layout (> 6 users).
+  ASSERT_NO_FATAL_FAILURE(ShowLoginScreen());
+  LockContentsView* contents =
+      LockScreen::TestApi(LockScreen::Get()).contents_view();
+  ASSERT_NE(nullptr, contents);
+  LoadUsers(9);
+
+  // Users list in extra small layout should adjust its height to parent.
+  ScrollableUsersListView* users_list =
+      LockContentsView::TestApi(contents).users_list();
+  EXPECT_EQ(contents->height(), users_list->height());
+
+  ASSERT_NO_FATAL_FAILURE(ShowKeyboard());
+  gfx::Rect keyboard_bounds = GetKeyboardBoundsInScreen();
+  EXPECT_FALSE(users_list->GetBoundsInScreen().Intersects(keyboard_bounds));
+  EXPECT_EQ(contents->height(), users_list->height());
+
+  ASSERT_NO_FATAL_FAILURE(HideKeyboard());
+  EXPECT_EQ(contents->height(), users_list->height());
+}
+
+TEST_F(LockContentsViewKeyboardUnitTest, AutoLayoutSmallUsersListForKeyboard) {
+  // Build lock screen with small layout (3-6 users).
+  ASSERT_NO_FATAL_FAILURE(ShowLoginScreen());
+  LockContentsView* contents =
+      LockScreen::TestApi(LockScreen::Get()).contents_view();
+  ASSERT_NE(nullptr, contents);
+  LoadUsers(4);
+  ScrollableUsersListView* users_list =
+      LockContentsView::TestApi(contents).users_list();
+
+  // Calculate top spacing between users list and lock screen contents.
+  auto top_margin = [&]() {
+    return users_list->GetBoundsInScreen().y() -
+           contents->GetBoundsInScreen().y();
+  };
+
+  // Calculate bottom spacing between users list and lock screen contents.
+  auto bottom_margin = [&]() {
+    return contents->GetBoundsInScreen().bottom() -
+           users_list->GetBoundsInScreen().bottom();
+  };
+
+  // Users list in small layout should adjust its height to content and be
+  // vertical centered in parent.
+  EXPECT_EQ(top_margin(), bottom_margin());
+  EXPECT_EQ(users_list->height(), users_list->contents()->height());
+
+  ASSERT_NO_FATAL_FAILURE(ShowKeyboard());
+  gfx::Rect keyboard_bounds = GetKeyboardBoundsInScreen();
+  EXPECT_FALSE(users_list->GetBoundsInScreen().Intersects(keyboard_bounds));
+  EXPECT_EQ(top_margin(), bottom_margin());
+
+  ASSERT_NO_FATAL_FAILURE(HideKeyboard());
+  EXPECT_EQ(top_margin(), bottom_margin());
+  EXPECT_EQ(users_list->height(), users_list->contents()->height());
 }
 
 // Ensures that when swapping between two users, only auth method display swaps.
@@ -211,14 +364,15 @@ TEST_F(LockContentsViewUnitTest, SwapUserListToPrimaryAuthUser) {
   // Build lock screen with five users.
   auto* contents = new LockContentsView(mojom::TrayActionState::kNotAvailable,
                                         data_dispatcher());
-  LockContentsView::TestApi test_api(contents);
+  LockContentsView::TestApi lock_contents(contents);
   SetUserCount(5);
-  EXPECT_EQ(users().size() - 1, test_api.user_views().size());
+  ScrollableUsersListView::TestApi users_list(lock_contents.users_list());
+  EXPECT_EQ(users().size() - 1, users_list.user_views().size());
   std::unique_ptr<views::Widget> widget = CreateWidgetWithContent(contents);
 
-  LoginAuthUserView* auth_view = test_api.primary_auth();
+  LoginAuthUserView* auth_view = lock_contents.primary_auth();
 
-  for (const LoginUserView* const list_user_view : test_api.user_views()) {
+  for (const LoginUserView* const list_user_view : users_list.user_views()) {
     // Capture user info to validate it did not change during the swap.
     AccountId auth_id = auth_view->current_user()->basic_user_info->account_id;
     AccountId list_user_id =
@@ -238,7 +392,7 @@ TEST_F(LockContentsViewUnitTest, SwapUserListToPrimaryAuthUser) {
 
     // Validate that every user is still unique.
     std::unordered_set<std::string> emails;
-    for (const LoginUserView* const view : test_api.user_views()) {
+    for (const LoginUserView* const view : users_list.user_views()) {
       std::string email =
           view->current_user()->basic_user_info->account_id.GetUserEmail();
       EXPECT_TRUE(emails.insert(email).second);
@@ -483,6 +637,32 @@ TEST_F(LockContentsViewUnitTest, EasyUnlockIconUpdatedDuringUserSwap) {
   // Enable primary, icon still hidden.
   enable_icon(primary);
   EXPECT_FALSE(showing_easy_unlock_icon(secondary));
+}
+
+TEST_F(LockContentsViewKeyboardUnitTest, SwitchPinAndVirtualKeyboard) {
+  ASSERT_NO_FATAL_FAILURE(ShowLockScreen());
+  LockContentsView* contents =
+      LockScreen::TestApi(LockScreen::Get()).contents_view();
+  ASSERT_NE(nullptr, contents);
+
+  // Add user with enabled pin method of authentication.
+  const std::string email = "user@domain.com";
+  LoadUser(email);
+  contents->OnPinEnabledForUserChanged(AccountId::FromUserEmail(email), true);
+  LoginAuthUserView* auth_view =
+      LockContentsView::TestApi(contents).primary_auth();
+  ASSERT_NE(nullptr, auth_view);
+
+  // Pin keyboard should only be visible when there is no virtual keyboard
+  // shown.
+  LoginPinView* pin_view = LoginAuthUserView::TestApi(auth_view).pin_view();
+  EXPECT_TRUE(pin_view->visible());
+
+  ASSERT_NO_FATAL_FAILURE(ShowKeyboard());
+  EXPECT_FALSE(pin_view->visible());
+
+  ASSERT_NO_FATAL_FAILURE(HideKeyboard());
+  EXPECT_TRUE(pin_view->visible());
 }
 
 }  // namespace ash

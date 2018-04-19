@@ -10,6 +10,7 @@
 
 #include "angle_gl.h"
 #include "compiler/translator/Compiler.h"
+#include "compiler/translator/FunctionLookup.h"
 #include "compiler/translator/IntermTraverse.h"
 
 namespace sh
@@ -18,10 +19,26 @@ namespace sh
 namespace
 {
 
+ImmutableString GetSymbolTableMangledName(TIntermAggregate *node)
+{
+    ASSERT(!node->isConstructor());
+    switch (node->getOp())
+    {
+        case EOpCallInternalRawFunction:
+        case EOpCallBuiltInFunction:
+        case EOpCallFunctionInAST:
+            return TFunctionLookup::GetMangledName(node->getFunction()->name().data(),
+                                                   *node->getSequence());
+        default:
+            const char *opString = GetOperatorString(node->getOp());
+            return TFunctionLookup::GetMangledName(opString, *node->getSequence());
+    }
+}
+
 class FunctionCallFinder : public TIntermTraverser
 {
   public:
-    FunctionCallFinder(const TString &functionMangledName)
+    FunctionCallFinder(const char *functionMangledName)
         : TIntermTraverser(true, false, false),
           mFunctionMangledName(functionMangledName),
           mNodeFound(nullptr)
@@ -30,7 +47,7 @@ class FunctionCallFinder : public TIntermTraverser
 
     bool visitAggregate(Visit visit, TIntermAggregate *node) override
     {
-        if (node->isFunctionCall() && node->getSymbolTableMangledName() == mFunctionMangledName)
+        if (node->isFunctionCall() && GetSymbolTableMangledName(node) == mFunctionMangledName)
         {
             mNodeFound = node;
             return false;
@@ -42,7 +59,7 @@ class FunctionCallFinder : public TIntermTraverser
     const TIntermAggregate *getNode() const { return mNodeFound; }
 
   private:
-    TString mFunctionMangledName;
+    const char *mFunctionMangledName;
     TIntermAggregate *mNodeFound;
 };
 
@@ -252,7 +269,7 @@ bool MatchOutputCodeTest::notFoundInCode(const char *stringToFind) const
 
 const TIntermAggregate *FindFunctionCallNode(TIntermNode *root, const TString &functionMangledName)
 {
-    FunctionCallFinder finder(functionMangledName);
+    FunctionCallFinder finder(functionMangledName.c_str());
     root->traverse(&finder);
     return finder.getNode();
 }

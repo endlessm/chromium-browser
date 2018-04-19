@@ -97,10 +97,37 @@ public interface VideoEncoder {
     public final Integer high;
 
     /**
+     * Settings to disable quality based scaling.
+     */
+    public static final ScalingSettings OFF = new ScalingSettings();
+
+    /**
+     * Creates settings to enable quality based scaling.
+     *
+     * @param low Average QP at which to scale up the resolution.
+     * @param high Average QP at which to scale down the resolution.
+     */
+    public ScalingSettings(int low, int high) {
+      this.on = true;
+      this.low = low;
+      this.high = high;
+    }
+
+    private ScalingSettings() {
+      this.on = false;
+      this.low = null;
+      this.high = null;
+    }
+
+    // TODO(bugs.webrtc.org/8830): Below constructors are deprecated.
+    // Default thresholds are going away, so thresholds have to be set
+    // when scaling is on.
+    /**
      * Creates quality based scaling setting.
      *
      * @param on True if quality scaling is turned on.
      */
+    @Deprecated
     public ScalingSettings(boolean on) {
       this.on = on;
       this.low = null;
@@ -114,6 +141,7 @@ public interface VideoEncoder {
      * @param low Average QP at which to scale up the resolution.
      * @param high Average QP at which to scale down the resolution.
      */
+    @Deprecated
     public ScalingSettings(boolean on, int low, int high) {
       this.on = on;
       this.low = low;
@@ -122,7 +150,10 @@ public interface VideoEncoder {
   }
 
   public interface Callback {
-    /** Call to return an encoded frame. */
+    /**
+     * Call to return an encoded frame. It is safe to assume the byte buffer held by |frame| is not
+     * accessed after the call to this method returns.
+     */
     void onEncodedFrame(EncodedImage frame, CodecSpecificInfo info);
   }
 

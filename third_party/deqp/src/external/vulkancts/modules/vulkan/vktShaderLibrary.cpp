@@ -31,6 +31,7 @@
 #include "vkQueryUtil.hpp"
 #include "vkBuilderUtil.hpp"
 #include "vkTypeUtil.hpp"
+#include "vkImageUtil.hpp"
 
 #include "gluShaderLibrary.hpp"
 #include "gluShaderUtil.hpp"
@@ -840,25 +841,35 @@ Move<vk::VkImageView> createAttachmentView (Context& context, vk::VkImage image,
 	return vk::createImageView(context.getDeviceInterface(), context.getDevice(), &params);
 }
 
-Move<vk::VkRenderPass> createRenderPass (Context& context, vk::VkFormat colorAttFormat)
+Move<vk::VkRenderPass> createRenderPass (Context& context, vk::VkFormat colorAttFormat, deUint32 size)
 {
-	const vk::VkAttachmentDescription	colorAttDesc		=
+	vk::VkAttachmentDescription	colorAttDesc[4];
+	vk::VkAttachmentReference	colorAttRef[4];
+
+	for (deUint32 i = 0; i < size; i++)
 	{
-		0u,														// flags
-		colorAttFormat,											// format
-		vk::VK_SAMPLE_COUNT_1_BIT,								// samples
-		vk::VK_ATTACHMENT_LOAD_OP_CLEAR,						// loadOp
-		vk::VK_ATTACHMENT_STORE_OP_STORE,						// storeOp
-		vk::VK_ATTACHMENT_LOAD_OP_DONT_CARE,					// stencilLoadOp
-		vk::VK_ATTACHMENT_STORE_OP_DONT_CARE,					// stencilStoreOp
-		vk::VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,			// initialLayout
-		vk::VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,			// finalLayout
-	};
-	const vk::VkAttachmentReference		colorAttRef			=
-	{
-		0u,														// attachment
-		vk::VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,			// layout
-	};
+		vk::VkAttachmentDescription	desc =
+		{
+			0u,														// flags
+			colorAttFormat,											// format
+			vk::VK_SAMPLE_COUNT_1_BIT,								// samples
+			vk::VK_ATTACHMENT_LOAD_OP_CLEAR,						// loadOp
+			vk::VK_ATTACHMENT_STORE_OP_STORE,						// storeOp
+			vk::VK_ATTACHMENT_LOAD_OP_DONT_CARE,					// stencilLoadOp
+			vk::VK_ATTACHMENT_STORE_OP_DONT_CARE,					// stencilStoreOp
+			vk::VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,			// initialLayout
+			vk::VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,			// finalLayout
+		};
+		colorAttDesc[i] = desc;
+
+		vk::VkAttachmentReference	ref =
+		{
+			i,														// attachment
+			vk::VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,			// layout
+		};
+		colorAttRef[i] = ref;
+	}
+
 	const vk::VkAttachmentReference		dsAttRef			=
 	{
 		VK_ATTACHMENT_UNUSED,									// attachment
@@ -870,8 +881,8 @@ Move<vk::VkRenderPass> createRenderPass (Context& context, vk::VkFormat colorAtt
 		vk::VK_PIPELINE_BIND_POINT_GRAPHICS,					// pipelineBindPoint
 		0u,														// inputCount
 		DE_NULL,												// pInputAttachments
-		1u,														// colorCount
-		&colorAttRef,											// pColorAttachments
+		size,													// colorCount
+		&colorAttRef[0],										// pColorAttachments
 		DE_NULL,												// pResolveAttachments
 		&dsAttRef,												// depthStencilAttachment
 		0u,														// preserveCount
@@ -883,8 +894,8 @@ Move<vk::VkRenderPass> createRenderPass (Context& context, vk::VkFormat colorAtt
 		vk::VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,			// sType
 		DE_NULL,												// pNext
 		(vk::VkRenderPassCreateFlags)0,
-		1u,														// attachmentCount
-		&colorAttDesc,											// pAttachments
+		size,													// attachmentCount
+		&colorAttDesc[0],										// pAttachments
 		1u,														// subpassCount
 		&subpassDesc,											// pSubpasses
 		0u,														// dependencyCount
@@ -1049,7 +1060,8 @@ Move<vk::VkPipeline> createPipeline (Context&					context,
 									 const PipelineProgram&		program,
 									 vk::VkRenderPass			renderPass,
 									 vk::VkPipelineLayout		pipelineLayout,
-									 tcu::UVec2					renderSize)
+									 tcu::UVec2					renderSize,
+									 deUint32					size)
 {
 	const vector<vk::VkPipelineShaderStageCreateInfo>	shaderStageParams		(getPipelineShaderStageCreateInfo(program));
 	const vector<vk::VkVertexInputAttributeDescription>	vertexAttribParams		(getVertexAttributeDescriptions(inputValues, inputLayout));
@@ -1125,7 +1137,7 @@ Move<vk::VkPipeline> createPipeline (Context&					context,
 		vk::VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,		// sType
 		DE_NULL,															// pNext
 		(vk::VkPipelineRasterizationStateCreateFlags)0,
-		DE_TRUE,															// depthClipEnable
+		DE_FALSE,															// depthClipEnable
 		DE_FALSE,															// rasterizerDiscardEnable
 		vk::VK_POLYGON_MODE_FILL,											// fillMode
 		vk::VK_CULL_MODE_NONE,												// cullMode;
@@ -1171,17 +1183,23 @@ Move<vk::VkPipeline> createPipeline (Context&					context,
 																				| vk::VK_COLOR_COMPONENT_G_BIT
 																				| vk::VK_COLOR_COMPONENT_B_BIT
 																				| vk::VK_COLOR_COMPONENT_A_BIT;
-	const vk::VkPipelineColorBlendAttachmentState		attBlendParams			=
+	vk::VkPipelineColorBlendAttachmentState		attBlendParams[4];
+	for (deUint32 i = 0; i < size; i++)
 	{
-		VK_FALSE,															// blendEnable
-		vk::VK_BLEND_FACTOR_ONE,											// srcBlendColor
-		vk::VK_BLEND_FACTOR_ZERO,											// destBlendColor
-		vk::VK_BLEND_OP_ADD,												// blendOpColor
-		vk::VK_BLEND_FACTOR_ONE,											// srcBlendAlpha
-		vk::VK_BLEND_FACTOR_ZERO,											// destBlendAlpha
-		vk::VK_BLEND_OP_ADD,												// blendOpAlpha
-		allCompMask,														// componentWriteMask
-	};
+		vk::VkPipelineColorBlendAttachmentState blend =
+		{
+			VK_FALSE,															// blendEnable
+			vk::VK_BLEND_FACTOR_ONE,											// srcBlendColor
+			vk::VK_BLEND_FACTOR_ZERO,											// destBlendColor
+			vk::VK_BLEND_OP_ADD,												// blendOpColor
+			vk::VK_BLEND_FACTOR_ONE,											// srcBlendAlpha
+			vk::VK_BLEND_FACTOR_ZERO,											// destBlendAlpha
+			vk::VK_BLEND_OP_ADD,												// blendOpAlpha
+			allCompMask,														// componentWriteMask
+		};
+		attBlendParams[i] = blend;
+	}
+
 	const vk::VkPipelineColorBlendStateCreateInfo		blendParams				=
 	{
 		vk::VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,		// sType
@@ -1189,8 +1207,8 @@ Move<vk::VkPipeline> createPipeline (Context&					context,
 		(vk::VkPipelineColorBlendStateCreateFlags)0,
 		VK_FALSE,															// logicOpEnable
 		vk::VK_LOGIC_OP_COPY,												// logicOp
-		1u,																	// attachmentCount
-		&attBlendParams,													// pAttachments
+		size,																// attachmentCount
+		&attBlendParams[0],													// pAttachments
 		{ 0.0f, 0.0f, 0.0f, 0.0f },											// blendConstants
 	};
 	const vk::VkGraphicsPipelineCreateInfo				pipelineParams			=
@@ -1219,16 +1237,21 @@ Move<vk::VkPipeline> createPipeline (Context&					context,
 	return vk::createGraphicsPipeline(context.getDeviceInterface(), context.getDevice(), DE_NULL, &pipelineParams);
 }
 
-Move<vk::VkFramebuffer> createFramebuffer (Context& context, vk::VkRenderPass renderPass, vk::VkImageView colorAttView, int width, int height)
+Move<vk::VkFramebuffer> createFramebuffer (Context& context, vk::VkRenderPass renderPass, Move<vk::VkImageView> colorAttView[4], deUint32 size, int width, int height)
 {
+	vk::VkImageView att[4];
+	for (deUint32 i = 0; i < size; i++)
+	{
+		att[i] = *colorAttView[i];
+	}
 	const vk::VkFramebufferCreateInfo	framebufferParams	=
 	{
 		vk::VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,	// sType
 		DE_NULL,										// pNext
 		(vk::VkFramebufferCreateFlags)0,
 		renderPass,										// renderPass
-		1u,												// attachmentCount
-		&colorAttView,									// pAttachments
+		size,											// attachmentCount
+		&att[0],										// pAttachments
 		(deUint32)width,								// width
 		(deUint32)height,								// height
 		1u,												// layers
@@ -1240,15 +1263,8 @@ Move<vk::VkFramebuffer> createFramebuffer (Context& context, vk::VkRenderPass re
 Move<vk::VkCommandPool> createCommandPool (Context& context)
 {
 	const deUint32						queueFamilyIndex	= context.getUniversalQueueFamilyIndex();
-	const vk::VkCommandPoolCreateInfo	params				=
-	{
-		vk::VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,		// sType
-		DE_NULL,											// pNext
-		(vk::VkCommandPoolCreateFlags)0,
-		queueFamilyIndex,									// queueFamilyIndex
-	};
 
-	return vk::createCommandPool(context.getDeviceInterface(), context.getDevice(), &params);
+	return vk::createCommandPool(context.getDeviceInterface(), context.getDevice(), (vk::VkCommandPoolCreateFlags)0u, queueFamilyIndex);
 }
 
 Move<vk::VkDescriptorPool> createDescriptorPool (Context& context)
@@ -1274,16 +1290,7 @@ Move<vk::VkDescriptorSet> allocateDescriptorSet (Context& context, vk::VkDescrip
 
 Move<vk::VkCommandBuffer> allocateCommandBuffer (Context& context, vk::VkCommandPool cmdPool)
 {
-	const vk::VkCommandBufferAllocateInfo	params	=
-	{
-		vk::VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,	// sType
-		DE_NULL,											// pNext
-		cmdPool,											// commandPool
-		vk::VK_COMMAND_BUFFER_LEVEL_PRIMARY,				// level
-		1u,													// bufferCount
-	};
-
-	return vk::allocateCommandBuffer(context.getDeviceInterface(), context.getDevice(), &params);
+	return vk::allocateCommandBuffer(context.getDeviceInterface(), context.getDevice(), cmdPool, vk::VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 }
 
 MovePtr<vk::Allocation> allocateAndBindMemory (Context& context, vk::VkBuffer buffer, vk::MemoryRequirement memReqs)
@@ -1295,6 +1302,25 @@ MovePtr<vk::Allocation> allocateAndBindMemory (Context& context, vk::VkBuffer bu
 	vkd.bindBufferMemory(context.getDevice(), buffer, memory->getMemory(), memory->getOffset());
 
 	return memory;
+}
+
+vk::VkFormat getRenderTargetFormat (DataType dataType)
+{
+	switch (dataType)
+	{
+		case glu::TYPE_FLOAT_VEC2:
+			return vk::VK_FORMAT_R8G8_UNORM;
+		case glu::TYPE_FLOAT_VEC3:
+			return vk::VK_FORMAT_R5G6B5_UNORM_PACK16;
+		case glu::TYPE_FLOAT_VEC4:
+			return vk::VK_FORMAT_R8G8B8A8_UNORM;
+		case glu::TYPE_INT_VEC2:
+			return vk::VK_FORMAT_R8G8_SINT;
+		case glu::TYPE_INT_VEC4:
+			return vk::VK_FORMAT_R8G8B8A8_SINT;
+		default:
+			return vk::VK_FORMAT_R8G8B8A8_UNORM;
+	}
 }
 
 MovePtr<vk::Allocation> allocateAndBindMemory (Context& context, vk::VkImage image, vk::MemoryRequirement memReqs)
@@ -1319,7 +1345,7 @@ void writeValuesToMem (Context& context, const vk::Allocation& dst, const ValueB
 class ShaderCaseInstance : public TestInstance
 {
 public:
-													ShaderCaseInstance		(Context& context, const ShaderCaseSpecification& spec);
+													ShaderCaseInstance              (Context& context, const ShaderCaseSpecification& spec);
 													~ShaderCaseInstance		(void);
 
 	TestStatus										iterate					(void);
@@ -1356,15 +1382,17 @@ private:
 	const Unique<vk::VkBuffer>						m_uniformBuffer;		// Uniform values. Can be NULL if no uniforms present
 	const UniquePtr<vk::Allocation>					m_uniformMem;			// Uniform memory, can be NULL if no uniform buffer exists
 
-	const Unique<vk::VkBuffer>						m_readImageBuffer;
-	const UniquePtr<vk::Allocation>					m_readImageMem;
+	const vk::VkFormat								m_rtFormat;
+	deUint32										m_outputCount;
+	Move<vk::VkImage>								m_rtImage [4];
+	MovePtr<vk::Allocation>							m_rtMem[4];
+	Move<vk::VkImageView>							m_rtView[4];
 
-	const Unique<vk::VkImage>						m_rtImage;
-	const UniquePtr<vk::Allocation>					m_rtMem;
-	const Unique<vk::VkImageView>					m_rtView;
+	Move<vk::VkBuffer>								m_readImageBuffer[4];
+	MovePtr<vk::Allocation>							m_readImageMem[4];
 
 	const Unique<vk::VkRenderPass>					m_renderPass;
-	const Unique<vk::VkFramebuffer>					m_framebuffer;
+	Move<vk::VkFramebuffer>							m_framebuffer;
 	const PipelineProgram							m_program;
 	const Unique<vk::VkDescriptorSetLayout>			m_descriptorSetLayout;
 	const Unique<vk::VkPipelineLayout>				m_pipelineLayout;
@@ -1398,19 +1426,21 @@ ShaderCaseInstance::ShaderCaseInstance (Context& context, const ShaderCaseSpecif
 	, m_uniformBuffer		(m_uniformLayout.size > 0 ? createBuffer(context, (vk::VkDeviceSize)m_uniformLayout.size, vk::VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT) : Move<vk::VkBuffer>())
 	, m_uniformMem			(m_uniformLayout.size > 0 ? allocateAndBindMemory(context, *m_uniformBuffer, vk::MemoryRequirement::HostVisible) : MovePtr<vk::Allocation>())
 
-	, m_readImageBuffer		(createBuffer(context, (vk::VkDeviceSize)(RENDER_WIDTH*RENDER_HEIGHT*4), vk::VK_BUFFER_USAGE_TRANSFER_DST_BIT))
-	, m_readImageMem		(allocateAndBindMemory(context, *m_readImageBuffer, vk::MemoryRequirement::HostVisible))
+	, m_rtFormat			(getRenderTargetFormat(spec.outputFormat))
+	, m_outputCount			((deUint32)m_spec.values.outputs.size() == 0 ? 1 : (deUint32)m_spec.values.outputs.size())
+	, m_rtImage				()
+	, m_rtMem				()
+	, m_rtView				()
 
-	, m_rtImage				(createImage2D(context, RENDER_WIDTH, RENDER_HEIGHT, vk::VK_FORMAT_R8G8B8A8_UNORM, vk::VK_IMAGE_TILING_OPTIMAL, vk::VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|vk::VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
-	, m_rtMem				(allocateAndBindMemory(context, *m_rtImage, vk::MemoryRequirement::Any))
-	, m_rtView				(createAttachmentView(context, *m_rtImage, vk::VK_FORMAT_R8G8B8A8_UNORM))
+	, m_readImageBuffer		()
+	, m_readImageMem		()
 
-	, m_renderPass			(createRenderPass(context, vk::VK_FORMAT_R8G8B8A8_UNORM))
-	, m_framebuffer			(createFramebuffer(context, *m_renderPass, *m_rtView, RENDER_WIDTH, RENDER_HEIGHT))
+	, m_renderPass			(createRenderPass(context, m_rtFormat, m_outputCount))
+	, m_framebuffer			()
 	, m_program				(context, spec)
 	, m_descriptorSetLayout	(createDescriptorSetLayout(context, m_program.getStages()))
 	, m_pipelineLayout		(createPipelineLayout(context, *m_descriptorSetLayout))
-	, m_pipeline			(createPipeline(context, spec.values.inputs, m_inputLayout, m_program, *m_renderPass, *m_pipelineLayout, tcu::UVec2(RENDER_WIDTH, RENDER_HEIGHT)))
+	, m_pipeline			(createPipeline(context, spec.values.inputs, m_inputLayout, m_program, *m_renderPass, *m_pipelineLayout, tcu::UVec2(RENDER_WIDTH, RENDER_HEIGHT), m_outputCount))
 
 	, m_descriptorPool		(createDescriptorPool(context))
 	, m_descriptorSet		(allocateDescriptorSet(context, *m_descriptorPool, *m_descriptorSetLayout))
@@ -1420,6 +1450,20 @@ ShaderCaseInstance::ShaderCaseInstance (Context& context, const ShaderCaseSpecif
 
 	, m_subCaseNdx			(0)
 {
+	{
+		// Initialize the resources for each color attachment needed by the shader
+		for (deUint32 outNdx = 0; outNdx < m_outputCount; outNdx++)
+		{
+			m_rtImage[outNdx] = createImage2D(context, RENDER_WIDTH, RENDER_HEIGHT, m_rtFormat, vk::VK_IMAGE_TILING_OPTIMAL, vk::VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|   vk::VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+			m_rtMem[outNdx] = allocateAndBindMemory(context, *m_rtImage[outNdx], vk::MemoryRequirement::Any);
+			m_rtView[outNdx] = createAttachmentView(context, *m_rtImage[outNdx], m_rtFormat);
+
+			m_readImageBuffer[outNdx] = createBuffer(context, (vk::VkDeviceSize)(RENDER_WIDTH * RENDER_HEIGHT * tcu::getPixelSize(vk::mapVkFormat(m_rtFormat))), vk::VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+			m_readImageMem[outNdx] = allocateAndBindMemory(context, *m_readImageBuffer[outNdx], vk::MemoryRequirement::HostVisible);
+		}
+		m_framebuffer = createFramebuffer(context, *m_renderPass, m_rtView, m_outputCount, RENDER_WIDTH, RENDER_HEIGHT);
+	}
+
 	const vk::DeviceInterface&	vkd					= context.getDeviceInterface();
 	const deUint32				queueFamilyIndex	= context.getUniversalQueueFamilyIndex();
 
@@ -1498,34 +1542,44 @@ ShaderCaseInstance::ShaderCaseInstance (Context& context, const ShaderCaseSpecif
 			vk::VK_ACCESS_HOST_WRITE_BIT,															// srcAccessMask
 			vk::VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT|vk::VK_ACCESS_UNIFORM_READ_BIT,					// dstAccessMask
 		};
-		const vk::VkImageMemoryBarrier	colorAttBarrier		=
+		vk::VkImageMemoryBarrier	colorAttBarrier	[4];
+		for (deUint32 outNdx = 0; outNdx < m_outputCount; outNdx++)
 		{
-			vk::VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,		// sType
-			DE_NULL,										// pNext
-			0u,												// srcAccessMask
-			vk::VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,		// dstAccessMask
-			vk::VK_IMAGE_LAYOUT_UNDEFINED,					// oldLayout
-			vk::VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,	// newLayout
-			queueFamilyIndex,								// srcQueueFamilyIndex
-			queueFamilyIndex,								// destQueueFamilyIndex
-			*m_rtImage,										// image
+			vk::VkImageMemoryBarrier barrier =
 			{
-				vk::VK_IMAGE_ASPECT_COLOR_BIT,					// aspectMask
-				0u,												// baseMipLevel
-				1u,												// mipLevels
-				0u,												// baseArraySlice
-				1u,												// arraySize
-			}												// subresourceRange
-		};
-
+				vk::VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,		// sType
+				DE_NULL,										// pNext
+				0u,												// srcAccessMask
+				vk::VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,		// dstAccessMask
+				vk::VK_IMAGE_LAYOUT_UNDEFINED,					// oldLayout
+				vk::VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,	// newLayout
+				queueFamilyIndex,								// srcQueueFamilyIndex
+				queueFamilyIndex,								// destQueueFamilyIndex
+				*m_rtImage[outNdx],								// image
+				{
+					vk::VK_IMAGE_ASPECT_COLOR_BIT,				// aspectMask
+					0u,											// baseMipLevel
+					1u,											// mipLevels
+					0u,											// baseArraySlice
+					1u,											// arraySize
+				}												// subresourceRange
+			};
+			colorAttBarrier[outNdx]	= barrier;
+		}
 		vkd.cmdPipelineBarrier(*m_cmdBuffer, vk::VK_PIPELINE_STAGE_HOST_BIT, vk::VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, (vk::VkDependencyFlags)0,
 							   1, &vertFlushBarrier,
 							   0, (const vk::VkBufferMemoryBarrier*)DE_NULL,
-							   1, &colorAttBarrier);
+							   m_outputCount, &colorAttBarrier[0]);
 	}
 
 	{
-		const vk::VkClearValue			clearValue		= vk::makeClearValueColorF32(0.125f, 0.25f, 0.75f, 1.0f);
+		vk::VkClearValue			clearValue[4];
+		for (deUint32 outNdx = 0; outNdx < m_outputCount; outNdx++)
+		{
+			vk::VkClearValue value = vk::makeClearValueColorF32(0.125f, 0.25f, 0.75f, 1.0f);
+			clearValue[outNdx] = value;
+		}
+
 		const vk::VkRenderPassBeginInfo	passBeginInfo	=
 		{
 			vk::VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,	// sType
@@ -1533,8 +1587,8 @@ ShaderCaseInstance::ShaderCaseInstance (Context& context, const ShaderCaseSpecif
 			*m_renderPass,									// renderPass
 			*m_framebuffer,									// framebuffer
 			{ { 0, 0 }, { RENDER_WIDTH, RENDER_HEIGHT } },	// renderArea
-			1u,												// clearValueCount
-			&clearValue,									// pClearValues
+			m_outputCount,			// clearValueCount
+			&clearValue[0],									// pClearValues
 		};
 
 		vkd.cmdBeginRenderPass(*m_cmdBuffer, &passBeginInfo, vk::VK_SUBPASS_CONTENTS_INLINE);
@@ -1557,68 +1611,81 @@ ShaderCaseInstance::ShaderCaseInstance (Context& context, const ShaderCaseSpecif
 	vkd.cmdEndRenderPass	(*m_cmdBuffer);
 
 	{
-		const vk::VkImageMemoryBarrier	renderFinishBarrier	=
+		vk::VkImageMemoryBarrier	renderFinishBarrier[4];
+		for (deUint32 outNdx = 0; outNdx < m_outputCount; outNdx++)
 		{
-			vk::VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,		// sType
-			DE_NULL,										// pNext
-			vk::VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,		// srcAccessMask
-			vk::VK_ACCESS_TRANSFER_READ_BIT,				// dstAccessMask
-			vk::VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,	// oldLayout
-			vk::VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,		// newLayout
-			queueFamilyIndex,								// srcQueueFamilyIndex
-			queueFamilyIndex,								// destQueueFamilyIndex
-			*m_rtImage,										// image
+			vk::VkImageMemoryBarrier	barrier =
 			{
-				vk::VK_IMAGE_ASPECT_COLOR_BIT,					// aspectMask
-				0u,												// baseMipLevel
-				1u,												// mipLevels
-				0u,												// baseArraySlice
-				1u,												// arraySize
-			}												// subresourceRange
-		};
+				vk::VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,		// sType
+				DE_NULL,										// pNext
+				vk::VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,		// srcAccessMask
+				vk::VK_ACCESS_TRANSFER_READ_BIT,				// dstAccessMask
+				vk::VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,	// oldLayout
+				vk::VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,		// newLayout
+				queueFamilyIndex,								// srcQueueFamilyIndex
+				queueFamilyIndex,								// destQueueFamilyIndex
+				*m_rtImage[outNdx],								// image
+				{
+					vk::VK_IMAGE_ASPECT_COLOR_BIT,				// aspectMask
+					0u,											// baseMipLevel
+					1u,											// mipLevels
+					0u,											// baseArraySlice
+					1u,											// arraySize
+				}												// subresourceRange
+			};
+			renderFinishBarrier[outNdx] = barrier;
+        }
 
 		vkd.cmdPipelineBarrier(*m_cmdBuffer, vk::VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, vk::VK_PIPELINE_STAGE_TRANSFER_BIT, (vk::VkDependencyFlags)0,
 							   0, (const vk::VkMemoryBarrier*)DE_NULL,
 							   0, (const vk::VkBufferMemoryBarrier*)DE_NULL,
-							   1, &renderFinishBarrier);
+							   m_outputCount, &renderFinishBarrier[0]);
 	}
 
 	{
-		const vk::VkBufferImageCopy	copyParams	=
+		for (deUint32 outNdx = 0; outNdx < m_outputCount; outNdx++)
 		{
-			(vk::VkDeviceSize)0u,					// bufferOffset
-			(deUint32)RENDER_WIDTH,					// bufferRowLength
-			(deUint32)RENDER_HEIGHT,				// bufferImageHeight
+			const vk::VkBufferImageCopy	copyParams	=
 			{
-				vk::VK_IMAGE_ASPECT_COLOR_BIT,			// aspect
-				0u,										// mipLevel
-				0u,										// arrayLayer
-				1u,										// arraySize
-			},										// imageSubresource
-			{ 0u, 0u, 0u },							// imageOffset
-			{ RENDER_WIDTH, RENDER_HEIGHT, 1u }		// imageExtent
-		};
+				(vk::VkDeviceSize)0u,					// bufferOffset
+				(deUint32)RENDER_WIDTH,					// bufferRowLength
+				(deUint32)RENDER_HEIGHT,				// bufferImageHeight
+				{
+					vk::VK_IMAGE_ASPECT_COLOR_BIT,			// aspect
+					0u,										// mipLevel
+					0u,										// arrayLayer
+					1u,										// arraySize
+				},										// imageSubresource
+				{ 0u, 0u, 0u },							// imageOffset
+				{ RENDER_WIDTH, RENDER_HEIGHT, 1u }		// imageExtent
+			};
 
-		vkd.cmdCopyImageToBuffer(*m_cmdBuffer, *m_rtImage, vk::VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, *m_readImageBuffer, 1u, &copyParams);
+			vkd.cmdCopyImageToBuffer(*m_cmdBuffer, *m_rtImage[outNdx], vk::VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, *m_readImageBuffer[outNdx], 1u, &copyParams);
+		}
 	}
 
 	{
-		const vk::VkBufferMemoryBarrier	copyFinishBarrier	=
+		const vk::VkDeviceSize			size				= (vk::VkDeviceSize)(RENDER_WIDTH * RENDER_HEIGHT * tcu::getPixelSize(vk::mapVkFormat(m_rtFormat)));
+		vk::VkBufferMemoryBarrier	copyFinishBarrier[4];
+		for (deUint32 outNdx = 0; outNdx < m_outputCount; outNdx++)
 		{
-			vk::VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,		// sType
-			DE_NULL,											// pNext
-			vk::VK_ACCESS_TRANSFER_WRITE_BIT,					// srcAccessMask
-			vk::VK_ACCESS_HOST_READ_BIT,						// dstAccessMask
-			queueFamilyIndex,									// srcQueueFamilyIndex
-			queueFamilyIndex,									// destQueueFamilyIndex
-			*m_readImageBuffer,									// buffer
-			0u,													// offset
-			(vk::VkDeviceSize)(RENDER_WIDTH*RENDER_HEIGHT*4)	// size
-		};
-
+			vk::VkBufferMemoryBarrier barrier =
+			{
+				vk::VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,		// sType
+				DE_NULL,											// pNext
+				vk::VK_ACCESS_TRANSFER_WRITE_BIT,					// srcAccessMask
+				vk::VK_ACCESS_HOST_READ_BIT,						// dstAccessMask
+				queueFamilyIndex,									// srcQueueFamilyIndex
+				queueFamilyIndex,									// destQueueFamilyIndex
+				*m_readImageBuffer[outNdx],									// buffer
+				0u,													// offset
+				size												// size
+			};
+			copyFinishBarrier[outNdx] = barrier;
+		}
 		vkd.cmdPipelineBarrier(*m_cmdBuffer, vk::VK_PIPELINE_STAGE_TRANSFER_BIT, vk::VK_PIPELINE_STAGE_HOST_BIT, (vk::VkDependencyFlags)0,
 							   0, (const vk::VkMemoryBarrier*)DE_NULL,
-							   1, &copyFinishBarrier,
+							   m_outputCount, &copyFinishBarrier[0],
 							   0, (const vk::VkImageMemoryBarrier*)DE_NULL);
 	}
 
@@ -1655,6 +1722,21 @@ bool checkResultImage (const ConstPixelBufferAccess& result)
 	return true;
 }
 
+bool checkResultImageWithReference (const ConstPixelBufferAccess& result, tcu::IVec4 refPix)
+{
+	for (int y = 0; y < result.getHeight(); y++)
+	{
+		for (int x = 0; x < result.getWidth(); x++)
+		{
+			const tcu::IVec4	resPix	= result.getPixelInt(x, y);
+
+			if (boolAny(notEqual(resPix, refPix)))
+				return false;
+		}
+	}
+
+	return true;
+}
 TestStatus ShaderCaseInstance::iterate (void)
 {
 	const vk::DeviceInterface&	vkd		= m_context.getDeviceInterface();
@@ -1683,22 +1765,18 @@ TestStatus ShaderCaseInstance::iterate (void)
 			0u,											// signalSemaphoreCount
 			(const vk::VkSemaphore*)0,					// pSignalSemaphores
 		};
-		const vk::VkFenceCreateInfo	fenceParams	=
-		{
-			vk::VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,	// sType
-			DE_NULL,									// pNext
-			0u,											// flags
-		};
-		const Unique<vk::VkFence>	fence		(vk::createFence(vkd, device, &fenceParams));
+		const Unique<vk::VkFence>	fence		(vk::createFence(vkd, device));
 
 		VK_CHECK(vkd.queueSubmit	(queue, 1u, &submitInfo, *fence));
 		VK_CHECK(vkd.waitForFences	(device, 1u, &fence.get(), DE_TRUE, ~0ull));
 	}
 
+	// Result was checked in fragment shader
+	if (m_spec.outputType == glu::sl::OUTPUT_RESULT)
 	{
-		const ConstPixelBufferAccess	imgAccess	(TextureFormat(TextureFormat::RGBA, TextureFormat::UNORM_INT8), RENDER_WIDTH, RENDER_HEIGHT, 1, m_readImageMem->getHostPtr());
+		const ConstPixelBufferAccess	imgAccess	(TextureFormat(TextureFormat::RGBA, TextureFormat::UNORM_INT8), RENDER_WIDTH, RENDER_HEIGHT, 1, m_readImageMem[0]->getHostPtr());
 
-		invalidateMappedMemoryRange(vkd, device, m_readImageMem->getMemory(), m_readImageMem->getOffset(), (vk::VkDeviceSize)(RENDER_WIDTH*RENDER_HEIGHT*4));
+		invalidateMappedMemoryRange(vkd, device, m_readImageMem[0]->getMemory(), m_readImageMem[0]->getOffset(), (vk::VkDeviceSize)(RENDER_WIDTH*RENDER_HEIGHT*4));
 
 		if (!checkResultImage(imgAccess))
 		{
@@ -1710,6 +1788,41 @@ TestStatus ShaderCaseInstance::iterate (void)
 			dumpValues(log, m_spec.values, m_subCaseNdx);
 
 			return TestStatus::fail(string("Got invalid pixels at sub-case ") + de::toString(m_subCaseNdx));
+		}
+	}
+	// Result was written to color buffer
+	else
+	{
+		for (deUint32 outNdx = 0; outNdx < m_outputCount; outNdx++)
+		{
+			const ConstPixelBufferAccess	imgAccess		(vk::mapVkFormat(m_rtFormat), RENDER_WIDTH, RENDER_HEIGHT, 1, m_readImageMem[outNdx]->getHostPtr());
+			const DataType					dataType		= m_spec.values.outputs[outNdx].type.getBasicType();
+			const int						numComponents	= getDataTypeScalarSize(dataType);
+			tcu::IVec4						reference		(0, 0, 0, 1);
+
+			for (int refNdx = 0; refNdx < numComponents; refNdx++)
+			{
+				if (isDataTypeFloatOrVec(dataType))
+					reference[refNdx] = (int)m_spec.values.outputs[outNdx].elements[m_subCaseNdx * numComponents + refNdx].float32;
+				else if (isDataTypeIntOrIVec(dataType))
+					reference[refNdx] = m_spec.values.outputs[outNdx].elements[m_subCaseNdx * numComponents + refNdx].int32;
+				else
+					DE_FATAL("Unknown data type");
+			}
+
+			invalidateMappedMemoryRange(vkd, device, m_readImageMem[outNdx]->getMemory(), m_readImageMem[outNdx]->getOffset(), (vk::VkDeviceSize)(RENDER_WIDTH * RENDER_HEIGHT * tcu::getPixelSize(vk::mapVkFormat(m_rtFormat))));
+
+			if (!checkResultImageWithReference(imgAccess, reference))
+			{
+				TestLog&	log		= m_context.getTestContext().getLog();
+
+				log << TestLog::Message << "ERROR: Got nonmatching pixels on sub-case " << m_subCaseNdx << " output " << outNdx << TestLog::EndMessage
+					<< TestLog::Image("Result", "Result", imgAccess);
+
+				dumpValues(log, m_spec.values, m_subCaseNdx);
+
+				return TestStatus::fail(string("Got invalid pixels at sub-case ") + de::toString(m_subCaseNdx));
+			}
 		}
 	}
 
@@ -1779,7 +1892,7 @@ void ShaderCase::initPrograms (SourceCollections& sourceCollection) const
 		{
 			if (!specializedSources[progNdx].sources[shaderType].empty())
 			{
-				glu::ProgramSources& curSrc	= sourceCollection.glslSources.add(getShaderName((glu::ShaderType)shaderType, progNdx));
+				vk::GlslSource& curSrc	= sourceCollection.glslSources.add(getShaderName((glu::ShaderType)shaderType, progNdx));
 				curSrc.sources[shaderType] = specializedSources[progNdx].sources[shaderType];
 			}
 		}

@@ -11,7 +11,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/supervised_user/legacy/supervised_user_sync_service.h"
@@ -19,8 +18,6 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/prefs/scoped_user_pref_update.h"
-#include "components/sync/model/attachments/attachment_id.h"
-#include "components/sync/model/attachments/attachment_service_proxy_for_test.h"
 #include "components/sync/model/sync_change.h"
 #include "components/sync/model/sync_error_factory_mock.h"
 #include "components/sync/protocol/sync.pb.h"
@@ -146,12 +143,7 @@ SyncData SupervisedUserSyncServiceTest::CreateRemoteData(
   if (!chrome_avatar.empty())
     specifics.mutable_managed_user()->set_chrome_avatar(chrome_avatar);
 
-  return SyncData::CreateRemoteData(
-      ++sync_data_id_,
-      specifics,
-      base::Time(),
-      syncer::AttachmentIdList(),
-      syncer::AttachmentServiceProxyForTest::Create());
+  return SyncData::CreateRemoteData(++sync_data_id_, specifics, base::Time());
 }
 
 TEST_F(SupervisedUserSyncServiceTest, MergeEmpty) {
@@ -198,10 +190,10 @@ TEST_F(SupervisedUserSyncServiceTest, MergeExisting) {
   {
     DictionaryPrefUpdate update(prefs(), prefs::kSupervisedUsers);
     base::DictionaryValue* supervised_users = update.Get();
-    auto dict = base::MakeUnique<base::DictionaryValue>();
+    auto dict = std::make_unique<base::DictionaryValue>();
     dict->SetString(kNameKey, kName1);
     supervised_users->Set(kUserId1, std::move(dict));
-    dict = base::MakeUnique<base::DictionaryValue>();
+    dict = std::make_unique<base::DictionaryValue>();
     dict->SetString(kNameKey, kName2);
     dict->SetBoolean(kAcknowledgedKey, true);
     supervised_users->Set(kUserId2, std::move(dict));

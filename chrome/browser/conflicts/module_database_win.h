@@ -16,17 +16,25 @@
 #include "base/timer/timer.h"
 #include "chrome/browser/conflicts/module_info_win.h"
 #include "chrome/browser/conflicts/module_inspector_win.h"
-#include "chrome/browser/conflicts/module_list_manager_win.h"
 #include "chrome/browser/conflicts/third_party_metrics_recorder_win.h"
 #include "content/public/common/process_type.h"
 
 class ModuleDatabaseObserver;
+
+#if defined(GOOGLE_CHROME_BUILD)
+class PrefRegistrySimple;
+class ThirdPartyConflictsManager;
+#endif
 
 namespace base {
 class FilePath;
 }
 
 // A class that keeps track of all modules loaded across Chrome processes.
+//
+// It is also the main class behind third-party modules tracking, and owns the
+// different classes that required to identify problematic programs and
+// record metrics.
 //
 // This is effectively a singleton, but doesn't use base::Singleton. The intent
 // is for the object to be created when Chrome is single-threaded, and for it
@@ -107,9 +115,16 @@ class ModuleDatabase {
   // ModuleDatabase becomes idle ASAP.
   void IncreaseInspectionPriority();
 
-  // Accessor for the module list manager. This is exposed so that the manager
-  // can be wired up to the ThirdPartyModuleListComponentInstaller.
-  ModuleListManager& module_list_manager() { return module_list_manager_; }
+#if defined(GOOGLE_CHROME_BUILD)
+  static void RegisterLocalStatePrefs(PrefRegistrySimple* registry);
+
+  // Accessor for the third party conflicts manager. This is exposed so that the
+  // manager can be wired up to the ThirdPartyModuleListComponentInstaller.
+  // Returns null if the tracking of incompatible applications is disabled.
+  ThirdPartyConflictsManager* third_party_conflicts_manager() {
+    return third_party_conflicts_manager_.get();
+  }
+#endif
 
  private:
   friend class TestModuleDatabase;
@@ -158,11 +173,25 @@ class ModuleDatabase {
   // OnNewModuleFound().
   void NotifyLoadedModules(ModuleDatabaseObserver* observer);
 
+#if defined(GOOGLE_CHROME_BUILD)
+  // Initializes the ThirdPartyConflictsManager, which controls the warning of
+  // incompatible applications that injects into Chrome.
+  // The manager is not initialized if it is disabled via a base::Feature or a
+  // group policy. Note that it is also not initialized on Windows version
+  // 8.1 and less.
+  void MaybeInitializeThirdPartyConflictsManager();
+#endif
+
   // The task runner to which this object is bound.
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
 
   // A map of all known modules.
   ModuleMap modules_;
+
+  base::Timer idle_timer_;
+
+  // Indicates if the ModuleDatabase has started processing module load events.
+  bool has_started_processing_;
 
   // Indicates if all shell extensions have been enumerated.
   bool shell_extensions_enumerated_;
@@ -173,17 +202,15 @@ class ModuleDatabase {
   // Inspects new modules on a blocking task runner.
   ModuleInspector module_inspector_;
 
-  // Keeps track of where the most recent module list is located on disk, and
-  // provides notifications when this changes.
-  ModuleListManager module_list_manager_;
+  // Holds observers.
   base::ObserverList<ModuleDatabaseObserver> observer_list_;
 
+#if defined(GOOGLE_CHROME_BUILD)
+  std::unique_ptr<ThirdPartyConflictsManager> third_party_conflicts_manager_;
+#endif
+
+  // Records metrics on third-party modules.
   ThirdPartyMetricsRecorder third_party_metrics_;
-
-  // Indicates if the ModuleDatabase has started processing module load events.
-  bool has_started_processing_;
-
-  base::Timer idle_timer_;
 
   // Weak pointer factory for this object. This is used when bouncing
   // incoming events to |task_runner_|.

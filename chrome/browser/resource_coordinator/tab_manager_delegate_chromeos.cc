@@ -93,11 +93,11 @@ using LoadTabListAndArcProcessesCallback =
 void LoadTabListAndArcProcesses(base::WeakPtr<TabManager> tab_manager,
                                 LoadTabListAndArcProcessesCallback callback) {
   std::unique_ptr<TabStatsList> tab_stats_list =
-      base::MakeUnique<TabStatsList>();
+      std::make_unique<TabStatsList>();
   TabStatsList* const tab_stats_list_raw = tab_stats_list.get();
 
   std::unique_ptr<std::vector<arc::ArcProcess>> arc_processes =
-      base::MakeUnique<std::vector<arc::ArcProcess>>();
+      std::make_unique<std::vector<arc::ArcProcess>>();
   std::vector<arc::ArcProcess>* const arc_processes_raw = arc_processes.get();
 
   // Invoked when the TabStatsList is loaded and when the list of ARC processes
@@ -141,7 +141,7 @@ void LoadTabListAndArcProcesses(base::WeakPtr<TabManager> tab_manager,
   }
 
   // Invoked when the list of ARC processes is loaded.
-  auto request_app_process_list_callback = base::Bind(
+  auto request_app_process_list_callback = base::BindRepeating(
       [](std::vector<arc::ArcProcess>* arc_processes_dest,
          base::RepeatingClosure barrier,
          std::vector<arc::ArcProcess> arc_processes_src) {

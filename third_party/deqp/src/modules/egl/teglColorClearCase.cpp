@@ -244,7 +244,8 @@ void SingleThreadColorClearCase::executeForContexts (EGLDisplay display, EGLSurf
 
 	// Compare images
 	{
-		bool imagesOk = tcu::pixelThresholdCompare(log, "ComparisonResult", "Image comparison result", refFrame, frame, RGBA(1,1,1,1) + pixelFmt.getColorThreshold(), tcu::COMPARE_LOG_RESULT);
+		tcu::RGBA eps = pixelFmt.alphaBits == 1 ? RGBA(1,1,1,127) : RGBA(1,1,1,1);
+		bool imagesOk = tcu::pixelThresholdCompare(log, "ComparisonResult", "Image comparison result", refFrame, frame, eps + pixelFmt.getColorThreshold(), tcu::COMPARE_LOG_RESULT);
 
 		if (!imagesOk)
 			m_testCtx.setTestResult(QP_TEST_RESULT_FAIL, "Image comparison failed");
@@ -309,6 +310,7 @@ public:
 			// Signal completion.
 			packetIter->signal->increment();
 		}
+		m_egl.releaseThread();
 	}
 
 private:
@@ -430,7 +432,8 @@ void MultiThreadColorClearCase::executeForContexts (EGLDisplay display, EGLSurfa
 
 	// Compare images
 	{
-		bool imagesOk = tcu::pixelThresholdCompare(log, "ComparisonResult", "Image comparison result", refFrame, frame, RGBA(1,1,1,1) + pixelFmt.getColorThreshold(), tcu::COMPARE_LOG_RESULT);
+		tcu::RGBA eps = pixelFmt.alphaBits == 1 ? RGBA(1,1,1,127) : RGBA(1,1,1,1);
+		bool imagesOk = tcu::pixelThresholdCompare(log, "ComparisonResult", "Image comparison result", refFrame, frame, eps + pixelFmt.getColorThreshold(), tcu::COMPARE_LOG_RESULT);
 
 		if (!imagesOk)
 			m_testCtx.setTestResult(QP_TEST_RESULT_FAIL, "Image comparison failed");

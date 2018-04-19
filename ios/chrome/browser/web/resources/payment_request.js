@@ -182,7 +182,8 @@ var SerializedPaymentResponse;
       amount, amountName) {
     // Convert the value to String if it isn't already one.
     amount.value = String(amount.value);
-    if (amount.value > __gCrWeb['paymentRequestManager'].MAX_STRING_LENGTH) {
+    if (amount.value.length >
+        __gCrWeb['paymentRequestManager'].MAX_STRING_LENGTH) {
       throw new TypeError(
           amountName + ' value cannot be longer than ' +
           __gCrWeb['paymentRequestManager'].MAX_STRING_LENGTH + ' characters');
@@ -1018,6 +1019,38 @@ function PaymentRequest(methodData, details, opt_options) {
   this.shippingAddress = null;
   this.shippingOption = null;
   this.shippingType = null;
+
+  // Tracks the event handler registered via
+  // PaymentRequest.prototype.onshippingaddresschange.
+  this.shippingAddressChangeHandler = null;
+
+  Object.defineProperty(this, 'onshippingaddresschange', {
+    set(handler) {
+      if (this.shippingAddressChangeHandler) {
+        this.removeEventListener(
+            'shippingaddresschange', this.shippingAddressChangeHandler);
+      }
+      this.shippingAddressChangeHandler = handler;
+      this.addEventListener('shippingaddresschange', handler);
+    },
+    configurable: true
+  });
+
+  // Tracks the event handler registered via
+  // PaymentRequest.prototype.onshippingoptionchange.
+  this.shippingOptionChangeHandler = null;
+
+  Object.defineProperty(this, 'onshippingoptionchange', {
+    set(handler) {
+      if (this.shippingOptionChangeHandler) {
+        this.removeEventListener(
+            'shippingoptionchange', this.shippingOptionChangeHandler);
+      }
+      this.shippingOptionChangeHandler = handler;
+      this.addEventListener('shippingoptionchange', handler);
+    },
+    configurable: true
+  });
 
   /**
    * The state of this request, used to govern its lifecycle.

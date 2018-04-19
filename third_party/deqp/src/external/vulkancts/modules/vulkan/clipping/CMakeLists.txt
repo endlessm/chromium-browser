@@ -3,12 +3,10 @@ include_directories(..)
 set(DEQP_VK_CLIPPING_SRCS
 	vktClippingTests.cpp
 	vktClippingTests.hpp
-	vktClippingUtil.cpp
-	vktClippingUtil.hpp
 	)
 
 set(DEQP_VK_CLIPPING_LIBS
-	deqp-vk-common
+	deqp-vk-package
 	tcutil
 	vkutil
 	)

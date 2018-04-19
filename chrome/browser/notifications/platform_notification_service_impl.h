@@ -21,11 +21,11 @@
 #include "base/strings/string16.h"
 #include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "content/public/browser/platform_notification_service.h"
 #include "content/public/common/persistent_notification_status.h"
 #include "third_party/WebKit/public/platform/modules/permissions/permission_status.mojom.h"
-#include "ui/message_center/notification.h"
+#include "ui/message_center/public/cpp/notification.h"
 
 class NotificationDelegate;
 class ScopedKeepAlive;

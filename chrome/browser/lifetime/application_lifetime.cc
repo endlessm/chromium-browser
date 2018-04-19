@@ -27,11 +27,11 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/user_manager.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_constants.h"
-#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "components/keep_alive_registry/keep_alive_registry.h"
+#include "components/language/core/common/locale_util.h"
 #include "components/metrics/metrics_service.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
@@ -53,6 +53,10 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_policy_controller.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
+#endif
+
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#include "chrome/browser/ui/user_manager.h"
 #endif
 
 #if defined(OS_WIN)
@@ -104,8 +108,9 @@ bool SetLocaleForNextStart(PrefService* local_state) {
 
   // Login screen should show up in owner's locale.
   std::string owner_locale = local_state->GetString(prefs::kOwnerLocale);
-  if (!owner_locale.empty() &&
-      local_state->GetString(prefs::kApplicationLocale) != owner_locale &&
+  std::string pref_locale = local_state->GetString(prefs::kApplicationLocale);
+  language::ConvertToActualUILocale(&pref_locale);
+  if (!owner_locale.empty() && pref_locale != owner_locale &&
       !local_state->IsManagedPreference(prefs::kApplicationLocale)) {
     local_state->SetString(prefs::kApplicationLocale, owner_locale);
     return true;
@@ -365,7 +370,7 @@ void SessionEnding() {
   // termination as soon as it hides or destroys its windows. Since any
   // execution past that point will be non-deterministically cut short, we
   // might as well put ourselves out of that misery deterministically.
-  base::Process::Current().Terminate(0, false);
+  base::Process::TerminateCurrentProcessImmediately(0);
 }
 
 void ShutdownIfNeeded() {

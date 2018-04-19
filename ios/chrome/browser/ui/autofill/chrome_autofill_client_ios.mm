@@ -23,6 +23,7 @@
 #include "ios/chrome/browser/autofill/address_normalizer_factory.h"
 #include "ios/chrome/browser/autofill/personal_data_manager_factory.h"
 #include "ios/chrome/browser/infobars/infobar_utils.h"
+#include "ios/chrome/browser/signin/identity_manager_factory.h"
 #import "ios/chrome/browser/ssl/insecure_input_tab_helper.h"
 #include "ios/chrome/browser/ui/autofill/card_unmask_prompt_view_bridge.h"
 #include "ios/chrome/browser/web_data_service_factory.h"
@@ -39,14 +40,14 @@ ChromeAutofillClientIOS::ChromeAutofillClientIOS(
     web::WebState* web_state,
     infobars::InfoBarManager* infobar_manager,
     id<AutofillClientIOSBridge> bridge,
-    password_manager::PasswordGenerationManager* password_generation_manager,
-    std::unique_ptr<IdentityProvider> identity_provider)
+    password_manager::PasswordGenerationManager* password_generation_manager)
     : pref_service_(browser_state->GetPrefs()),
       personal_data_manager_(PersonalDataManagerFactory::GetForBrowserState(
           browser_state->GetOriginalChromeBrowserState())),
       web_state_(web_state),
       bridge_(bridge),
-      identity_provider_(std::move(identity_provider)),
+      identity_manager_(IdentityManagerFactory::GetForBrowserState(
+          browser_state->GetOriginalChromeBrowserState())),
       autofill_web_data_service_(
           ios::WebDataServiceFactory::GetAutofillWebDataForBrowserState(
               browser_state,
@@ -58,6 +59,11 @@ ChromeAutofillClientIOS::ChromeAutofillClientIOS(
 
 ChromeAutofillClientIOS::~ChromeAutofillClientIOS() {
   HideAutofillPopup();
+}
+
+void ChromeAutofillClientIOS::SetBaseViewController(
+    UIViewController* base_view_controller) {
+  base_view_controller_ = base_view_controller;
 }
 
 PersonalDataManager* ChromeAutofillClientIOS::GetPersonalDataManager() {
@@ -73,8 +79,8 @@ syncer::SyncService* ChromeAutofillClientIOS::GetSyncService() {
   return nullptr;
 }
 
-IdentityProvider* ChromeAutofillClientIOS::GetIdentityProvider() {
-  return identity_provider_.get();
+identity::IdentityManager* ChromeAutofillClientIOS::GetIdentityManager() {
+  return identity_manager_;
 }
 
 ukm::UkmRecorder* ChromeAutofillClientIOS::GetUkmRecorder() {
@@ -103,8 +109,9 @@ void ChromeAutofillClientIOS::ShowUnmaskPrompt(
   unmask_controller_.ShowPrompt(
       // autofill::CardUnmaskPromptViewBridge manages its own lifetime, so
       // do not use std::unique_ptr<> here.
-      new autofill::CardUnmaskPromptViewBridge(&unmask_controller_), card,
-      reason, delegate);
+      new autofill::CardUnmaskPromptViewBridge(&unmask_controller_,
+                                               base_view_controller_),
+      card, reason, delegate);
 }
 
 void ChromeAutofillClientIOS::OnUnmaskVerificationResult(

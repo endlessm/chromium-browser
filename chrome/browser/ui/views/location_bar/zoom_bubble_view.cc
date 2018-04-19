@@ -180,9 +180,9 @@ void ZoomBubbleView::ShowBubble(content::WebContents* web_contents,
 
   views::Widget* zoom_bubble_widget =
       views::BubbleDialogDelegateView::CreateBubble(zoom_bubble_);
-  if (anchor_view) {
-    zoom_bubble_widget->AddObserver(
-        browser_view->GetLocationBarView()->zoom_view());
+  if (zoom_bubble_widget && anchor_view) {
+    browser_view->GetLocationBarView()->zoom_view()->OnBubbleWidgetCreated(
+        zoom_bubble_widget);
   }
 #else
   gfx::NativeView parent =
@@ -417,8 +417,9 @@ void ZoomBubbleView::OnExtensionIconImageChanged(
   image_button_->SchedulePaint();
 }
 
-void ZoomBubbleView::WasHidden() {
-  CloseBubble();
+void ZoomBubbleView::OnVisibilityChanged(content::Visibility visibility) {
+  if (visibility == content::Visibility::HIDDEN)
+    CloseBubble();
 }
 
 void ZoomBubbleView::WebContentsDestroyed() {
@@ -465,7 +466,7 @@ void ZoomBubbleView::SetExtensionInfo(const extensions::Extension* extension) {
 void ZoomBubbleView::UpdateZoomPercent() {
   label_->SetText(base::FormatPercent(
       zoom::ZoomController::FromWebContents(web_contents())->GetZoomPercent()));
-  label_->NotifyAccessibilityEvent(ui::AX_EVENT_TEXT_CHANGED, true);
+  label_->NotifyAccessibilityEvent(ax::mojom::Event::kTextChanged, true);
 }
 
 void ZoomBubbleView::UpdateZoomIconVisibility() {

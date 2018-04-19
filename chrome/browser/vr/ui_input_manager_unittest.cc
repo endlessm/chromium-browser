@@ -17,6 +17,7 @@
 #include "chrome/browser/vr/test/constants.h"
 #include "chrome/browser/vr/test/mock_content_input_delegate.h"
 #include "chrome/browser/vr/test/ui_test.h"
+#include "chrome/browser/vr/ui_renderer.h"
 #include "chrome/browser/vr/ui_scene.h"
 #include "chrome/browser/vr/ui_scene_constants.h"
 #include "chrome/browser/vr/ui_scene_creator.h"
@@ -31,8 +32,12 @@ using ::testing::StrictMock;
 
 namespace vr {
 
+namespace {
+
 constexpr UiInputManager::ButtonState kUp = UiInputManager::ButtonState::UP;
 constexpr UiInputManager::ButtonState kDown = UiInputManager::ButtonState::DOWN;
+
+constexpr gfx::Size kWindowSize = {1280, 720};
 
 class MockRect : public Rect {
  public:
@@ -45,8 +50,8 @@ class MockRect : public Rect {
   MOCK_METHOD1(OnButtonDown, void(const gfx::PointF& position));
   MOCK_METHOD1(OnButtonUp, void(const gfx::PointF& position));
   MOCK_METHOD1(OnFocusChanged, void(bool));
-  MOCK_METHOD1(OnInputEdited, void(const TextInputInfo&));
-  MOCK_METHOD1(OnInputCommitted, void(const TextInputInfo&));
+  MOCK_METHOD1(OnInputEdited, void(const EditedText&));
+  MOCK_METHOD1(OnInputCommitted, void(const EditedText&));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockRect);
@@ -55,14 +60,12 @@ class MockRect : public Rect {
 class MockTextInput : public TextInput {
  public:
   MockTextInput()
-      : TextInput(1,
-                  base::RepeatingCallback<void(bool)>(),
-                  base::RepeatingCallback<void(const TextInputInfo&)>()) {}
+      : TextInput(1, base::RepeatingCallback<void(const EditedText&)>()) {}
   ~MockTextInput() override = default;
 
   MOCK_METHOD1(OnFocusChanged, void(bool));
-  MOCK_METHOD1(OnInputEdited, void(const TextInputInfo&));
-  MOCK_METHOD1(OnInputCommitted, void(const TextInputInfo&));
+  MOCK_METHOD1(OnInputEdited, void(const EditedText&));
+  MOCK_METHOD1(OnInputCommitted, void(const EditedText&));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockTextInput);
@@ -79,6 +82,7 @@ class UiInputManagerTest : public testing::Test {
     auto element = std::make_unique<StrictMock<MockRect>>();
     StrictMock<MockRect>* p_element = element.get();
     element->SetTranslate(0, 0, z_position);
+    element->set_hit_testable(true);
     scene_->AddUiElement(kRoot, std::move(element));
     scene_->OnBeginFrame(base::TimeTicks(), kStartHeadPose);
     return p_element;
@@ -88,6 +92,7 @@ class UiInputManagerTest : public testing::Test {
     auto element = std::make_unique<StrictMock<MockTextInput>>();
     StrictMock<MockTextInput>* p_element = element.get();
     element->SetTranslate(0, 0, z_position);
+    element->set_hit_testable(true);
     scene_->AddUiElement(kRoot, std::move(element));
     scene_->OnBeginFrame(base::TimeTicks(), kStartHeadPose);
     return p_element;
@@ -101,10 +106,11 @@ class UiInputManagerTest : public testing::Test {
   void HandleInput(const gfx::Point3F& laser_origin,
                    const gfx::Vector3dF& laser_direction,
                    UiInputManager::ButtonState button_state) {
+    RenderInfo render_info;
     controller_model_.laser_direction = laser_direction;
     controller_model_.laser_origin = laser_origin;
     controller_model_.touchpad_button_state = button_state;
-    input_manager_->HandleInput(MsToTicks(1), controller_model_,
+    input_manager_->HandleInput(MsToTicks(1), render_info, controller_model_,
                                 &reticle_model_, &gesture_list_);
   }
 
@@ -126,13 +132,33 @@ class UiInputManagerContentTest : public UiTest {
   }
 
  protected:
+  RenderInfo CreateRenderInfo() {
+    RenderInfo render_info;
+    gfx::Transform projection_matrix(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0,
+                                     -1, 0.5);
+    projection_matrix.Scale(
+        1.0f, static_cast<float>(kWindowSize.width()) / kWindowSize.height());
+
+    render_info.head_pose = head_pose_;
+    render_info.surface_texture_size = kWindowSize;
+    render_info.left_eye_model.viewport = gfx::Rect(kWindowSize);
+    render_info.left_eye_model.view_matrix = head_pose_;
+    render_info.left_eye_model.proj_matrix = projection_matrix;
+    render_info.left_eye_model.view_proj_matrix =
+        projection_matrix * head_pose_;
+    render_info.right_eye_model = render_info.left_eye_model;
+
+    return render_info;
+  }
+
+  gfx::Transform head_pose_;
   UiInputManager* input_manager_;
 };
 
 TEST_F(UiInputManagerTest, FocusedElement) {
   StrictMock<MockTextInput>* p_element1 = CreateAndAddMockInputElement(-5.f);
   StrictMock<MockTextInput>* p_element2 = CreateAndAddMockInputElement(-5.f);
-  TextInputInfo edit(base::ASCIIToUTF16("asdfg"));
+  EditedText edit(base::ASCIIToUTF16("asdfg"));
 
   // Focus request triggers OnFocusChanged.
   testing::Sequence s;
@@ -208,6 +234,7 @@ TEST_F(UiInputManagerTest, ReticleRenderTarget) {
   auto element = std::make_unique<Rect>();
   UiElement* p_element = element.get();
   element->SetTranslate(0, 0, -1.f);
+  element->set_hit_testable(true);
   scene_->AddUiElement(kRoot, std::move(element));
   scene_->OnBeginFrame(base::TimeTicks(), kStartHeadPose);
 
@@ -218,13 +245,13 @@ TEST_F(UiInputManagerTest, ReticleRenderTarget) {
   ReticleModel reticle_model;
   GestureList gesture_list;
 
-  input_manager_->HandleInput(MsToTicks(1), controller_model, &reticle_model,
-                              &gesture_list);
+  input_manager_->HandleInput(MsToTicks(1), RenderInfo(), controller_model,
+                              &reticle_model, &gesture_list);
   EXPECT_EQ(0, reticle_model.target_element_id);
 
   controller_model.laser_direction = kForwardVector;
-  input_manager_->HandleInput(MsToTicks(1), controller_model, &reticle_model,
-                              &gesture_list);
+  input_manager_->HandleInput(MsToTicks(1), RenderInfo(), controller_model,
+                              &reticle_model, &gesture_list);
   EXPECT_EQ(p_element->id(), reticle_model.target_element_id);
   EXPECT_NEAR(-1.0, reticle_model.target_point.z(), kEpsilon);
 }
@@ -343,11 +370,11 @@ TEST_F(UiInputManagerTest, HitTestStrategy) {
   auto* p_element = element.get();
   element->SetTranslate(0, 0, -2.5);
   element->SetSize(1000.0f, 1000.0f);
+  element->set_hit_testable(true);
   scene_->AddUiElement(kRoot, std::move(element));
   scene_->OnBeginFrame(base::TimeTicks(), kStartHeadPose);
 
-  gfx::Point3F center;
-  p_element->world_space_transform().TransformPoint(&center);
+  gfx::Point3F center = p_element->GetCenter();
   gfx::Point3F laser_origin(0.5, -0.5, 0.0);
 
   HandleInput(laser_origin, center - laser_origin, kDown);
@@ -375,8 +402,7 @@ TEST_F(UiInputManagerContentTest, NoMouseMovesDuringClick) {
   // parameters to HandleInput.
   UiElement* content_quad =
       scene_->GetUiElementByName(UiElementName::kContentQuad);
-  gfx::Point3F content_quad_center;
-  content_quad->world_space_transform().TransformPoint(&content_quad_center);
+  gfx::Point3F content_quad_center = content_quad->GetCenter();
   gfx::Point3F origin;
 
   ControllerModel controller_model;
@@ -385,8 +411,8 @@ TEST_F(UiInputManagerContentTest, NoMouseMovesDuringClick) {
   controller_model.touchpad_button_state = UiInputManager::ButtonState::DOWN;
   ReticleModel reticle_model;
   GestureList gesture_list;
-  input_manager_->HandleInput(MsToTicks(1), controller_model, &reticle_model,
-                              &gesture_list);
+  input_manager_->HandleInput(MsToTicks(1), RenderInfo(), controller_model,
+                              &reticle_model, &gesture_list);
 
   // We should have hit the content quad if our math was correct.
   ASSERT_NE(0, reticle_model.target_element_id);
@@ -397,8 +423,8 @@ TEST_F(UiInputManagerContentTest, NoMouseMovesDuringClick) {
   // set the expected number of calls to zero.
   EXPECT_CALL(*content_input_delegate_, OnContentMove(testing::_)).Times(0);
 
-  input_manager_->HandleInput(MsToTicks(1), controller_model, &reticle_model,
-                              &gesture_list);
+  input_manager_->HandleInput(MsToTicks(1), RenderInfo(), controller_model,
+                              &reticle_model, &gesture_list);
 }
 
 TEST_F(UiInputManagerContentTest, ExitPromptHitTesting) {
@@ -407,8 +433,7 @@ TEST_F(UiInputManagerContentTest, ExitPromptHitTesting) {
 
   UiElement* exit_prompt =
       scene_->GetUiElementByName(UiElementName::kExitPrompt);
-  gfx::Point3F exit_prompt_center;
-  exit_prompt->world_space_transform().TransformPoint(&exit_prompt_center);
+  gfx::Point3F exit_prompt_center = exit_prompt->GetCenter();
   gfx::Point3F origin;
 
   ControllerModel controller_model;
@@ -417,8 +442,8 @@ TEST_F(UiInputManagerContentTest, ExitPromptHitTesting) {
   controller_model.touchpad_button_state = UiInputManager::ButtonState::DOWN;
   ReticleModel reticle_model;
   GestureList gesture_list;
-  input_manager_->HandleInput(MsToTicks(1), controller_model, &reticle_model,
-                              &gesture_list);
+  input_manager_->HandleInput(MsToTicks(1), RenderInfo(), controller_model,
+                              &reticle_model, &gesture_list);
 
   // We should have hit the exit prompt if our math was correct.
   ASSERT_NE(0, reticle_model.target_element_id);
@@ -431,8 +456,7 @@ TEST_F(UiInputManagerContentTest, AudioPermissionPromptHitTesting) {
   EXPECT_TRUE(RunFor(MsToDelta(500)));
 
   UiElement* url_bar = scene_->GetUiElementByName(UiElementName::kUrlBar);
-  gfx::Point3F url_bar_center;
-  url_bar->world_space_transform().TransformPoint(&url_bar_center);
+  gfx::Point3F url_bar_center = url_bar->GetCenter();
   gfx::Point3F origin;
 
   ControllerModel controller_model;
@@ -441,14 +465,16 @@ TEST_F(UiInputManagerContentTest, AudioPermissionPromptHitTesting) {
   controller_model.touchpad_button_state = UiInputManager::ButtonState::DOWN;
   ReticleModel reticle_model;
   GestureList gesture_list;
-  input_manager_->HandleInput(MsToTicks(1), controller_model, &reticle_model,
-                              &gesture_list);
+  input_manager_->HandleInput(MsToTicks(1), RenderInfo(), controller_model,
+                              &reticle_model, &gesture_list);
 
   // Even if the reticle is over the URL bar, the backplane should be in front
   // and should be hit.
   ASSERT_NE(0, reticle_model.target_element_id);
-  EXPECT_EQ(scene_->GetUiElementByName(kAudioPermissionPromptBackplane)->id(),
-            reticle_model.target_element_id);
+  auto& backplane =
+      scene_->GetUiElementByName(kAudioPermissionPrompt)->children().front();
+  EXPECT_EQ(backplane->type(), kTypePromptBackplane);
+  EXPECT_EQ(backplane->id(), reticle_model.target_element_id);
 }
 
 TEST_F(UiInputManagerContentTest, TreeVsZOrder) {
@@ -457,8 +483,7 @@ TEST_F(UiInputManagerContentTest, TreeVsZOrder) {
   // parameters to HandleInput.
   UiElement* content_quad =
       scene_->GetUiElementByName(UiElementName::kContentQuad);
-  gfx::Point3F content_quad_center;
-  content_quad->world_space_transform().TransformPoint(&content_quad_center);
+  gfx::Point3F content_quad_center = content_quad->GetCenter();
   gfx::Point3F origin;
 
   ControllerModel controller_model;
@@ -467,8 +492,8 @@ TEST_F(UiInputManagerContentTest, TreeVsZOrder) {
   controller_model.touchpad_button_state = UiInputManager::ButtonState::DOWN;
   ReticleModel reticle_model;
   GestureList gesture_list;
-  input_manager_->HandleInput(MsToTicks(1), controller_model, &reticle_model,
-                              &gesture_list);
+  input_manager_->HandleInput(MsToTicks(1), RenderInfo(), controller_model,
+                              &reticle_model, &gesture_list);
 
   // We should have hit the content quad if our math was correct.
   ASSERT_NE(0, reticle_model.target_element_id);
@@ -478,13 +503,59 @@ TEST_F(UiInputManagerContentTest, TreeVsZOrder) {
   content_quad->SetTranslate(0, 0, -1.0);
   OnBeginFrame();
 
-  input_manager_->HandleInput(MsToTicks(1), controller_model, &reticle_model,
-                              &gesture_list);
+  input_manager_->HandleInput(MsToTicks(1), RenderInfo(), controller_model,
+                              &reticle_model, &gesture_list);
 
   // We should have hit the content quad even though, geometrically, it stacks
   // behind the backplane.
   ASSERT_NE(0, reticle_model.target_element_id);
   EXPECT_EQ(content_quad->id(), reticle_model.target_element_id);
 }
+
+TEST_F(UiInputManagerContentTest, ControllerRestingInViewport) {
+  gfx::Point3F controller_center(0.5f, 0.5f, 0.f);
+
+  head_pose_ = gfx::Transform(
+      gfx::Quaternion(kForwardVector, controller_center - kOrigin));
+
+  ControllerModel controller_model;
+  controller_model.laser_direction = kForwardVector;
+  controller_model.transform.Translate3d(
+      controller_center.x(), controller_center.y(), controller_center.z());
+  controller_model.laser_origin = controller_center;
+  ReticleModel reticle_model;
+  GestureList gesture_list;
+  RenderInfo render_info = CreateRenderInfo();
+
+  // The controller is initially not in the viewport.
+  EXPECT_FALSE(input_manager_->controller_resting_in_viewport());
+
+  input_manager_->HandleInput(MsToTicks(1), render_info, controller_model,
+                              &reticle_model, &gesture_list);
+  ui_->OnControllerUpdated(controller_model, reticle_model);
+  scene_->OnBeginFrame(base::TimeTicks(), head_pose_);
+
+  // Although we are currently looking at the controller, it is not focused yet.
+  // It must remain in the viewport for the requisite amount of time.
+  EXPECT_FALSE(input_manager_->controller_resting_in_viewport());
+
+  input_manager_->HandleInput(MsToTicks(50000), render_info, controller_model,
+                              &reticle_model, &gesture_list);
+  ui_->OnControllerUpdated(controller_model, reticle_model);
+  scene_->OnBeginFrame(base::TimeTicks(), head_pose_);
+
+  // Since the controller has been in the viewport for a long time (50s), it
+  // must report that it is focused.
+  EXPECT_TRUE(input_manager_->controller_resting_in_viewport());
+
+  ui_->OnControllerUpdated(controller_model, reticle_model);
+  scene_->OnBeginFrame(base::TimeTicks(), head_pose_);
+
+  EXPECT_TRUE(model_->controller.resting_in_viewport);
+
+  EXPECT_TRUE(IsVisible(kControllerTrackpadLabel));
+}
+
+}  // namespace
 
 }  // namespace vr

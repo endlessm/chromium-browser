@@ -424,7 +424,6 @@ void NavigationSimulator::Commit() {
   params.http_status_code = 200;
   params.history_list_was_cleared = false;
   params.original_request_url = navigation_url_;
-  params.was_within_same_document = same_document_;
 
   // Simulate Blink assigning an item and document sequence number to the
   // navigation.
@@ -435,11 +434,11 @@ void NavigationSimulator::Commit() {
       navigation_url_, params.item_sequence_number,
       params.document_sequence_number);
 
-  if (params.was_within_same_document)
+  if (same_document_)
     interface_provider_request_ = nullptr;
 
   render_frame_host_->SendNavigateWithParamsAndInterfaceProvider(
-      &params, std::move(interface_provider_request_));
+      &params, std::move(interface_provider_request_), same_document_);
 
   // Simulate the UnloadACK in the old RenderFrameHost if it was swapped out at
   // commit time.
@@ -522,7 +521,6 @@ void NavigationSimulator::CommitErrorPage() {
   params.url = navigation_url_;
   params.referrer = referrer_;
   params.transition = transition_;
-  params.was_within_same_document = false;
   params.url_is_unreachable = true;
 
   // Simulate Blink assigning an item and document sequence number to the
@@ -535,7 +533,8 @@ void NavigationSimulator::CommitErrorPage() {
       params.document_sequence_number);
 
   render_frame_host_->SendNavigateWithParamsAndInterfaceProvider(
-      &params, std::move(interface_provider_request_));
+      &params, std::move(interface_provider_request_),
+      false /* was_same_document */);
 
   // Simulate the UnloadACK in the old RenderFrameHost if it was swapped out at
   // commit time.
@@ -577,13 +576,12 @@ void NavigationSimulator::CommitSameDocument() {
   params.http_status_code = 200;
   params.history_list_was_cleared = false;
   params.original_request_url = navigation_url_;
-  params.was_within_same_document = true;
   params.page_state =
       PageState::CreateForTesting(navigation_url_, false, nullptr, nullptr);
 
   interface_provider_request_ = nullptr;
   render_frame_host_->SendNavigateWithParamsAndInterfaceProvider(
-      &params, nullptr /* interface_provider_request */);
+      &params, nullptr /* interface_provider_request */, true);
 
   state_ = FINISHED;
 
@@ -791,16 +789,12 @@ bool NavigationSimulator::SimulateBrowserInitiatedStart() {
   request =
       web_contents_->GetMainFrame()->frame_tree_node()->navigation_request();
   if (!request) {
-    if (web_contents_->GetMainFrame()->navigation_handle() == handle_) {
-      DCHECK(handle_->IsSameDocument() ||
-             !IsURLHandledByNetworkStack(handle_->GetURL()));
-      same_document_ = handle_->IsSameDocument();
-      return true;
-    } else if (IsRendererDebugURL(navigation_url_)) {
-      // There is no DidStartNavigation for renderer-debug URLs and the
-      // NavigationHandle has already been passed to the main frame for commit.
-      // Register it now.
-      handle_ = web_contents_->GetMainFrame()->navigation_handle();
+    if (IsRendererDebugURL(navigation_url_)) {
+      // We don't create NavigationRequests nor NavigationHandles for a
+      // navigation to a renderer-debug URL. Instead, the URL is passed to the
+      // current RenderFrameHost so that the renderer process can handle it.
+      DCHECK(!handle_);
+      DCHECK(web_contents_->GetMainFrame()->is_loading());
 
       // A navigation to a renderer-debug URL cannot commit. Simulate the
       // renderer process aborting it.
@@ -809,6 +803,18 @@ bool NavigationSimulator::SimulateBrowserInitiatedStart() {
               web_contents_->GetMainFrame()->GetRoutingID()));
       state_ = FAILED;
       return false;
+    } else if (web_contents_->GetMainFrame()->GetNavigationHandle() ==
+               handle_) {
+      DCHECK(!IsURLHandledByNetworkStack(handle_->GetURL()));
+      return true;
+    } else if (web_contents_->GetMainFrame()
+                   ->same_document_navigation_request() &&
+               web_contents_->GetMainFrame()
+                       ->same_document_navigation_request()
+                       ->navigation_handle() == handle_) {
+      DCHECK(handle_->IsSameDocument());
+      same_document_ = true;
+      return true;
     }
     return false;
   }
@@ -826,7 +832,7 @@ bool NavigationSimulator::SimulateRendererInitiatedStart() {
           false /* is_form_submission */, GURL() /* searchable_form_url */,
           std::string() /* searchable_form_encoding */, url::Origin(),
           GURL() /* client_side_redirect_url */,
-          base::nullopt /* suggested_filename */);
+          nullptr /* detools_initiator_info */);
   CommonNavigationParams common_params;
   common_params.url = navigation_url_;
   common_params.method = initial_method_;

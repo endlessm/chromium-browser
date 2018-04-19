@@ -3,7 +3,6 @@
 # found in the LICENSE file.
 
 import logging
-import os
 import time
 
 from telemetry.core import exceptions
@@ -21,30 +20,12 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     super(CrOSBrowserBackend, self).__init__(
         cros_platform_backend,
         browser_options=browser_options,
+        browser_directory=browser_directory,
+        profile_directory=profile_directory,
         supports_extensions=not is_guest,
         supports_tab_control=True)
-    self._browser_directory = browser_directory
-    self._profile_directory = profile_directory
     self._is_guest = is_guest
     self._cri = cros_platform_backend.cri
-
-    # Copy extensions to temp directories on the device.
-    # Note that we also perform this copy locally to ensure that
-    # the owner of the extensions is set to chronos.
-    for e in self._extensions_to_load:
-      extension_dir = self._cri.RunCmdOnDevice(
-          ['mktemp', '-d', '/tmp/extension_XXXXX'])[0].rstrip()
-      e.local_path = os.path.join(extension_dir, os.path.basename(e.path))
-      self._cri.PushFile(e.path, extension_dir)
-      self._cri.Chown(extension_dir)
-
-    self._cri.RestartUI(self.browser_options.clear_enterprise_policy)
-    py_utils.WaitFor(self.IsBrowserRunning, 20)
-
-    # Delete test user's cryptohome vault (user data directory).
-    if not self.browser_options.dont_override_profile:
-      self._cri.RunCmdOnDevice(['cryptohome', '--action=remove', '--force',
-                                '--user=%s' % self._username])
 
   @property
   def log_file_path(self):
@@ -67,14 +48,6 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
   @property
   def pid(self):
     return self._cri.GetChromePid()
-
-  @property
-  def browser_directory(self):
-    return self._browser_directory
-
-  @property
-  def profile_directory(self):
-    return self._profile_directory
 
   def __del__(self):
     self.Close()
@@ -149,10 +122,6 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
       self._cri.CloseConnection()
 
     py_utils.WaitFor(lambda: not self._IsCryptohomeMounted(), 180)
-
-    if self._cri:
-      for e in self._extensions_to_load:
-        self._cri.RmRF(os.path.dirname(e.local_path))
 
     self._cri = None
 

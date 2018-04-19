@@ -23,8 +23,10 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" /> (HDMI/DP)</translation>
 <translation id="1510238584712386396">Zaganjalnik</translation>
 <translation id="1525508553941733066">OPUSTI</translation>
+<translation id="1537254971476575106">Celozaslonska lupa</translation>
 <translation id="15373452373711364">Velik miškin kazalec</translation>
 <translation id="1550523713251050646">Kliknite za več možnosti</translation>
+<translation id="1608626060424371292">Odstrani tega uporabnika</translation>
 <translation id="1621499497873603021">Preostali čas do izpraznitve akumulatorja, <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">Vašega gesla še ni bilo mogoče preveriti. Opomba: če ste nedavno spremenili geslo, bo novo geslo začelo veljati, ko se odjavite. Tu uporabite starega.</translation>
 <translation id="1677472565718498478">Še <ph name="TIME" /></translation>
@@ -43,12 +45,15 @@
 <translation id="1951012854035635156">Pomočnik</translation>
 <translation id="1957803754585243749">0°</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
+<translation id="1995660704900986789">Izklop</translation>
 <translation id="2012624427112548395">Ctrl+ tipka za iskanje + H</translation>
 <translation id="2049639323467105390">To napravo upravlja <ph name="DOMAIN" />.</translation>
 <translation id="2050339315714019657">Pokončno</translation>
 <translation id="2067602449040652523">Svetlost tipkovnice</translation>
+<translation id="2081529251031312395">$1 se še vedno lahko prijavi pozneje.</translation>
 <translation id="2122028596993374965">Ustavi predvajanje zavihka <ph name="TAB_NAME" /> v napravi <ph name="RECEIVER_NAME" /></translation>
 <translation id="2127372758936585790">Nizkoenergijski polnilnik</translation>
+<translation id="2135456203358955318">Zasidrana lupa</translation>
 <translation id="2144487987174258011">Če želite posodobiti Adobe Flash Player, znova zaženite</translation>
 <translation id="2208323208084708176">Način enotnega namizja</translation>
 <translation id="2220572644011485463">Koda PIN ali geslo</translation>
@@ -73,7 +78,6 @@
 <translation id="2653659639078652383">Pošlji</translation>
 <translation id="2675319268637823299">Skrbnik je prepovedal prijavo z več računi za <ph name="USER_EMAIL" />.
     Če želite nadaljevati, morajo biti odjavljeni vsi uporabniki.</translation>
-<translation id="2700058918926273959">Seja se konča čez <ph name="SESSION_TIME_REMAINING" />. Odjavljeni boste.</translation>
 <translation id="2727977024730340865">Priključen je nizkoenergijski polnilnik. Polnjenje akumulatorja morda ne bo zanesljivo.</translation>
 <translation id="2761704814324807722">Vrstica stanja, čas: <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581">Vnovično vzpostavljanje povezave z omrežjem <ph name="NAME" /></translation>
@@ -83,6 +87,7 @@
 <translation id="2844169650293029770">Naprava USB-C (vrata levo spredaj)</translation>
 <translation id="2865888419503095837">Podatki o omrežju</translation>
 <translation id="2872961005593481000">Zaustavitev</translation>
+<translation id="2878884018241093801">Ni nedavnih elementov</translation>
 <translation id="2903844815300039659">Vzpostavljena povezava z omrežjem <ph name="NAME" />, <ph name="STRENGTH" /></translation>
 <translation id="2911940648265863620">Trenutno imate zaslon v skupni rabi.</translation>
 <translation id="2942516765047364088">Položaj police</translation>
@@ -109,7 +114,6 @@
 <translation id="3413817803639110246">Zaenkrat ni še ničesar</translation>
 <translation id="3445925074670675829">Naprava USB-C</translation>
 <translation id="3465566417615315331">Kliknite fotografijo</translation>
-<translation id="3473479545200714844">Lupa</translation>
 <translation id="3477079411857374384">Control + Shift + preslednica</translation>
 <translation id="3510164367642747937">Označitev miškinega kazalca</translation>
 <translation id="3513798432020909783">Račun upravlja <ph name="MANAGER_EMAIL" /></translation>
@@ -131,6 +135,7 @@
 <translation id="3891340733213178823">Dvakrat pritisnite Ctrl + Shift + Q, če se želite odjaviti.</translation>
 <translation id="3893630138897523026">ChromeVox (izgovorjava povratnih informacij)</translation>
 <translation id="3899995891769452915">Glasovni vnos</translation>
+<translation id="3900355044994618856">Seja se bo končala čez <ph name="SESSION_TIME_REMAINING" /></translation>
 <translation id="3901991538546252627">Vzpostavljanje povezave z omrežjem <ph name="NAME" /></translation>
 <translation id="394485226368336402">Nastavitve zvoka</translation>
 <translation id="397105322502079400">Izračunavanje …</translation>
@@ -139,6 +144,7 @@
 <translation id="4072264167173457037">Srednje močan signal</translation>
 <translation id="4279490309300973883">Zrcaljenje</translation>
 <translation id="4321179778687042513">ctrl</translation>
+<translation id="4331809312908958774">Chrome OS</translation>
 <translation id="4338109981321384717">Povečevalno steklo</translation>
 <translation id="4351433414020964307">Pomočnik se nalaga ...</translation>
 <translation id="4378551569595875038">Povezovanje ...</translation>
@@ -183,6 +189,7 @@
 <translation id="5744083938413354016">Vlečenje z dotikom</translation>
 <translation id="5777841717266010279">Želite ustaviti skupno rabo zaslona?</translation>
 <translation id="57838592816432529">Izklopi zvok</translation>
+<translation id="5820394555380036790">Chromium OS</translation>
 <translation id="5832805196449965646">Dodaj osebo</translation>
 <translation id="5860033963881614850">Izklopljeno</translation>
 <translation id="5895138241574237353">Znova zaženi</translation>
@@ -206,6 +213,7 @@
 <translation id="607652042414456612">Vaš računalnik je viden bližnjim napravam Bluetooth in bo videti kot »<ph name="NAME" />« z naslovom <ph name="ADDRESS" /></translation>
 <translation id="6106745654298855237">Polnjenje: <ph name="POWER_SOURCE" /></translation>
 <translation id="615957422585914272">Pokaži zaslonsko tipkovnico</translation>
+<translation id="6164005077879661055">Vse datoteke in lokalni podatki, povezani z zaščitenim uporabnikom, bodo trajno izbrisani, ko ga odstranite. Obiskana spletna mesta in nastavitve tega uporabnika bodo morda še vedno vidna upravitelju na <ph name="MANAGEMENT_URL" />.</translation>
 <translation id="6165508094623778733">Več o tem</translation>
 <translation id="6267036997247669271"><ph name="NAME" />: Aktiviranje ...</translation>
 <translation id="6284232397434400372">Ločljivost je bila spremenjena</translation>
@@ -240,6 +248,7 @@ Uporabljajte to funkcijo samo z računi, ki jim zaupate.</translation>
 <translation id="6857811139397017780">Aktiviraj <ph name="NETWORKSERVICE" /></translation>
 <translation id="6911468394164995108">Pridružitev drugemu omrežju ...</translation>
 <translation id="6981982820502123353">Dostopnost</translation>
+<translation id="698231206551913481">Vse datoteke in lokalni podatki, povezani s tem uporabnikom, bodo trajno izbrisani, ko odstranite uporabnika.</translation>
 <translation id="7029814467594812963">Zapusti sejo</translation>
 <translation id="7034339000180558234">Predvajanje zavihka v <ph name="TAB_NAME" /> sprejemniku <ph name="RECEIVER_NAME" /></translation>
 <translation id="7052914147756339792">Nastavi sliko za ozadje ...</translation>
@@ -247,6 +256,7 @@ Uporabljajte to funkcijo samo z računi, ki jim zaupate.</translation>
 <translation id="7066646422045619941">To omrežje je onemogočil skrbnik.</translation>
 <translation id="7067196344162293536">Samodejno sukanje</translation>
 <translation id="7098389117866926363">Naprava USB-C (vrata levo zadaj)</translation>
+<translation id="7131634465328662194">Samodejno boste odjavljeni.</translation>
 <translation id="7165278925115064263">Alt + Shift + K</translation>
 <translation id="7168224885072002358">Ponastavitev na prejšnjo ločljivost čez <ph name="TIMEOUT_SECONDS" /></translation>
 <translation id="7256634071279256947">Zadnji mikrofon</translation>
@@ -303,6 +313,7 @@ Uporabljajte to funkcijo samo z računi, ki jim zaupate.</translation>
 <translation id="8484916590211895857"><ph name="NAME" />: Vnovično vzpostavljanje povezave ...</translation>
 <translation id="8517041960877371778">Akumulator naprave <ph name="DEVICE_TYPE" /> se morda ne bo polnil, medtem ko je naprava vklopljena.</translation>
 <translation id="8639760480004882931">Še <ph name="PERCENTAGE" /> %</translation>
+<translation id="8649101189709089199">Izberite in poslušajte</translation>
 <translation id="8652175077544655965">Zapiranje nastavitev</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">Priključen je nizkoenergijski polnilnik</translation>
@@ -312,6 +323,7 @@ Uporabljajte to funkcijo samo z računi, ki jim zaupate.</translation>
 Nadaljnja obvestila, okna in pogovorna okna so lahko razdeljena med namizji.</translation>
 <translation id="8825534185036233643">Zrcaljenje z več kot dvema zaslonoma ni podprto.</translation>
 <translation id="8828714802988429505">90°</translation>
+<translation id="8841375032071747811">Gumb za nazaj</translation>
 <translation id="8850991929411075241">Iskanje + Esc</translation>
 <translation id="8870509716567206129">Aplikacija ne podpira načina razdeljenega zaslona.</translation>
 <translation id="8878886163241303700">Razširjanje zaslona</translation>

@@ -55,6 +55,34 @@ std::string getOpTypeImageComponent (const tcu::TextureFormat& format)
 	}
 }
 
+std::string getImageComponentTypeName (const tcu::TextureFormat& format)
+{
+	switch (tcu::getTextureChannelClass(format.type))
+	{
+		case tcu::TEXTURECHANNELCLASS_UNSIGNED_INTEGER:
+			return "%type_uint";
+		case tcu::TEXTURECHANNELCLASS_SIGNED_INTEGER:
+			return "%type_int";
+		default:
+			DE_ASSERT(0);
+			return "";
+	}
+}
+
+std::string getImageComponentVec4TypeName (const tcu::TextureFormat& format)
+{
+	switch (tcu::getTextureChannelClass(format.type))
+	{
+		case tcu::TEXTURECHANNELCLASS_UNSIGNED_INTEGER:
+			return "%type_uvec4";
+		case tcu::TEXTURECHANNELCLASS_SIGNED_INTEGER:
+			return "%type_ivec4";
+		default:
+			DE_ASSERT(0);
+			return "";
+	}
+}
+
 std::string getOpTypeImageSparse (const ImageType			imageType,
 								  const tcu::TextureFormat&	format,
 								  const std::string&		componentType,
@@ -184,7 +212,6 @@ std::string getOpTypeImageResidency (const ImageType imageType)
 tcu::TestStatus SparseShaderIntrinsicsInstanceBase::iterate (void)
 {
 	const InstanceInterface&			instance				= m_context.getInstanceInterface();
-	const DeviceInterface&				deviceInterface			= m_context.getDeviceInterface();
 	const VkPhysicalDevice				physicalDevice			= m_context.getPhysicalDevice();
 	VkImageCreateInfo					imageSparseInfo;
 	VkImageCreateInfo					imageTexelsInfo;
@@ -251,15 +278,17 @@ tcu::TestStatus SparseShaderIntrinsicsInstanceBase::iterate (void)
 		createDeviceSupportingQueues(queueRequirements);
 	}
 
+	const DeviceInterface&	deviceInterface	= getDeviceInterface();
+
 	// Create queues supporting sparse binding operations and compute/graphics operations
-	const Queue& sparseQueue	= getQueue(VK_QUEUE_SPARSE_BINDING_BIT, 0);
-	const Queue& extractQueue	= getQueue(getQueueFlags(), 0);
+	const Queue&			sparseQueue		= getQueue(VK_QUEUE_SPARSE_BINDING_BIT, 0);
+	const Queue&			extractQueue	= getQueue(getQueueFlags(), 0);
 
 	// Create sparse image
 	const Unique<VkImage> imageSparse(createImage(deviceInterface, getDevice(), &imageSparseInfo));
 
 	// Create sparse image memory bind semaphore
-	const Unique<VkSemaphore> memoryBindSemaphore(makeSemaphore(deviceInterface, getDevice()));
+	const Unique<VkSemaphore> memoryBindSemaphore(createSemaphore(deviceInterface, getDevice()));
 
 	const deUint32			  imageSparseSizeInBytes		= getImageSizeInBytes(imageSparseInfo.extent, imageSparseInfo.arrayLayers, m_format, imageSparseInfo.mipLevels, BUFFER_IMAGE_COPY_OFFSET_GRANULARITY);
 	const deUint32			  imageSizeInPixels				= getImageSizeInBytes(imageSparseInfo.extent, imageSparseInfo.arrayLayers, m_format, imageSparseInfo.mipLevels) / tcu::getPixelSize(m_format);
@@ -281,7 +310,8 @@ tcu::TestStatus SparseShaderIntrinsicsInstanceBase::iterate (void)
 
 		DE_ASSERT(sparseMemoryRequirements.size() != 0);
 
-		const deUint32 colorAspectIndex = getSparseAspectRequirementsIndex(sparseMemoryRequirements, VK_IMAGE_ASPECT_COLOR_BIT);
+		const deUint32 colorAspectIndex		= getSparseAspectRequirementsIndex(sparseMemoryRequirements, VK_IMAGE_ASPECT_COLOR_BIT);
+		const deUint32 metadataAspectIndex	= getSparseAspectRequirementsIndex(sparseMemoryRequirements, VK_IMAGE_ASPECT_METADATA_BIT);
 
 		if (colorAspectIndex == NO_MATCH_FOUND)
 			TCU_THROW(NotSupportedError, "Not supported image aspect - the test supports currently only VK_IMAGE_ASPECT_COLOR_BIT");
@@ -366,6 +396,25 @@ tcu::TestStatus SparseShaderIntrinsicsInstanceBase::iterate (void)
 			}
 		}
 
+		// Metadata
+		if (metadataAspectIndex != NO_MATCH_FOUND)
+		{
+			const VkSparseImageMemoryRequirements metadataAspectRequirements = sparseMemoryRequirements[metadataAspectIndex];
+
+			const deUint32 metadataBindCount = (metadataAspectRequirements.formatProperties.flags & VK_SPARSE_IMAGE_FORMAT_SINGLE_MIPTAIL_BIT ? 1u : imageSparseInfo.arrayLayers);
+			for (deUint32 bindNdx = 0u; bindNdx < metadataBindCount; ++bindNdx)
+			{
+				const VkSparseMemoryBind imageMipTailMemoryBind = makeSparseMemoryBind(deviceInterface, getDevice(),
+					metadataAspectRequirements.imageMipTailSize, memoryType,
+					metadataAspectRequirements.imageMipTailOffset + bindNdx * metadataAspectRequirements.imageMipTailStride,
+					VK_SPARSE_MEMORY_BIND_METADATA_BIT);
+
+				deviceMemUniquePtrVec.push_back(makeVkSharedPtr(Move<VkDeviceMemory>(check<VkDeviceMemory>(imageMipTailMemoryBind.memory), Deleter<VkDeviceMemory>(deviceInterface, getDevice(), DE_NULL))));
+
+				imageMipTailBinds.push_back(imageMipTailMemoryBind);
+			}
+		}
+
 		VkBindSparseInfo bindSparseInfo =
 		{
 			VK_STRUCTURE_TYPE_BIND_SPARSE_INFO,	//VkStructureType							sType;
@@ -443,7 +492,7 @@ tcu::TestStatus SparseShaderIntrinsicsInstanceBase::iterate (void)
 
 	// Create command buffer for compute and transfer oparations
 	const Unique<VkCommandPool>	  commandPool(makeCommandPool(deviceInterface, getDevice(), extractQueue.queueFamilyIndex));
-	const Unique<VkCommandBuffer> commandBuffer(makeCommandBuffer(deviceInterface, getDevice(), *commandPool));
+	const Unique<VkCommandBuffer> commandBuffer(allocateCommandBuffer(deviceInterface, getDevice(), *commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY));
 
 	std::vector <VkBufferImageCopy> bufferImageSparseCopy(imageSparseInfo.mipLevels);
 

@@ -5,6 +5,7 @@
 import logging
 import pprint
 import shlex
+import socket
 import sys
 
 from telemetry.core import exceptions
@@ -13,6 +14,7 @@ from telemetry.internal.backends import browser_backend
 from telemetry.internal.backends.chrome import extension_backend
 from telemetry.internal.backends.chrome import tab_list_backend
 from telemetry.internal.backends.chrome_inspector import devtools_client_backend
+from telemetry.internal.backends.chrome_inspector import websocket
 from telemetry.internal.browser import web_contents
 from telemetry.testing import options_for_unittests
 
@@ -24,19 +26,26 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
   once a remote-debugger port has been established."""
   # It is OK to have abstract methods. pylint: disable=abstract-method
 
-  def __init__(self, platform_backend, supports_tab_control,
-               supports_extensions, browser_options):
+  def __init__(self, platform_backend, browser_options,
+               browser_directory, profile_directory,
+               supports_extensions, supports_tab_control):
     super(ChromeBrowserBackend, self).__init__(
         platform_backend=platform_backend,
-        supports_extensions=supports_extensions,
         browser_options=browser_options,
+        supports_extensions=supports_extensions,
         tab_list_backend=tab_list_backend.TabListBackend)
+    self._browser_directory = browser_directory
+    self._profile_directory = profile_directory
     self._supports_tab_control = supports_tab_control
+
     self._devtools_client = None
     # TODO(crbug.com/799415): Move forwarder into DevToolsClientBackend
     self._forwarder = None
 
     self._extensions_to_load = browser_options.extensions_to_load
+    if not supports_extensions and len(self._extensions_to_load) > 0:
+      raise browser_backend.ExtensionsNotSupportedException(
+          'Extensions are not supported on the selected browser')
 
     if (self.browser_options.dont_override_profile and
         not options_for_unittests.AreSet()):
@@ -61,16 +70,6 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
     if '--enable-spdy-proxy-auth' in args:
       return True
     return [arg for arg in args if arg.startswith('--proxy-server=')]
-
-  def GetBrowserStartupArgs(self):
-    # TODO(crbug.com/787834): Move to the corresponding possible-browser class.
-    args = []
-    extensions = [extension.local_path
-                  for extension in self._extensions_to_load]
-    extension_str = ','.join(extensions)
-    if len(extensions) > 0:
-      args.append('--load-extension=%s' % extension_str)
-    return args
 
   def GetBrowserStartupUrl(self):
     # TODO(crbug.com/787834): Move to the corresponding possible-browser class.
@@ -194,11 +193,11 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
 
   @property
   def browser_directory(self):
-    raise NotImplementedError()
+    return self._browser_directory
 
   @property
   def profile_directory(self):
-    raise NotImplementedError()
+    return self._profile_directory
 
   @property
   def supports_tab_control(self):
@@ -253,7 +252,12 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
     return self.GetSystemInfo() != None
 
   def GetSystemInfo(self):
-    return self.devtools_client.GetSystemInfo()
+    try:
+      return self.devtools_client.GetSystemInfo()
+    except (websocket.WebSocketException, socket.error) as e:
+      if not self.IsBrowserRunning():
+        raise exceptions.BrowserGoneException(self.browser, e)
+      raise exceptions.BrowserConnectionGoneException(self.browser, e)
 
   @property
   def supports_memory_dumping(self):

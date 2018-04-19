@@ -4,12 +4,11 @@
 
 #include "chrome/browser/mash_service_registry.h"
 
+#include "ash/components/quick_launch/public/mojom/constants.mojom.h"
 #include "ash/public/interfaces/constants.mojom.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "components/font_service/public/interfaces/constants.mojom.h"
-#include "mash/quick_launch/public/interfaces/constants.mojom.h"
-#include "mash/quick_launch/quick_launch.h"
 #include "services/ui/public/interfaces/constants.mojom.h"
 
 using content::ContentBrowserClient;
@@ -24,12 +23,12 @@ struct Service {
 };
 
 constexpr Service kServices[] = {
-    {mash::quick_launch::mojom::kServiceName, "Quick Launch", nullptr},
+    {quick_launch::mojom::kServiceName, "Quick Launch", nullptr},
     {ui::mojom::kServiceName, "UI Service", kAshAndUiProcessGroup},
     {ash::mojom::kServiceName, "Ash Window Manager and Shell",
      kAshAndUiProcessGroup},
-    {"accessibility_autoclick", "Ash Accessibility Autoclick", nullptr},
-    {"touch_hud", "Ash Touch Hud", nullptr},
+    {"autoclick_app", "Accessibility Autoclick", nullptr},
+    {"touch_hud_app", "Touch HUD", nullptr},
     {font_service::mojom::kServiceName, "Font Service", nullptr},
 };
 

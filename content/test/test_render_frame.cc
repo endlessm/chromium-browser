@@ -18,7 +18,7 @@
 #include "content/public/test/mock_render_thread.h"
 #include "content/renderer/loader/web_url_loader_impl.h"
 #include "services/network/public/cpp/resource_response.h"
-#include "third_party/WebKit/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 
 namespace content {
@@ -75,6 +75,12 @@ class MockFrameHost : public mojom::FrameHost {
     last_interface_provider_request_ = std::move(request);
   }
 
+  void DidCommitSameDocumentNavigation(
+      std::unique_ptr<FrameHostMsg_DidCommitProvisionalLoad_Params> params)
+      override {
+    last_commit_params_ = std::move(params);
+  }
+
   void BeginNavigation(const CommonNavigationParams& common_params,
                        mojom::BeginNavigationParamsPtr begin_params) override {}
 
@@ -100,6 +106,11 @@ class MockFrameHost : public mojom::FrameHost {
   void CancelInitialHistoryLoad() override {}
 
   void UpdateEncoding(const std::string& encoding_name) override {}
+
+  void FrameSizeChanged(const gfx::Size& frame_size) override {}
+
+  void OnUpdatePictureInPictureSurfaceId(
+      const viz::SurfaceId& surface_id) override {}
 
  private:
   std::unique_ptr<FrameHostMsg_DidCommitProvisionalLoad_Params>
@@ -140,11 +151,12 @@ void TestRenderFrame::WillSendRequest(blink::WebURLRequest& request) {
 
 void TestRenderFrame::Navigate(const CommonNavigationParams& common_params,
                                const RequestNavigationParams& request_params) {
-  CommitNavigation(
-      network::ResourceResponseHead(), GURL(), common_params, request_params,
-      network::mojom::URLLoaderClientEndpointsPtr(), URLLoaderFactoryBundle(),
-      mojom::ControllerServiceWorkerInfoPtr(),
-      base::UnguessableToken::Create());
+  CommitNavigation(network::ResourceResponseHead(), GURL(), common_params,
+                   request_params,
+                   network::mojom::URLLoaderClientEndpointsPtr(),
+                   std::make_unique<URLLoaderFactoryBundleInfo>(),
+                   mojom::ControllerServiceWorkerInfoPtr(),
+                   base::UnguessableToken::Create());
 }
 
 void TestRenderFrame::SwapOut(

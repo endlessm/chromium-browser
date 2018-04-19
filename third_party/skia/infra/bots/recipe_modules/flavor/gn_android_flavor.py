@@ -374,10 +374,9 @@ if actual_freq != str(freq):
       args['ndk_api'] = 24
       args['skia_enable_vulkan_debug_layers'] = 'false'
     if 'ASAN' in extra_tokens:
-      # Note: if one day we do ASAN on 32 bit arm, we need to
-      # make sure we use at least SDK 21
-      # args['ndk_api'] = 21
       args['sanitize'] = '"ASAN"'
+      if target_arch == 'arm' and 'ndk_api' not in args:
+        args['ndk_api'] = 21
 
     # If an Android API level is specified, use that.
     for t in extra_tokens:
@@ -390,10 +389,9 @@ if actual_freq != str(freq):
       args['extra_cflags'] = repr(extra_cflags).replace("'", '"')
 
     gn_args = ' '.join('%s=%s' % (k,v) for (k,v) in sorted(args.iteritems()))
-
-    gn    = 'gn.exe'    if 'Win' in os else 'gn'
-    ninja = 'ninja.exe' if 'Win' in os else 'ninja'
-    gn = self.m.vars.skia_dir.join('bin', gn)
+    gn      = 'gn.exe'    if 'Win' in os else 'gn'
+    ninja   = 'ninja.exe' if 'Win' in os else 'ninja'
+    gn      = self.m.vars.skia_dir.join('bin', gn)
 
     self._py('fetch-gn', self.m.vars.skia_dir.join('bin', 'fetch-gn'))
     self._run('gn gen', gn, 'gen', self.out_dir, '--args=' + gn_args)

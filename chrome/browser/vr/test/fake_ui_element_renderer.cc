@@ -46,9 +46,8 @@ void FakeUiElementRenderer::DrawGradientGridQuad(
 }
 
 void FakeUiElementRenderer::DrawController(
-    ControllerMesh::State state,
     float opacity,
-    const gfx::Transform& view_proj_matrix) {
+    const gfx::Transform& model_view_proj_matrix) {
   opacity_ = opacity;
   called_ = true;
 }

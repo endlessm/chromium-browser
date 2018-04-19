@@ -203,6 +203,10 @@ BOOL ShouldCellsBeFullWidth(UITraitCollection* collection) {
   }
 }
 
+- (void)clearOverscroll {
+  [self.overscrollActionsController clear];
+}
+
 + (NSString*)collectionAccessibilityIdentifier {
   return @"ContentSuggestionsCollectionIdentifier";
 }
@@ -263,6 +267,8 @@ BOOL ShouldCellsBeFullWidth(UITraitCollection* collection) {
   [self.headerSynchronizer
       updateFakeOmniboxOnNewWidth:self.collectionView.bounds.size.width];
   [self.collectionView.collectionViewLayout invalidateLayout];
+  // Ensure initial fake omnibox layout.
+  [self.headerSynchronizer updateFakeOmniboxOnCollectionScroll];
 }
 
 - (void)viewDidAppear:(BOOL)animated {

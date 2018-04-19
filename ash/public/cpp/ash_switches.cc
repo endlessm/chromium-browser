@@ -21,12 +21,6 @@ const char kAshDeveloperShortcuts[] = "ash-dev-shortcuts";
 // Disables the dimming and blur of the wallpaper on login and lock screens.
 const char kAshDisableLoginDimAndBlur[] = "ash-disable-login-dim-and-blur";
 
-// Use a single in-process shelf data model shared between Chrome and Ash.
-// This only applies to the Classic Ash and Mus configs; synchronization between
-// two models is required when running the Mash config via --mash.
-const char kAshDisableShelfModelSynchronization[] =
-    "ash-disable-shelf-model-synchronization";
-
 // Disables a smoother animation for screen rotation.
 const char kAshDisableSmoothScreenRotation[] =
     "ash-disable-smooth-screen-rotation";
@@ -37,6 +31,9 @@ const char kAshDisableSmoothScreenRotation[] =
 const char kAshDisableTabletAutohideTitlebars[] =
     "ash-disable-tablet-autohide-titlebars";
 
+// Disables the trilinear filtering for overview and window cycle list.
+const char kAshDisableTrilinearFiltering[] = "ash-disable-trilinear-filtering";
+
 // Disable the Touch Exploration Mode. Touch Exploration Mode will no longer be
 // turned on automatically when spoken feedback is enabled when this flag is
 // set.
@@ -46,16 +43,6 @@ const char kAshDisableTouchExplorationMode[] =
 // Enables Backbutton on frame for v1 apps.
 // TODO(oshima): Remove this once the feature is launched. crbug.com/749713.
 const char kAshEnableV1AppBackButton[] = "ash-enable-v1-app-back-button";
-
-// Enables move window between displays accelerators.
-// TODO(warx): Remove this once the feature is launched. crbug.com/773749.
-const char kAshEnableDisplayMoveWindowAccels[] =
-    "ash-enable-display-move-window-accels";
-
-// Enables keyboard shortcut viewer.
-// TODO(wutao): Remove this once the feature is launched. crbug.com/768932.
-const char kAshEnableKeyboardShortcutViewer[] =
-    "ash-enable-keyboard-shortcut-viewer";
 
 // Enables key bindings to scroll magnified screen.
 const char kAshEnableMagnifierKeyScroller[] =
@@ -81,6 +68,9 @@ const char kAshSidebarDisabled[] = "disable-ash-sidebar";
 // is used to enable tablet mode on convertible devices.
 const char kAshEnableTabletMode[] = "enable-touchview";
 
+// Enables the split view on tablet mode.
+const char kAshEnableTabletSplitView[] = "enable-tablet-splitview";
+
 // Enable the wayland server.
 const char kAshEnableWaylandServer[] = "ash-enable-wayland-server";
 
@@ -90,9 +80,6 @@ const char kAshEnableMirroredScreen[] = "ash-enable-mirrored-screen";
 // Enables display scale tray settings. This uses force-device-scale-factor flag
 // to modify the dsf of the device to any non discrete value.
 const char kAshEnableScaleSettingsTray[] = "ash-enable-scale-settings-tray";
-
-// Enables the split view on tablet mode.
-const char kAshEnableTabletSplitView[] = "enable-tablet-splitview";
 
 // Specifies the estimated time (in milliseconds) from VSYNC event until when
 // visible light can be noticed by the user.
@@ -170,14 +157,12 @@ const char kShowWebUiLock[] = "show-webui-lock";
 const char kTouchscreenUsableWhileScreenOff[] =
     "touchscreen-usable-while-screen-off";
 
+// Hides all Message Center notification popups (toasts). Used for testing.
+const char kSuppressMessageCenterPopups[] = "suppress-message-center-popups";
+
 // By default we use classic IME (i.e. InputMethodChromeOS) in kMus. This flag
 // enables the IME service (i.e. InputMethodMus) instead.
 const char kUseIMEService[] = "use-ime-service";
-
-bool IsDisplayMoveWindowAccelsEnabled() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      kAshEnableDisplayMoveWindowAccels);
-}
 
 bool IsNightLightEnabled() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -187,6 +172,13 @@ bool IsNightLightEnabled() {
 bool IsSidebarEnabled() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kAshSidebarEnabled);
+}
+
+bool IsTrilinearFilteringEnabled() {
+  static bool use_trilinear_filtering =
+      !base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshDisableTrilinearFiltering);
+  return use_trilinear_filtering;
 }
 
 bool IsUsingViewsLogin() {

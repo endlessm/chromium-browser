@@ -12,6 +12,7 @@
 
 #include "bindings/core/v8/V8BindingForCore.h"
 #include "bindings/core/v8/V8DOMConfiguration.h"
+#include "bindings/tests/idls/core/TestLegacyCallbackInterface.h"
 
 namespace blink {
 
@@ -24,8 +25,6 @@ namespace blink {
 const WrapperTypeInfo V8TestLegacyCallbackInterface::wrapperTypeInfo = {
     gin::kEmbedderBlink,
     V8TestLegacyCallbackInterface::DomTemplate,
-    nullptr,
-    nullptr,
     nullptr,
     "TestLegacyCallbackInterface",
     nullptr,

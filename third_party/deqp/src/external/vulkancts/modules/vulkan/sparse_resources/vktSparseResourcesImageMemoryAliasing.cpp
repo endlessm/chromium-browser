@@ -165,7 +165,6 @@ ImageSparseMemoryAliasingInstance::ImageSparseMemoryAliasingInstance (Context&		
 tcu::TestStatus ImageSparseMemoryAliasingInstance::iterate (void)
 {
 	const InstanceInterface&			instance				= m_context.getInstanceInterface();
-	const DeviceInterface&				deviceInterface			= m_context.getDeviceInterface();
 	const VkPhysicalDevice				physicalDevice			= m_context.getPhysicalDevice();
 	const tcu::UVec3					maxWorkGroupSize		= tcu::UVec3(128u, 128u, 64u);
 	const tcu::UVec3					maxWorkGroupCount		= tcu::UVec3(65535u, 65535u, 65535u);
@@ -235,16 +234,17 @@ tcu::TestStatus ImageSparseMemoryAliasingInstance::iterate (void)
 		createDeviceSupportingQueues(queueRequirements);
 	}
 
-	const Queue& sparseQueue	= getQueue(VK_QUEUE_SPARSE_BINDING_BIT, 0);
-	const Queue& computeQueue	= getQueue(VK_QUEUE_COMPUTE_BIT, 0);
+	const DeviceInterface&	deviceInterface	= getDeviceInterface();
+	const Queue&			sparseQueue		= getQueue(VK_QUEUE_SPARSE_BINDING_BIT, 0);
+	const Queue&			computeQueue	= getQueue(VK_QUEUE_COMPUTE_BIT, 0);
 
 	// Create sparse image
 	const Unique<VkImage> imageRead(createImage(deviceInterface, getDevice(), &imageSparseInfo));
 	const Unique<VkImage> imageWrite(createImage(deviceInterface, getDevice(), &imageSparseInfo));
 
 	// Create semaphores to synchronize sparse binding operations with other operations on the sparse images
-	const Unique<VkSemaphore> memoryBindSemaphoreTransfer(makeSemaphore(deviceInterface, getDevice()));
-	const Unique<VkSemaphore> memoryBindSemaphoreCompute(makeSemaphore(deviceInterface, getDevice()));
+	const Unique<VkSemaphore> memoryBindSemaphoreTransfer(createSemaphore(deviceInterface, getDevice()));
+	const Unique<VkSemaphore> memoryBindSemaphoreCompute(createSemaphore(deviceInterface, getDevice()));
 
 	const VkSemaphore imageMemoryBindSemaphores[] = { memoryBindSemaphoreTransfer.get(), memoryBindSemaphoreCompute.get() };
 
@@ -390,7 +390,7 @@ tcu::TestStatus ImageSparseMemoryAliasingInstance::iterate (void)
 
 	// Create command buffer for compute and transfer oparations
 	const Unique<VkCommandPool>	  commandPool  (makeCommandPool(deviceInterface, getDevice(), computeQueue.queueFamilyIndex));
-	const Unique<VkCommandBuffer> commandBuffer(makeCommandBuffer(deviceInterface, getDevice(), *commandPool));
+	const Unique<VkCommandBuffer> commandBuffer(allocateCommandBuffer(deviceInterface, getDevice(), *commandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY));
 
 	std::vector<VkBufferImageCopy> bufferImageCopy(imageSparseInfo.mipLevels);
 

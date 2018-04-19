@@ -17,11 +17,14 @@ class TestAndroidShim {
   TestAndroidShim(JNIEnv* env, jobject obj);
   void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
 
-  jboolean RunTestForMode(JNIEnv* env,
-                          const base::android::JavaParamRef<jobject>& obj,
-                          const base::android::JavaParamRef<jstring>& mode,
-                          jboolean dynamically_start_profiling,
-                          jboolean pseudo_stacks);
+  jboolean RunTestForMode(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jstring>& mode,
+      jboolean dynamically_start_profiling,
+      const base::android::JavaParamRef<jstring>& stack_mode,
+      jboolean should_sample,
+      jboolean sample_everything);
 
  private:
   ~TestAndroidShim();

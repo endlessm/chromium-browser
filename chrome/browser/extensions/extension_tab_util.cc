@@ -5,6 +5,7 @@
 #include "chrome/browser/extensions/extension_tab_util.h"
 
 #include <stddef.h>
+#include <algorithm>
 
 #include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
@@ -15,8 +16,6 @@
 #include "chrome/browser/extensions/chrome_extension_function.h"
 #include "chrome/browser/extensions/chrome_extension_function_details.h"
 #include "chrome/browser/extensions/tab_helper.h"
-#include "chrome/browser/extensions/window_controller.h"
-#include "chrome/browser/extensions/window_controller_list.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/resource_coordinator/tab_manager.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
@@ -35,8 +34,6 @@
 #include "content/public/browser/favicon_status.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
-#include "extensions/browser/app_window/app_window.h"
-#include "extensions/browser/app_window/app_window_registry.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/error_utils.h"
 #include "extensions/common/extension.h"
@@ -48,6 +45,10 @@
 #include "extensions/common/permissions/permissions_data.h"
 #include "url/gurl.h"
 
+#if defined(OS_CHROMEOS)
+#include "ash/public/cpp/window_pin_type.h"
+#endif
+
 using content::NavigationEntry;
 using content::WebContents;
 
@@ -56,18 +57,6 @@ namespace extensions {
 namespace {
 
 namespace keys = tabs_constants;
-
-WindowController* GetAppWindowController(const WebContents* contents) {
-  Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
-  AppWindowRegistry* registry = AppWindowRegistry::Get(profile);
-  if (!registry)
-    return nullptr;
-  AppWindow* app_window = registry->GetAppWindowForWebContents(contents);
-  if (!app_window)
-    return nullptr;
-  return WindowControllerList::GetInstance()->FindWindowById(
-      app_window->session_id().id());
-}
 
 // |error_message| can optionally be passed in and will be set with an
 // appropriate message if the window cannot be found by id.
@@ -276,8 +265,8 @@ base::DictionaryValue* ExtensionTabUtil::OpenTab(
 
   // Return data about the newly created tab.
   return ExtensionTabUtil::CreateTabObject(navigate_params.target_contents,
-                                           tab_strip, new_index,
-                                           function->extension())
+                                           kScrubTab, function->extension(),
+                                           tab_strip, new_index)
       ->ToValue()
       .release();
 }
@@ -328,49 +317,27 @@ int ExtensionTabUtil::GetWindowIdOfTab(const WebContents* web_contents) {
 }
 
 // static
-std::unique_ptr<api::tabs::Tab> ExtensionTabUtil::CreateTabObject(
-    WebContents* contents,
-    TabStripModel* tab_strip,
-    int tab_index,
-    const Extension* extension) {
-  // If we have a matching AppWindow with a controller, get the tab value
-  // from its controller instead.
-  WindowController* controller = GetAppWindowController(contents);
-  if (controller &&
-      (!extension || controller->IsVisibleToExtension(extension))) {
-    return controller->CreateTabObject(extension, tab_index);
-  }
-  std::unique_ptr<api::tabs::Tab> result =
-      CreateTabObject(contents, tab_strip, tab_index);
-  ScrubTabForExtension(extension, contents, result.get());
-  return result;
-}
-
-std::unique_ptr<base::ListValue> ExtensionTabUtil::CreateTabList(
-    const Browser* browser,
-    const Extension* extension) {
-  std::unique_ptr<base::ListValue> tab_list(new base::ListValue());
-  TabStripModel* tab_strip = browser->tab_strip_model();
-  for (int i = 0; i < tab_strip->count(); ++i) {
-    tab_list->Append(
-        CreateTabObject(tab_strip->GetWebContentsAt(i), tab_strip, i, extension)
-            ->ToValue());
-  }
-
-  return tab_list;
+std::string ExtensionTabUtil::GetBrowserWindowTypeText(const Browser& browser) {
+  if (browser.is_devtools())
+    return keys::kWindowTypeValueDevTools;
+  if (browser.is_type_popup())
+    return keys::kWindowTypeValuePopup;
+  // TODO(devlin): Browser::is_app() returns true whenever Browser::app_name_
+  // is non-empty (and includes instances such as devtools). Platform apps
+  // should no longer be returned here; are there any other cases (that aren't
+  // captured by is_devtools() or is_type_popup() for an app-type browser?
+  if (browser.is_app())
+    return keys::kWindowTypeValueApp;
+  return keys::kWindowTypeValueNormal;
 }
 
 // static
 std::unique_ptr<api::tabs::Tab> ExtensionTabUtil::CreateTabObject(
-    content::WebContents* contents,
+    WebContents* contents,
+    ScrubTabBehavior scrub_tab_behavior,
+    const Extension* extension,
     TabStripModel* tab_strip,
     int tab_index) {
-  // If we have a matching AppWindow with a controller, get the tab value
-  // from its controller instead.
-  WindowController* controller = GetAppWindowController(contents);
-  if (controller)
-    return controller->CreateTabObject(nullptr, tab_index);
-
   if (!tab_strip)
     ExtensionTabUtil::GetTabStripModel(contents, &tab_strip, &tab_index);
   bool is_loading = contents->IsLoading();
@@ -411,7 +378,71 @@ std::unique_ptr<api::tabs::Tab> ExtensionTabUtil::CreateTabObject(
     }
   }
 
+  if (scrub_tab_behavior == kScrubTab)
+    ScrubTabForExtension(extension, contents, tab_object.get());
   return tab_object;
+}
+
+std::unique_ptr<base::ListValue> ExtensionTabUtil::CreateTabList(
+    const Browser* browser,
+    const Extension* extension) {
+  std::unique_ptr<base::ListValue> tab_list(new base::ListValue());
+  TabStripModel* tab_strip = browser->tab_strip_model();
+  for (int i = 0; i < tab_strip->count(); ++i) {
+    tab_list->Append(CreateTabObject(tab_strip->GetWebContentsAt(i), kScrubTab,
+                                     extension, tab_strip, i)
+                         ->ToValue());
+  }
+
+  return tab_list;
+}
+
+// static
+std::unique_ptr<base::DictionaryValue>
+ExtensionTabUtil::CreateWindowValueForExtension(
+    const Browser& browser,
+    const Extension* extension,
+    PopulateTabBehavior populate_tab_behavior) {
+  auto result = std::make_unique<base::DictionaryValue>();
+
+  result->SetInteger(keys::kIdKey, browser.session_id().id());
+  result->SetString(keys::kWindowTypeKey, GetBrowserWindowTypeText(browser));
+  ui::BaseWindow* window = browser.window();
+  result->SetBoolean(keys::kFocusedKey, window->IsActive());
+  const Profile* profile = browser.profile();
+  result->SetBoolean(keys::kIncognitoKey, profile->IsOffTheRecord());
+  result->SetBoolean(keys::kAlwaysOnTopKey, window->IsAlwaysOnTop());
+
+  std::string window_state;
+  if (window->IsMinimized()) {
+    window_state = keys::kShowStateValueMinimized;
+  } else if (window->IsFullscreen()) {
+    window_state = keys::kShowStateValueFullscreen;
+#if defined(OS_CHROMEOS)
+    if (ash::IsWindowTrustedPinned(window))
+      window_state = keys::kShowStateValueLockedFullscreen;
+#endif
+  } else if (window->IsMaximized()) {
+    window_state = keys::kShowStateValueMaximized;
+  } else {
+    window_state = keys::kShowStateValueNormal;
+  }
+  result->SetString(keys::kShowStateKey, window_state);
+
+  gfx::Rect bounds;
+  if (window->IsMinimized())
+    bounds = window->GetRestoredBounds();
+  else
+    bounds = window->GetBounds();
+  result->SetInteger(keys::kLeftKey, bounds.x());
+  result->SetInteger(keys::kTopKey, bounds.y());
+  result->SetInteger(keys::kWidthKey, bounds.width());
+  result->SetInteger(keys::kHeightKey, bounds.height());
+
+  if (populate_tab_behavior == kPopulateTabs)
+    result->Set(keys::kTabsKey, CreateTabList(&browser, extension));
+
+  return result;
 }
 
 // static
@@ -622,8 +653,8 @@ void ExtensionTabUtil::CreateTab(WebContents* web_contents,
 // static
 void ExtensionTabUtil::ForEachTab(
     const base::Callback<void(WebContents*)>& callback) {
-  for (TabContentsIterator iterator; !iterator.done(); iterator.Next())
-    callback.Run(*iterator);
+  for (auto* web_contents : AllTabContentses())
+    callback.Run(web_contents);
 }
 
 // static

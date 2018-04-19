@@ -81,7 +81,7 @@ const NavigationCorrection kDefaultCorrections[] = {
 
 std::string SuggestionsToResponse(const NavigationCorrection* corrections,
                                   int num_corrections) {
-  auto url_corrections = base::MakeUnique<base::ListValue>();
+  auto url_corrections = std::make_unique<base::ListValue>();
   for (int i = 0; i < num_corrections; ++i)
     url_corrections->Append(corrections[i].ToValue());
 
@@ -2253,6 +2253,9 @@ TEST_F(NetErrorHelperCoreAutoReloadTest, DoesNotReload) {
   EXPECT_FALSE(timer()->IsRunning());
 
   DoErrorLoad(net::ERR_SSL_PROTOCOL_ERROR);
+  EXPECT_FALSE(timer()->IsRunning());
+
+  DoErrorLoad(net::ERR_BLOCKED_BY_ADMINISTRATOR);
   EXPECT_FALSE(timer()->IsRunning());
 
   DoErrorLoad(net::ERR_BAD_SSL_CLIENT_AUTH_CERT);

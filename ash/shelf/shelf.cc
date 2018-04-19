@@ -26,14 +26,6 @@
 
 namespace ash {
 
-namespace {
-
-// A callback that does nothing after shelf item selection handling.
-void NoopCallback(ShelfAction,
-                  base::Optional<std::vector<mojom::MenuItemPtr>>) {}
-
-}  // namespace
-
 // Shelf::AutoHideEventHandler -----------------------------------------------
 
 // Forwards mouse and gesture events to ShelfLayoutManager for auto-hide.
@@ -201,6 +193,12 @@ int Shelf::GetAccessibilityPanelHeight() const {
                                : 0;
 }
 
+int Shelf::GetDockedMagnifierHeight() const {
+  return shelf_layout_manager_
+             ? shelf_layout_manager_->docked_magnifier_height()
+             : 0;
+}
+
 gfx::Rect Shelf::GetIdealBounds() {
   return shelf_layout_manager_->GetIdealBounds();
 }
@@ -259,7 +257,7 @@ void Shelf::ActivateShelfItemOnDisplay(int item_index, int64_t display_id) {
   std::unique_ptr<ui::Event> event = std::make_unique<ui::KeyEvent>(
       ui::ET_KEY_RELEASED, ui::VKEY_UNKNOWN, ui::EF_NONE);
   item_delegate->ItemSelected(std::move(event), display_id, LAUNCH_FROM_UNKNOWN,
-                              base::Bind(&NoopCallback));
+                              base::DoNothing());
 }
 
 bool Shelf::ProcessGestureEvent(const ui::GestureEvent& event) {
@@ -294,6 +292,13 @@ TrayBackgroundView* Shelf::GetSystemTrayAnchor() const {
   return GetStatusAreaWidget()->GetSystemTrayAnchor();
 }
 
+bool Shelf::ShouldHideOnSecondaryDisplay(session_manager::SessionState state) {
+  if (Shell::GetPrimaryRootWindowController()->shelf() == this)
+    return false;
+
+  return state != session_manager::SessionState::ACTIVE;
+}
+
 void Shelf::SetVirtualKeyboardBoundsForTesting(const gfx::Rect& bounds) {
   keyboard::KeyboardStateDescriptor state;
   state.is_available = !bounds.IsEmpty();
@@ -301,13 +306,13 @@ void Shelf::SetVirtualKeyboardBoundsForTesting(const gfx::Rect& bounds) {
   state.visual_bounds = bounds;
   state.occluded_bounds = bounds;
   state.displaced_bounds = gfx::Rect();
-  shelf_layout_manager_->OnKeyboardAvailabilityChanging(state.is_available);
-  shelf_layout_manager_->OnKeyboardVisibleBoundsChanging(state.visual_bounds);
-  shelf_layout_manager_->OnKeyboardWorkspaceOccludedBoundsChanging(
+  shelf_layout_manager_->OnKeyboardAvailabilityChanged(state.is_available);
+  shelf_layout_manager_->OnKeyboardVisibleBoundsChanged(state.visual_bounds);
+  shelf_layout_manager_->OnKeyboardWorkspaceOccludedBoundsChanged(
       state.occluded_bounds);
-  shelf_layout_manager_->OnKeyboardWorkspaceDisplacingBoundsChanging(
+  shelf_layout_manager_->OnKeyboardWorkspaceDisplacingBoundsChanged(
       state.displaced_bounds);
-  shelf_layout_manager_->OnKeyboardAppearanceChanging(state);
+  shelf_layout_manager_->OnKeyboardAppearanceChanged(state);
 }
 
 ShelfLockingManager* Shelf::GetShelfLockingManagerForTesting() {

@@ -6,7 +6,7 @@
 
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
-#include "ios/chrome/test/app/web_view_interaction_test_util.h"
+#import "ios/chrome/test/app/web_view_interaction_test_util.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
@@ -169,7 +169,8 @@ using web::test::HttpServer;
   web::test::SetUpHttpServer(std::move(provider));
 
   [ChromeEarlGrey loadURL:URL];
-  TapWebViewElementWithId(kButtonId);
+  GREYAssert(TapWebViewElementWithId(kButtonId), @"Failed to tap %s",
+             kButtonId.c_str());
   // Check that the timer has completed.
   [ChromeEarlGrey waitForWebViewContainingText:kTimerCompleted];
   // DNS error page should still not appear.

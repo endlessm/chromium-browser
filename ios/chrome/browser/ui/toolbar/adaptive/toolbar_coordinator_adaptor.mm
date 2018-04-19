@@ -42,21 +42,13 @@
   }
   return self;
 }
+
 - (void)addToolbarCoordinator:
     (id<ToolbarCoordinating, ToolbarCommands>)toolbarCoordinator {
   [self.coordinators addObject:toolbarCoordinator];
 }
 
-#pragma mark - ToolbarCoordinating
-
-- (void)updateToolbarState {
-  for (id<ToolbarCoordinating> coordinator in self.coordinators) {
-    [coordinator updateToolbarState];
-  }
-  [self.toolsMenuCoordinator updateConfiguration];
-}
-
-#pragma mark - IncognitoViewControllerDelegate
+#pragma mark - NewTabPageControllerDelegate
 
 - (void)setToolbarBackgroundAlpha:(CGFloat)alpha {
   for (id<ToolbarCoordinating> coordinator in self.coordinators) {
@@ -64,13 +56,13 @@
   }
 }
 
-#pragma mark - ToolbarCommands
-
-- (void)contractToolbar {
-  for (id<ToolbarCommands> coordinator in self.coordinators) {
-    [coordinator contractToolbar];
+- (void)setScrollProgressForTabletOmnibox:(CGFloat)progress {
+  for (id<ToolbarCoordinating> coordinator in self.coordinators) {
+    [coordinator setScrollProgressForTabletOmnibox:progress];
   }
 }
+
+#pragma mark - ToolbarCommands
 
 - (void)triggerToolsMenuButtonAnimation {
   for (id<ToolbarCommands> coordinator in self.coordinators) {
@@ -82,6 +74,12 @@
 
 - (BOOL)isShowingToolsMenu {
   return [self.toolsMenuCoordinator isShowingToolsMenu];
+}
+
+#pragma mark - ToolbarCoordinating
+
+- (void)updateToolsMenu {
+  [self.toolsMenuCoordinator updateConfiguration];
 }
 
 @end

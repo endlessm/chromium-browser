@@ -24,23 +24,23 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/profiles/profile_window.h"
+#include "chrome/browser/signin/account_consistency_mode_manager.h"
 #include "chrome/browser/signin/force_signin_verifier.h"
 #include "chrome/browser/signin/local_auth.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/signin/signin_util.h"
 #include "chrome/browser/ui/browser_list.h"
-#include "chrome/browser/ui/user_manager.h"
 #include "chrome/browser/web_data_service_factory.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/channel_info.h"
-#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/metrics/metrics_service.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/profile_management_switches.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
-#include "components/signin/core/browser/signin_cookie_changed_subscription.h"
+#include "components/signin/core/browser/signin_cookie_change_subscription.h"
 #include "components/signin/core/browser/signin_features.h"
 #include "components/signin/core/browser/signin_header_helper.h"
 #include "components/signin/core/browser/signin_pref_names.h"
@@ -59,6 +59,8 @@
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user_manager.h"
+#else
+#include "chrome/browser/ui/user_manager.h"
 #endif
 
 #if !defined(OS_ANDROID)
@@ -71,7 +73,6 @@ ChromeSigninClient::ChromeSigninClient(
     : OAuth2TokenService::Consumer("chrome_signin_client"),
       profile_(profile),
       signin_error_controller_(signin_error_controller),
-      account_consistency_mode_manager_(profile),
       weak_ptr_factory_(this) {
   signin_error_controller_->AddObserver(this);
 #if !defined(OS_CHROMEOS)
@@ -239,17 +240,16 @@ void ChromeSigninClient::RemoveContentSettingsObserver(
       ->RemoveObserver(observer);
 }
 
-std::unique_ptr<SigninClient::CookieChangedSubscription>
-ChromeSigninClient::AddCookieChangedCallback(
+std::unique_ptr<SigninClient::CookieChangeSubscription>
+ChromeSigninClient::AddCookieChangeCallback(
     const GURL& url,
     const std::string& name,
-    const net::CookieStore::CookieChangedCallback& callback) {
+    net::CookieChangeCallback callback) {
   scoped_refptr<net::URLRequestContextGetter> context_getter =
       profile_->GetRequestContext();
   DCHECK(context_getter.get());
-  std::unique_ptr<SigninCookieChangedSubscription> subscription(
-      new SigninCookieChangedSubscription(context_getter, url, name, callback));
-  return std::move(subscription);
+  return std::make_unique<SigninCookieChangeSubscription>(
+      context_getter, url, name, std::move(callback));
 }
 
 void ChromeSigninClient::OnSignedIn(const std::string& account_id,
@@ -419,13 +419,13 @@ std::unique_ptr<GaiaAuthFetcher> ChromeSigninClient::CreateGaiaAuthFetcher(
     GaiaAuthConsumer* consumer,
     const std::string& source,
     net::URLRequestContextGetter* getter) {
-  return base::MakeUnique<GaiaAuthFetcher>(consumer, source, getter);
+  return std::make_unique<GaiaAuthFetcher>(consumer, source, getter);
 }
 
 void ChromeSigninClient::VerifySyncToken() {
 #if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
   if (signin_util::IsForceSigninEnabled())
-    force_signin_verifier_ = base::MakeUnique<ForceSigninVerifier>(profile_);
+    force_signin_verifier_ = std::make_unique<ForceSigninVerifier>(profile_);
 #endif
 }
 
@@ -468,7 +468,8 @@ void ChromeSigninClient::AfterCredentialsCopied() {
 
 void ChromeSigninClient::SetReadyForDiceMigration(bool is_ready) {
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
-  account_consistency_mode_manager_.SetReadyForDiceMigration(is_ready);
+  AccountConsistencyModeManager::GetForProfile(profile_)
+      ->SetReadyForDiceMigration(is_ready);
 #else
   NOTREACHED();
 #endif

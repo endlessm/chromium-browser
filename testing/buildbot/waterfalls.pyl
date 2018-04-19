@@ -90,21 +90,9 @@
           'cast_junit_test_lists',
           'cast_shell_apk',
         ],
-      },
-      'Android Cronet ARMv6 Builder': {
         'test_suites': {
-          'gtest_tests': 'cronet_gtests',
+          'junit_tests': 'cast_junit_tests',
         },
-        'swarming': {
-          'dimension_sets': [
-            {
-              'device_os': 'KTU84P',
-              'device_type': 'hammerhead',
-            },
-          ],
-        },
-        'os_type': 'android',
-        'skip_merge_script': True,
       },
       'Android Cronet Builder (dbg)': {
         'test_suites': {
@@ -317,7 +305,7 @@
               'device_type': 'marlin',
             },
           ],
-          'hard_timeout': 960,
+          'hard_timeout': 1800,
         },
         'skip_output_links': True,
         'os_type': 'android',
@@ -327,21 +315,6 @@
   {
     'name': 'chromium.android.fyi',
     'machines': {
-      'Android Cronet ARMv6 Builder': {
-        'test_suites': {
-          'gtest_tests': 'cronet_gtests',
-          'scripts': 'cronet_scripts',
-        },
-        'swarming': {
-          'dimension_sets': [
-            {
-              'device_os': 'KTU84P',
-              'device_type': 'hammerhead',
-            },
-          ],
-        },
-        'os_type': 'android',
-      },
       'Android Cronet Builder (dbg)': {
         'test_suites': {
           'gtest_tests': 'cronet_gtests',
@@ -699,7 +672,7 @@
           ],
         },
         'test_suites': {
-          'gtest_tests': 'chromium_android_clang_and_gl_gtests',
+          # TODO(crbug.com/807966): Re-enable tests once there are devices to run them on.
         },
       },
       'ToTAndroid64': {
@@ -762,13 +735,15 @@
           'all',
         ],
         'test_suites': {
+          # no "_and_gl":gl_unittests doesn't pass yet,
+          # crbug.com/https://crbug.com/815183
           'gtest_tests': 'chromium_linux_clang_gtests',
         },
       },
       'ToTMac': {
         'test_suites': {
           'gtest_tests': 'chromium_mac_clang_gtests',
-          'isolated_scripts': 'chromium_isolated_scripts',
+          'isolated_scripts': 'chromium_rel_isolated_scripts',
         },
       },
       'ToTMacASan': {
@@ -816,9 +791,33 @@
           'gtest_tests': 'chromium_win_clang_gtests',
         },
       },
+      'ToTWinLibcxx64': {
+        'test_suites': {
+          'gtest_tests': 'chromium_win_clang_gtests',
+        },
+      },
       'ToTWinThinLTO64': {
         'test_suites': {
           'gtest_tests': 'chromium_win_clang_gtests',
+        },
+      },
+      'linux-win_cross-rel': {
+        'swarming': {
+          'dimension_sets': [
+            {
+              'os': 'Windows-10',
+            },
+          ],
+        },
+        'test_suites': {
+          'gtest_tests': 'chromium_win_clang_gtests',
+        },
+      },
+      'UBSanVptr Linux': {
+        'test_suites': {
+          # no "_and_gl":gl_unittests doesn't pass yet,
+          # crbug.com/https://crbug.com/815183
+          'gtest_tests': 'chromium_linux_clang_gtests',
         },
       },
     },
@@ -918,6 +917,17 @@
           'gtest_tests': 'chromium_linux_clang_and_gl_gtests',
         },
       },
+      'linux-gcc-rel': {
+        'additional_compile_targets': [
+          'empty_main',
+        ],
+      },
+      'linux-annotator-rel': {
+        # TODO(dpranke): Replace this with the full test when it's ready.
+        'test_suites': {
+          'scripts': 'check_network_annotations_script',
+        }
+      },
       'Chromium Mac 10.10 MacViews': {
         'test_suites': {
           'gtest_tests': 'chromium_mac_fyi_gtests',
@@ -927,7 +937,7 @@
       'Chromium Mac 10.11': {
         'test_suites': {
           'gtest_tests': 'chromium_mac_fyi_gtests',
-          'isolated_scripts': 'chromium_isolated_scripts',
+          'isolated_scripts': 'chromium_rel_isolated_scripts',
         },
         'use_swarming': False,
       },
@@ -940,7 +950,7 @@
       'Chromium Mac 10.13': {
         'test_suites': {
           'gtest_tests': 'chromium_mac_fyi_gtests',
-          'isolated_scripts': 'chromium_isolated_scripts',
+          'isolated_scripts': 'chromium_rel_isolated_scripts',
         },
       },
       'Chromium Win 10 GCE Tests': {
@@ -963,6 +973,23 @@
           'gtest_tests': 'chromium_win_clang_gtests',
         },
       },
+      'Dummy WebKit Mac10.13': {
+        'swarming': {
+          'dimension_sets': [
+            {
+              # This matches the dimensions for "Chromium Mac10.13" in
+              # chromium_fyi.py.
+              'gpu': '8086:0a2e',
+              'os': 'Mac-10.13',
+            },
+          ],
+          'hard_timeout': 900,
+        },
+        'test_suites': {
+          'isolated_scripts': 'webkit_layout_tests_isolated_scripts',
+        },
+      },
+
       'Fuchsia': {
         'additional_compile_targets': [
           'gn_all',
@@ -1028,14 +1055,14 @@
           'all',
         ],
       },
-      'Leak Detection Linux': {
-        'test_suites': {
-          'isolated_scripts': 'leak_detection_isolated_scripts',
-        },
-      },
       'Linux ARM': {
         'test_suites': {
           'gtest_tests': 'linux_arm_gtests',
+        },
+      },
+      'linux-blink-heap-incremental-marking': {
+        'test_suites': {
+          'isolated_scripts': 'chromium_webkit_isolated_scripts',
         },
       },
       'Linux Builder Goma Canary': {
@@ -1065,6 +1092,23 @@
         ],
         'test_suites': {
           'gtest_tests': 'goma_gtests',
+        },
+      },
+      'Linux Xenial': {
+        'swarming': {
+          'dimension_sets': [
+            {
+              'os': 'Ubuntu-16.04',
+            },
+          ],
+        },
+        'additional_compile_targets': [
+          'all',
+        ],
+        'test_suites': {
+          'gtest_tests': 'chromium_linux_gtests',
+          'isolated_scripts': 'chromium_linux_rel_isolated_scripts',
+          'scripts': 'chromium_linux_scripts',
         },
       },
       'Linux Viz': {
@@ -1118,6 +1162,16 @@
         },
       },
       'Mojo Android': {
+        'swarming': {
+          'dimension_sets': [
+            {
+              'device_os': 'MMB29Q',
+              'device_type': 'bullhead',
+            },
+          ],
+          'hard_timeout': 3600,
+        },
+        'os_type': 'android',
         'test_suites': {
           'gtest_tests': 'mojo_android_gtests',
         },
@@ -1169,7 +1223,7 @@
       'Out of Process Profiling Mac': {
         'test_suites': {
           'gtest_tests': 'chromium_mac_fyi_gtests',
-          'isolated_scripts': 'chromium_isolated_scripts',
+          'isolated_scripts': 'chromium_rel_isolated_scripts',
         },
       },
       'Out of Process Profiling Windows': {
@@ -1177,14 +1231,6 @@
           # TODO(kbr): it's weird that this has the most in common with the
           # clang testers' test suites.
           'gtest_tests': 'chromium_win_clang_gtests',
-        },
-      },
-      'Ozone Linux': {
-        'additional_compile_targets': [
-          'chrome',
-        ],
-        'test_suites': {
-          'gtest_tests': 'ozone_linux_gtests',
         },
       },
       'Site Isolation Android': {
@@ -1215,12 +1261,6 @@
         },
       },
       'ThinLTO Linux ToT': {
-        'test_suites': {
-          'gtest_tests': 'chromium_linux_clang_and_gl_gtests',
-        },
-        'use_swarming': False,
-      },
-      'UBSanVptr Linux': {
         'test_suites': {
           'gtest_tests': 'chromium_linux_clang_and_gl_gtests',
         },
@@ -1367,6 +1407,11 @@
           'cast_test_lists',
         ],
       },
+      'Leak Detection Linux': {
+        'test_suites': {
+          'isolated_scripts': 'leak_detection_isolated_scripts',
+        },
+      },
       'Linux Builder': {
         'additional_compile_targets': [
           'all'
@@ -1422,20 +1467,28 @@
       'Linux Tests': {
         'test_suites': {
           'gtest_tests': 'chromium_linux_gtests',
-          'isolated_scripts': 'chromium_linux_isolated_scripts',
+          'isolated_scripts': 'chromium_linux_rel_isolated_scripts',
           'scripts': 'chromium_linux_scripts',
         },
       },
       'Linux Tests (dbg)(1)': {
         'test_suites': {
           'gtest_tests': 'chromium_linux_gtests',
-          'isolated_scripts': 'chromium_linux_isolated_scripts',
+          'isolated_scripts': 'chromium_linux_dbg_isolated_scripts',
         },
       },
       'Linux Tests (dbg)(1)(32)': {
         'test_suites': {
           'gtest_tests': 'chromium_linux_gtests',
-          'isolated_scripts': 'chromium_linux_isolated_scripts',
+          'isolated_scripts': 'chromium_linux_dbg_isolated_scripts',
+        },
+      },
+      'Ozone Linux': {
+        'additional_compile_targets': [
+          'chrome',
+        ],
+        'test_suites': {
+          'gtest_tests': 'ozone_linux_gtests',
         },
       },
     },
@@ -1551,32 +1604,50 @@
       'Mac10.10 Tests': {
         'test_suites': {
           'gtest_tests': 'chromium_mac_gtests',
-          'isolated_scripts': 'chromium_isolated_scripts',
+          'isolated_scripts': 'chromium_rel_isolated_scripts',
         },
       },
       'Mac10.11 Tests': {
         'test_suites': {
           'gtest_tests': 'chromium_mac_gtests',
-          'isolated_scripts': 'chromium_isolated_scripts',
+          'isolated_scripts': 'chromium_rel_isolated_scripts',
         },
       },
       'Mac10.12 Tests': {
         'test_suites': {
           'gtest_tests': 'chromium_mac_gtests',
-          'isolated_scripts': 'chromium_isolated_scripts',
+          'isolated_scripts': 'chromium_rel_isolated_scripts',
         },
       },
       'Mac10.9 Tests': {
         'test_suites': {
           'gtest_tests': 'chromium_mac_gtests',
-          'isolated_scripts': 'chromium_isolated_scripts',
+          'isolated_scripts': 'chromium_rel_isolated_scripts',
           'scripts': 'chromium_scripts',
         },
+        'swarming': {
+          'dimension_sets': [
+            {
+              "gpu": "none",
+              "cpu": "x86-64",
+              "os": "Mac-10.9",
+              "pool": "Chrome",
+            },
+          ],
+        },
+        'use_multi_dimension_trigger_script': True,
+        'alternate_swarming_dimensions': [
+          {
+            "cpu": "x86-64",
+            "os": "Mac-10.13",
+            "pool": "Chrome",
+          },
+        ],
       },
       'Mac10.9 Tests (dbg)': {
         'test_suites': {
           'gtest_tests': 'chromium_mac_gtests',
-          'isolated_scripts': 'chromium_isolated_scripts',
+          'isolated_scripts': 'chromium_dbg_isolated_scripts',
         },
       },
     },
@@ -1584,10 +1655,27 @@
   {
     'name': 'chromium.memory',
     'machines': {
+      'Android CFI': {
+        'swarming': {
+          'dimension_sets': [
+            {
+              'device_os': 'MMB29Q',
+              'device_type': 'bullhead',
+            },
+          ],
+        },
+        'test_suites': {
+          'gtest_tests': 'chromium_android_clang_and_gl_gtests',
+        },
+      },
       'Linux ASan LSan Tests (1)': {
         'test_suites': {
           'gtest_tests': 'chromium_memory_linux_asan_gtests',
         },
+        'args': [
+          '--test-launcher-batch-limit=1',
+          '--test-launcher-print-test-stdio=always',
+        ],
       },
       'Linux ASan Tests (sandboxed)': {
         'test_suites': {
@@ -1627,49 +1715,6 @@
     },
   },
   {
-    'name': 'chromium.sandbox',
-    'machines': {
-      'Fuchsia x64 SANDBOX': {
-        # TODO(dpranke): This should mirror 'Fuchsia x64' on chromium.linux,
-        # but currently doesn't quite do so; we should sync up the
-        # compile targets and tests, and remove the exceptions.
-        'additional_compile_targets': [
-          'base_unittests',
-          'content_unittests',
-          'crypto_unittests',
-          'gl_unittests',
-          'headless_shell',
-          'ipc_tests',
-          'media_unittests',
-          'mojo_common_unittests',
-          'mojo_public_bindings_unittests',
-          'mojo_public_system_unittests',
-          'mojo_system_unittests',
-          'net_unittests',
-          'skia_unittests',
-          'service_manager_unittests',
-          'ui_base_unittests',
-        ],
-      },
-      'Linux Builder SANDBOX': {
-        # This should mirror the 'Linux Builder' builder on chromium.linux.
-        'additional_compile_targets': [
-          'all',
-        ],
-      },
-      'Linux Tests SANDBOX': {
-        # TODO(dpranke): This should mirror 'Linux Tests' on chromium.linux,
-        # but currently doesn't quite do so; we should remove the
-        # exceptions that Linux Tests doesn't also have.
-        'test_suites': {
-          'gtest_tests': 'chromium_linux_gtests',
-          'isolated_scripts': 'chromium_linux_isolated_scripts',
-          'scripts': 'chromium_linux_scripts',
-        },
-      },
-    },
-  },
-  {
     'name': 'chromium.swarm',
     'machines': {
       'Android N5 Swarm': {
@@ -1685,7 +1730,7 @@
           ],
           'expiration': 10800,
         },
-        # 'os_type': 'android',
+        'os_type': 'android',
       },
       'Android N5X Swarm': {
         'test_suites': {
@@ -1700,7 +1745,7 @@
           ],
           'expiration': 10800,
         },
-        # 'os_type': 'android',
+        'os_type': 'android',
       },
       'Linux Swarm': {
         'test_suites': {
@@ -1722,20 +1767,6 @@
   {
     'name': 'chromium.webkit',
     'machines': {
-      'Dummy WebKit Mac10.13': {
-        'test_suites': {
-          'isolated_scripts': 'chromium_webkit_isolated_scripts',
-        },
-        'swarming': {
-          'dimension_sets': [
-            {
-              'gpu': '8086:0a2e',
-              'hidpi': '0',
-              'os': 'Mac-10.13',
-            },
-          ],
-        },
-      },
       'WebKit Linux Trusty': {
         'test_suites': {
           'isolated_scripts': 'chromium_webkit_isolated_scripts',
@@ -1997,7 +2028,7 @@
       'Win 7 Tests x64 (1)': {
         'test_suites': {
           'gtest_tests': 'chromium_win_gtests',
-          'isolated_scripts': 'chromium_isolated_scripts',
+          'isolated_scripts': 'chromium_rel_isolated_scripts',
         },
       },
       'Win10 Tests x64': {
@@ -2013,14 +2044,14 @@
       'Win7 Tests (1)': {
         'test_suites': {
           'gtest_tests': 'chromium_win_gtests',
-          'isolated_scripts': 'chromium_isolated_scripts',
+          'isolated_scripts': 'chromium_rel_isolated_scripts',
           'scripts': 'chromium_scripts',
         },
       },
       'Win7 Tests (dbg)(1)': {
         'test_suites': {
           'gtest_tests': 'chromium_win_gtests',
-          'isolated_scripts': 'chromium_isolated_scripts',
+          'isolated_scripts': 'chromium_dbg_isolated_scripts',
         },
       },
     },
@@ -2049,6 +2080,26 @@
   {
     'name': 'tryserver.webrtc',
     'machines': {
+      'win_chromium_compile': {
+        'additional_compile_targets': [
+          'all',
+        ],
+      },
+      'mac_chromium_compile': {
+        'additional_compile_targets': [
+          'all',
+        ],
+      },
+      'linux_chromium_compile': {
+        'additional_compile_targets': [
+          'all',
+        ],
+      },
+      'android_chromium_compile': {
+        'additional_compile_targets': [
+          'all',
+        ],
+      },
       'win_chromium_webrtc_compile_rel_ng': {
         'additional_compile_targets': [
           'all',

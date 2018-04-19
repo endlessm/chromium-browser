@@ -21,17 +21,19 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/cocoa/browser_dialogs_views_mac.h"
 #include "chrome/browser/ui/page_info/page_info.h"
 #include "chrome/browser/ui/page_info/page_info_dialog.h"
 #include "chrome/browser/ui/view_ids.h"
+#include "chrome/browser/ui/views/accessibility/non_accessible_image_view.h"
 #include "chrome/browser/ui/views/bubble_anchor_util_views.h"
 #include "chrome/browser/ui/views/collected_cookies_views.h"
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/harmony/chrome_typography.h"
 #include "chrome/browser/ui/views/hover_button.h"
 #include "chrome/browser/ui/views/page_info/chosen_object_view.h"
-#include "chrome/browser/ui/views/page_info/non_accessible_image_view.h"
 #include "chrome/browser/ui/views/page_info/permission_selector_row.h"
+#include "chrome/browser/ui/views_mode_controller.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/theme_resources.h"
 #include "components/content_settings/core/common/content_settings_types.h"
@@ -198,7 +200,6 @@ std::unique_ptr<HoverButton> CreateMoreInfoButton(
   }
 
   button->set_id(click_target_id);
-  button->set_auto_compute_tooltip(false);
   button->SetTooltipText(tooltip_text);
   return button;
 }
@@ -525,8 +526,9 @@ views::BubbleDialogDelegateView* PageInfoBubbleView::CreatePageInfoBubble(
     Browser* browser,
     content::WebContents* web_contents,
     const GURL& url,
-    const security_state::SecurityInfo& security_info) {
-  views::View* anchor_view = GetPageInfoAnchorView(browser);
+    const security_state::SecurityInfo& security_info,
+    bubble_anchor_util::Anchor anchor) {
+  views::View* anchor_view = GetPageInfoAnchorView(browser, anchor);
   gfx::Rect anchor_rect =
       anchor_view ? gfx::Rect() : GetPageInfoAnchorRect(browser);
   gfx::NativeView parent_window =
@@ -679,8 +681,6 @@ gfx::Size PageInfoBubbleView::CalculatePreferredSize() const {
 
   int height = views::View::CalculatePreferredSize().height();
   int width = kMinBubbleWidth;
-  // Don't get any smaller than the current size.
-  width = std::max(width, GetLocalBounds().width());
   if (site_settings_view_) {
     width = std::max(width, permissions_view_->GetPreferredSize().width());
   }
@@ -791,8 +791,7 @@ void PageInfoBubbleView::SetPermissionInfo(
       layout_provider->GetInsetsMetric(views::INSETS_DIALOG).left();
   // A permissions row will have an icon, title, and combobox, with a padding
   // column on either side to match the dialog insets. Note the combobox can be
-  // variable widths depending on the text inside, so allow that column to
-  // expand.
+  // variable widths depending on the text inside.
   // *----------------------------------------------*
   // |++| Icon | Permission Title     | Combobox |++|
   // *----------------------------------------------*
@@ -804,12 +803,12 @@ void PageInfoBubbleView::SetPermissionInfo(
   permissions_set->AddPaddingColumn(
       kFixed, layout_provider->GetDistanceMetric(
                   views::DISTANCE_RELATED_LABEL_HORIZONTAL));
-  permissions_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, kFixed,
+  permissions_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, kStretchy,
                              GridLayout::USE_PREF, 0, 0);
   permissions_set->AddPaddingColumn(
-      1, layout_provider->GetDistanceMetric(
-             views::DISTANCE_RELATED_CONTROL_HORIZONTAL));
-  permissions_set->AddColumn(GridLayout::TRAILING, GridLayout::FILL, kStretchy,
+      kFixed, layout_provider->GetDistanceMetric(
+                  views::DISTANCE_RELATED_CONTROL_HORIZONTAL));
+  permissions_set->AddColumn(GridLayout::TRAILING, GridLayout::FILL, kFixed,
                              GridLayout::USE_PREF, 0, 0);
   permissions_set->AddPaddingColumn(kFixed, side_margin);
 
@@ -922,11 +921,11 @@ void PageInfoBubbleView::SetIdentityInfo(const IdentityInfo& identity_info) {
       const base::string16 secondary_text = l10n_util::GetStringUTF16(
           valid_identity ? IDS_PAGE_INFO_CERTIFICATE_VALID_PARENTHESIZED
                          : IDS_PAGE_INFO_CERTIFICATE_INVALID_PARENTHESIZED);
-      site_settings_view_->AddChildView(
-          CreateMoreInfoButton(
-              this, icon, IDS_PAGE_INFO_CERTIFICATE_BUTTON_TEXT, secondary_text,
-              VIEW_ID_PAGE_INFO_LINK_OR_BUTTON_CERTIFICATE_VIEWER, tooltip)
-              .release());
+      std::unique_ptr<HoverButton> certificate_button = CreateMoreInfoButton(
+          this, icon, IDS_PAGE_INFO_CERTIFICATE_BUTTON_TEXT, secondary_text,
+          VIEW_ID_PAGE_INFO_LINK_OR_BUTTON_CERTIFICATE_VIEWER, tooltip);
+      certificate_button->set_auto_compute_tooltip(false);
+      site_settings_view_->AddChildView(certificate_button.release());
     } else {
       const base::string16 link_title = l10n_util::GetStringUTF16(
           valid_identity ? IDS_PAGE_INFO_CERTIFICATE_VALID_LINK
@@ -1025,10 +1024,19 @@ void PageInfoBubbleView::StyledLabelLinkClicked(views::StyledLabel* label,
 void ShowPageInfoDialogImpl(Browser* browser,
                             content::WebContents* web_contents,
                             const GURL& virtual_url,
-                            const security_state::SecurityInfo& security_info) {
+                            const security_state::SecurityInfo& security_info,
+                            bubble_anchor_util::Anchor anchor) {
+#if defined(OS_MACOSX)
+  if (views_mode_controller::IsViewsBrowserCocoa()) {
+    // Use the Cocoa code path for showing the Views page info dialog so that it
+    // anchors properly.
+    return chrome::ShowPageInfoBubbleViews(browser, web_contents, virtual_url,
+                                           security_info, anchor);
+  }
+#endif
   views::BubbleDialogDelegateView* bubble =
-      PageInfoBubbleView::CreatePageInfoBubble(browser, web_contents,
-                                               virtual_url, security_info);
+      PageInfoBubbleView::CreatePageInfoBubble(
+          browser, web_contents, virtual_url, security_info, anchor);
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser);
   bubble->GetWidget()->AddObserver(
       browser_view->GetLocationBarView()->location_icon_view());

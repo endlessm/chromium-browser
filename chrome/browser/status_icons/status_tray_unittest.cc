@@ -10,7 +10,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_unittest_util.h"
-#include "ui/message_center/notifier_id.h"
+#include "ui/message_center/public/cpp/notifier_id.h"
 
 namespace {
 
@@ -30,7 +30,7 @@ class TestStatusTray : public StatusTray {
       StatusIconType type,
       const gfx::ImageSkia& image,
       const base::string16& tool_tip) override {
-    return base::MakeUnique<MockStatusIcon>();
+    return std::make_unique<MockStatusIcon>();
   }
 
   const StatusIcons& GetStatusIconsForTest() const { return status_icons(); }

@@ -27,7 +27,6 @@
 #include "chrome/test/base/test_browser_window.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/crx_file/id_util.h"
-#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/test/browser_side_navigation_test_utils.h"
 #include "content/public/test/web_contents_tester.h"
 #include "extensions/browser/extension_dialog_auto_confirm.h"
@@ -44,6 +43,7 @@
 #include "extensions/common/value_builder.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/display/test/test_screen.h"
 #include "ui/gfx/image/image.h"
 
 namespace extensions {
@@ -190,6 +190,7 @@ class ExtensionContextMenuModelTest : public ExtensionServiceTestBase {
  private:
   std::unique_ptr<TestBrowserWindow> test_window_;
   std::unique_ptr<Browser> browser_;
+  display::test::TestScreen test_screen_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionContextMenuModelTest);
 };
@@ -241,13 +242,12 @@ Browser* ExtensionContextMenuModelTest::GetBrowser() {
 
 void ExtensionContextMenuModelTest::SetUp() {
   ExtensionServiceTestBase::SetUp();
-  if (content::IsBrowserSideNavigationEnabled())
-    content::BrowserSideNavigationSetUp();
+  content::BrowserSideNavigationSetUp();
+  display::Screen::SetScreenInstance(&test_screen_);
 }
 
 void ExtensionContextMenuModelTest::TearDown() {
-  if (content::IsBrowserSideNavigationEnabled())
-    content::BrowserSideNavigationTearDown();
+  content::BrowserSideNavigationTearDown();
   ExtensionServiceTestBase::TearDown();
 }
 

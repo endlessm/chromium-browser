@@ -194,7 +194,7 @@ void BackgroundModeManager::BackgroundModeData::BuildProfileMenu(
     int menu_command_id = command_id_handler_vector_->size();
     // Check that the command ID is within the dynamic range.
     DCHECK_LT(menu_command_id, IDC_MinimumLabelValue);
-    command_id_handler_vector_->push_back(base::Bind(&base::DoNothing));
+    command_id_handler_vector_->push_back(base::DoNothing());
     containing_menu->AddSubMenu(menu_command_id, name_, menu);
   }
 }
@@ -979,7 +979,7 @@ void BackgroundModeManager::UpdateStatusTrayIconContextMenu() {
       if (bmd->GetBackgroundClientCount() > 0) {
         // The submenu constructor caller owns the lifetime of the submenu.
         // The containing menu does not handle the lifetime.
-        submenus.push_back(base::MakeUnique<StatusIconMenuModel>(bmd));
+        submenus.push_back(std::make_unique<StatusIconMenuModel>(bmd));
         bmd->BuildProfileMenu(submenus.back().get(), menu.get());
         profiles_using_background_mode++;
       }

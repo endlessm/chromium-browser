@@ -101,7 +101,7 @@ class WebGLConformanceExpectations(GpuTestExpectations):
 
     # Need to add detection of feedback loops with multiple render targets.
     self.Fail('conformance/extensions/webgl-draw-buffers-feedback-loop.html',
-        bug=1619) # angle bug ID
+        ['no_passthrough'], bug=1619) # angle bug ID
 
     # Failing on Windows and Linux with NVIDIA GPUs and OpenGL driver.
     self.Fail('conformance/glsl/bugs/vector-scalar-arithmetic-inside-loop.html',
@@ -109,6 +109,11 @@ class WebGLConformanceExpectations(GpuTestExpectations):
     self.Fail('conformance/glsl/bugs/' +
         'vector-scalar-arithmetic-inside-loop-complex.html',
         ['nvidia'], bug=772651)
+    self.Fail('conformance/glsl/bugs/assign-to-swizzled-twice-in-function.html',
+        ['nvidia'], bug=798117)
+    self.Fail('conformance/glsl/bugs/' +
+        'in-parameter-passed-as-inout-argument-and-global.html',
+        ['nvidia'], bug=792210)
 
     # Timing out on multiple platforms right now.
     self.Skip('conformance/glsl/bugs/sampler-array-struct-function-arg.html',
@@ -127,10 +132,6 @@ class WebGLConformanceExpectations(GpuTestExpectations):
     # performance; it's currently too flaky even on release bots.
     self.Skip('conformance/rendering/texture-switch-performance.html',
         bug=735483)
-
-    # Passthrough command decoder
-    self.Fail('conformance/extensions/webgl-draw-buffers.html',
-        ['passthrough'], bug=1523) # angle bug ID
 
     # Passthrough command decoder / OpenGL
     self.Fail('conformance/buffers/buffer-uninitialized.html',
@@ -168,14 +169,18 @@ class WebGLConformanceExpectations(GpuTestExpectations):
         ['passthrough', 'opengl'], bug=2198) # angle bug ID
 
     # Passthrough command decoder / OpenGL / Intel
-    self.Fail('conformance/textures/misc/texture-attachment-formats.html',
-        ['passthrough', 'opengl', 'intel'], bug=665521)
+    self.Fail('conformance/extensions/webgl-draw-buffers.html',
+        ['passthrough', 'opengl', 'intel'], bug=1523) # angle bug ID
     self.Fail('conformance/glsl/constructors/glsl-construct-mat2.html',
+        ['passthrough', 'opengl', 'intel'], bug=665521)
+    self.Fail('conformance/textures/misc/texture-attachment-formats.html',
         ['passthrough', 'opengl', 'intel'], bug=665521)
 
     # Passthrough command decoder / OpenGL / AMD
     # self.Fail('conformance/extensions/ext-sRGB.html',
     #     ['passthrough', 'opengl', 'amd'], bug=679696)
+    self.Fail('conformance/extensions/webgl-draw-buffers.html',
+        ['passthrough', 'opengl', 'amd', 'linux'], bug=1523) # angle bug ID
     self.Fail('conformance/glsl/constructors/glsl-construct-mat2.html',
         ['passthrough', 'opengl', 'amd'], bug=665521)
     self.Fail('conformance/glsl/constructors/' +
@@ -198,10 +203,6 @@ class WebGLConformanceExpectations(GpuTestExpectations):
         ['passthrough', 'opengl', 'amd'], bug=665521)
     self.Fail('conformance/textures/misc/texture-attachment-formats.html',
         ['passthrough', 'opengl', 'amd'], bug=665521)
-
-    # Passthrough command decoder / D3D11
-    self.Fail('conformance/textures/misc/copy-tex-image-and-sub-image-2d.html',
-        ['passthrough', 'd3d11'], bug=1639) # angle bug ID
 
     # Win / AMD / Passthrough command decoder / D3D11
     self.Flaky('conformance/textures/misc/copytexsubimage2d-subrects.html',
@@ -239,6 +240,8 @@ class WebGLConformanceExpectations(GpuTestExpectations):
         ['win'], bug=616335)
     self.Fail('deqp/data/gles2/shaders/functions.html',
         ['win'], bug=478572)
+    self.Fail('conformance/glsl/bugs/if-return-and-elseif.html',
+        ['win'], bug=2325) # angle bug ID
 
     # Win NVIDIA failures
     self.Flaky('conformance/textures/misc/texture-npot-video.html',
@@ -406,16 +409,6 @@ class WebGLConformanceExpectations(GpuTestExpectations):
     # Win / Intel / Passthrough command decoder
     self.Flaky('conformance/renderbuffers/framebuffer-state-restoration.html',
         ['win', 'intel', 'passthrough', 'd3d11'], bug=602688)
-
-    # Win 10 / Intel / Passthrough command decoder
-    self.Fail('conformance/extensions/oes-texture-float-with-video.html',
-        ['win10', 'intel', 'passthrough', 'd3d11'], bug=750813)
-    self.Fail('conformance/extensions/oes-texture-half-float-with-video.html',
-        ['win10', 'intel', 'passthrough', 'd3d11'], bug=750813)
-    self.Fail('conformance/textures/image_bitmap_from_video/*',
-        ['win10', 'intel', 'passthrough', 'd3d11'], bug=750813)
-    self.Fail('conformance/textures/video/*',
-        ['win10', 'intel', 'passthrough', 'd3d11'], bug=750813)
 
     # D3D9 / Passthrough command decoder
     self.Fail('conformance/textures/canvas/' +

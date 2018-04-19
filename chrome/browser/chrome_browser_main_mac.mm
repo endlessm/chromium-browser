@@ -75,10 +75,6 @@ ChromeBrowserMainPartsMac::~ChromeBrowserMainPartsMac() {
 }
 
 int ChromeBrowserMainPartsMac::PreEarlyInitialization() {
-  const int result = ChromeBrowserMainPartsPosix::PreEarlyInitialization();
-  if (result != content::RESULT_CODE_NORMAL_EXIT)
-    return result;
-
   if (base::mac::WasLaunchedAsLoginItemRestoreState()) {
     base::CommandLine* singleton_command_line =
         base::CommandLine::ForCurrentProcess();
@@ -88,14 +84,6 @@ int ChromeBrowserMainPartsMac::PreEarlyInitialization() {
         base::CommandLine::ForCurrentProcess();
     singleton_command_line->AppendSwitch(switches::kNoStartupWindow);
   }
-
-  return content::RESULT_CODE_NORMAL_EXIT;
-}
-
-void ChromeBrowserMainPartsMac::PreMainMessageLoopStart() {
-  MacStartupProfiler::GetInstance()->Profile(
-      MacStartupProfiler::PRE_MAIN_MESSAGE_LOOP_START);
-  ChromeBrowserMainPartsPosix::PreMainMessageLoopStart();
 
   // Tell Cocoa to finish its initialization, which we want to do manually
   // instead of calling NSApplicationMain(). The primary reason is that NSAM()
@@ -111,23 +99,23 @@ void ChromeBrowserMainPartsMac::PreMainMessageLoopStart() {
   // If ui_task is not NULL, the app is actually a browser_test.
   if (!parameters().ui_task) {
     // The browser process only wants to support the language Cocoa will use,
-    // so force the app locale to be overriden with that value.
+    // so force the app locale to be overriden with that value. This must
+    // happen before the ResourceBundle is loaded, which happens in
+    // ChromeBrowserMainParts::PreEarlyInitialization().
     l10n_util::OverrideLocaleWithCocoaLocale();
   }
 
-  // Before we load the nib, we need to start up the resource bundle so we
-  // have the strings avaiable for localization.
-  // TODO(markusheintz): Read preference pref::kApplicationLocale in order
-  // to enforce the application locale.
-  const std::string loaded_locale =
-      ui::ResourceBundle::InitSharedInstanceWithLocale(
-          std::string(), nullptr, ui::ResourceBundle::LOAD_COMMON_RESOURCES);
-  CHECK(!loaded_locale.empty()) << "Default locale could not be found";
+  return ChromeBrowserMainPartsPosix::PreEarlyInitialization();
+}
 
-  base::FilePath resources_pack_path;
-  PathService::Get(chrome::FILE_RESOURCES_PACK, &resources_pack_path);
-  ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
-      resources_pack_path, ui::SCALE_FACTOR_NONE);
+void ChromeBrowserMainPartsMac::PreMainMessageLoopStart() {
+  MacStartupProfiler::GetInstance()->Profile(
+      MacStartupProfiler::PRE_MAIN_MESSAGE_LOOP_START);
+  ChromeBrowserMainPartsPosix::PreMainMessageLoopStart();
+
+  // ChromeBrowserMainParts should have loaded the resource bundle by this
+  // point (needed to load the nib).
+  CHECK(ui::ResourceBundle::HasSharedInstance());
 
   // This is a no-op if the KeystoneRegistration framework is not present.
   // The framework is only distributed with branded Google Chrome builds.

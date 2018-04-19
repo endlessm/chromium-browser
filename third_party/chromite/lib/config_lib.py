@@ -51,6 +51,7 @@ TRYJOB_DISPLAY_LABEL = {
 DISPLAY_LABEL_CQ = 'cq'
 DISPLAY_LABEL_RELEASE = 'release'
 DISPLAY_LABEL_CHROME_PFQ = 'chrome_pfq'
+DISPLAY_LABEL_MST_ANDROID_PFQ = 'mst_android_pfq'
 DISPLAY_LABEL_MNC_ANDROID_PFQ = 'mnc_android_pfq'
 DISPLAY_LABEL_NYC_ANDROID_PFQ = 'nyc_android_pfq'
 DISPLAY_LABEL_FIRMWARE = 'firmware'
@@ -64,6 +65,7 @@ ALL_DISPLAY_LABEL = TRYJOB_DISPLAY_LABEL | {
     DISPLAY_LABEL_CQ,
     DISPLAY_LABEL_RELEASE,
     DISPLAY_LABEL_CHROME_PFQ,
+    DISPLAY_LABEL_MST_ANDROID_PFQ,
     DISPLAY_LABEL_MNC_ANDROID_PFQ,
     DISPLAY_LABEL_NYC_ANDROID_PFQ,
     DISPLAY_LABEL_FIRMWARE,
@@ -153,6 +155,7 @@ def UseBuildbucketScheduler(config):
           config.name in (constants.CQ_MASTER,
                           constants.CANARY_MASTER,
                           constants.PFQ_MASTER,
+                          constants.MST_ANDROID_PFQ_MASTER,
                           constants.NYC_ANDROID_PFQ_MASTER,
                           constants.TOOLCHAIN_MASTTER,
                           constants.PRE_CQ_LAUNCHER_NAME))
@@ -392,15 +395,21 @@ class VMTestConfig(object):
     test_suite: Test suite to be run in VMTest.
     timeout: Number of seconds to wait before timing out waiting for
              results.
+    retry: Whether we should retry tests that fail in a suite run.
+    max_retries: Integer, maximum job retries allowed at suite level.
+                 None for no max.
   """
   DEFAULT_TEST_TIMEOUT = 60 * 60
 
   def __init__(self, test_type, test_suite=None,
-               timeout=DEFAULT_TEST_TIMEOUT):
+               timeout=DEFAULT_TEST_TIMEOUT, retry=False,
+               max_retries=constants.VM_TEST_MAX_RETRIES):
     """Constructor -- see members above."""
     self.test_type = test_type
     self.test_suite = test_suite
     self.timeout = timeout
+    self.retry = retry
+    self.max_retries = max_retries
 
 
   def __eq__(self, other):
@@ -706,14 +715,6 @@ def DefaultSettings():
       # CommitQueueSync. This is basically ToT immediately prior to the
       # current commit queue run.
       do_not_apply_cq_patches=False,
-
-      # Applies only to master builders. List of the names of slave builders
-      # to be treated as sanity checkers. If only sanity check builders fail,
-      # then the master will ignore the failures. In a CQ run, if any of the
-      # sanity check builders fail and other builders fail as well, the master
-      # will treat the build as failed, but will not reset the ready bit of
-      # the tested patches.
-      sanity_check_slaves=None,
 
       # emerge use flags to use while setting up the board, building packages,
       # making images, etc.

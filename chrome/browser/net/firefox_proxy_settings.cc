@@ -14,7 +14,7 @@
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "chrome/common/importer/firefox_importer_utils.h"
-#include "net/proxy/proxy_config.h"
+#include "net/proxy_resolution/proxy_config.h"
 
 namespace {
 
@@ -203,7 +203,7 @@ bool FirefoxProxySettings::ToProxyConfig(net::ProxyConfig* config) {
 
   *config = net::ProxyConfig();
   config->proxy_rules().type =
-      net::ProxyConfig::ProxyRules::TYPE_PROXY_PER_SCHEME;
+      net::ProxyConfig::ProxyRules::Type::PROXY_LIST_PER_SCHEME;
 
   if (!http_proxy().empty()) {
     config->proxy_rules().proxies_for_http.SetSingleProxyServer(

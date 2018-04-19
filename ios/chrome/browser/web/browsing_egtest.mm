@@ -14,7 +14,7 @@
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
 #include "ios/chrome/test/app/navigation_test_util.h"
-#include "ios/chrome/test/app/web_view_interaction_test_util.h"
+#import "ios/chrome/test/app/web_view_interaction_test_util.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
@@ -26,6 +26,7 @@
 #include "ios/web/public/test/http_server/data_response_provider.h"
 #import "ios/web/public/test/http_server/http_server.h"
 #include "ios/web/public/test/http_server/http_server_util.h"
+#import "ios/web/public/web_client.h"
 #include "net/http/http_response_headers.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
@@ -36,6 +37,7 @@
 
 using chrome_test_util::GetOriginalBrowserState;
 using chrome_test_util::OmniboxText;
+using chrome_test_util::TapWebViewElementWithId;
 
 namespace {
 
@@ -190,7 +192,7 @@ id<GREYMatcher> TabWithTitle(const std::string& tab_title) {
   [ChromeEarlGrey loadURL:URL];
   [ChromeEarlGrey waitForMainTabCount:1];
 
-  chrome_test_util::TapWebViewElementWithId("link");
+  GREYAssert(TapWebViewElementWithId("link"), @"Failed to tap \"link\"");
 
   [ChromeEarlGrey waitForMainTabCount:2];
 
@@ -221,7 +223,7 @@ id<GREYMatcher> TabWithTitle(const std::string& tab_title) {
   [ChromeEarlGrey loadURL:URL];
   [ChromeEarlGrey waitForMainTabCount:1];
 
-  chrome_test_util::TapWebViewElementWithId("link");
+  GREYAssert(TapWebViewElementWithId("link"), @"Failed to tap \"link\"");
 
   [ChromeEarlGrey waitForMainTabCount:2];
 
@@ -262,7 +264,7 @@ id<GREYMatcher> TabWithTitle(const std::string& tab_title) {
   [ChromeEarlGrey loadURL:URL];
   [ChromeEarlGrey waitForMainTabCount:1];
 
-  chrome_test_util::TapWebViewElementWithId("link");
+  GREYAssert(TapWebViewElementWithId("link"), @"Failed to tap \"link\"");
 
   [ChromeEarlGrey waitForMainTabCount:2];
 
@@ -302,7 +304,7 @@ id<GREYMatcher> TabWithTitle(const std::string& tab_title) {
   [ChromeEarlGrey loadURL:URL];
   [ChromeEarlGrey waitForMainTabCount:1];
 
-  chrome_test_util::TapWebViewElementWithId("link");
+  GREYAssert(TapWebViewElementWithId("link"), @"Failed to tap \"link\"");
 
   [ChromeEarlGrey waitForMainTabCount:2];
 
@@ -327,14 +329,24 @@ id<GREYMatcher> TabWithTitle(const std::string& tab_title) {
   web::test::SetUpSimpleHttpServer(responses);
 
   [ChromeEarlGrey loadURL:URL];
-  chrome_test_util::TapWebViewElementWithId("link");
+  GREYAssert(TapWebViewElementWithId("link"), @"Failed to tap \"link\"");
 
   [[EarlGrey selectElementWithMatcher:OmniboxText(destURL.GetContent())]
       assertWithMatcher:grey_notNil()];
 
   [ChromeEarlGrey goBack];
-  [[EarlGrey selectElementWithMatcher:OmniboxText(URL.GetContent())]
-      assertWithMatcher:grey_notNil()];
+
+  [ChromeEarlGrey waitForWebViewContainingText:"Link"];
+  if (web::GetWebClient()->IsSlimNavigationManagerEnabled()) {
+    // Due to the link click, URL of the first page now has an extra '#'. This
+    // is consistent with all other browsers.
+    const GURL newURL = web::test::HttpServer::MakeUrl("http://origin#");
+    [[EarlGrey selectElementWithMatcher:OmniboxText(newURL.GetContent())]
+        assertWithMatcher:grey_notNil()];
+  } else {
+    [[EarlGrey selectElementWithMatcher:OmniboxText(URL.GetContent())]
+        assertWithMatcher:grey_notNil()];
+  }
 }
 
 // Tests that a link with WebUI URL does not trigger a load. WebUI pages may

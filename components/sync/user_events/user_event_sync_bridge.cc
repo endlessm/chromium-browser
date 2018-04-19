@@ -26,7 +26,6 @@ using sync_pb::ModelTypeState;
 using IdList = ModelTypeStore::IdList;
 using Record = ModelTypeStore::Record;
 using RecordList = ModelTypeStore::RecordList;
-using Result = ModelTypeStore::Result;
 using WriteBatch = ModelTypeStore::WriteBatch;
 
 namespace {
@@ -68,15 +67,15 @@ std::unique_ptr<EntityData> CopyToEntityData(
 }  // namespace
 
 UserEventSyncBridge::UserEventSyncBridge(
-    const ModelTypeStoreFactory& store_factory,
+    OnceModelTypeStoreFactory store_factory,
     const ChangeProcessorFactory& change_processor_factory,
     GlobalIdMapper* global_id_mapper)
     : ModelTypeSyncBridge(change_processor_factory, USER_EVENTS),
       global_id_mapper_(global_id_mapper) {
   DCHECK(global_id_mapper_);
-  store_factory.Run(
-      USER_EVENTS,
-      base::Bind(&UserEventSyncBridge::OnStoreCreated, base::AsWeakPtr(this)));
+  std::move(store_factory)
+      .Run(USER_EVENTS, base::BindOnce(&UserEventSyncBridge::OnStoreCreated,
+                                       base::AsWeakPtr(this)));
   global_id_mapper_->AddGlobalIdChangeObserver(base::Bind(
       &UserEventSyncBridge::HandleGlobalIdChange, base::AsWeakPtr(this)));
 }
@@ -194,23 +193,23 @@ void UserEventSyncBridge::RecordUserEvent(
 }
 
 void UserEventSyncBridge::OnStoreCreated(
-    Result result,
+    const base::Optional<ModelError>& error,
     std::unique_ptr<ModelTypeStore> store) {
-  if (result == Result::SUCCESS) {
-    std::swap(store_, store);
-    store_->ReadAllMetadata(base::Bind(&UserEventSyncBridge::OnReadAllMetadata,
-                                       base::AsWeakPtr(this)));
-  } else {
-    change_processor()->ReportError(FROM_HERE,
-                                    "ModelTypeStore creation failed.");
+  if (error) {
+    change_processor()->ReportError(*error);
+    return;
   }
+
+  store_ = std::move(store);
+  store_->ReadAllMetadata(base::BindOnce(
+      &UserEventSyncBridge::OnReadAllMetadata, base::AsWeakPtr(this)));
 }
 
 void UserEventSyncBridge::OnReadAllMetadata(
-    base::Optional<ModelError> error,
+    const base::Optional<ModelError>& error,
     std::unique_ptr<MetadataBatch> metadata_batch) {
   if (error) {
-    change_processor()->ReportError(error.value());
+    change_processor()->ReportError(*error);
   } else {
     if (!metadata_batch->GetModelTypeState().initial_sync_done()) {
       // We have never initialized before, force it to true. We are not going to
@@ -225,25 +224,25 @@ void UserEventSyncBridge::OnReadAllMetadata(
   }
 }
 
-void UserEventSyncBridge::OnCommit(Result result) {
-  if (result != Result::SUCCESS) {
-    change_processor()->ReportError(FROM_HERE, "Failed writing user events.");
+void UserEventSyncBridge::OnCommit(const base::Optional<ModelError>& error) {
+  if (error) {
+    change_processor()->ReportError(*error);
   }
 }
 
 void UserEventSyncBridge::OnReadData(DataCallback callback,
-                                     Result result,
+                                     const base::Optional<ModelError>& error,
                                      std::unique_ptr<RecordList> data_records,
                                      std::unique_ptr<IdList> missing_id_list) {
-  OnReadAllData(callback, result, std::move(data_records));
+  OnReadAllData(callback, error, std::move(data_records));
 }
 
 void UserEventSyncBridge::OnReadAllData(
     DataCallback callback,
-    Result result,
+    const base::Optional<ModelError>& error,
     std::unique_ptr<RecordList> data_records) {
-  if (result != Result::SUCCESS) {
-    change_processor()->ReportError(FROM_HERE, "Failed reading user events.");
+  if (error) {
+    change_processor()->ReportError(*error);
     return;
   }
 
@@ -254,8 +253,8 @@ void UserEventSyncBridge::OnReadAllData(
       DCHECK_EQ(r.id, GetStorageKeyFromSpecifics(specifics));
       batch->Put(r.id, CopyToEntityData(specifics));
     } else {
-      change_processor()->ReportError(FROM_HERE,
-                                      "Failed deserializing user events.");
+      change_processor()->ReportError(
+          {FROM_HERE, "Failed deserializing user events."});
       return;
     }
   }
@@ -263,10 +262,10 @@ void UserEventSyncBridge::OnReadAllData(
 }
 
 void UserEventSyncBridge::OnReadAllDataToDelete(
-    Result result,
+    const base::Optional<ModelError>& error,
     std::unique_ptr<RecordList> data_records) {
-  if (result != Result::SUCCESS) {
-    change_processor()->ReportError(FROM_HERE, "Failed reading user events.");
+  if (error) {
+    change_processor()->ReportError(*error);
     return;
   }
 

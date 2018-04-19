@@ -13,6 +13,7 @@
 #include "android_webview/browser/aw_contents_io_thread_client.h"
 #include "android_webview/browser/aw_cookie_access_policy.h"
 #include "android_webview/browser/aw_devtools_manager_delegate.h"
+#include "android_webview/browser/aw_login_delegate.h"
 #include "android_webview/browser/aw_printing_message_filter.h"
 #include "android_webview/browser/aw_quota_permission_context.h"
 #include "android_webview/browser/aw_settings.h"
@@ -44,6 +45,7 @@
 #include "components/policy/content/policy_blacklist_navigation_throttle.h"
 #include "components/safe_browsing/browser/browser_url_loader_throttle.h"
 #include "components/safe_browsing/browser/mojo_safe_browsing_impl.h"
+#include "components/safe_browsing/features.h"
 #include "components/spellcheck/spellcheck_build_features.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/browser_thread.h"
@@ -56,7 +58,6 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/service_names.mojom.h"
 #include "content/public/common/url_constants.h"
@@ -66,6 +67,8 @@
 #include "net/log/net_log.h"
 #include "net/ssl/ssl_cert_request_info.h"
 #include "net/ssl/ssl_info.h"
+#include "services/network/public/cpp/features.h"
+#include "services/network/public/cpp/resource_request.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "storage/browser/quota/quota_settings.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -73,7 +76,7 @@
 #include "ui/resources/grit/ui_resources.h"
 
 #if BUILDFLAG(ENABLE_SPELLCHECK)
-#include "components/spellcheck/browser/spellcheck_message_filter_platform.h"
+#include "components/spellcheck/browser/spell_check_host_impl.h"
 #include "components/spellcheck/common/spellcheck_switches.h"
 #endif
 
@@ -202,6 +205,7 @@ AwContentBrowserClient::AwContentBrowserClient() : net_log_(new net::NetLog()) {
   // just drops the incoming request, to avoid the 'Failed to locate a binder
   // for interface' error log..
   frame_interfaces_.AddInterface(base::Bind(&DummyBindPasswordManagerDriver));
+  sniff_file_urls_ = AwSettings::GetAllowSniffingFileUrls();
 }
 
 AwContentBrowserClient::~AwContentBrowserClient() {}
@@ -227,7 +231,8 @@ AwContentBrowserClient::GetWebContentsViewDelegate(
 }
 
 void AwContentBrowserClient::RenderProcessWillLaunch(
-    content::RenderProcessHost* host) {
+    content::RenderProcessHost* host,
+    service_manager::mojom::ServiceRequest* service_request) {
   // Grant content: scheme access to the whole renderer process, since we impose
   // per-view access checks, and access is granted by default (see
   // AwSettings.mAllowContentUrlAccess).
@@ -238,10 +243,6 @@ void AwContentBrowserClient::RenderProcessWillLaunch(
   // WebView always allows persisting data.
   host->AddFilter(new cdm::CdmMessageFilterAndroid(true, false));
   host->AddFilter(new AwPrintingMessageFilter(host->GetID()));
-
-#if BUILDFLAG(ENABLE_SPELLCHECK)
-  host->AddFilter(new SpellCheckMessageFilterPlatform(host->GetID()));
-#endif
 }
 
 bool AwContentBrowserClient::IsHandledURL(const GURL& url) {
@@ -272,6 +273,10 @@ bool AwContentBrowserClient::IsHandledURL(const GURL& url) {
       return true;
   }
   return net::URLRequest::IsHandledProtocol(scheme);
+}
+
+bool AwContentBrowserClient::ForceSniffingFileUrlsForHtml() {
+  return sniff_file_urls_;
 }
 
 void AwContentBrowserClient::AppendExtraCommandLineSwitches(
@@ -520,7 +525,7 @@ AwContentBrowserClient::CreateThrottlesForNavigation(
     throttles.push_back(
         navigation_interception::InterceptNavigationDelegate::CreateThrottleFor(
             navigation_handle));
-    throttles.push_back(base::MakeUnique<PolicyBlacklistNavigationThrottle>(
+    throttles.push_back(std::make_unique<PolicyBlacklistNavigationThrottle>(
         navigation_handle, browser_context_.get()));
   }
   return throttles;
@@ -559,32 +564,51 @@ void AwContentBrowserClient::ExposeInterfacesToRenderer(
     service_manager::BinderRegistry* registry,
     blink::AssociatedInterfaceRegistry* associated_registry,
     content::RenderProcessHost* render_process_host) {
-  if (base::FeatureList::IsEnabled(features::kNetworkService)) {
+  if (base::FeatureList::IsEnabled(network::features::kNetworkService) ||
+      base::FeatureList::IsEnabled(safe_browsing::kCheckByURLLoaderThrottle)) {
+    content::ResourceContext* resource_context =
+        render_process_host->GetBrowserContext()->GetResourceContext();
     registry->AddInterface(
         base::Bind(
             &safe_browsing::MojoSafeBrowsingImpl::MaybeCreate,
-            render_process_host->GetID(),
+            render_process_host->GetID(), resource_context,
             base::Bind(
                 &AwContentBrowserClient::GetSafeBrowsingUrlCheckerDelegate,
                 base::Unretained(this))),
         BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
   }
+#if BUILDFLAG(ENABLE_SPELLCHECK)
+  registry->AddInterface(
+      base::BindRepeating(&SpellCheckHostImpl::Create),
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::UI));
+#endif
 }
 
 std::vector<std::unique_ptr<content::URLLoaderThrottle>>
 AwContentBrowserClient::CreateURLLoaderThrottles(
-    const base::Callback<content::WebContents*()>& wc_getter,
-    content::NavigationUIData* navigation_ui_data) {
+    const network::ResourceRequest& request,
+    content::ResourceContext* resource_context,
+    const base::RepeatingCallback<content::WebContents*()>& wc_getter,
+    content::NavigationUIData* navigation_ui_data,
+    int frame_tree_node_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  DCHECK(base::FeatureList::IsEnabled(features::kNetworkService));
 
   std::vector<std::unique_ptr<content::URLLoaderThrottle>> result;
 
-  auto safe_browsing_throttle =
-      safe_browsing::BrowserURLLoaderThrottle::MaybeCreate(
-          GetSafeBrowsingUrlCheckerDelegate(), wc_getter);
-  if (safe_browsing_throttle)
-    result.push_back(std::move(safe_browsing_throttle));
+  if (base::FeatureList::IsEnabled(network::features::kNetworkService) ||
+      base::FeatureList::IsEnabled(safe_browsing::kCheckByURLLoaderThrottle)) {
+    auto* delegate = GetSafeBrowsingUrlCheckerDelegate();
+    if (delegate && !delegate->ShouldSkipRequestCheck(
+                        resource_context, request.url, frame_tree_node_id,
+                        -1 /* render_process_id */, -1 /* render_frame_id */,
+                        request.originated_from_service_worker)) {
+      auto safe_browsing_throttle =
+          safe_browsing::BrowserURLLoaderThrottle::MaybeCreate(delegate,
+                                                               wc_getter);
+      if (safe_browsing_throttle)
+        result.push_back(std::move(safe_browsing_throttle));
+    }
+  }
 
   return result;
 }
@@ -651,6 +675,19 @@ bool AwContentBrowserClient::ShouldOverrideUrlLoading(
 
 bool AwContentBrowserClient::ShouldCreateTaskScheduler() {
   return g_should_create_task_scheduler;
+}
+
+content::ResourceDispatcherHostLoginDelegate*
+AwContentBrowserClient::CreateLoginDelegate(
+    net::AuthChallengeInfo* auth_info,
+    content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
+    bool is_main_frame,
+    const GURL& url,
+    bool first_auth_attempt,
+    const base::Callback<void(const base::Optional<net::AuthCredentials>&)>&
+        auth_required_callback) {
+  return new AwLoginDelegate(auth_info, web_contents_getter, first_auth_attempt,
+                             auth_required_callback);
 }
 
 // static

@@ -174,7 +174,6 @@ public:
 
 protected:
 	void						renderTriangle				(const Vec3& p0, const Vec3& p1, const Vec3& p2, const Vec4& c0, const Vec4& c1, const Vec4& c2) const;
-	void						renderTriangle				(const Vec3& p0, const Vec3& p1, const Vec3& p2, const Vec4& color) const;
 	void						renderTriangle				(const Vec2& p0, const Vec2& p1, const Vec2& p2, const Vec4& c0, const Vec4& c1, const Vec4& c2) const;
 	void						renderTriangle				(const Vec2& p0, const Vec2& p1, const Vec2& p2, const Vec4& color) const;
 	void						renderQuad					(const Vec2& p0, const Vec2& p1, const Vec2& p2, const Vec2& p3, const Vec4& c0, const Vec4& c1, const Vec4& c2, const Vec4& c3) const;
@@ -226,9 +225,9 @@ DefaultFBOMultisampleCase::~DefaultFBOMultisampleCase (void)
 
 void DefaultFBOMultisampleCase::init (void)
 {
-	const bool					isES32 = glu::contextSupports(m_context.getRenderContext().getType(), glu::ApiType::es(3, 2));
+	const bool					supportsES32 = glu::contextSupports(m_context.getRenderContext().getType(), glu::ApiType::es(3, 2));
 	map<string, string>			args;
-	args["GLSL_VERSION_DECL"] = isES32 ? getGLSLVersionDeclaration(glu::GLSL_VERSION_320_ES) : getGLSLVersionDeclaration(glu::GLSL_VERSION_310_ES);
+	args["GLSL_VERSION_DECL"] = supportsES32 ? getGLSLVersionDeclaration(glu::GLSL_VERSION_320_ES) : getGLSLVersionDeclaration(glu::GLSL_VERSION_310_ES);
 
 	static const char* vertShaderSource =
 		"${GLSL_VERSION_DECL}\n"
@@ -342,11 +341,6 @@ void DefaultFBOMultisampleCase::renderTriangle (const Vec3& p0, const Vec3& p1, 
 	gl.useProgram(m_program->getProgram());
 	gl.drawArrays(GL_TRIANGLES, 0, 3);
 	GLU_EXPECT_NO_ERROR(gl.getError(), "drawArrays");
-}
-
-void DefaultFBOMultisampleCase::renderTriangle (const Vec3& p0, const Vec3& p1, const Vec3& p2, const Vec4& color) const
-{
-	renderTriangle(p0, p1, p2, color, color, color);
 }
 
 void DefaultFBOMultisampleCase::renderTriangle (const Vec2& p0, const Vec2& p1, const Vec2& p2, const Vec4& c0, const Vec4& c1, const Vec4& c2) const

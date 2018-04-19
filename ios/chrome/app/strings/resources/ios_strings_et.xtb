@@ -38,7 +38,9 @@
 <translation id="1540800554400757039">Aadress 1</translation>
 <translation id="1545749641540134597">QR-koodi skannimine</translation>
 <translation id="1580783302095112590">Meil on saadetud.</translation>
+<translation id="1582732959743469162">See peatab praeguse allalaadimise edenemise.</translation>
 <translation id="1612730193129642006">Kuva vahekaartide ruudustik</translation>
+<translation id="1644574205037202324">Ajalugu</translation>
 <translation id="1646446875146297738">Valiku „Ära jälgi” lubamine tähendab, et päring lisatakse teie sirvimisliiklusse. Selle toimimine oleneb sellest, kas veebisait reageerib päringule ja kuidas päringut tõlgendatakse.
 
 Näiteks võivad mõned veebisaidid päringule reageerida nii, et näitavad teile reklaame, mis ei paikne teie külastatud muudel veebisaitidel. Paljud veebisaidid siiski koguvad ja kasutavad teie sirvimisandmeid, näiteks turvalisuse täiustamiseks, sisu, teenuste, reklaamide ja soovituste pakkumiseks oma veebisaitidel ning statistika kogumiseks. <ph name="BEGIN_LINK" />Lisateave<ph name="END_LINK" /></translation>
@@ -123,6 +125,7 @@ Näiteks võivad mõned veebisaidid päringule reageerida nii, et näitavad teil
 <translation id="3175081911749765310">Teenused</translation>
 <translation id="3207960819495026254">Järjehoidjatesse lisatud</translation>
 <translation id="3210163015918861891">Sünkroonimine on välja lülitatud</translation>
+<translation id="3224641773458703735">Paroolide eksportimiseks peate oma seadmes esmalt pääsukoodi seadistama.</translation>
 <translation id="3240426699337459095">Link on kopeeritud</translation>
 <translation id="3244271242291266297">kk</translation>
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> <ph name="NUM_SUGGESTIONS" />-st</translation>
@@ -153,6 +156,7 @@ Näiteks võivad mõned veebisaidid päringule reageerida nii, et näitavad teil
 <translation id="3771033907050503522">Inkogn. vahelehed</translation>
 <translation id="3779810277399252432">Interneti-ühendus puudub.</translation>
 <translation id="3783017676699494206">Salvesta kujutis</translation>
+<translation id="3789841737615482174">Installi</translation>
 <translation id="385051799172605136">Tagasi</translation>
 <translation id="3897092660631435901">Menüü</translation>
 <translation id="3928666092801078803">Minu andmete kombineerimine</translation>
@@ -220,7 +224,6 @@ Teie andmed on krüpteeritud teie sünkroonimisparooliga. Sisestage see sünkroo
 <translation id="5300589172476337783">Kuva</translation>
 <translation id="5317780077021120954">Salvesta</translation>
 <translation id="5327248766486351172">Nimi</translation>
-<translation id="533632423981297619">Teie paroolid on nähtavad kõigile, kes eksporditud faili näevad. Ärge jagage seda faili kellegagi.</translation>
 <translation id="5388358297987318779">Ava kujutis</translation>
 <translation id="5409365236829784218">Pole installitud rakendust, mis suudaks selle faili avada.</translation>
 <translation id="5433691172869980887">Kasutajanimi on kopeeritud</translation>
@@ -249,6 +252,7 @@ Handoff peab olema lubatud seadete jaotises General ja seadmed peavad kasutama s
 <translation id="5871497086027727873">1 üksus on teisaldatud</translation>
 <translation id="5911030830365207728">Google'i tõlge</translation>
 <translation id="5916664084637901428">Sees</translation>
+<translation id="5938160824633642847">Seade on peaaegu täis. Vabastage ruumi ja proovige uuesti.</translation>
 <translation id="5948291296578561264">See võimaldab teil salvestada fotod fotokogusse.</translation>
 <translation id="5955891643922670672">Kuvatakse võrguühenduseta versioon</translation>
 <translation id="5964480694698977962">Loo uus inkognito vaheleht.</translation>
@@ -280,7 +284,9 @@ Handoff peab olema lubatud seadete jaotises General ja seadmed peavad kasutama s
 <translation id="633809752005859102">Midagi läks väga valesti. Töötame selle kallal.</translation>
 <translation id="6342069812937806050">Äsja</translation>
 <translation id="6344783595350022745">Lihttekst</translation>
+<translation id="6346549652287021269">Kas alustada uut allalaadimist?</translation>
 <translation id="6362362396625799311">Inkognito vahelehti ei ole</translation>
+<translation id="6374469231428023295">Proovi uuesti</translation>
 <translation id="6380866119319257197">Kui unustate parooli või soovite seda seadet muuta, <ph name="BEGIN_LINK" />lähtestage sünkroonimine<ph name="END_LINK" /></translation>
 <translation id="6389470377220713856">Nimi kaardil</translation>
 <translation id="6406506848690869874">Sünkroonimine</translation>
@@ -289,6 +295,7 @@ Handoff peab olema lubatud seadete jaotises General ja seadmed peavad kasutama s
 
 Teie andmed krüpteeriti <ph name="TIME" /> teie sünkroonimisparooliga. Sisestage see sünkroonimise alustamiseks.</translation>
 <translation id="6418346271604475326">PDF-i ettevalm.</translation>
+<translation id="6434591244308415567">Ilmnes viga. Proovige hiljem uuesti.</translation>
 <translation id="6445051938772793705">Riik</translation>
 <translation id="6445981559479772097">Sõnum on saadetud.</translation>
 <translation id="6464071786529933911">Ava uuel inkognito lehel</translation>
@@ -299,6 +306,7 @@ Teie andmed krüpteeriti <ph name="TIME" /> teie sünkroonimisparooliga. Sisesta
 <translation id="6657585470893396449">Parool</translation>
 <translation id="667999046851023355">Dokument</translation>
 <translation id="6713747756340119864">Google Apps</translation>
+<translation id="6730682669179532099">Paroole ei saa eksportida</translation>
 <translation id="6762156594045689028">Selle seade muutmiseks tuleb teil <ph name="BEGIN_LINK" />sünkroonimine lähtestada<ph name="END_LINK" /></translation>
 <translation id="6780034285637185932">Sihtnumber</translation>
 <translation id="6785453220513215166">Krahhiaruande saatmine ...</translation>
@@ -308,13 +316,16 @@ Teie andmed krüpteeriti <ph name="TIME" /> teie sünkroonimisparooliga. Sisesta
 <translation id="681368974849482173">Üksus on loodud</translation>
 <translation id="6896758677409633944">Kopeeri</translation>
 <translation id="6903907808598579934">Lülita sünkroonimine sisse</translation>
+<translation id="6914783257214138813">Teie paroolid on nähtavad kõigile, kes saavad vaadata eksporditud faili.</translation>
 <translation id="6945221475159498467">Vali</translation>
 <translation id="6973630695168034713">Kaustad</translation>
 <translation id="7004499039102548441">Hiljutised vahelehed</translation>
 <translation id="7006788746334555276">Sisu seaded</translation>
+<translation id="7029809446516969842">Paroolid</translation>
 <translation id="7031882061095297553">Sünkroonimine:</translation>
 <translation id="7053983685419859001">Blokeeri</translation>
 <translation id="7062545763355031412">Nõustu ja vaheta kontosid</translation>
+<translation id="7102005569666697658">Allalaadimine … <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">Peida</translation>
 <translation id="7133798577887235672">Täisnimi</translation>
 <translation id="7136892417564438900">Kaamera pole saadaval</translation>
@@ -325,6 +336,7 @@ Teie andmed krüpteeriti <ph name="TIME" /> teie sünkroonimisparooliga. Sisesta
 <translation id="7203585745079012652">Vastuste esitamine</translation>
 <translation id="722055596168483966">Google'i teenuste isikupärastamine</translation>
 <translation id="7272437679830969316">Teie isikut ei õnnestu tuvastada. Parooli ei kopeeritud.</translation>
+<translation id="7291368939935408496">Paroolide ettevalmistamine …</translation>
 <translation id="7336264872878993241"><ph name="PERCENT" /> protsenti on alla laaditud</translation>
 <translation id="7346909386216857016">Selge, sain aru</translation>
 <translation id="7400418766976504921">URL</translation>
@@ -349,6 +361,7 @@ Teie andmed krüpteeriti <ph name="TIME" /> teie sünkroonimisparooliga. Sisesta
 <translation id="7769602470925380267">Nõustu ja logi välja</translation>
 <translation id="7772032839648071052">Kinnitage parool</translation>
 <translation id="780301667611848630">Ei, aitäh</translation>
+<translation id="7856733331829174190">Ei saanud alla laadida</translation>
 <translation id="7859704718976024901">Sirvimisajalugu</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7939128259257418052">Paroolide eksportimine …</translation>
@@ -409,6 +422,7 @@ Teie andmed krüpteeriti <ph name="TIME" /> teie sünkroonimisparooliga. Sisesta
 <translation id="9083392325882095631">1 üksus</translation>
 <translation id="9100610230175265781">Parool on vajalik</translation>
 <translation id="9148126808321036104">Logige uuesti sisse</translation>
+<translation id="915371508759614899">Kas tühistada allalaadimine?</translation>
 <translation id="9157836665414082580">Blokeeri dialoogid</translation>
 <translation id="9188680907066685419">Hallatud kontolt väljalogimine</translation>
 <translation id="9203116392574189331">Handoff</translation>

@@ -29,7 +29,7 @@
 #include "chrome/browser/ssl/ssl_blocking_page.h"
 #include "chrome/browser/ssl/ssl_cert_reporter.h"
 #include "chrome/browser/ssl/ssl_error_assistant.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/pref_names.h"
 #include "components/network_time/network_time_tracker.h"
 #include "components/prefs/pref_service.h"
@@ -564,6 +564,7 @@ int IsCertErrorFatal(int cert_error) {
     case net::ERR_CERT_NAME_CONSTRAINT_VIOLATION:
     case net::ERR_CERT_VALIDITY_TOO_LONG:
     case net::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED:
+    case net::ERR_CERT_SYMANTEC_LEGACY:
       return false;
     case net::ERR_CERT_CONTAINS_ERRORS:
     case net::ERR_CERT_REVOKED:
@@ -880,6 +881,7 @@ void SSLErrorHandler::ShowDynamicInterstitial(
   switch (dynamic_interstitial.interstitial_type) {
     case chrome_browser_ssl::DynamicInterstitial::INTERSTITIAL_PAGE_NONE:
       NOTREACHED();
+      return;
     case chrome_browser_ssl::DynamicInterstitial::INTERSTITIAL_PAGE_SSL:
       delegate_->ShowSSLInterstitial(dynamic_interstitial.support_url);
       return;
@@ -889,8 +891,10 @@ void SSLErrorHandler::ShowDynamicInterstitial(
       return;
     case chrome_browser_ssl::DynamicInterstitial::
         INTERSTITIAL_PAGE_MITM_SOFTWARE:
-      // TODO(spqchan): Implement support for MitM dynamic interstitials.
-      NOTREACHED();
+      DCHECK(!dynamic_interstitial.mitm_software_name.empty());
+      delegate_->ShowMITMSoftwareInterstitial(
+          dynamic_interstitial.mitm_software_name,
+          g_config.Pointer()->IsEnterpriseManaged());
       return;
   }
 }

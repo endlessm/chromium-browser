@@ -16,7 +16,7 @@
 #include "content/public/common/content_client.h"
 #include "jni/AwQuotaManagerBridge_jni.h"
 #include "storage/browser/quota/quota_manager.h"
-#include "third_party/WebKit/common/quota/quota_types.mojom.h"
+#include "third_party/WebKit/public/mojom/quota/quota_types.mojom.h"
 #include "url/gurl.h"
 
 using base::android::AttachCurrentThread;
@@ -211,7 +211,7 @@ void AwQuotaManagerBridge::DeleteAllDataOnUiThread() {
           StoragePartition::REMOVE_DATA_MASK_WEBSQL,
       StoragePartition::QUOTA_MANAGED_STORAGE_MASK_TEMPORARY, GURL(),
       StoragePartition::OriginMatcherFunction(), base::Time(),
-      base::Time::Max(), base::Bind(&base::DoNothing));
+      base::Time::Max(), base::DoNothing());
 }
 
 void AwQuotaManagerBridge::DeleteOrigin(JNIEnv* env,

@@ -4,11 +4,14 @@
 
 #include "ui/app_list/views/search_result_answer_card_view.h"
 
+#include <memory>
+#include <utility>
 #include <vector>
 
 #include "ui/accessibility/ax_node.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/app_list/app_list_constants.h"
+#include "ui/app_list/app_list_metrics.h"
 #include "ui/app_list/app_list_view_delegate.h"
 #include "ui/app_list/views/search_result_base_view.h"
 #include "ui/gfx/canvas.h"
@@ -75,7 +78,7 @@ class SearchResultAnswerCardView::SearchAnswerContainerView
 
   void OnFocus() override {
     ScrollRectToVisible(GetLocalBounds());
-    NotifyAccessibilityEvent(ui::AX_EVENT_SELECTION, true);
+    NotifyAccessibilityEvent(ax::mojom::Event::kSelection, true);
     SetBackgroundHighlighted(true);
   }
 
@@ -91,7 +94,7 @@ class SearchResultAnswerCardView::SearchAnswerContainerView
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
     // Default button role is atomic for ChromeVox, so assign a generic
     // container role to allow accessibility focus to get into this view.
-    node_data->role = ui::AX_ROLE_GENERIC_CONTAINER;
+    node_data->role = ax::mojom::Role::kGenericContainer;
     node_data->SetName(accessible_name());
   }
 
@@ -103,8 +106,11 @@ class SearchResultAnswerCardView::SearchAnswerContainerView
   // views::ButtonListener overrides:
   void ButtonPressed(views::Button* sender, const ui::Event& event) override {
     DCHECK(sender == this);
-    if (search_result_)
-      view_delegate_->OpenSearchResult(search_result_, event.flags());
+    if (search_result_) {
+      RecordSearchResultOpenSource(search_result_, view_delegate_->GetModel(),
+                                   view_delegate_->GetSearchModel());
+      view_delegate_->OpenSearchResult(search_result_->id(), event.flags());
+    }
   }
 
   // SearchResultObserver overrides:
@@ -158,7 +164,7 @@ int SearchResultAnswerCardView::DoUpdate() {
   set_container_score(have_result ? display_results.front()->relevance() : 0);
   if (title_changed && search_answer_container_view_->HasFocus()) {
     search_answer_container_view_->NotifyAccessibilityEvent(
-        ui::AX_EVENT_SELECTION, true);
+        ax::mojom::Event::kSelection, true);
   }
   return have_result ? 1 : 0;
 }

@@ -14,7 +14,6 @@
 #import "ios/chrome/browser/ui/browser_view_controller.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_controller.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_controller_factory.h"
-#import "ios/chrome/browser/ui/fullscreen/fullscreen_features.h"
 #import "ios/chrome/browser/ui/fullscreen/scoped_fullscreen_disabler.h"
 #import "ios/chrome/browser/ui/history_popup/requirements/tab_history_constants.h"
 #import "ios/chrome/browser/ui/location_bar_notification_names.h"
@@ -22,7 +21,7 @@
 #import "ios/chrome/browser/ui/overscroll_actions/overscroll_actions_view.h"
 #import "ios/chrome/browser/ui/page_info/page_info_legacy_coordinator.h"
 #include "ios/chrome/browser/ui/rtl_geometry.h"
-#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_constants.h"
+#import "ios/chrome/browser/ui/toolbar/legacy/toolbar_controller_constants.h"
 #import "ios/chrome/browser/ui/tools_menu/public/tools_menu_constants.h"
 #include "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/voice/voice_search_notification_names.h"
@@ -361,11 +360,11 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
       UIEdgeInsetsMake(-[self scrollView].contentOffset.y, 0, 0, 0);
   // Start pulling (on top).
   CGFloat contentOffsetFromTheTop = [self scrollView].contentOffset.y;
-  if (![_webViewProxy shouldUseInsetForTopPadding]) {
+  if (![_webViewProxy shouldUseViewContentInset]) {
     // Content offset is shifted for WKWebView when the web view's
-    // |shouldUseInsetForTopPadding| is NO, to workaround bug with
+    // |shouldUseViewContentInset| is NO, to workaround bug with
     // UIScollView.contentInset (rdar://23584409).
-    contentOffsetFromTheTop -= [_webViewProxy topContentPadding];
+    contentOffsetFromTheTop -= _webViewProxy.contentInset.top;
   }
   CGFloat contentOffsetFromExpandedHeader =
       contentOffsetFromTheTop + self.initialHeaderInset;
@@ -826,9 +825,9 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
 
 - (CGFloat)initialContentInset {
   // Content inset is not used for displaying header if the web view's
-  // |shouldUseInsetForTopPadding| is NO, instead the whole web view
-  // frame is changed.
-  if (!_scrollview && ![_webViewProxy shouldUseInsetForTopPadding])
+  // |shouldUseViewContentInset| is NO, instead the whole web view frame is
+  // changed.
+  if (!_scrollview && ![_webViewProxy shouldUseViewContentInset])
     return 0;
   return self.initialHeaderInset;
 }

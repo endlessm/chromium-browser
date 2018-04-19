@@ -77,6 +77,7 @@
 #include "components/autofill/core/browser/popup_item_ids.h"
 #include "components/autofill/core/common/password_generation_util.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers.h"
+#include "components/download/public/common/download_url_parameters.h"
 #include "components/google/core/browser/google_util.h"
 #include "components/guest_view/browser/guest_view_base.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
@@ -100,8 +101,6 @@
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/download_manager.h"
-#include "content/public/browser/download_save_info.h"
-#include "content/public/browser/download_url_parameters.h"
 #include "content/public/browser/guest_mode.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_entry.h"
@@ -122,7 +121,7 @@
 #include "ppapi/features/features.h"
 #include "printing/features/features.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
-#include "third_party/WebKit/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/WebKit/public/public_features.h"
 #include "third_party/WebKit/public/web/WebContextMenuData.h"
 #include "third_party/WebKit/public/web/WebMediaPlayerAction.h"
@@ -183,13 +182,13 @@ using blink::WebURL;
 using content::BrowserContext;
 using content::ChildProcessSecurityPolicy;
 using content::DownloadManager;
-using content::DownloadUrlParameters;
 using content::NavigationEntry;
 using content::OpenURLParams;
 using content::RenderFrameHost;
 using content::RenderViewHost;
 using content::SSLStatus;
 using content::WebContents;
+using download::DownloadUrlParameters;
 using extensions::ContextMenuMatcher;
 using extensions::Extension;
 using extensions::MenuItem;
@@ -930,7 +929,7 @@ void RenderViewContextMenu::AppendPrintPreviewItems() {
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
   if (!print_preview_menu_observer_) {
     print_preview_menu_observer_ =
-        base::MakeUnique<PrintPreviewContextMenuObserver>(source_web_contents_);
+        std::make_unique<PrintPreviewContextMenuObserver>(source_web_contents_);
   }
 
   observers_.AddObserver(print_preview_menu_observer_.get());
@@ -1467,7 +1466,7 @@ void RenderViewContextMenu::AppendLanguageSettings() {
   if (!spelling_options_submenu_observer_) {
     const int kLanguageRadioGroup = 1;
     spelling_options_submenu_observer_ =
-        base::MakeUnique<SpellingOptionsSubMenuObserver>(this, this,
+        std::make_unique<SpellingOptionsSubMenuObserver>(this, this,
                                                          kLanguageRadioGroup);
   }
 
@@ -1479,7 +1478,7 @@ void RenderViewContextMenu::AppendLanguageSettings() {
 void RenderViewContextMenu::AppendSpellingSuggestionItems() {
   if (!spelling_suggestions_menu_observer_) {
     spelling_suggestions_menu_observer_ =
-        base::MakeUnique<SpellingMenuObserver>(this);
+        std::make_unique<SpellingMenuObserver>(this);
   }
   observers_.AddObserver(spelling_suggestions_menu_observer_.get());
   spelling_suggestions_menu_observer_->InitMenu(params_);
@@ -2375,16 +2374,19 @@ void RenderViewContextMenu::ExecSaveLinkAs() {
           policy_exception_justification: "Not implemented."
         })");
 
-  auto dl_params = base::MakeUnique<DownloadUrlParameters>(
+  auto dl_params = std::make_unique<DownloadUrlParameters>(
       url, render_frame_host->GetProcess()->GetID(),
       render_frame_host->GetRenderViewHost()->GetRoutingID(),
       render_frame_host->GetRoutingID(),
       storage_partition->GetURLRequestContext(), traffic_annotation);
-  dl_params->set_referrer(CreateReferrer(url, params_));
+  content::Referrer referrer = CreateReferrer(url, params_);
+  dl_params->set_referrer(referrer.url);
+  dl_params->set_referrer_policy(
+      content::Referrer::ReferrerPolicyForUrlRequest(referrer.policy));
   dl_params->set_referrer_encoding(params_.frame_charset);
   dl_params->set_suggested_name(params_.suggested_filename);
   dl_params->set_prompt(true);
-  dl_params->set_download_source(content::DownloadSource::CONTEXT_MENU);
+  dl_params->set_download_source(download::DownloadSource::CONTEXT_MENU);
 
   BrowserContext::GetDownloadManager(browser_context_)
       ->DownloadUrl(std::move(dl_params));
@@ -2612,10 +2614,10 @@ void RenderViewContextMenu::ExecPictureInPicture() {
   if (!base::FeatureList::IsEnabled(media::kPictureInPicture))
     return;
 
-  PictureInPictureWindowController* window_controller =
-      PictureInPictureWindowController::GetOrCreateForWebContents(
-          embedder_web_contents_);
-  window_controller->Show();
+  // TODO(apacible): Re-enable contextual menu entry point for
+  // Picture-in-Picture after end to end flow through the media controls is
+  // stable. http://crbug/817613.
+  NOTIMPLEMENTED();
 }
 
 void RenderViewContextMenu::WriteURLToClipboard(const GURL& url) {

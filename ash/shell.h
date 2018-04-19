@@ -82,6 +82,7 @@ class AcceleratorController;
 class AccessibilityController;
 class AccessibilityDelegate;
 class AshDisplayController;
+class AppListControllerImpl;
 class AppListDelegateImpl;
 class NativeCursorManagerAsh;
 class AshTouchTransformController;
@@ -95,6 +96,7 @@ class DisplayColorManager;
 class DisplayConfigurationController;
 class DisplayErrorObserver;
 class DisplayShutdownObserver;
+class DockedMagnifierController;
 class DragDropController;
 class EventClientImpl;
 class EventTransformationHandler;
@@ -124,6 +126,7 @@ class NoteTakingController;
 class OverlayEventFilter;
 class PartialMagnificationController;
 class PeripheralBatteryNotifier;
+class PersistentWindowController;
 class PowerButtonController;
 class PowerEventObserver;
 class ProjectingObserver;
@@ -164,7 +167,6 @@ class VideoDetector;
 class VoiceInteractionController;
 class VpnList;
 class WallpaperController;
-class WallpaperDelegate;
 class WebNotificationTray;
 class WindowCycleController;
 class WindowPositioner;
@@ -309,6 +311,9 @@ class ASH_EXPORT Shell : public SessionObserver,
   }
   ::wm::ActivationClient* activation_client();
   app_list::AppList* app_list() { return app_list_.get(); }
+  AppListControllerImpl* app_list_controller() {
+    return app_list_controller_.get();
+  }
   AshDisplayController* ash_display_controller() {
     return ash_display_controller_.get();
   }
@@ -342,6 +347,7 @@ class ASH_EXPORT Shell : public SessionObserver,
     return display_error_observer_.get();
   }
 
+  DockedMagnifierController* docked_magnifier_controller();
   ::wm::CompoundEventFilter* env_filter() { return env_filter_.get(); }
   EventClientImpl* event_client() { return event_client_.get(); }
   EventTransformationHandler* event_transformation_handler() {
@@ -471,7 +477,6 @@ class ASH_EXPORT Shell : public SessionObserver,
   WallpaperController* wallpaper_controller() {
     return wallpaper_controller_.get();
   }
-  WallpaperDelegate* wallpaper_delegate() { return wallpaper_delegate_.get(); }
   WindowCycleController* window_cycle_controller() {
     return window_cycle_controller_.get();
   }
@@ -539,12 +544,19 @@ class ASH_EXPORT Shell : public SessionObserver,
   // windows get re-arranged).
   void NotifyOverviewModeStarting();
 
+  // Notifies observers that overview mode is about to end (bofore the windows
+  // restore themselves).
+  void NotifyOverviewModeEnding();
+
   // Notifies observers that overview mode has ended.
   void NotifyOverviewModeEnded();
 
   // Notifies observers that split view mode is about to be started (before the
   // window gets snapped and activated).
   void NotifySplitViewModeStarting();
+
+  // Notifies observers that split view mode has been started.
+  void NotifySplitViewModeStarted();
 
   // Notifies observers that split view mode has ended.
   void NotifySplitViewModeEnded();
@@ -645,6 +657,7 @@ class ASH_EXPORT Shell : public SessionObserver,
   std::unique_ptr<AcceleratorController> accelerator_controller_;
   std::unique_ptr<AccessibilityController> accessibility_controller_;
   std::unique_ptr<AccessibilityDelegate> accessibility_delegate_;
+  std::unique_ptr<AppListControllerImpl> app_list_controller_;
   std::unique_ptr<AshDisplayController> ash_display_controller_;
   std::unique_ptr<BacklightsForcedOffSetter> backlights_forced_off_setter_;
   std::unique_ptr<BrightnessControlDelegate> brightness_control_delegate_;
@@ -680,7 +693,6 @@ class ASH_EXPORT Shell : public SessionObserver,
   std::unique_ptr<VoiceInteractionController> voice_interaction_controller_;
   std::unique_ptr<VpnList> vpn_list_;
   std::unique_ptr<WallpaperController> wallpaper_controller_;
-  std::unique_ptr<WallpaperDelegate> wallpaper_delegate_;
   std::unique_ptr<WindowCycleController> window_cycle_controller_;
   std::unique_ptr<WindowSelectorController> window_selector_controller_;
   std::unique_ptr<::wm::ShadowController> shadow_controller_;
@@ -694,6 +706,7 @@ class ASH_EXPORT Shell : public SessionObserver,
   std::unique_ptr<ui::UserActivityDetector> user_activity_detector_;
   std::unique_ptr<VideoDetector> video_detector_;
   std::unique_ptr<WindowTreeHostManager> window_tree_host_manager_;
+  std::unique_ptr<PersistentWindowController> persistent_window_controller_;
   std::unique_ptr<HighContrastController> high_contrast_controller_;
   std::unique_ptr<MagnificationController> magnification_controller_;
   std::unique_ptr<AutoclickController> autoclick_controller_;
@@ -769,6 +782,8 @@ class ASH_EXPORT Shell : public SessionObserver,
   std::unique_ptr<PartialMagnificationController>
       partial_magnification_controller_;
   std::unique_ptr<HighlighterController> highlighter_controller_;
+
+  std::unique_ptr<DockedMagnifierController> docked_magnifier_controller_;
 
   // The split view controller for Chrome OS in tablet mode.
   std::unique_ptr<SplitViewController> split_view_controller_;

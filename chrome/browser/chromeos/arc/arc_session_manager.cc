@@ -13,7 +13,6 @@
 #include "base/strings/string16.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
-#include "chrome/browser/chromeos/arc/arc_auth_notification.h"
 #include "chrome/browser/chromeos/arc/arc_migration_guide_notification.h"
 #include "chrome/browser/chromeos/arc/arc_optin_uma.h"
 #include "chrome/browser/chromeos/arc/arc_support_host.h"
@@ -43,6 +42,7 @@
 #include "components/arc/arc_util.h"
 #include "components/arc/metrics/arc_metrics_service.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/core/account_id/account_id.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/display/types/display_constants.h"
 
@@ -305,7 +305,7 @@ void ArcSessionManager::OnProvisioningFinished(ProvisioningResult result) {
     // it less weird that a browser window pops up.
     const bool suppress_play_store_app =
         !IsPlayStoreAvailable() || IsArcOptInVerificationDisabled() ||
-        IsRobotAccountMode() || oobe_start_ ||
+        IsRobotAccountMode() || oobe_or_assistant_wizard_start_ ||
         (IsArcPlayStoreEnabledPreferenceManagedForProfile(profile_) &&
          AreArcAllOptInPreferencesIgnorableForProfile(profile_));
     if (!suppress_play_store_app) {
@@ -607,7 +607,8 @@ bool ArcSessionManager::RequestEnableImpl() {
     return false;
   }
 
-  oobe_start_ = IsArcOobeOptInActive();
+  oobe_or_assistant_wizard_start_ =
+      IsArcOobeOptInActive() || IsArcOptInWizardForAssistantActive();
 
   PrefService* const prefs = profile_->GetPrefs();
 
@@ -670,7 +671,7 @@ void ArcSessionManager::RequestDisable() {
     return;
   }
 
-  oobe_start_ = false;
+  oobe_or_assistant_wizard_start_ = false;
   directly_started_ = false;
   enable_requested_ = false;
   scoped_opt_in_tracker_.reset();
@@ -730,14 +731,14 @@ void ArcSessionManager::MaybeStartTermsOfServiceNegotiation() {
     scoped_opt_in_tracker_ = std::make_unique<ScopedOptInFlowTracker>();
   }
 
-  if (!IsArcTermsOfServiceNegotiationNeeded()) {
+  if (!IsArcTermsOfServiceNegotiationNeeded(profile_)) {
     // Moves to next state, Android management check, immediately, as if
     // Terms of Service negotiation is done successfully.
     StartAndroidManagementCheck();
     return;
   }
 
-  if (IsArcOobeOptInActive()) {
+  if (IsArcOobeOptInActive() || IsArcOptInWizardForAssistantActive()) {
     VLOG(1) << "Use OOBE negotiator.";
     terms_of_service_negotiator_ =
         std::make_unique<ArcTermsOfServiceOobeNegotiator>();
@@ -781,33 +782,6 @@ void ArcSessionManager::OnTermsOfServiceNegotiated(bool accepted) {
   // Terms were accepted.
   profile_->GetPrefs()->SetBoolean(prefs::kArcTermsAccepted, true);
   StartAndroidManagementCheck();
-}
-
-bool ArcSessionManager::IsArcTermsOfServiceNegotiationNeeded() const {
-  DCHECK(profile_);
-
-  // Skip to show UI asking users to set up ARC OptIn preferences, if all of
-  // them are managed by the admin policy. Note that the ToS agreement is anyway
-  // not shown in the case of the managed ARC.
-  if (IsArcPlayStoreEnabledPreferenceManagedForProfile(profile_) &&
-      AreArcAllOptInPreferencesIgnorableForProfile(profile_)) {
-    VLOG(1) << "All opt-in preferences are under managed. "
-            << "Skip ARC Terms of Service negotiation.";
-    return false;
-  }
-
-  // If it is marked that the Terms of service is accepted already,
-  // just skip the negotiation with user, and start Android management
-  // check directly.
-  // This happens, e.g., when a user accepted the Terms of service on Opt-in
-  // flow, but logged out before ARC sign in procedure was done. Then, logs
-  // in again.
-  if (profile_->GetPrefs()->GetBoolean(prefs::kArcTermsAccepted)) {
-    VLOG(1) << "The user already accepts ARC Terms of Service.";
-    return false;
-  }
-
-  return true;
 }
 
 void ArcSessionManager::StartAndroidManagementCheck() {

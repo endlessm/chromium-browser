@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import logging
+
 from benchmarks import memory
 from core import perf_benchmark
 from telemetry import benchmark
@@ -10,6 +12,7 @@ from telemetry.timeline import chrome_trace_category_filter
 from telemetry.timeline import chrome_trace_config
 from telemetry.web_perf import timeline_based_measurement
 from contrib.vr_benchmarks import webvr_sample_pages
+from contrib.vr_benchmarks import webvr_wpr_pages
 from contrib.vr_benchmarks import vr_browsing_mode_pages
 
 
@@ -32,11 +35,17 @@ class _BaseVRBenchmark(perf_benchmark.PerfBenchmark):
         'This is useful for local testing when turning off the '
         'screen leads to locking the phone, which makes Telemetry '
         'not produce valid results.')
+    parser.add_option(
+        '--recording-wpr',
+        action='store_true',
+        default=False,
+        help='Modifies benchmark behavior slightly while recording WPR files '
+             'for it. This largely boils down to adding waits/sleeps in order '
+             'to ensure that enough streaming data is recorded for the '
+             'benchmark to run without issues.')
 
 
-@benchmark.Owner(emails=['bsheedy@chromium.org', 'leilei@chromium.org'])
-class XrWebVrStatic(_BaseVRBenchmark):
-  """Measures WebVR performance with sample pages."""
+class _BaseWebVRBenchmark(_BaseVRBenchmark):
 
   SUPPORTED_PLATFORMS = [story.expectations.ALL_ANDROID]
 
@@ -56,9 +65,6 @@ class XrWebVrStatic(_BaseVRBenchmark):
         chrome_trace_config.MemoryDumpConfig())
     return options
 
-  def CreateStorySet(self, options):
-    return webvr_sample_pages.WebVrSamplePageSet()
-
   def SetExtraBrowserOptions(self, options):
     memory.SetExtraBrowserOptionsForMemoryMeasurement(options)
     options.AppendExtraBrowserArgs([
@@ -66,17 +72,58 @@ class XrWebVrStatic(_BaseVRBenchmark):
     ])
 
   @classmethod
+  def ShouldAddValue(cls, name, from_first_story_run):
+    del from_first_story_run  # unused
+    return memory.DefaultShouldAddValueForMemoryMeasurement(name)
+
+
+@benchmark.Owner(emails=['bsheedy@chromium.org', 'leilei@chromium.org'])
+class XrWebVrStatic(_BaseWebVRBenchmark):
+  """Measures WebVR performance with synthetic sample pages."""
+
+  def CreateStorySet(self, options):
+    return webvr_sample_pages.WebVrSamplePageSet()
+
+  @classmethod
   def Name(cls):
     return 'xr.webvr.static'
 
+
+@benchmark.Owner(emails=['bsheedy@chromium.org', 'tiborg@chromium.org'])
+class XrWebVrWprStatic(_BaseWebVRBenchmark):
+  """Measures WebVR performance with WPR copies of live websites."""
+
+  def CreateStorySet(self, options):
+    return webvr_wpr_pages.WebVrWprPageSet()
+
   @classmethod
-  def ValueCanBeAddedPredicate(cls, value, is_first_result):
-    return memory.DefaultValueCanBeAddedPredicateForMemoryMeasurement(value)
+  def Name(cls):
+    return 'xr.webvr.wpr.static'
 
 
-@benchmark.Owner(emails=['tiborg@chromium.org'])
-class XrBrowsingStatic(_BaseVRBenchmark):
-  """Benchmark for testing the VR performance in VR Browsing Mode."""
+@benchmark.Owner(emails=['bsheedy@chromium.org', 'tiborg@chromium.org'])
+class XrWebVrLiveStatic(_BaseWebVRBenchmark):
+  """Measures WebVR performance with live websites.
+
+  This is a superset of xr.webvr.wpr.static, containing all the pages that it
+  uses plus some that we would like to test with WPR, but behave differently
+  when using WPR compared to the live version.
+  """
+
+  def CreateStorySet(self, options):
+    if not hasattr(options, 'use_live_sites') or not options.use_live_sites:
+      # We log an error instead of raising an exception here because the
+      # Telemetry presubmit unittests fail if we raise.
+      logging.error('Running the live sites benchmark without using live '
+          'sites. Results will likely be incorrect for some sites.')
+    return webvr_wpr_pages.WebVrLivePageSet()
+
+  @classmethod
+  def Name(cls):
+    return 'xr.webvr.live.static'
+
+
+class _BaseBrowsingBenchmark(_BaseVRBenchmark):
 
   SUPPORTED_PLATFORMS = [story.expectations.ALL_ANDROID]
 
@@ -96,9 +143,6 @@ class XrBrowsingStatic(_BaseVRBenchmark):
         chrome_trace_config.MemoryDumpConfig())
     return options
 
-  def CreateStorySet(self, options):
-    return vr_browsing_mode_pages.VrBrowsingModePageSet()
-
   def SetExtraBrowserOptions(self, options):
     options.clear_sytem_cache_for_browser_and_profile_on_start = True
     options.AppendExtraBrowserArgs([
@@ -107,6 +151,26 @@ class XrBrowsingStatic(_BaseVRBenchmark):
         '--enable-vr-shell',
     ])
 
+
+@benchmark.Owner(emails=['tiborg@chromium.org'])
+class XrBrowsingStatic(_BaseBrowsingBenchmark):
+  """Benchmark for testing the VR Browsing Mode performance on sample pages."""
+
+  def CreateStorySet(self, options):
+    return vr_browsing_mode_pages.VrBrowsingModePageSet()
+
   @classmethod
   def Name(cls):
     return 'xr.browsing.static'
+
+
+@benchmark.Owner(emails=['tiborg@chromium.org', 'bsheedy@chromium.org'])
+class XrBrowsingWprStatic(_BaseBrowsingBenchmark):
+  """Benchmark for testing the VR Browsing Mode performance on WPR pages."""
+
+  def CreateStorySet(self, options):
+    return vr_browsing_mode_pages.VrBrowsingModeWprPageSet()
+
+  @classmethod
+  def Name(cls):
+    return 'xr.browsing.wpr.static'

@@ -10,7 +10,7 @@
 #include "chrome/browser/notifications/notification_platform_bridge_chromeos.h"
 #include "chrome/browser/notifications/notifier_controller.h"
 #include "mojo/public/cpp/bindings/associated_binding.h"
-#include "ui/message_center/notifier_id.h"
+#include "ui/message_center/public/cpp/notifier_id.h"
 
 // This class serves as Chrome's AshMessageCenterClient, as well as the
 // NotificationPlatformBridge for ChromeOS. It dispatches notifications to Ash
@@ -43,8 +43,12 @@ class ChromeAshMessageCenterClient : public NotificationPlatformBridge,
   // ash::mojom::AshMessageCenterClient:
   void HandleNotificationClosed(const std::string& id, bool by_user) override;
   void HandleNotificationClicked(const std::string& id) override;
-  void HandleNotificationButtonClicked(const std::string& id,
-                                       int button_index) override;
+  void HandleNotificationButtonClicked(
+      const std::string& id,
+      int button_index,
+      const base::Optional<base::string16>& reply) override;
+  void HandleNotificationSettingsButtonClicked(const std::string& id) override;
+  void DisableNotification(const std::string& id) override;
   void SetNotifierEnabled(const message_center::NotifierId& notifier_id,
                           bool enabled) override;
   void GetNotifierList(GetNotifierListCallback callback) override;

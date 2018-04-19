@@ -304,7 +304,7 @@ def SummarizeHistory(build, db):
   start_date = now - datetime.timedelta(days=MAX_HISTORY_DAYS)
   history = db.GetBuildHistory(
       build['build_config'], MAX_CONSECUTIVE_BUILDS, start_date=start_date,
-      ending_build_number=build['build_number'], waterfall=build['waterfall'],
+      ending_build_id=build['id'], waterfall=build['waterfall'],
       buildbot_generation=build['buildbot_generation'])
   history = sorted(history, key=lambda s: s['build_number'], reverse=True)
 
@@ -532,11 +532,17 @@ def GenerateAlertsSummary(db, builds=None,
       build_id, severity = build_tuple
       # pylint: enable=unbalanced-tuple-unpacking
       master = db.GetBuildStatus(build_id)
+      if master is None:
+        logging.warn('Could not locate build id %s', build_id)
+        continue
       wfall = master['waterfall']
       build_config = master['build_config']
     elif len(build_tuple) == 3:
       wfall, build_config, severity = build_tuple
       master = db.GetMostRecentBuild(wfall, build_config)
+      if master is None:
+        logging.warn('Could not locate build %s %s', wfall, build_config)
+        continue
     else:
       logging.error('Invalid build tuple: %s' % str(build_tuple))
       continue

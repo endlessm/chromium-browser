@@ -22,7 +22,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
@@ -53,9 +52,9 @@
 #include "net/http/http_network_layer.h"
 #include "net/http/http_server_properties_impl.h"
 #include "net/log/net_log_event_type.h"
-#include "net/proxy/proxy_config_service.h"
-#include "net/proxy/proxy_script_fetcher_impl.h"
-#include "net/proxy/proxy_service.h"
+#include "net/proxy_resolution/proxy_config_service.h"
+#include "net/proxy_resolution/pac_file_fetcher_impl.h"
+#include "net/proxy_resolution/proxy_service.h"
 #include "net/socket/tcp_client_socket.h"
 #include "net/spdy/chromium/spdy_session.h"
 #include "net/ssl/channel_id_service.h"
@@ -357,7 +356,7 @@ void IOSIOThread::Init() {
       base::CommandLine(base::CommandLine::NO_PROGRAM),
       /*is_quic_force_disabled=*/false, quic_user_agent_id, &params_);
 
-  globals_->system_proxy_service = ProxyServiceFactory::CreateProxyService(
+  globals_->system_proxy_resolution_service = ProxyServiceFactory::CreateProxyService(
       net_log_, nullptr, globals_->system_network_delegate.get(),
       std::move(system_proxy_config_service_), true /* quick_check_enabled */);
 
@@ -437,7 +436,8 @@ net::URLRequestContext* IOSIOThread::ConstructSystemRequestContext(
   context->set_ssl_config_service(globals->ssl_config_service.get());
   context->set_http_auth_handler_factory(
       globals->http_auth_handler_factory.get());
-  context->set_proxy_service(globals->system_proxy_service.get());
+  context->set_proxy_resolution_service(
+      globals->system_proxy_resolution_service.get());
   context->set_ct_policy_enforcer(globals->ct_policy_enforcer.get());
 
   net::URLRequestJobFactoryImpl* system_job_factory =

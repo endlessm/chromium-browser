@@ -10,6 +10,7 @@
 
 #include "ash/ash_constants.h"
 #include "ash/ash_view_ids.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
@@ -134,8 +135,7 @@ class BorderlessLabelButton : public views::LabelButton {
   // TODO(estade,bruthig): there's a lot in common here with ActionableView.
   // Find a way to share. See related TODO on InkDropHostView::SetInkDropMode().
   std::unique_ptr<views::InkDrop> CreateInkDrop() override {
-    return TrayPopupUtils::CreateInkDrop(TrayPopupInkDropStyle::INSET_BOUNDS,
-                                         this);
+    return TrayPopupUtils::CreateInkDrop(this);
   }
 
   std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override {
@@ -212,8 +212,11 @@ views::Label* TrayPopupUtils::CreateDefaultLabel() {
   // Frequently the label will paint to a layer that's non-opaque, so subpixel
   // rendering won't work unless we explicitly set a background. See
   // crbug.com/686363
-  label->SetBackground(views::CreateThemedSolidBackground(
-      label, ui::NativeTheme::kColorId_BubbleBackground));
+  label->SetBackground(
+      features::IsSystemTrayUnifiedEnabled()
+          ? views::CreateSolidBackground(kUnifiedMenuBackgroundColor)
+          : views::CreateThemedSolidBackground(
+                label, ui::NativeTheme::kColorId_BubbleBackground));
   return label;
 }
 
@@ -271,8 +274,11 @@ void TrayPopupUtils::ConfigureTrayPopupButton(views::Button* button) {
 
 void TrayPopupUtils::ConfigureAsStickyHeader(views::View* view) {
   view->set_id(VIEW_ID_STICKY_HEADER);
-  view->SetBackground(views::CreateThemedSolidBackground(
-      view, ui::NativeTheme::kColorId_BubbleBackground));
+  view->SetBackground(
+      features::IsSystemTrayUnifiedEnabled()
+          ? views::CreateSolidBackground(kUnifiedMenuBackgroundColor)
+          : views::CreateThemedSolidBackground(
+                view, ui::NativeTheme::kColorId_BubbleBackground));
   view->SetBorder(
       views::CreateEmptyBorder(gfx::Insets(kMenuSeparatorVerticalPadding, 0)));
   view->SetPaintToLayer();
@@ -321,7 +327,6 @@ views::Separator* TrayPopupUtils::CreateVerticalSeparator() {
 }
 
 std::unique_ptr<views::InkDrop> TrayPopupUtils::CreateInkDrop(
-    TrayPopupInkDropStyle ink_drop_style,
     views::InkDropHostView* host) {
   std::unique_ptr<views::InkDropImpl> ink_drop =
       std::make_unique<views::InkDropImpl>(host, host->size());

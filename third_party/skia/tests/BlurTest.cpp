@@ -10,8 +10,10 @@
 #include "SkBlurDrawLooper.h"
 #include "SkCanvas.h"
 #include "SkColorFilter.h"
+#include "SkColorPriv.h"
 #include "SkEmbossMaskFilter.h"
 #include "SkLayerDrawLooper.h"
+#include "SkMaskFilterBase.h"
 #include "SkMath.h"
 #include "SkPaint.h"
 #include "SkPath.h"
@@ -456,8 +458,8 @@ DEF_TEST(BlurAsABlur, reporter) {
                     REPORTER_ASSERT(reporter, sigma <= 0);
                 } else {
                     REPORTER_ASSERT(reporter, sigma > 0);
-                    SkMaskFilter::BlurRec rec;
-                    bool success = mf->asABlur(&rec);
+                    SkMaskFilterBase::BlurRec rec;
+                    bool success = as_MFB(mf)->asABlur(&rec);
                     if (flags & SkBlurMaskFilter::kIgnoreTransform_BlurFlag) {
                         REPORTER_ASSERT(reporter, !success);
                     } else {
@@ -483,8 +485,8 @@ DEF_TEST(BlurAsABlur, reporter) {
             const SkScalar sigma = sigmas[j];
             auto mf(SkEmbossMaskFilter::Make(sigma, light));
             if (mf) {
-                SkMaskFilter::BlurRec rec;
-                bool success = mf->asABlur(&rec);
+                SkMaskFilterBase::BlurRec rec;
+                bool success = as_MFB(mf)->asABlur(&rec);
                 REPORTER_ASSERT(reporter, !success);
             }
         }
@@ -668,3 +670,35 @@ DEF_TEST(EmbossPerlinCrash, reporter) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+#include "SkSurface.h"
+#include "sk_pixel_iter.h"
+
+DEF_TEST(BlurZeroSigma, reporter) {
+    auto surf = SkSurface::MakeRasterN32Premul(20, 20);
+    SkPaint paint;
+    paint.setAntiAlias(true);
+
+    const SkIRect ir = { 5, 5, 15, 15 };
+    const SkRect r = SkRect::Make(ir);
+
+    const SkScalar sigmas[] = { 0, SkBits2Float(1) };
+    // if sigma is zero (or nearly so), we need to draw correctly (unblurred) and not crash
+    // or assert.
+    for (auto sigma : sigmas) {
+        paint.setMaskFilter(SkBlurMaskFilter::Make(kNormal_SkBlurStyle, sigma));
+        surf->getCanvas()->drawRect(r, paint);
+
+        sk_tool_utils::PixelIter iter(surf.get());
+        SkIPoint  loc;
+        while (const SkPMColor* p = (const SkPMColor*)iter.next(&loc)) {
+            if (ir.contains(loc.fX, loc.fY)) {
+                // inside the rect we draw (opaque black)
+                REPORTER_ASSERT(reporter, *p == SkPackARGB32(0xFF, 0, 0, 0));
+            } else {
+                // outside the rect we didn't draw at all, no blurred edges
+                REPORTER_ASSERT(reporter, *p == 0);
+            }
+        }
+    }
+}
+

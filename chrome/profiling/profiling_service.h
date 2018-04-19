@@ -8,11 +8,10 @@
 #include "base/memory/weak_ptr.h"
 #include "chrome/common/profiling/profiling_service.mojom.h"
 #include "chrome/profiling/memlog_connection_manager.h"
-#include "mojo/public/cpp/bindings/binding_set.h"
-#include "services/resource_coordinator/public/interfaces/memory_instrumentation/memory_instrumentation.mojom.h"
+#include "mojo/public/cpp/bindings/binding.h"
+#include "services/resource_coordinator/public/mojom/memory_instrumentation/memory_instrumentation.mojom.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
-#include "services/service_manager/public/cpp/service_context.h"
-#include "services/service_manager/public/cpp/service_context_ref.h"
+#include "services/service_manager/public/cpp/service.h"
 
 namespace profiling {
 
@@ -25,7 +24,11 @@ class MemlogImpl;
 //
 // This class lives in the I/O thread of the Utility process.
 class ProfilingService : public service_manager::Service,
-                         public mojom::ProfilingService {
+                         public mojom::ProfilingService,
+                         public memory_instrumentation::mojom::HeapProfiler {
+  using DumpProcessesForTracingCallback = memory_instrumentation::mojom::
+      HeapProfiler::DumpProcessesForTracingCallback;
+
  public:
   ProfilingService();
   ~ProfilingService() override;
@@ -43,40 +46,38 @@ class ProfilingService : public service_manager::Service,
   // ProfilingService implementation.
   void AddProfilingClient(base::ProcessId pid,
                           mojom::ProfilingClientPtr client,
-                          mojo::ScopedHandle memlog_pipe_sender,
                           mojo::ScopedHandle memlog_pipe_receiver,
                           mojom::ProcessType process_type,
-                          profiling::mojom::StackMode stack_mode) override;
-  void DumpProcessesForTracing(
-      bool keep_small_allocations,
-      bool strip_path_from_mapped_files,
-      DumpProcessesForTracingCallback callback) override;
+                          mojom::ProfilingParamsPtr params) override;
+  void SetKeepSmallAllocations(bool keep_small_allocations) override;
   void GetProfiledPids(GetProfiledPidsCallback callback) override;
 
- private:
-  void MaybeRequestQuitDelayed();
-  void MaybeRequestQuit();
+  // HeapProfiler implementation.
+  void DumpProcessesForTracing(
+      bool strip_path_from_mapped_files,
+      const DumpProcessesForTracingCallback& callback) override;
 
-  // Uses |binding_set_| to resolve |request| allowing for on instance of
-  // MemlogImpl to serve all interface bindings.
+ private:
   void OnProfilingServiceRequest(
-      service_manager::ServiceContextRefFactory* ref_factory,
       mojom::ProfilingServiceRequest request);
+  void OnHeapProfilerRequest(
+      memory_instrumentation::mojom::HeapProfilerRequest request);
 
   void OnGetVmRegionsCompleteForDumpProcessesForTracing(
-      bool keep_small_allocations,
       bool strip_path_from_mapped_files,
-      mojom::ProfilingService::DumpProcessesForTracingCallback callback,
-      bool success,
-      memory_instrumentation::mojom::GlobalMemoryDumpPtr dump);
+      const DumpProcessesForTracingCallback& callback,
+      VmRegions vm_regions);
 
-  // State needed to manage service lifecycle and lifecycle of bound clients.
-  std::unique_ptr<service_manager::ServiceContextRefFactory> ref_factory_;
   service_manager::BinderRegistry registry_;
-  mojo::BindingSet<mojom::ProfilingService> binding_set_;
+  mojo::Binding<mojom::ProfilingService> binding_;
+
+  mojo::Binding<memory_instrumentation::mojom::HeapProfiler>
+      heap_profiler_binding_;
 
   memory_instrumentation::mojom::HeapProfilerHelperPtr helper_;
   MemlogConnectionManager connection_manager_;
+
+  bool keep_small_allocations_ = false;
 
   // Must be last.
   base::WeakPtrFactory<ProfilingService> weak_factory_;

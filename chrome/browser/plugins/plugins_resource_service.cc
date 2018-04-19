@@ -19,8 +19,9 @@
 #include "url/gurl.h"
 
 namespace {
-constexpr net::NetworkTrafficAnnotationTag kTrafficAnnotation =
-    net::DefineNetworkTrafficAnnotation("plugins_resource_service", R"(
+constexpr net::NetworkTrafficAnnotationTag
+    kPluginResourceServiceTrafficAnnotation =
+        net::DefineNetworkTrafficAnnotation("plugins_resource_service", R"(
         semantics {
           sender: "Plugins Resource Service"
           description:
@@ -86,7 +87,7 @@ PluginsResourceService::PluginsResourceService(PrefService* local_state)
           base::Bind(data_decoder::SafeJsonParser::Parse,
                      content::ServiceManagerConnection::GetForProcess()
                          ->GetConnector()),
-          kTrafficAnnotation) {}
+          kPluginResourceServiceTrafficAnnotation) {}
 
 void PluginsResourceService::Init() {
   const base::DictionaryValue* metadata =
@@ -101,7 +102,7 @@ PluginsResourceService::~PluginsResourceService() {
 // static
 void PluginsResourceService::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterDictionaryPref(prefs::kPluginsMetadata,
-                                   base::MakeUnique<base::DictionaryValue>());
+                                   std::make_unique<base::DictionaryValue>());
   registry->RegisterStringPref(prefs::kPluginsResourceCacheUpdate, "0");
 }
 

@@ -310,7 +310,8 @@ class NotificationBridge : public AppMenuIconController::Delegate {
   // Adjust the menu button's position.
   NSRect menuButtonFrame = [appMenuButton_ frame];
   if (isRTL) {
-    menuButtonFrame.origin.x = [ToolbarController appMenuPadding];
+    menuButtonFrame.origin.x =
+        [ToolbarController appMenuPadding] + kButtonInset;
   } else {
     CGFloat menuButtonFrameMaxX =
         NSMaxX(toolbarBounds) - [ToolbarController appMenuPadding];
@@ -353,7 +354,7 @@ class NotificationBridge : public AppMenuIconController::Delegate {
   containerFrame.origin.y = locationBarFrame.origin.y + kContainerYOffset;
   containerFrame.size.height = toolbarButtonSize.height;
   if (cocoa_l10n_util::ShouldDoExperimentalRTLLayout())
-    containerFrame.origin.x = NSMinX(locationBarFrame);
+    containerFrame.origin.x = NSMinX(locationBarFrame) - kButtonInset;
   [browserActionsContainerView_ setFrame:containerFrame];
   [browserActionsContainerView_ setAutoresizingMask:trailingButtonMask];
 
@@ -498,7 +499,7 @@ class NotificationBridge : public AppMenuIconController::Delegate {
   [[backButton_ cell]
       accessibilitySetOverrideValue:description
                        forAttribute:NSAccessibilityDescriptionAttribute];
-  NSString* helpTag = l10n_util::GetNSStringWithFixup(IDS_ACCNAME_TOOLTIP_BACK);
+  NSString* helpTag = l10n_util::GetNSStringWithFixup(IDS_ACCDESCRIPTION_BACK);
   [[backButton_ cell]
       accessibilitySetOverrideValue:helpTag
                        forAttribute:NSAccessibilityHelpAttribute];
@@ -507,7 +508,7 @@ class NotificationBridge : public AppMenuIconController::Delegate {
   [[forwardButton_ cell]
       accessibilitySetOverrideValue:description
                        forAttribute:NSAccessibilityDescriptionAttribute];
-  helpTag = l10n_util::GetNSStringWithFixup(IDS_ACCNAME_TOOLTIP_FORWARD);
+  helpTag = l10n_util::GetNSStringWithFixup(IDS_ACCDESCRIPTION_FORWARD);
   [[forwardButton_ cell]
       accessibilitySetOverrideValue:helpTag
                        forAttribute:NSAccessibilityHelpAttribute];

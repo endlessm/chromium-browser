@@ -76,12 +76,8 @@ class StateChangeTestES3 : public StateChangeTest
 // Ensure that CopyTexImage2D syncs framebuffer changes.
 TEST_P(StateChangeTest, CopyTexImage2DSync)
 {
-    if (IsAMD() && getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE)
-    {
-        // TODO(geofflang): Fix on Linux AMD drivers (http://anglebug.com/1291)
-        std::cout << "Test disabled on AMD OpenGL." << std::endl;
-        return;
-    }
+    // TODO(geofflang): Fix on Linux AMD drivers (http://anglebug.com/1291)
+    ANGLE_SKIP_TEST_IF(IsAMD() && IsOpenGL());
 
     glBindFramebuffer(GL_FRAMEBUFFER, mFramebuffer);
 
@@ -162,11 +158,7 @@ TEST_P(StateChangeTest, FramebufferIncompleteColorAttachment)
 // Test that caching works when color attachments change with TexStorage.
 TEST_P(StateChangeTest, FramebufferIncompleteWithTexStorage)
 {
-    if (!extensionEnabled("GL_EXT_texture_storage"))
-    {
-        std::cout << "Test skipped because TexStorage2DEXT not available." << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!extensionEnabled("GL_EXT_texture_storage"));
 
     glBindFramebuffer(GL_FRAMEBUFFER, mFramebuffer);
     glBindTexture(GL_TEXTURE_2D, mTextures[0]);
@@ -261,18 +253,11 @@ TEST_P(StateChangeTest, FramebufferIncompleteStencilAttachment)
 // Test that Framebuffer completeness caching works when depth-stencil attachments change.
 TEST_P(StateChangeTest, FramebufferIncompleteDepthStencilAttachment)
 {
-    if (getClientMajorVersion() < 3 && !extensionEnabled("GL_OES_packed_depth_stencil"))
-    {
-        std::cout << "Test skipped because packed depth+stencil not availble." << std::endl;
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3 &&
+                       !extensionEnabled("GL_OES_packed_depth_stencil"));
 
-    if (IsWindows() && IsIntel() && IsOpenGL())
-    {
-        // TODO(jmadill): Investigate the failure (https://anglebug.com/1388)
-        std::cout << "Test disabled on Windows Intel OpenGL." << std::endl;
-        return;
-    }
+    // TODO(jmadill): Investigate the failure (https://anglebug.com/1388)
+    ANGLE_SKIP_TEST_IF(IsWindows() && IsIntel() && IsOpenGL());
 
     glBindFramebuffer(GL_FRAMEBUFFER, mFramebuffer);
     glBindTexture(GL_TEXTURE_2D, mTextures[0]);
@@ -486,13 +471,6 @@ class StateChangeRenderTest : public StateChangeTest
 // Test that re-creating a currently attached texture works as expected.
 TEST_P(StateChangeRenderTest, RecreateTexture)
 {
-    if (IsIntel() && IsLinux())
-    {
-        // TODO(cwallez): Fix on Linux Intel drivers (http://anglebug.com/1346)
-        std::cout << "Test disabled on Linux Intel OpenGL." << std::endl;
-        return;
-    }
-
     glBindFramebuffer(GL_FRAMEBUFFER, mFramebuffer);
 
     glBindTexture(GL_TEXTURE_2D, mTextures[0]);
@@ -1072,6 +1050,91 @@ TEST_P(SimpleStateChangeTest, RedefineFramebufferInUse)
 
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
     ASSERT_GL_NO_ERROR();
+}
+
+// Validates disabling cull face really disables it.
+TEST_P(SimpleStateChangeTest, EnableAndDisableCullFace)
+{
+    ANGLE_GL_PROGRAM(program, kSolidColorVertexShader, kSolidColorFragmentShader);
+    glUseProgram(program);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_CULL_FACE);
+
+    glCullFace(GL_FRONT);
+
+    drawQuad(program.get(), "position", 0.0f, 1.0f, true);
+
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::transparentBlack);
+
+    // Disable cull face and redraw, then make sure we have the quad drawn.
+    glDisable(GL_CULL_FACE);
+
+    drawQuad(program.get(), "position", 0.0f, 1.0f, true);
+
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+}
+
+TEST_P(SimpleStateChangeTest, ScissorTest)
+{
+    // This test validates this order of state changes:
+    // 1- Set scissor but don't enable it, validate its not used.
+    // 2- Enable it and validate its working.
+    // 3- Disable the scissor validate its not used anymore.
+
+    ANGLE_GL_PROGRAM(program, kSolidColorVertexShader, kSolidColorFragmentShader);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Set the scissor region, but don't enable it yet.
+    glScissor(getWindowWidth() / 4, getWindowHeight() / 4, getWindowWidth() / 2,
+              getWindowHeight() / 2);
+
+    // Fill the whole screen with a quad.
+    drawQuad(program.get(), "position", 0.0f, 1.0f, true);
+
+    ASSERT_GL_NO_ERROR();
+
+    // Test outside, scissor isnt enabled so its red.
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    // Test inside, red of the fragment shader.
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() / 2, getWindowHeight() / 2, GLColor::red);
+
+    // Clear everything and start over with the test enabled.
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_SCISSOR_TEST);
+
+    drawQuad(program.get(), "position", 0.0f, 1.0f, true);
+
+    ASSERT_GL_NO_ERROR();
+
+    // Test outside the scissor test, pitch black.
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::transparentBlack);
+
+    // Test inside, red of the fragment shader.
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() / 2, getWindowHeight() / 2, GLColor::red);
+
+    // Now disable the scissor test, do it again, and verify the region isn't used
+    // for the scissor test.
+    glDisable(GL_SCISSOR_TEST);
+
+    // Clear everything and start over with the test enabled.
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    drawQuad(program.get(), "position", 0.0f, 1.0f, true);
+
+    ASSERT_GL_NO_ERROR();
+
+    // Test outside, scissor isnt enabled so its red.
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    // Test inside, red of the fragment shader.
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() / 2, getWindowHeight() / 2, GLColor::red);
 }
 
 }  // anonymous namespace

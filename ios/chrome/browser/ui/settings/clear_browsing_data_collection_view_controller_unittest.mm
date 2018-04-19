@@ -128,20 +128,22 @@ TEST_F(ClearBrowsingDataCollectionViewControllerTest, TestModel) {
     EXPECT_EQ(3, NumberOfSections());
   }
 
-  EXPECT_EQ(5, NumberOfItemsInSection(section_offset));
-  CheckTextCellTitleWithId(IDS_IOS_CLEAR_BROWSING_HISTORY, section_offset, 0);
-  CheckAccessoryType(MDCCollectionViewCellAccessoryCheckmark, section_offset,
-                     0);
-  CheckTextCellTitleWithId(IDS_IOS_CLEAR_COOKIES, section_offset, 1);
-  CheckAccessoryType(MDCCollectionViewCellAccessoryCheckmark, section_offset,
-                     1);
-  CheckTextCellTitleWithId(IDS_IOS_CLEAR_CACHE, section_offset, 2);
-  CheckAccessoryType(MDCCollectionViewCellAccessoryCheckmark, section_offset,
-                     2);
-  CheckTextCellTitleWithId(IDS_IOS_CLEAR_SAVED_PASSWORDS, section_offset, 3);
-  CheckAccessoryType(MDCCollectionViewCellAccessoryNone, section_offset, 3);
-  CheckTextCellTitleWithId(IDS_IOS_CLEAR_AUTOFILL, section_offset, 4);
-  CheckAccessoryType(MDCCollectionViewCellAccessoryNone, section_offset, 4);
+  EXPECT_EQ(5, NumberOfItemsInSection(0 + section_offset));
+  CheckTextCellTitleWithId(IDS_IOS_CLEAR_BROWSING_HISTORY, 0 + section_offset,
+                           0);
+  CheckAccessoryType(MDCCollectionViewCellAccessoryCheckmark,
+                     0 + section_offset, 0);
+  CheckTextCellTitleWithId(IDS_IOS_CLEAR_COOKIES, 0 + section_offset, 1);
+  CheckAccessoryType(MDCCollectionViewCellAccessoryCheckmark,
+                     0 + section_offset, 1);
+  CheckTextCellTitleWithId(IDS_IOS_CLEAR_CACHE, 0 + section_offset, 2);
+  CheckAccessoryType(MDCCollectionViewCellAccessoryCheckmark,
+                     0 + section_offset, 2);
+  CheckTextCellTitleWithId(IDS_IOS_CLEAR_SAVED_PASSWORDS, 0 + section_offset,
+                           3);
+  CheckAccessoryType(MDCCollectionViewCellAccessoryNone, 0 + section_offset, 3);
+  CheckTextCellTitleWithId(IDS_IOS_CLEAR_AUTOFILL, 0 + section_offset, 4);
+  CheckAccessoryType(MDCCollectionViewCellAccessoryNone, 0 + section_offset, 4);
 
   EXPECT_EQ(1, NumberOfItemsInSection(1 + section_offset));
   CheckTextCellTitleWithId(IDS_IOS_CLEAR_BUTTON, 1 + section_offset, 0);
@@ -168,12 +170,11 @@ TEST_F(ClearBrowsingDataCollectionViewControllerTest,
     EXPECT_EQ(4, NumberOfSections());
   }
 
-  EXPECT_EQ(5, NumberOfItemsInSection(section_offset));
+  EXPECT_EQ(5, NumberOfItemsInSection(0 + section_offset));
   EXPECT_EQ(1, NumberOfItemsInSection(1 + section_offset));
 
   EXPECT_EQ(1, NumberOfItemsInSection(2 + section_offset));
-  CheckSectionFooterWithId(IDS_IOS_CLEAR_BROWSING_DATA_FOOTER_ACCOUNT,
-                           2 + section_offset);
+  CheckSectionFooterWithId(IDS_IOS_CLEAR_BROWSING_DATA_FOOTER_ACCOUNT, 2);
 
   EXPECT_EQ(1, NumberOfItemsInSection(3 + section_offset));
   CheckSectionFooterWithId(IDS_IOS_CLEAR_BROWSING_DATA_FOOTER_SAVED_SITE_DATA,
@@ -201,7 +202,7 @@ TEST_F(ClearBrowsingDataCollectionViewControllerTest,
     EXPECT_EQ(4, NumberOfSections());
   }
 
-  EXPECT_EQ(5, NumberOfItemsInSection(section_offset));
+  EXPECT_EQ(5, NumberOfItemsInSection(0 + section_offset));
   EXPECT_EQ(1, NumberOfItemsInSection(1 + section_offset));
 
   EXPECT_EQ(1, NumberOfItemsInSection(2 + section_offset));
@@ -219,17 +220,18 @@ TEST_F(ClearBrowsingDataCollectionViewControllerTest, TestUpdatePrefWithValue) {
   CheckController();
   PrefService* prefs = browser_state_->GetPrefs();
 
-  int section = experimental_flags::IsNewClearBrowsingDataUIEnabled() ? 1 : 0;
+  const int section_offset =
+      experimental_flags::IsNewClearBrowsingDataUIEnabled() ? 1 : 0;
 
-  SelectItem(kDeleteBrowsingHistoryItem, section);
+  SelectItem(kDeleteBrowsingHistoryItem, 0 + section_offset);
   EXPECT_FALSE(prefs->GetBoolean(browsing_data::prefs::kDeleteBrowsingHistory));
-  SelectItem(kDeleteCookiesItem, section);
+  SelectItem(kDeleteCookiesItem, 0 + section_offset);
   EXPECT_FALSE(prefs->GetBoolean(browsing_data::prefs::kDeleteCookies));
-  SelectItem(kDeleteCacheItem, section);
+  SelectItem(kDeleteCacheItem, 0 + section_offset);
   EXPECT_FALSE(prefs->GetBoolean(browsing_data::prefs::kDeleteCache));
-  SelectItem(kDeletePasswordsItem, section);
+  SelectItem(kDeletePasswordsItem, 0 + section_offset);
   EXPECT_TRUE(prefs->GetBoolean(browsing_data::prefs::kDeletePasswords));
-  SelectItem(kDeleteFormDataItem, section);
+  SelectItem(kDeleteFormDataItem, 0 + section_offset);
   EXPECT_TRUE(prefs->GetBoolean(browsing_data::prefs::kDeleteFormData));
 }
 

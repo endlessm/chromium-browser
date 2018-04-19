@@ -17,6 +17,7 @@
 #include "base/time/time.h"
 #include "chrome/browser/android/chrome_feature_list.h"
 #include "chrome/browser/android/ntp/content_suggestions_notifier_service.h"
+#include "chrome/browser/android/ntp/get_remote_suggestions_scheduler.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/ntp_snippets/content_suggestions_notifier_service_factory.h"
 #include "chrome/browser/ntp_snippets/content_suggestions_service_factory.h"
@@ -27,6 +28,7 @@
 #include "components/history/core/browser/history_service.h"
 #include "components/ntp_snippets/content_suggestion.h"
 #include "components/ntp_snippets/content_suggestions_metrics.h"
+#include "components/ntp_snippets/pref_names.h"
 #include "components/ntp_snippets/remote/remote_suggestions_provider.h"
 #include "components/ntp_snippets/remote/remote_suggestions_scheduler.h"
 #include "jni/SnippetsBridge_jni.h"
@@ -102,17 +104,6 @@ ScopedJavaLocalRef<jobject> JNI_SnippetsBridge_ToJavaSuggestionList(
   }
 
   return result;
-}
-
-ntp_snippets::RemoteSuggestionsScheduler* GetRemoteSuggestionsScheduler() {
-  ntp_snippets::ContentSuggestionsService* content_suggestions_service =
-      ContentSuggestionsServiceFactory::GetForProfile(
-          ProfileManager::GetLastUsedProfile());
-  // Can maybe be null in some cases? (Incognito profile?) crbug.com/647920
-  if (!content_suggestions_service) {
-    return nullptr;
-  }
-  return content_suggestions_service->remote_suggestions_scheduler();
 }
 
 }  // namespace
@@ -191,6 +182,14 @@ NTPSnippetsBridge::NTPSnippetsBridge(JNIEnv* env,
   history_service_ = HistoryServiceFactory::GetForProfile(
       profile, ServiceAccessType::EXPLICIT_ACCESS);
   content_suggestions_service_observer_.Add(content_suggestions_service_);
+
+  pref_change_registrar_.Init(profile->GetPrefs());
+  pref_change_registrar_.Add(
+      ntp_snippets::prefs::kArticlesListVisible,
+      base::BindRepeating(
+          &NTPSnippetsBridge::OnSuggestionsVisibilityChanged,
+          base::Unretained(this),
+          Category::FromKnownCategory(KnownCategories::ARTICLES)));
 }
 
 void NTPSnippetsBridge::Destroy(JNIEnv* env, const JavaParamRef<jobject>& obj) {
@@ -452,4 +451,11 @@ void NTPSnippetsBridge::OnContextualSuggestionsFetched(
       env, Category::FromKnownCategory(KnownCategories::CONTEXTUAL),
       suggestions);
   RunCallbackAndroid(j_callback, j_suggestions);
+}
+
+void NTPSnippetsBridge::OnSuggestionsVisibilityChanged(
+    const Category category) {
+  JNIEnv* env = AttachCurrentThread();
+  Java_SnippetsBridge_onSuggestionsVisibilityChanged(
+      env, bridge_, static_cast<int>(category.id()));
 }

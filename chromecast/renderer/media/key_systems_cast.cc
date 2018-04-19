@@ -9,7 +9,7 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "build/build_config.h"
-#include "chromecast/chromecast_features.h"
+#include "chromecast/chromecast_buildflags.h"
 #include "chromecast/media/base/key_systems_common.h"
 #include "components/cdm/renderer/android_key_systems.h"
 #include "components/cdm/renderer/widevine_key_system_properties.h"
@@ -146,12 +146,10 @@ void AddCmaKeySystems(
   using Robustness = cdm::WidevineKeySystemProperties::Robustness;
 
   key_systems_properties->emplace_back(new cdm::WidevineKeySystemProperties(
-      codecs,                     // Regular codecs.
-      Robustness::HW_SECURE_ALL,  // Max audio robustness.
-      Robustness::HW_SECURE_ALL,  // Max video robustness.
-      enable_persistent_license_support
-          ? EmeSessionTypeSupport::SUPPORTED
-          : EmeSessionTypeSupport::NOT_SUPPORTED,  // persistent-license.
+      codecs,                                // Regular codecs.
+      Robustness::HW_SECURE_ALL,             // Max audio robustness.
+      Robustness::HW_SECURE_ALL,             // Max video robustness.
+      EmeSessionTypeSupport::SUPPORTED,      // persistent-license.
       EmeSessionTypeSupport::NOT_SUPPORTED,  // persistent-release-message.
       // Note: On Chromecast, all CDMs may have persistent state.
       EmeFeatureSupport::ALWAYS_ENABLED,    // Persistent state.

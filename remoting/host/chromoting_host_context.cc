@@ -5,6 +5,7 @@
 #include "remoting/host/chromoting_host_context.h"
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -154,11 +155,11 @@ std::unique_ptr<ChromotingHostContext> ChromotingHostContext::CreateForChromeOS(
   // stop them explicitly. Therefore, base::DoNothing is passed in as the quit
   // closure.
   scoped_refptr<AutoThreadTaskRunner> io_auto_task_runner =
-      new AutoThreadTaskRunner(io_task_runner, base::Bind(&base::DoNothing));
+      new AutoThreadTaskRunner(io_task_runner, base::DoNothing());
   scoped_refptr<AutoThreadTaskRunner> file_auto_task_runner =
-      new AutoThreadTaskRunner(file_task_runner, base::Bind(&base::DoNothing));
+      new AutoThreadTaskRunner(file_task_runner, base::DoNothing());
   scoped_refptr<AutoThreadTaskRunner> ui_auto_task_runner =
-      new AutoThreadTaskRunner(ui_task_runner, base::Bind(&base::DoNothing));
+      new AutoThreadTaskRunner(ui_task_runner, base::DoNothing());
 
   // Use browser's file thread as the joiner as it is the only browser-thread
   // that allows blocking I/O, which is required by thread joining.

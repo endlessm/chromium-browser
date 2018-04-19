@@ -384,76 +384,66 @@ inline VkDisplayPlanePropertiesKHR makeDisplayPlanePropertiesKHR (VkDisplayKHR c
 	return res;
 }
 
-inline VkIndirectCommandsTokenNVX makeIndirectCommandsTokenNVX (VkIndirectCommandsTokenTypeNVX tokenType, VkBuffer buffer, VkDeviceSize offset)
+inline VkPresentRegionKHR makePresentRegionKHR (deUint32 rectangleCount, const VkRectLayerKHR* pRectangles)
 {
-	VkIndirectCommandsTokenNVX res;
-	res.tokenType	= tokenType;
-	res.buffer		= buffer;
-	res.offset		= offset;
+	VkPresentRegionKHR res;
+	res.rectangleCount	= rectangleCount;
+	res.pRectangles		= pRectangles;
 	return res;
 }
 
-inline VkIndirectCommandsLayoutTokenNVX makeIndirectCommandsLayoutTokenNVX (VkIndirectCommandsTokenTypeNVX tokenType, deUint32 bindingUnit, deUint32 dynamicCount, deUint32 divisor)
+inline VkDescriptorUpdateTemplateEntryKHR makeDescriptorUpdateTemplateEntryKHR (deUint32 dstBinding, deUint32 dstArrayElement, deUint32 descriptorCount, VkDescriptorType descriptorType, deUintptr offset, deUintptr stride)
 {
-	VkIndirectCommandsLayoutTokenNVX res;
-	res.tokenType		= tokenType;
-	res.bindingUnit		= bindingUnit;
-	res.dynamicCount	= dynamicCount;
-	res.divisor			= divisor;
+	VkDescriptorUpdateTemplateEntryKHR res;
+	res.dstBinding		= dstBinding;
+	res.dstArrayElement	= dstArrayElement;
+	res.descriptorCount	= descriptorCount;
+	res.descriptorType	= descriptorType;
+	res.offset			= offset;
+	res.stride			= stride;
 	return res;
 }
 
-inline VkObjectTableEntryNVX makeObjectTableEntryNVX (VkObjectEntryTypeNVX type, VkObjectEntryUsageFlagsNVX flags)
+inline VkInputAttachmentAspectReferenceKHR makeInputAttachmentAspectReferenceKHR (deUint32 subpass, deUint32 inputAttachmentIndex, VkImageAspectFlags aspectMask)
 {
-	VkObjectTableEntryNVX res;
-	res.type	= type;
-	res.flags	= flags;
+	VkInputAttachmentAspectReferenceKHR res;
+	res.subpass					= subpass;
+	res.inputAttachmentIndex	= inputAttachmentIndex;
+	res.aspectMask				= aspectMask;
 	return res;
 }
 
-inline VkObjectTablePipelineEntryNVX makeObjectTablePipelineEntryNVX (VkObjectEntryTypeNVX type, VkObjectEntryUsageFlagsNVX flags, VkPipeline pipeline)
+inline VkExternalMemoryPropertiesKHR makeExternalMemoryPropertiesKHR (VkExternalMemoryFeatureFlagsKHR externalMemoryFeatures, VkExternalMemoryHandleTypeFlagsKHR exportFromImportedHandleTypes, VkExternalMemoryHandleTypeFlagsKHR compatibleHandleTypes)
 {
-	VkObjectTablePipelineEntryNVX res;
-	res.type		= type;
-	res.flags		= flags;
-	res.pipeline	= pipeline;
+	VkExternalMemoryPropertiesKHR res;
+	res.externalMemoryFeatures			= externalMemoryFeatures;
+	res.exportFromImportedHandleTypes	= exportFromImportedHandleTypes;
+	res.compatibleHandleTypes			= compatibleHandleTypes;
 	return res;
 }
 
-inline VkObjectTableDescriptorSetEntryNVX makeObjectTableDescriptorSetEntryNVX (VkObjectEntryTypeNVX type, VkObjectEntryUsageFlagsNVX flags, VkPipelineLayout pipelineLayout, VkDescriptorSet descriptorSet)
+inline VkRefreshCycleDurationGOOGLE makeRefreshCycleDurationGOOGLE (deUint64 refreshDuration)
 {
-	VkObjectTableDescriptorSetEntryNVX res;
-	res.type			= type;
-	res.flags			= flags;
-	res.pipelineLayout	= pipelineLayout;
-	res.descriptorSet	= descriptorSet;
+	VkRefreshCycleDurationGOOGLE res;
+	res.refreshDuration	= refreshDuration;
 	return res;
 }
 
-inline VkObjectTableVertexBufferEntryNVX makeObjectTableVertexBufferEntryNVX (VkObjectEntryTypeNVX type, VkObjectEntryUsageFlagsNVX flags, VkBuffer buffer)
+inline VkPastPresentationTimingGOOGLE makePastPresentationTimingGOOGLE (deUint32 presentID, deUint64 desiredPresentTime, deUint64 actualPresentTime, deUint64 earliestPresentTime, deUint64 presentMargin)
 {
-	VkObjectTableVertexBufferEntryNVX res;
-	res.type	= type;
-	res.flags	= flags;
-	res.buffer	= buffer;
+	VkPastPresentationTimingGOOGLE res;
+	res.presentID			= presentID;
+	res.desiredPresentTime	= desiredPresentTime;
+	res.actualPresentTime	= actualPresentTime;
+	res.earliestPresentTime	= earliestPresentTime;
+	res.presentMargin		= presentMargin;
 	return res;
 }
 
-inline VkObjectTableIndexBufferEntryNVX makeObjectTableIndexBufferEntryNVX (VkObjectEntryTypeNVX type, VkObjectEntryUsageFlagsNVX flags, VkBuffer buffer)
+inline VkPresentTimeGOOGLE makePresentTimeGOOGLE (deUint32 presentID, deUint64 desiredPresentTime)
 {
-	VkObjectTableIndexBufferEntryNVX res;
-	res.type	= type;
-	res.flags	= flags;
-	res.buffer	= buffer;
-	return res;
-}
-
-inline VkObjectTablePushConstantEntryNVX makeObjectTablePushConstantEntryNVX (VkObjectEntryTypeNVX type, VkObjectEntryUsageFlagsNVX flags, VkPipelineLayout pipelineLayout, VkShaderStageFlags stageFlags)
-{
-	VkObjectTablePushConstantEntryNVX res;
-	res.type			= type;
-	res.flags			= flags;
-	res.pipelineLayout	= pipelineLayout;
-	res.stageFlags		= stageFlags;
+	VkPresentTimeGOOGLE res;
+	res.presentID			= presentID;
+	res.desiredPresentTime	= desiredPresentTime;
 	return res;
 }

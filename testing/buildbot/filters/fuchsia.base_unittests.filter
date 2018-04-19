@@ -38,17 +38,12 @@
 
 # These tests are occasionally flaking. See https://crbug.com/738275. Please be
 # pretty confident you've fixed their rarely-flakiness before re-enabling.
--AllModes/TaskSchedulerSingleThreadTaskRunnerManagerCommonTest.*
 -AllocationRegisterTest.InsertRemoveRandomOrder
 -ConditionVariableTest.MultiThreadConsumerTest
 -MemoryPeakDetectorTest.StdDev
 -MemoryPeakDetectorTest.Throttle
 -ObserverListThreadSafeTest.CrossThreadObserver
--OneTraitsExecutionModePair/TaskSchedulerImplTest.*
--ProcessUtilTest.DelayedTermination
--ProcessUtilTest.ImmediateTermination
 -TraceCategoryTest.ThreadRaces
--MemoryDumpManagerTest.PostTaskForSequencedTaskRunner
 
 # This test expects a task to complete no later than 250ms after it's expected
 # to, but that's easily a poor assumption when running on QEMU without hardware
@@ -60,10 +55,27 @@
 
 # https://crbug.com/752368.
 -FieldTrialListTest.ClearParamsFromSharedMemory
+-FieldTrialListTest.TestCopyFieldTrialStateToFlags
 
 # https://crbug.com/779645 - requires ability to set address-space limits.
 -PartitionAllocTest.RepeatedReturnNull
 -PartitionAllocTest.RepeatedReturnNullDirect
 
-# https://crbug.com/801353 - takes 50x-100x the normal time to execute on bots.
--PersistentMemoryAllocatorTest.ParallelismTest
+# Flaky, https://crbug.com/768436, https://crbug.com/792310.
+-TaskSchedulerWorkerPoolBlockingTest.MaximumWorkersTest
+-TaskSchedulerWorkerPoolBlockingTest.MayBlockIncreaseCapacityNestedWillBlock
+-TaskSchedulerWorkerPoolBlockingTest.PostBeforeBlocking
+-TaskSchedulerWorkerPoolBlockingTest.ThreadBlockedUnblocked
+-TaskSchedulerWorkerPoolBlockingTest.WorkersIdleWhenOverCapacity
+
+# Flaky, https://crbug.com/810077.
+-MessageLoopTypedTest.RecursivePosts/*
+
+# Flaky, https://crbug.com/735701 and https://crbug.com/816170.
+-TaskSchedulerWorkerPoolHistogramTest.NumTasks*Cleanup
+
+# Flaky, https://crbug.com/811881
+-AddressSpaceRandomizationTest.RandomBitCorrelations*
+
+# Flaky, https://crbug.com/813651
+-TaskSchedulerWorkerPoolCheckTlsReuse.CheckCleanupWorkers

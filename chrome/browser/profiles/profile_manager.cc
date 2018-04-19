@@ -55,15 +55,16 @@
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/signin/signin_util.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/user_event_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/ui/sync/sync_promo_ui.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths_internal.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/features.h"
 #include "chrome/common/logging_chrome.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -876,7 +877,6 @@ void ProfileManager::AutoloadProfiles() {
 
 void ProfileManager::CleanUpEphemeralProfiles() {
   const std::string last_used_profile = GetLastUsedProfileName();
-
   bool last_active_profile_deleted = false;
   base::FilePath new_profile_path;
   std::vector<base::FilePath> profiles_to_delete;
@@ -894,8 +894,11 @@ void ProfileManager::CleanUpEphemeralProfiles() {
     }
   }
 
-  // If the last active profile was ephemeral, set a new one.
-  if (last_active_profile_deleted) {
+  // If the last active profile was ephemeral or all profiles are deleted due to
+  // ephemeral, set a new one.
+  if (last_active_profile_deleted ||
+      (entries.size() == profiles_to_delete.size() &&
+       profiles_to_delete.size() > 0)) {
     if (new_profile_path.empty())
       new_profile_path = GenerateNextProfileDirectoryPath();
 
@@ -961,6 +964,31 @@ void ProfileManager::InitProfileUserPrefs(Profile* profile) {
     return;
   }
 
+#if defined(OS_CHROMEOS)
+  // User object may already have changed user type, so we apply that
+  // type to profile.
+  // If profile type has changed, remove ProfileInfoCache entry for it to
+  // make sure it is fully re-initialized later.
+  const user_manager::User* user =
+      chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
+  if (user) {
+    if (profile->IsChild() !=
+        (user->GetType() == user_manager::USER_TYPE_CHILD)) {
+      ProfileAttributesEntry* entry;
+      if (storage.GetProfileAttributesWithPath(profile->GetPath(), &entry)) {
+        LOG(WARNING) << "Profile child status has changed.";
+        storage.RemoveProfile(profile->GetPath());
+      }
+    }
+    if (user->GetType() == user_manager::USER_TYPE_CHILD) {
+      profile->GetPrefs()->SetString(prefs::kSupervisedUserId,
+                                     supervised_users::kChildAccountSUID);
+    } else {
+      profile->GetPrefs()->ClearPref(prefs::kSupervisedUserId);
+    }
+  }
+#endif
+
   size_t avatar_index;
   std::string profile_name;
   std::string supervised_user_id;
@@ -999,14 +1027,6 @@ void ProfileManager::InitProfileUserPrefs(Profile* profile) {
   if (!profile->GetPrefs()->HasPrefPath(prefs::kProfileName))
     profile->GetPrefs()->SetString(prefs::kProfileName, profile_name);
 
-#if defined(OS_CHROMEOS)
-  const user_manager::User* user =
-      chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
-  if (user && user->GetType() == user_manager::USER_TYPE_CHILD) {
-    profile->GetPrefs()->SetString(prefs::kSupervisedUserId,
-                                   supervised_users::kChildAccountSUID);
-  }
-#endif
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   bool force_supervised_user_id =
 #if defined(OS_CHROMEOS)
@@ -1295,6 +1315,21 @@ void ProfileManager::DoFinalInitForServices(Profile* profile,
   // Generates notifications from the above, if experiment is enabled.
   ContentSuggestionsNotifierServiceFactory::GetForProfile(profile);
 #endif
+
+  // TODO(crbug.com/709094, crbug.com/761485): UserEventServiceFactory
+  // initializes asynchronously, but it needs to be ready to receive user
+  // events in order for ConsentAuditor to record consents when the user
+  // signs in, which means that it needs to be initialized early enough in
+  // the Profile lifetime.
+  //
+  // This early initialization can be removed once the linked bugs are fixed
+  // and UserEventService is able to initialize synchronously.
+  //
+  // Note also that this code is technically not necessary, as UserEventService
+  // already happens to be initialized early in practice through other
+  // components that use it, but ConsentAuditor should not depend on that.
+  if (!go_off_the_record)
+    browser_sync::UserEventServiceFactory::GetForProfile(profile);
 }
 
 void ProfileManager::DoFinalInitLogging(Profile* profile) {
@@ -1562,7 +1597,7 @@ ProfileManager::ProfileInfo* ProfileManager::RegisterProfile(
     Profile* profile,
     bool created) {
   TRACE_EVENT0("browser", "ProfileManager::RegisterProfile");
-  auto info = base::MakeUnique<ProfileInfo>(profile, created);
+  auto info = std::make_unique<ProfileInfo>(profile, created);
   ProfileInfo* info_raw = info.get();
   profiles_info_.insert(std::make_pair(profile->GetPath(), std::move(info)));
   return info_raw;
@@ -1612,8 +1647,8 @@ void ProfileManager::AddProfileToStorage(Profile* profile) {
           !entry->IsAuthenticated()) {
         BrowserThread::PostTask(
             BrowserThread::UI, FROM_HERE,
-            base::BindOnce(&SignOut,
-                           static_cast<SigninManager*>(signin_manager)));
+            base::BindOnce(&SignOut, SigninManager::FromSigninManagerBase(
+                                         signin_manager)));
       }
 #endif
       return;

@@ -23,14 +23,10 @@
 #include "components/infobars/core/infobar_manager.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/browser/profile_identity_provider.h"
-#include "components/signin/core/browser/signin_manager.h"
 #include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/infobars/infobar_manager_impl.h"
 #include "ios/chrome/browser/pref_names.h"
-#include "ios/chrome/browser/signin/oauth2_token_service_factory.h"
-#include "ios/chrome/browser/signin/signin_manager_factory.h"
 #import "ios/chrome/browser/ui/autofill/chrome_autofill_client_ios.h"
 #import "ios/web/public/web_state/web_state.h"
 
@@ -43,7 +39,7 @@ using autofill::AutofillPopupDelegate;
 @interface AutofillController ()<AutofillClientIOSBridge,
                                  AutofillDriverIOSBridge> {
   AutofillAgent* _autofillAgent;
-  std::unique_ptr<autofill::AutofillClient> _autofillClient;
+  std::unique_ptr<autofill::ChromeAutofillClientIOS> _autofillClient;
   autofill::AutofillManager* _autofillManager;  // weak
 }
 
@@ -68,16 +64,9 @@ using autofill::AutofillPopupDelegate;
     infobars::InfoBarManager* infobarManager =
         InfoBarManagerImpl::FromWebState(webState);
     DCHECK(infobarManager);
-    ios::ChromeBrowserState* originalBrowserState =
-        browserState->GetOriginalChromeBrowserState();
-    std::unique_ptr<IdentityProvider> identityProvider(
-        new ProfileIdentityProvider(
-            ios::SigninManagerFactory::GetForBrowserState(originalBrowserState),
-            OAuth2TokenServiceFactory::GetForBrowserState(originalBrowserState),
-            base::Closure()));
     _autofillClient.reset(new autofill::ChromeAutofillClientIOS(
-        browserState, webState, infobarManager, self, passwordGenerationManager,
-        std::move(identityProvider)));
+        browserState, webState, infobarManager, self,
+        passwordGenerationManager));
     autofill::AutofillDriverIOS::CreateForWebStateAndDelegate(
         webState, _autofillClient.get(), self,
         GetApplicationContext()->GetApplicationLocale(),
@@ -106,11 +95,6 @@ using autofill::AutofillPopupDelegate;
                     downloadEnabled:YES];
 }
 
-- (instancetype)init {
-  NOTREACHED();
-  return nil;
-}
-
 - (void)dealloc {
   DCHECK(!_autofillAgent);  // detachFromWebController must have been called.
 }
@@ -123,6 +107,10 @@ using autofill::AutofillPopupDelegate;
   _autofillManager = nullptr;
   [_autofillAgent detachFromWebState];
   _autofillAgent = nil;
+}
+
+- (void)setBaseViewController:(UIViewController*)baseViewController {
+  _autofillClient->SetBaseViewController(baseViewController);
 }
 
 #pragma mark - AutofillClientIOSBridge

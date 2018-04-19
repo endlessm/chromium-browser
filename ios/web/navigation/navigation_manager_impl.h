@@ -51,6 +51,13 @@ class NavigationManagerImpl : public NavigationManager {
   NavigationManagerImpl();
   ~NavigationManagerImpl() override;
 
+  // Returns the most recent Committed Item that is not the result of a client
+  // or server-side redirect from the given Navigation Manager. Returns nullptr
+  // if there's an error condition on the input |nav_manager|, such as nullptr
+  // or no non-redirect items.
+  static NavigationItem* GetLastCommittedNonRedirectedItem(
+      const NavigationManager* nav_manager);
+
   // Setters for NavigationManagerDelegate and BrowserState.
   virtual void SetDelegate(NavigationManagerDelegate* delegate);
   virtual void SetBrowserState(BrowserState* browser_state);
@@ -163,7 +170,18 @@ class NavigationManagerImpl : public NavigationManager {
   void AddTransientURLRewriter(BrowserURLRewriter::URLRewriter rewriter) final;
   void GoToIndex(int index) final;
   void Reload(ReloadType reload_type, bool check_for_reposts) final;
+  void ReloadWithUserAgentType(UserAgentType user_agent_type) final;
   void LoadIfNecessary() final;
+
+  // Implementation for corresponding NavigationManager getters.
+  virtual NavigationItemImpl* GetPendingItemImpl() const = 0;
+  virtual NavigationItemImpl* GetTransientItemImpl() const = 0;
+  virtual NavigationItemImpl* GetLastCommittedItemImpl() const = 0;
+
+  // Identical to GetItemAtIndex() but returns the underlying NavigationItemImpl
+  // instead of the public NavigationItem interface.
+  virtual NavigationItemImpl* GetNavigationItemImplAtIndex(
+      size_t index) const = 0;
 
  protected:
   // The SessionStorageBuilder functions require access to private variables of
@@ -201,17 +219,6 @@ class NavigationManagerImpl : public NavigationManager {
   // Returns the most recent NavigationItem that does not have an app-specific
   // URL.
   NavigationItem* GetLastCommittedNonAppSpecificItem() const;
-
-  // Identical to GetItemAtIndex() but returns the underlying NavigationItemImpl
-  // instead of the public NavigationItem interface. This is used by
-  // SessionStorageBuilder to persist session state.
-  virtual NavigationItemImpl* GetNavigationItemImplAtIndex(
-      size_t index) const = 0;
-
-  // Implementation for corresponding NavigationManager getters.
-  virtual NavigationItemImpl* GetPendingItemImpl() const = 0;
-  virtual NavigationItemImpl* GetTransientItemImpl() const = 0;
-  virtual NavigationItemImpl* GetLastCommittedItemImpl() const = 0;
 
   // Subclass specific implementation to update session state.
   virtual void FinishGoToIndex(int index, NavigationInitiationType type) = 0;

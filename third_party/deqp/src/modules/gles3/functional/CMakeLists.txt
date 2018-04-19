@@ -53,6 +53,8 @@ set(DEQP_GLES3_FUNCTIONAL_SRCS
 	es3fFunctionalTests.hpp
 	es3fLifetimeTests.cpp
 	es3fLifetimeTests.hpp
+	es3fMultiviewTests.cpp
+	es3fMultiviewTests.hpp
 	es3fPrerequisiteTests.cpp
 	es3fPrerequisiteTests.hpp
 	es3fRasterizationTests.cpp
@@ -75,6 +77,8 @@ set(DEQP_GLES3_FUNCTIONAL_SRCS
 	es3fShaderLoopTests.hpp
 	es3fShaderMatrixTests.cpp
 	es3fShaderMatrixTests.hpp
+	es3fShaderMetamorphicTests.cpp
+	es3fShaderMetamorphicTests.hpp
 	es3fShaderOperatorTests.cpp
 	es3fShaderOperatorTests.hpp
 	es3fShaderPrecisionTests.cpp

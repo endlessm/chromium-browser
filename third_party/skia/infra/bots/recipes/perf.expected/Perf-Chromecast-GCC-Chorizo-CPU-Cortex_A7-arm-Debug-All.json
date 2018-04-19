@@ -327,7 +327,7 @@
       "-i",
       "/cache/skia/resources",
       "--images",
-      "/cache/skia/resources/color_wheel.jpg",
+      "/cache/skia/resources/images/color_wheel.jpg",
       "--skps",
       "/cache/skia/skps",
       "--pre_log",
@@ -337,7 +337,9 @@
       "~blur_0.01",
       "~GM_animated-image-blurs",
       "~blendmode_mask_",
-      "~^path_text_clipped"
+      "~desk_carsvg.skp",
+      "~^path_text_clipped",
+      "~shapes_rrect_inner_rrect_50_500x500"
     ],
     "env": {
       "BUILDTYPE": "Debug",
