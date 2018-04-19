@@ -266,7 +266,6 @@ use_sanitizer_coverage = false
 use_sysroot = true
 use_system_harfbuzz = false
 use_system_libjpeg = false
-use_system_sqlite = false
 use_system_xcode = ""
 use_thin_lto = false
 use_udev = true
