@@ -1,3 +1,9 @@
+chromium-browser (66.0.3359.117-0) google; urgency=medium
+
+  * Upstream release: 66.0.3359.117
+
+ -- Lorenzo Tilve <ltilve@igalia.com>  Wed, 19 Apr 2018 14:36:04 +0100
+
 chromium-browser (65.0.3325.181-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 65.0.3325.181
