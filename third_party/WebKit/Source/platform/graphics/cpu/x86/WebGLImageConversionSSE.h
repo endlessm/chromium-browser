@@ -7,7 +7,7 @@
 
 #include "build/build_config.h"
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_64)
 #include <emmintrin.h>
 
 namespace blink {
@@ -195,6 +195,6 @@ ALWAYS_INLINE void PackOneRowOfRGBA8LittleToRGBA8(const uint8_t* source,
 }  // namespace SIMD
 }  // namespace blink
 
-#endif  // ARCH_CPU_X86_FAMILY
+#endif  // ARCH_CPU_X86_64
 
 #endif  // WebGLImageConversionSSE_h
