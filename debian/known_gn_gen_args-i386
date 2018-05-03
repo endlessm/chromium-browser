@@ -247,7 +247,6 @@ use_srtp_boringssl = true
 use_sysroot = true
 use_system_harfbuzz = false
 use_system_libjpeg = false
-use_system_sqlite = false
 use_udev = true
 use_unofficial_version_number = true
 use_v4l2_codec = false

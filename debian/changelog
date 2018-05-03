@@ -1,3 +1,65 @@
+chromium-browser (66.0.3359.117-0ubuntu0.16.04) UNRELEASED; urgency=medium
+
+  * Upstream release: 66.0.3359.117
+    - CVE-2018-6085: Use after free in Disk Cache.
+    - CVE-2018-6086: Use after free in Disk Cache.
+    - CVE-2018-6087: Use after free in WebAssembly.
+    - CVE-2018-6088: Use after free in PDFium.
+    - CVE-2018-6089: Same origin policy bypass in Service Worker.
+    - CVE-2018-6090: Heap buffer overflow in Skia.
+    - CVE-2018-6091: Incorrect handling of plug-ins by Service Worker.
+    - CVE-2018-6092: Integer overflow in WebAssembly.
+    - CVE-2018-6093: Same origin bypass in Service Worker.
+    - CVE-2018-6094: Exploit hardening regression in Oilpan.
+    - CVE-2018-6095: Lack of meaningful user interaction requirement before
+      file upload.
+    - CVE-2018-6096: Fullscreen UI spoof.
+    - CVE-2018-6097: Fullscreen UI spoof.
+    - CVE-2018-6098: URL spoof in Omnibox.
+    - CVE-2018-6099: CORS bypass in ServiceWorker.
+    - CVE-2018-6100: URL spoof in Omnibox.
+    - CVE-2018-6101: Insufficient protection of remote debugging prototol in
+      DevTools.
+    - CVE-2018-6102: URL spoof in Omnibox.
+    - CVE-2018-6103: UI spoof in Permissions.
+    - CVE-2018-6104: URL spoof in Omnibox.
+    - CVE-2018-6105: URL spoof in Omnibox.
+    - CVE-2018-6106: Incorrect handling of promises in V8.
+    - CVE-2018-6107: URL spoof in Omnibox.
+    - CVE-2018-6108: URL spoof in Omnibox.
+    - CVE-2018-6109: Incorrect handling of files by FileAPI.
+    - CVE-2018-6110: Incorrect handling of plaintext files via file://.
+    - CVE-2018-6111: Heap-use-after-free in DevTools.
+    - CVE-2018-6112: Incorrect URL handling in DevTools.
+    - CVE-2018-6113: URL spoof in Navigation.
+    - CVE-2018-6114: CSP bypass.
+    - CVE-2018-6115: SmartScreen bypass in downloads.
+    - CVE-2018-6116: Incorrect low memory handling in WebAssembly.
+    - CVE-2018-6117: Confusing autofill settings.
+    - CVE-2018-6084: Incorrect use of Distributed Objects in Google Software
+      Updater on MacOS.
+  * debian/rules:
+    - remove use_system_sqlite build flag
+    - force rtc_use_h264=true (LP: #1763662)
+  * debian/patches/add-missing-blink-tools.patch: added
+  * debian/patches/configuration-directory.patch: refreshed
+  * debian/patches/default-allocator: refreshed
+  * debian/patches/disable-sse2: refreshed
+  * debian/patches/last-commit-position: refreshed
+  * debian/patches/no-new-ninja-flag.patch: refreshed
+  * debian/patches/revert-Xclang-instcombine-lower-dbg-declare.patch: refreshed
+  * debian/patches/revert-clang-nostdlib++.patch: refreshed
+  * debian/patches/search-credit.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/skia-disable-neon.patch: added
+  * debian/patches/suppress-newer-clang-warning-flags.patch: updated
+  * debian/patches/touch-v35: refreshed
+  * debian/patches/use-clang-versioned.patch: refreshed
+  * debian/patches/widevine-other-locations: refreshed
+  * debian/known_gn_gen_args-*: remove use_system_sqlite build flag
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 02 May 2018 20:17:40 +0200
+
 chromium-browser (65.0.3325.181-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 65.0.3325.181
