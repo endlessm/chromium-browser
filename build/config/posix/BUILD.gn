@@ -50,7 +50,7 @@ config("runtime_library") {
     ]
 
     # Make sure we don't link against libc++ or libstdc++.
-    if (is_clang) {
+    if (false) {
       ldflags += [ "-nostdlib++" ]
     } else {
       ldflags += [ "-nodefaultlibs" ]
