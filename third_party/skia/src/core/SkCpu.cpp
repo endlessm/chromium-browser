@@ -76,6 +76,9 @@
 
 #elif defined(SK_CPU_ARM64) && __has_include(<sys/auxv.h>)
     #include <sys/auxv.h>
+    #if defined(HWCAP_CRC32)
+        #undef HWCAP_CRC32
+    #endif
 
     static uint32_t read_cpu_features() {
         const uint32_t kHWCAP_CRC32   = (1<< 7),
