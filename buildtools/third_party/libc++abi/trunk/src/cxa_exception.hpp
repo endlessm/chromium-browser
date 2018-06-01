@@ -24,6 +24,45 @@ static const uint64_t kOurExceptionClass          = 0x434C4E47432B2B00; // CLNGC
 static const uint64_t kOurDependentExceptionClass = 0x434C4E47432B2B01; // CLNGC++\1
 static const uint64_t get_vendor_and_language     = 0xFFFFFFFFFFFFFF00; // mask for CLNGC++
 
+#if defined(_LIBCXXABI_ARM_EHABI)
+// GCC has _Unwind_Control_Block in unwind.h (unwind_arm_common.h)
+#if defined(__clang__)
+struct _Unwind_Control_Block
+{
+   uint64_t exception_class;
+   void (*exception_cleanup)(_Unwind_Reason_Code, _Unwind_Control_Block *);
+   struct {
+       _Unwind_Word reserved1;
+       _Unwind_Word reserved2;
+       _Unwind_Word reserved3;
+       _Unwind_Word reserved4;
+       _Unwind_Word reserved5;
+   } unwinder_cache;
+   struct {
+       _Unwind_Word sp;
+       _Unwind_Word bitpattern[5];
+   } barrier_cache;
+   struct {
+       _Unwind_Word bitpattern[4];
+   } cleanup_cache;
+   struct {
+       _Unwind_Word fnstart;
+       _Unwind_Word *ehtp;
+       _Unwind_Word additional;
+       _Unwind_Word reserved1;
+   } pr_cache;
+   long long int :0;
+   operator _Unwind_Exception*() noexcept
+   {
+       return reinterpret_cast<_Unwind_Exception*>(this);
+   }
+};
+
+#endif
+
+#define _Unwind_Exception _Unwind_Control_Block
+#endif
+
 struct _LIBCXXABI_HIDDEN __cxa_exception {
 #if defined(__LP64__) || defined(_LIBCXXABI_ARM_EHABI)
     // This is a new field to support C++ 0x exception_ptr.
