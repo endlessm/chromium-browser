@@ -14,7 +14,7 @@ WATERFALL_BRANCH = 'chromeos.branch'
 WATERFALL_CHROMIUM = 'chromiumos.chromium'
 WATERFALL_CHROME = 'chromeos.chrome'
 # Used for all swarming builds.
-WATERFALL_SWARMING = 'chromeos.swarming'
+WATERFALL_SWARMING = 'go/legoland'
 
 # These waterfalls should send email reports regardless of cidb connection.
 EMAIL_WATERFALLS = (
@@ -67,6 +67,8 @@ SOM_BUILDS = {
         (WATERFALL_INTERNAL, 'master-mst-android-pfq',
          SOM_SEVERITY_PFQ_FAILURE),
         (WATERFALL_INTERNAL, 'master-nyc-android-pfq',
+         SOM_SEVERITY_PFQ_FAILURE),
+        (WATERFALL_INTERNAL, 'master-pi-android-pfq',
          SOM_SEVERITY_PFQ_FAILURE),
         (WATERFALL_INTERNAL, 'master-release', SOM_SEVERITY_CANARY_FAILURE),
     ],

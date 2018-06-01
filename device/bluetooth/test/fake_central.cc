@@ -9,8 +9,12 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
+#include "base/location.h"
+#include "base/task_scheduler/post_task.h"
 #include "device/bluetooth/bluetooth_device.h"
 #include "device/bluetooth/bluetooth_discovery_filter.h"
+#include "device/bluetooth/bluetooth_discovery_session_outcome.h"
 #include "device/bluetooth/bluetooth_uuid.h"
 #include "device/bluetooth/public/mojom/test/fake_bluetooth.mojom.h"
 #include "device/bluetooth/test/fake_peripheral.h"
@@ -21,7 +25,9 @@ namespace bluetooth {
 
 FakeCentral::FakeCentral(mojom::CentralState state,
                          mojom::FakeCentralRequest request)
-    : state_(state), binding_(this, std::move(request)) {}
+    : has_pending_or_active_discovery_session_(false),
+      state_(state),
+      binding_(this, std::move(request)) {}
 
 void FakeCentral::SimulatePreconnectedPeripheral(
     const std::string& address,
@@ -70,10 +76,12 @@ void FakeCentral::SimulateAdvertisementReceived(
                 scan_result_ptr->scan_record->uuids.value().begin(),
                 scan_result_ptr->scan_record->uuids.value().end())
           : device::BluetoothDevice::UUIDList();
-  // TODO(https://crbug.com/817603): Extract the service_data map from
-  // scan_result_ptr once the typemap for this field is added.
   device::BluetoothDevice::ServiceDataMap service_data =
-      device::BluetoothDevice::ServiceDataMap();
+      (scan_result_ptr->scan_record->service_data)
+          ? device::BluetoothDevice::ServiceDataMap(
+                scan_result_ptr->scan_record->service_data.value().begin(),
+                scan_result_ptr->scan_record->service_data.value().end())
+          : device::BluetoothDevice::ServiceDataMap();
   device::BluetoothDevice::ManufacturerDataMap manufacturer_data =
       (scan_result_ptr->scan_record->manufacturer_data)
           ? device::BluetoothDevice::ManufacturerDataMap(
@@ -239,6 +247,23 @@ void FakeCentral::AddFakeDescriptor(
       fake_remote_gatt_characteristic->AddFakeDescriptor(descriptor_uuid));
 }
 
+void FakeCentral::RemoveFakeDescriptor(const std::string& descriptor_id,
+                                       const std::string& characteristic_id,
+                                       const std::string& service_id,
+                                       const std::string& peripheral_address,
+                                       RemoveFakeDescriptorCallback callback) {
+  FakeRemoteGattCharacteristic* fake_remote_gatt_characteristic =
+      GetFakeRemoteGattCharacteristic(peripheral_address, service_id,
+                                      characteristic_id);
+  if (!fake_remote_gatt_characteristic) {
+    std::move(callback).Run(false);
+    return;
+  }
+
+  std::move(callback).Run(
+      fake_remote_gatt_characteristic->RemoveFakeDescriptor(descriptor_id));
+}
+
 void FakeCentral::SetNextReadCharacteristicResponse(
     uint16_t gatt_code,
     const base::Optional<std::vector<uint8_t>>& value,
@@ -292,10 +317,43 @@ void FakeCentral::SetNextSubscribeToNotificationsResponse(
   std::move(callback).Run(true);
 }
 
-void FakeCentral::GetLastWrittenValue(const std::string& characteristic_id,
-                                      const std::string& service_id,
-                                      const std::string& peripheral_address,
-                                      GetLastWrittenValueCallback callback) {
+void FakeCentral::SetNextUnsubscribeFromNotificationsResponse(
+    uint16_t gatt_code,
+    const std::string& characteristic_id,
+    const std::string& service_id,
+    const std::string& peripheral_address,
+    SetNextUnsubscribeFromNotificationsResponseCallback callback) {
+  FakeRemoteGattCharacteristic* fake_remote_gatt_characteristic =
+      GetFakeRemoteGattCharacteristic(peripheral_address, service_id,
+                                      characteristic_id);
+  if (fake_remote_gatt_characteristic == nullptr) {
+    std::move(callback).Run(false);
+  }
+
+  fake_remote_gatt_characteristic->SetNextUnsubscribeFromNotificationsResponse(
+      gatt_code);
+  std::move(callback).Run(true);
+}
+
+void FakeCentral::IsNotifying(const std::string& characteristic_id,
+                              const std::string& service_id,
+                              const std::string& peripheral_address,
+                              IsNotifyingCallback callback) {
+  FakeRemoteGattCharacteristic* fake_remote_gatt_characteristic =
+      GetFakeRemoteGattCharacteristic(peripheral_address, service_id,
+                                      characteristic_id);
+  if (!fake_remote_gatt_characteristic) {
+    std::move(callback).Run(false, false);
+  }
+
+  std::move(callback).Run(true, fake_remote_gatt_characteristic->IsNotifying());
+}
+
+void FakeCentral::GetLastWrittenCharacteristicValue(
+    const std::string& characteristic_id,
+    const std::string& service_id,
+    const std::string& peripheral_address,
+    GetLastWrittenCharacteristicValueCallback callback) {
   FakeRemoteGattCharacteristic* fake_remote_gatt_characteristic =
       GetFakeRemoteGattCharacteristic(peripheral_address, service_id,
                                       characteristic_id);
@@ -324,6 +382,41 @@ void FakeCentral::SetNextReadDescriptorResponse(
 
   fake_remote_gatt_descriptor->SetNextReadResponse(gatt_code, value);
   std::move(callback).Run(true);
+}
+
+void FakeCentral::SetNextWriteDescriptorResponse(
+    uint16_t gatt_code,
+    const std::string& descriptor_id,
+    const std::string& characteristic_id,
+    const std::string& service_id,
+    const std::string& peripheral_address,
+    SetNextWriteDescriptorResponseCallback callback) {
+  FakeRemoteGattDescriptor* fake_remote_gatt_descriptor =
+      GetFakeRemoteGattDescriptor(peripheral_address, service_id,
+                                  characteristic_id, descriptor_id);
+  if (!fake_remote_gatt_descriptor) {
+    std::move(callback).Run(false);
+  }
+
+  fake_remote_gatt_descriptor->SetNextWriteResponse(gatt_code);
+  std::move(callback).Run(true);
+}
+
+void FakeCentral::GetLastWrittenDescriptorValue(
+    const std::string& descriptor_id,
+    const std::string& characteristic_id,
+    const std::string& service_id,
+    const std::string& peripheral_address,
+    GetLastWrittenDescriptorValueCallback callback) {
+  FakeRemoteGattDescriptor* fake_remote_gatt_descriptor =
+      GetFakeRemoteGattDescriptor(peripheral_address, service_id,
+                                  characteristic_id, descriptor_id);
+  if (!fake_remote_gatt_descriptor) {
+    std::move(callback).Run(false, base::nullopt);
+  }
+
+  std::move(callback).Run(true,
+                          fake_remote_gatt_descriptor->last_written_value());
 }
 
 std::string FakeCentral::GetAddress() const {
@@ -453,14 +546,44 @@ void FakeCentral::AddDiscoverySession(
     device::BluetoothDiscoveryFilter* discovery_filter,
     const base::Closure& callback,
     const DiscoverySessionErrorCallback& error_callback) {
-  NOTREACHED();
+  if (!IsPresent()) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::BindOnce(
+            error_callback,
+            device::UMABluetoothDiscoverySessionOutcome::ADAPTER_NOT_PRESENT));
+    return;
+  }
+
+  // TODO(https://crbug.com/820113): Currently, multiple discovery sessions are
+  // not supported, so we DCHECK to ensure that there is not an active session
+  // already.
+  DCHECK(!has_pending_or_active_discovery_session_);
+  has_pending_or_active_discovery_session_ = true;
+  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
+                                                base::BindOnce(callback));
 }
 
 void FakeCentral::RemoveDiscoverySession(
     device::BluetoothDiscoveryFilter* discovery_filter,
     const base::Closure& callback,
     const DiscoverySessionErrorCallback& error_callback) {
-  NOTREACHED();
+  if (!IsPresent()) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::BindOnce(
+            error_callback,
+            device::UMABluetoothDiscoverySessionOutcome::ADAPTER_NOT_PRESENT));
+    return;
+  }
+
+  // TODO(https://crbug.com/820113): Currently, multiple discovery sessions are
+  // not supported, so we DCHECK to ensure that there is currently an active
+  // session already.
+  DCHECK(has_pending_or_active_discovery_session_);
+  has_pending_or_active_discovery_session_ = false;
+  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
+                                                base::BindOnce(callback));
 }
 
 void FakeCentral::SetDiscoveryFilter(

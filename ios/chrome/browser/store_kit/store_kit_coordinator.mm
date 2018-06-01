@@ -8,6 +8,7 @@
 #import <UIKit/UIKit.h>
 
 #include "base/logging.h"
+#include "base/metrics/histogram_macros.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -19,33 +20,44 @@
 @end
 
 @implementation StoreKitCoordinator
-@synthesize iTunesItemIdentifier = _iTunesItemIdentifier;
+@synthesize iTunesProductParameters = _iTunesProductParameters;
 
 #pragma mark - Public
 
 - (void)start {
-  DCHECK(self.iTunesItemIdentifier.length);
-  DCHECK(!_viewController);
+  DCHECK(self.iTunesProductParameters
+             [SKStoreProductParameterITunesItemIdentifier]);
+  // StoreKit shouldn't be launched, if there is one already presented.
+  if (_viewController)
+    return;
   _viewController = [[SKStoreProductViewController alloc] init];
   _viewController.delegate = self;
-  NSDictionary* product = @{
-    SKStoreProductParameterITunesItemIdentifier : self.iTunesItemIdentifier,
-  };
-  [_viewController loadProductWithParameters:product completionBlock:nil];
+  [_viewController
+      loadProductWithParameters:self.iTunesProductParameters
+                completionBlock:^(BOOL result, NSError* _Nullable error) {
+                  UMA_HISTOGRAM_BOOLEAN("IOS.StoreKitLoadedSuccessfully",
+                                        result);
+                }];
   [self.baseViewController presentViewController:_viewController
                                         animated:YES
                                       completion:nil];
 }
 
 - (void)stop {
-  [_viewController dismissViewControllerAnimated:YES completion:nil];
+  [self.baseViewController dismissViewControllerAnimated:YES completion:nil];
   _viewController = nil;
 }
 
 #pragma mark - StoreKitLauncher
 
 - (void)openAppStore:(NSString*)iTunesItemIdentifier {
-  self.iTunesItemIdentifier = iTunesItemIdentifier;
+  [self openAppStoreWithParameters:@{
+    SKStoreProductParameterITunesItemIdentifier : iTunesItemIdentifier
+  }];
+}
+
+- (void)openAppStoreWithParameters:(NSDictionary*)productParameters {
+  self.iTunesProductParameters = productParameters;
   [self start];
 }
 

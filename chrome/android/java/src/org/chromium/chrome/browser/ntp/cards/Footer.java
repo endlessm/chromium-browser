@@ -65,10 +65,10 @@ public class Footer extends OptionalLeaf {
             if (SuggestionsConfig.useModernLayout()) {
                 itemView.setPadding(itemView.getPaddingLeft(),
                         root.getResources().getDimensionPixelSize(
-                                R.dimen.chrome_home_suggestions_footer_padding_top),
+                                R.dimen.modern_suggestions_footer_padding_top),
                         itemView.getPaddingRight(),
                         root.getResources().getDimensionPixelSize(
-                                R.dimen.chrome_home_suggestions_footer_padding_bottom));
+                                R.dimen.modern_suggestions_footer_padding_bottom));
             }
         }
     }

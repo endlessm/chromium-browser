@@ -6,6 +6,7 @@
 
 #include "ash/message_center/message_center_style.h"
 #include "ash/message_center/message_center_view.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "base/command_line.h"
 #include "base/location.h"
@@ -30,10 +31,13 @@ namespace ash {
 namespace {
 const int kAnimateClearingNextNotificationDelayMS = 40;
 
+bool HasBorderPadding() {
+  return !switches::IsSidebarEnabled() &&
+         !features::IsSystemTrayUnifiedEnabled();
+}
+
 int GetMarginBetweenItems() {
-  return switches::IsSidebarEnabled()
-             ? 0
-             : message_center::kMarginBetweenItemsInList;
+  return HasBorderPadding() ? message_center::kMarginBetweenItemsInList : 0;
 }
 
 }  // namespace
@@ -50,7 +54,7 @@ MessageListView::MessageListView()
   layout->SetDefaultFlex(1);
   SetLayoutManager(std::move(layout));
 
-  if (!switches::IsSidebarEnabled()) {
+  if (HasBorderPadding()) {
     SetBorder(views::CreateEmptyBorder(
         gfx::Insets(message_center::kMarginBetweenItemsInList)));
   }
@@ -93,6 +97,9 @@ void MessageListView::AddNotificationAt(MessageView* view, int index) {
     ++real_index;
   }
 
+  if (real_index == 0)
+    ExpandSpecifiedNotificationAndCollapseOthers(view);
+
   AddChildViewAt(view, real_index);
   if (GetContentsBounds().IsEmpty())
     return;
@@ -133,6 +140,10 @@ void MessageListView::RemoveNotification(MessageView* view) {
     }
     DoUpdateIfPossible();
   }
+
+  int index = GetIndexOf(view);
+  if (index == 0)
+    ExpandTopNotificationAndCollapseOthers();
 }
 
 void MessageListView::UpdateNotification(MessageView* view,
@@ -143,6 +154,9 @@ void MessageListView::UpdateNotification(MessageView* view,
 
   int index = GetIndexOf(view);
   DCHECK_LE(0, index);  // GetIndexOf is negative if not a child.
+
+  if (index == 0)
+    ExpandSpecifiedNotificationAndCollapseOthers(view);
 
   animator_.StopAnimatingView(view);
   if (deleting_views_.find(view) != deleting_views_.end())
@@ -410,8 +424,6 @@ void MessageListView::DoUpdateIfPossible() {
     return;
   }
 
-  ExpandTopNotification();
-
   AnimateNotifications();
 
   // Should calculate and set new size after calling AnimateNotifications()
@@ -426,25 +438,42 @@ void MessageListView::DoUpdateIfPossible() {
     GetWidget()->SynthesizeMouseMoveEvent();
 }
 
-void MessageListView::ExpandTopNotification() {
-  bool is_top = true;
+void MessageListView::ExpandSpecifiedNotificationAndCollapseOthers(
+    message_center::MessageView* target_view) {
+  if (!target_view->IsManuallyExpandedOrCollapsed() &&
+      target_view->IsAutoExpandingAllowed()) {
+    target_view->SetExpanded(true);
+  }
+
+  for (int i = 0; i < child_count(); ++i) {
+    MessageView* view = static_cast<MessageView*>(child_at(i));
+    // Target view is already processed above.
+    if (target_view == view)
+      continue;
+    // Skip if the view is invalid.
+    if (!IsValidChild(view))
+      continue;
+    // We don't touch if the view has been manually expanded or collapsed.
+    if (view->IsManuallyExpandedOrCollapsed())
+      continue;
+
+    // Otherwise, collapse the notification.
+    view->SetExpanded(false);
+  }
+}
+
+void MessageListView::ExpandTopNotificationAndCollapseOthers() {
+  MessageView* top_notification = nullptr;
   for (int i = 0; i < child_count(); ++i) {
     MessageView* view = static_cast<MessageView*>(child_at(i));
     if (!IsValidChild(view))
       continue;
-
-    if (is_top) {
-      // Expands the notification at top if its expand status is never manually
-      // changed.
-      if (!view->IsManuallyExpandedOrCollapsed() && !view->IsExpanded())
-        view->SetExpanded(true);
-      is_top = false;
-    } else {
-      // Other notifications should be collapsed.
-      if (!view->IsManuallyExpandedOrCollapsed() && view->IsExpanded())
-        view->SetExpanded(false);
-    }
+    top_notification = view;
+    break;
   }
+
+  if (top_notification != nullptr)
+    ExpandSpecifiedNotificationAndCollapseOthers(top_notification);
 }
 
 std::vector<int> MessageListView::ComputeRepositionOffsets(

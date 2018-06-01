@@ -7,7 +7,6 @@
 #include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/reading_list/reading_list_model_factory.h"
-#include "ios/chrome/browser/search_engines/template_url_service_factory.h"
 #import "ios/chrome/browser/ui/ntp/ntp_util.h"
 #import "ios/chrome/browser/ui/toolbar/adaptive/adaptive_toolbar_coordinator+subclassing.h"
 #import "ios/chrome/browser/ui/toolbar/adaptive/adaptive_toolbar_view_controller.h"
@@ -57,12 +56,6 @@
   self.started = YES;
 
   self.mediator = [[ToolbarMediator alloc] init];
-  self.mediator.templateURLService =
-      ios::TemplateURLServiceFactory::GetForBrowserState(self.browserState);
-  self.mediator.imageProvider =
-      ios::GetChromeBrowserProvider()->GetBrandedImageProvider();
-  self.mediator.voiceSearchProvider =
-      ios::GetChromeBrowserProvider()->GetVoiceSearchProvider();
   self.mediator.consumer = self.viewController;
   self.mediator.webStateList = self.webStateList;
   self.mediator.bookmarkModel =
@@ -73,6 +66,13 @@
       initWithModel:ReadingListModelFactory::GetForBrowserState(
                         self.browserState)
       toolbarButton:self.viewController.toolsMenuButton];
+}
+
+- (void)stop {
+  [super stop];
+  self.toolsMenuButtonObserverBridge = nil;
+  [self.mediator disconnect];
+  self.mediator = nil;
 }
 
 #pragma mark - SideSwipeToolbarSnapshotProviding
@@ -89,9 +89,9 @@
   return toolbarSnapshot;
 }
 
-#pragma mark - ToolbarCoordinating
+#pragma mark - NewTabPageControllerDelegate
 
-- (void)setToolbarBackgroundAlpha:(CGFloat)alpha {
+- (void)setToolbarBackgroundToIncognitoNTPColorWithAlpha:(CGFloat)alpha {
   // TODO(crbug.com/803379): Implement that.
 }
 
@@ -103,6 +103,12 @@
 
 - (void)triggerToolsMenuButtonAnimation {
   [self.viewController.toolsMenuButton triggerAnimation];
+}
+
+#pragma mark - ToolbarCoordinatee
+
+- (id<TabHistoryUIUpdater>)tabHistoryUIUpdater {
+  return self.viewController;
 }
 
 #pragma mark - Protected
@@ -124,9 +130,7 @@
   BOOL isNTP = IsVisibleUrlNewTabPage(webState);
 
   [self.mediator updateConsumerForWebState:webState];
-  if (webState != self.webStateList->GetActiveWebState() || isNTP) {
-    [self.viewController updateForSideSwipeSnapshotOnNTP:isNTP];
-  }
+  [self.viewController updateForSideSwipeSnapshotOnNTP:isNTP];
 }
 
 - (void)resetToolbarAfterSideSwipeSnapshot {

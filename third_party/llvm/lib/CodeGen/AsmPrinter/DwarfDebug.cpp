@@ -39,7 +39,6 @@
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineOperand.h"
-#include "llvm/CodeGen/TargetLoweringObjectFile.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/IR/Constants.h"
@@ -66,6 +65,7 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
 #include <algorithm>
@@ -122,6 +122,23 @@ DwarfInlinedStrings("dwarf-inlined-strings", cl::Hidden,
                             clEnumVal(Enable, "Enabled"),
                             clEnumVal(Disable, "Disabled")),
                  cl::init(Default));
+
+static cl::opt<bool>
+    NoDwarfPubSections("no-dwarf-pub-sections", cl::Hidden,
+                       cl::desc("Disable emission of DWARF pub sections."),
+                       cl::init(false));
+
+static cl::opt<bool>
+    NoDwarfRangesSection("no-dwarf-ranges-section", cl::Hidden,
+                         cl::desc("Disable emission .debug_ranges section."),
+                         cl::init(false));
+
+static cl::opt<DefaultOnOff> DwarfSectionsAsReferences(
+    "dwarf-sections-as-references", cl::Hidden,
+    cl::desc("Use sections+offset as references rather than labels."),
+    cl::values(clEnumVal(Default, "Default for platform"),
+               clEnumVal(Enable, "Enabled"), clEnumVal(Disable, "Disabled")),
+    cl::init(Default));
 
 enum LinkageNameOption {
   DefaultLinkageNames,
@@ -309,6 +326,12 @@ DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
                                     : MMI->getModule()->getDwarfVersion();
   // Use dwarf 4 by default if nothing is requested.
   DwarfVersion = DwarfVersion ? DwarfVersion : dwarf::DWARF_VERSION;
+
+  UsePubSections = !NoDwarfPubSections;
+  UseRangesSection = !NoDwarfRangesSection;
+
+  // Use sections as references.
+  UseSectionsAsReferences = DwarfSectionsAsReferences == Enable;
 
   // Work around a GDB bug. GDB doesn't support the standard opcode;
   // SCE doesn't support GNU's; LLDB prefers the standard opcode, which
@@ -737,7 +760,7 @@ void DwarfDebug::finalizeModuleInfo() {
     // ranges for all subprogram DIEs for mach-o.
     DwarfCompileUnit &U = SkCU ? *SkCU : TheCU;
     if (unsigned NumRanges = TheCU.getRanges().size()) {
-      if (NumRanges > 1)
+      if (NumRanges > 1 && useRangesSection())
         // A DW_AT_low_pc attribute may also be specified in combination with
         // DW_AT_ranges to specify the default base address for use in
         // location lists (see Section 2.6.2) and range lists (see Section
@@ -919,8 +942,7 @@ bool DebugLocEntry::MergeValues(const DebugLocEntry &Next) {
     // sorted.
     for (unsigned i = 0, j = 0; i < Values.size(); ++i) {
       for (; j < Next.Values.size(); ++j) {
-        int res = DebugHandlerBase::fragmentCmp(
-            cast<DIExpression>(Values[i].Expression),
+        int res = cast<DIExpression>(Values[i].Expression)->fragmentCmp(
             cast<DIExpression>(Next.Values[j].Expression));
         if (res == 0) // The two expressions overlap, we can't merge.
           return false;
@@ -983,7 +1005,7 @@ DwarfDebug::buildLocationList(SmallVectorImpl<DebugLocEntry> &DebugLoc,
     // If this fragment overlaps with any open ranges, truncate them.
     const DIExpression *DIExpr = Begin->getDebugExpression();
     auto Last = remove_if(OpenRanges, [&](DebugLocEntry::Value R) {
-      return fragmentsOverlap(DIExpr, R.getExpression());
+      return DIExpr->fragmentsOverlap(R.getExpression());
     });
     OpenRanges.erase(Last, OpenRanges.end());
 
@@ -1384,7 +1406,7 @@ void DwarfDebug::endFunctionImpl(const MachineFunction *MF) {
 void DwarfDebug::recordSourceLine(unsigned Line, unsigned Col, const MDNode *S,
                                   unsigned Flags) {
   StringRef Fn;
-  unsigned Src = 1;
+  unsigned FileNo = 1;
   unsigned Discriminator = 0;
   if (auto *Scope = cast_or_null<DIScope>(S)) {
     Fn = Scope->getFilename();
@@ -1393,10 +1415,10 @@ void DwarfDebug::recordSourceLine(unsigned Line, unsigned Col, const MDNode *S,
         Discriminator = LBF->getDiscriminator();
 
     unsigned CUID = Asm->OutStreamer->getContext().getDwarfCompileUnitID();
-    Src = static_cast<DwarfCompileUnit &>(*InfoHolder.getUnits()[CUID])
+    FileNo = static_cast<DwarfCompileUnit &>(*InfoHolder.getUnits()[CUID])
               .getOrCreateSourceID(Scope->getFile());
   }
-  Asm->OutStreamer->EmitDwarfLocDirective(Src, Line, Col, Flags, 0,
+  Asm->OutStreamer->EmitDwarfLocDirective(FileNo, Line, Col, Flags, 0,
                                           Discriminator, Fn);
 }
 
@@ -1547,6 +1569,14 @@ void DwarfDebug::emitDebugPubSections() {
   }
 }
 
+void DwarfDebug::emitSectionReference(const DwarfCompileUnit &CU) {
+  if (useSectionsAsReferences())
+    Asm->EmitDwarfOffset(CU.getSection()->getBeginSymbol(),
+                         CU.getDebugSectionOffset());
+  else
+    Asm->emitDwarfSymbolReference(CU.getLabelBegin());
+}
+
 void DwarfDebug::emitDebugPubSection(bool GnuStyle, StringRef Name,
                                      DwarfCompileUnit *TheU,
                                      const StringMap<const DIE *> &Globals) {
@@ -1565,7 +1595,7 @@ void DwarfDebug::emitDebugPubSection(bool GnuStyle, StringRef Name,
   Asm->EmitInt16(dwarf::DW_PUBNAMES_VERSION);
 
   Asm->OutStreamer->AddComment("Offset of Compilation Unit Info");
-  Asm->emitDwarfSymbolReference(TheU->getLabelBegin());
+  emitSectionReference(*TheU);
 
   Asm->OutStreamer->AddComment("Compilation Unit Length");
   Asm->EmitInt32(TheU->getLength());
@@ -1780,7 +1810,7 @@ void DwarfDebug::emitDebugARanges() {
     }
 
     // Sort the symbols by offset within the section.
-    std::sort(
+    std::stable_sort(
         List.begin(), List.end(), [&](const SymbolCU &A, const SymbolCU &B) {
           unsigned IA = A.Sym ? Asm->OutStreamer->GetSymbolOrder(A.Sym) : 0;
           unsigned IB = B.Sym ? Asm->OutStreamer->GetSymbolOrder(B.Sym) : 0;
@@ -1864,7 +1894,7 @@ void DwarfDebug::emitDebugARanges() {
     Asm->OutStreamer->AddComment("DWARF Arange version number");
     Asm->EmitInt16(dwarf::DW_ARANGES_VERSION);
     Asm->OutStreamer->AddComment("Offset Into Debug Info Section");
-    Asm->emitDwarfSymbolReference(CU->getLabelBegin());
+    emitSectionReference(*CU);
     Asm->OutStreamer->AddComment("Address Size (in bytes)");
     Asm->EmitInt8(PtrSize);
     Asm->OutStreamer->AddComment("Segment Size (in bytes)");
@@ -1899,6 +1929,16 @@ void DwarfDebug::emitDebugARanges() {
 void DwarfDebug::emitDebugRanges() {
   if (CUMap.empty())
     return;
+
+  if (!useRangesSection()) {
+    assert(llvm::all_of(
+               CUMap,
+               [](const decltype(CUMap)::const_iterator::value_type &Pair) {
+                 return Pair.second->getRangeLists().empty();
+               }) &&
+           "No debug ranges expected.");
+    return;
+  }
 
   // Start the dwarf ranges section.
   Asm->OutStreamer->SwitchSection(
@@ -2020,8 +2060,11 @@ void DwarfDebug::emitDebugMacinfo() {
     auto *SkCU = TheCU.getSkeleton();
     DwarfCompileUnit &U = SkCU ? *SkCU : TheCU;
     auto *CUNode = cast<DICompileUnit>(P.first);
-    Asm->OutStreamer->EmitLabel(U.getMacroLabelBegin());
-    handleMacroNodes(CUNode->getMacros(), U);
+    DIMacroNodeArray Macros = CUNode->getMacros();
+    if (!Macros.empty()) {
+      Asm->OutStreamer->EmitLabel(U.getMacroLabelBegin());
+      handleMacroNodes(Macros, U);
+    }
   }
   Asm->OutStreamer->AddComment("End Of Macro List Mark");
   Asm->EmitInt8(0);
@@ -2079,9 +2122,9 @@ void DwarfDebug::emitDebugAbbrevDWO() {
 
 void DwarfDebug::emitDebugLineDWO() {
   assert(useSplitDwarf() && "No split dwarf?");
-  Asm->OutStreamer->SwitchSection(
+  SplitTypeUnitFileTable.Emit(
+      *Asm->OutStreamer, MCDwarfLineTableParams(),
       Asm->getObjFileLowering().getDwarfLineDWOSection());
-  SplitTypeUnitFileTable.Emit(*Asm->OutStreamer, MCDwarfLineTableParams());
 }
 
 void DwarfDebug::emitStringOffsetsTableHeaderDWO() {
@@ -2155,8 +2198,9 @@ void DwarfDebug::addDwarfTypeUnitType(DwarfCompileUnit &CU,
   if (useSplitDwarf())
     NewTU.setSection(Asm->getObjFileLowering().getDwarfTypesDWOSection());
   else {
-    CU.applyStmtList(UnitDie);
     NewTU.setSection(Asm->getObjFileLowering().getDwarfTypesSection(Signature));
+    // Non-split type units reuse the compile unit's line table.
+    CU.applyStmtList(UnitDie);
   }
 
   // Add DW_AT_str_offsets_base to the type unit DIE, but not for split type

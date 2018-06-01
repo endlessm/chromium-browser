@@ -14,9 +14,16 @@
 #include "base/task_scheduler/post_task.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/platform_thread.h"
+#include "base/threading/sequence_local_storage_slot.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/tick_clock.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if defined(OS_POSIX)
+#include <unistd.h>
+#include "base/files/file_descriptor_watcher_posix.h"
+#endif  // defined(OS_POSIX)
 
 namespace base {
 namespace test {
@@ -230,6 +237,36 @@ TEST_P(ScopedTaskEnvironmentTest, DelayedTasks) {
   }
 }
 
+// Regression test for https://crbug.com/824770.
+TEST_P(ScopedTaskEnvironmentTest, SupportsSequenceLocalStorageOnMainThread) {
+  ScopedTaskEnvironment scoped_task_environment(
+      GetParam(), ScopedTaskEnvironment::ExecutionMode::ASYNC);
+
+  SequenceLocalStorageSlot<int> sls_slot;
+  sls_slot.Set(5);
+  EXPECT_EQ(5, sls_slot.Get());
+}
+
+#if defined(OS_POSIX)
+TEST_F(ScopedTaskEnvironmentTest, SupportsFileDescriptorWatcherOnIOMainThread) {
+  ScopedTaskEnvironment scoped_task_environment(
+      ScopedTaskEnvironment::MainThreadType::IO,
+      ScopedTaskEnvironment::ExecutionMode::ASYNC);
+
+  int pipe_fds_[2];
+  ASSERT_EQ(0, pipe(pipe_fds_));
+
+  RunLoop run_loop;
+
+  // The write end of a newly created pipe is immediately writable.
+  auto controller = FileDescriptorWatcher::WatchWritable(
+      pipe_fds_[1], run_loop.QuitClosure());
+
+  // This will hang if the notification doesn't occur as expected.
+  run_loop.Run();
+}
+#endif  // defined(OS_POSIX)
+
 // Verify that the TickClock returned by
 // |ScopedTaskEnvironment::GetMockTickClock| gets updated when the
 // FastForward(By|UntilNoTasksRemain) functions are called.
@@ -248,7 +285,7 @@ TEST_F(ScopedTaskEnvironmentTest, FastForwardAdvanceTickClock) {
   ThreadTaskRunnerHandle::Get()->PostDelayedTask(FROM_HERE, base::DoNothing(),
                                                  kLongTaskDelay);
 
-  std::unique_ptr<base::TickClock> tick_clock =
+  const base::TickClock* tick_clock =
       scoped_task_environment.GetMockTickClock();
   base::TimeTicks tick_clock_ref = tick_clock->NowTicks();
 

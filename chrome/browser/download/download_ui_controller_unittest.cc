@@ -10,7 +10,6 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -19,15 +18,15 @@
 #include "chrome/browser/download/download_history.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
+#include "components/download/public/common/mock_download_item.h"
 #include "components/history/core/browser/download_row.h"
 #include "content/public/browser/download_item_utils.h"
-#include "content/public/test/mock_download_item.h"
 #include "content/public/test/mock_download_manager.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gmock_mutant.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-using content::MockDownloadItem;
+using download::MockDownloadItem;
 using content::MockDownloadManager;
 using history::HistoryService;
 using testing::AnyNumber;
@@ -331,7 +330,6 @@ TEST_F(DownloadUIControllerTest, DownloadUIController_HistoryDownload) {
   std::unique_ptr<MockDownloadItem> item = CreateMockInProgressDownload();
 
   EXPECT_CALL(*item, GetOriginalMimeType());
-  EXPECT_CALL(*manager(), CheckForHistoryFilesRemoval());
   EXPECT_CALL(
       *manager(),
       PostInitialization(content::DownloadManager::

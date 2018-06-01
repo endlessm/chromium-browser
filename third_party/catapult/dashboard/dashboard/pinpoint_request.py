@@ -10,7 +10,6 @@ from google.appengine.api import users
 from google.appengine.ext import ndb
 
 from dashboard import start_try_job
-from dashboard.common import namespaced_stored_object
 from dashboard.common import request_handler
 from dashboard.common import utils
 from dashboard.services import crrev_service
@@ -90,12 +89,10 @@ def ParseMetricParts(test_path_parts):
   return '', metric_parts[0], ''
 
 
-def ResolveToGitHash(commit_position, repository):
+def ResolveToGitHash(commit_position):
+  # TODO: This function assumes Chromium.
   try:
     int(commit_position)
-    if repository != 'chromium':
-      raise InvalidParamsError(
-          'Repository %s commit positions not supported.' % repository)
     result = crrev_service.GetNumbering(
         number=commit_position,
         numbering_identifier='refs/heads/master',
@@ -147,8 +144,6 @@ def PinpointParamsFromPerfTryParams(params):
         'test_path': Test path for the metric being bisected.
         'start_commit': Git hash or commit position of earlier revision.
         'end_commit': Git hash or commit position of later revision.
-        'start_repository': Repository for earlier revision.
-        'end_repository': Repository for later revision.
         'extra_test_args': Extra args for the swarming job.
     }
 
@@ -174,26 +169,10 @@ def PinpointParamsFromPerfTryParams(params):
   elif 'webview' in bot_name:
     target = 'telemetry_perf_webview_tests'
 
-  start_repository = params['start_repository']
-  end_repository = params['end_repository']
   start_commit = params['start_commit']
   end_commit = params['end_commit']
-
-  start_git_hash = ResolveToGitHash(start_commit, start_repository)
-  end_git_hash = ResolveToGitHash(end_commit, end_repository)
-
-  supported_repositories = namespaced_stored_object.Get(_PINPOINT_REPOSITORIES)
-
-  # Bail if it's not a supported repository to bisect on
-  if not start_repository in supported_repositories:
-    raise InvalidParamsError('Invalid repository: %s' % start_repository)
-  if not end_repository in supported_repositories:
-    raise InvalidParamsError('Invalid repository: %s' % end_repository)
-
-  # Pinpoint only supports chromium at the moment, so just throw up a
-  # different error for now.
-  if start_repository != 'chromium' or end_repository != 'chromium':
-    raise InvalidParamsError('Only chromium perf try jobs supported currently.')
+  start_git_hash = ResolveToGitHash(start_commit)
+  end_git_hash = ResolveToGitHash(end_commit)
 
   extra_test_args = params['extra_test_args']
 
@@ -203,19 +182,12 @@ def PinpointParamsFromPerfTryParams(params):
   return {
       'configuration': bot_name,
       'benchmark': suite,
-      'trace': '',
-      'chart': '',
-      'tir_label': '',
-      'story': '',
-      'start_repository': start_repository,
-      'end_repository': end_repository,
       'start_git_hash': start_git_hash,
       'end_git_hash': end_git_hash,
       'extra_test_args': extra_test_args,
-      'bug_id': '',
-      'auto_explore': '0',
+      'auto_explore': 'false',
       'target': target,
-      'email': email,
+      'user': email,
       'name': job_name
   }
 
@@ -230,8 +202,6 @@ def PinpointParamsFromBisectParams(params):
         'test_path': Test path for the metric being bisected.
         'start_git_hash': Git hash of earlier revision.
         'end_git_hash': Git hash of later revision.
-        'start_repository': Repository for earlier revision.
-        'end_repository': Repository for later revision.
         'bug_id': Associated bug.
     }
 
@@ -271,26 +241,10 @@ def PinpointParamsFromBisectParams(params):
   elif 'webview' in bot_name:
     target = 'telemetry_perf_webview_tests'
 
-  start_repository = params['start_repository']
-  end_repository = params['end_repository']
   start_commit = params['start_commit']
   end_commit = params['end_commit']
-
-  start_git_hash = ResolveToGitHash(start_commit, start_repository)
-  end_git_hash = ResolveToGitHash(end_commit, end_repository)
-
-  supported_repositories = namespaced_stored_object.Get(_PINPOINT_REPOSITORIES)
-
-  # Bail if it's not a supported repository to bisect on
-  if not start_repository in supported_repositories:
-    raise InvalidParamsError('Invalid repository: %s' % start_repository)
-  if not end_repository in supported_repositories:
-    raise InvalidParamsError('Invalid repository: %s' % end_repository)
-
-  # Pinpoint only supports chromium at the moment, so just throw up a
-  # different error for now.
-  if start_repository != 'chromium' or end_repository != 'chromium':
-    raise InvalidParamsError('Only chromium bisects supported currently.')
+  start_git_hash = ResolveToGitHash(start_commit)
+  end_git_hash = ResolveToGitHash(end_commit)
 
   email = users.get_current_user().email()
   job_name = 'Job on [%s/%s/%s] for [%s]' % (bot_name, suite, chart_name, email)
@@ -312,14 +266,13 @@ def PinpointParamsFromBisectParams(params):
       'statistic': statistic_name,
       'tir_label': tir_label,
       'story': story_filter,
-      'start_repository': start_repository,
-      'end_repository': end_repository,
       'start_git_hash': start_git_hash,
       'end_git_hash': end_git_hash,
       'bug_id': params['bug_id'],
-      'auto_explore': '1',
+      'auto_explore': 'true',
+      'comparison_mode': bisect_mode,
       'target': target,
-      'email': email,
+      'user': email,
       'name': job_name,
       'tags': json.dumps({
           'test_path': test_path,

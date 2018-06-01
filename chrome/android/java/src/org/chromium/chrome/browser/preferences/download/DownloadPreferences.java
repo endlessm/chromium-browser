@@ -4,6 +4,8 @@
 
 package org.chromium.chrome.browser.preferences.download;
 
+import static org.chromium.chrome.browser.preferences.download.DownloadDirectoryAdapter.NO_SELECTED_ITEM_ID;
+
 import android.os.Bundle;
 import android.preference.Preference;
 import android.preference.PreferenceFragment;
@@ -11,10 +13,10 @@ import android.support.annotation.Nullable;
 
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.download.DownloadPromptStatus;
-import org.chromium.chrome.browser.preferences.ChromeBasePreference;
 import org.chromium.chrome.browser.preferences.ChromeSwitchPreference;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.preferences.PreferenceUtils;
+import org.chromium.chrome.browser.preferences.SpinnerPreference;
 
 /**
  * Fragment to keep track of all downloads related preferences.
@@ -24,7 +26,8 @@ public class DownloadPreferences
     private static final String PREF_LOCATION_CHANGE = "location_change";
     private static final String PREF_LOCATION_PROMPT_ENABLED = "location_prompt_enabled";
 
-    private ChromeBasePreference mLocationChangePref;
+    private SpinnerPreference mLocationChangePref;
+    private DownloadDirectoryAdapter mDirectoryAdapter;
     private ChromeSwitchPreference mLocationPromptEnabledPref;
 
     @Override
@@ -38,21 +41,27 @@ public class DownloadPreferences
                 (ChromeSwitchPreference) findPreference(PREF_LOCATION_PROMPT_ENABLED);
         mLocationPromptEnabledPref.setOnPreferenceChangeListener(this);
 
-        mLocationChangePref = (ChromeBasePreference) findPreference(PREF_LOCATION_CHANGE);
+        mLocationChangePref = (SpinnerPreference) findPreference(PREF_LOCATION_CHANGE);
+        mLocationChangePref.setOnPreferenceChangeListener(this);
+        mDirectoryAdapter = new DownloadDirectoryAdapter(getActivity());
+        int selectedItemId = mDirectoryAdapter.getSelectedItemId();
+        if (selectedItemId == NO_SELECTED_ITEM_ID) {
+            selectedItemId = mDirectoryAdapter.getFirstSelectableItemId();
+        }
+        mLocationChangePref.setAdapter(mDirectoryAdapter, selectedItemId);
 
-        updateSummaries();
+        updateData();
     }
 
     @Override
     public void onResume() {
         super.onResume();
-        updateSummaries();
+        updateData();
     }
 
-    private void updateSummaries() {
+    private void updateData() {
         if (mLocationChangePref != null) {
-            mLocationChangePref.setSummary(
-                    PrefServiceBridge.getInstance().getDownloadDefaultDirectory());
+            mDirectoryAdapter.notifyDataSetChanged();
         }
 
         if (mLocationPromptEnabledPref != null) {
@@ -80,6 +89,12 @@ public class DownloadPreferences
                 PrefServiceBridge.getInstance().setPromptForDownloadAndroid(
                         DownloadPromptStatus.DONT_SHOW);
             }
+        } else if (PREF_LOCATION_CHANGE.equals(preference.getKey())) {
+            DownloadDirectoryAdapter.DirectoryOption option =
+                    (DownloadDirectoryAdapter.DirectoryOption) newValue;
+            PrefServiceBridge.getInstance().setDownloadAndSaveFileDefaultDirectory(
+                    option.getLocation().getAbsolutePath());
+            updateData();
         }
         return true;
     }

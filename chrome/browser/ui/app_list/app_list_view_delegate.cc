@@ -10,10 +10,8 @@
 #include <vector>
 
 #include "ash/app_list/model/app_list_model.h"
-#include "ash/app_list/model/app_list_view_state.h"
 #include "ash/app_list/model/search/search_model.h"
 #include "ash/public/cpp/menu_utils.h"
-#include "ash/public/interfaces/constants.mojom.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -26,11 +24,12 @@
 #include "chrome/browser/ui/app_list/app_list_model_updater.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service_factory.h"
+#include "chrome/browser/ui/app_list/app_sync_ui_state_watcher.h"
 #include "chrome/browser/ui/app_list/search/search_controller.h"
 #include "chrome/browser/ui/app_list/search/search_controller_factory.h"
 #include "chrome/browser/ui/app_list/search/search_resource_manager.h"
 #include "chrome/browser/ui/apps/chrome_app_delegate.h"
-#include "chrome/browser/ui/ash/app_list/app_sync_ui_state_watcher.h"
+#include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/theme_resources.h"
@@ -42,12 +41,10 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/speech_recognition_session_preamble.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/service_manager_connection.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension_set.h"
 #include "extensions/common/manifest_constants.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "ui/app_list/app_list_switches.h"
 #include "ui/app_list/app_list_view_delegate_observer.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -58,8 +55,6 @@
 AppListViewDelegate::AppListViewDelegate(AppListControllerDelegate* controller)
     : controller_(controller),
       profile_(nullptr),
-      model_(nullptr),
-      search_model_(nullptr),
       model_updater_(nullptr),
       template_url_service_observer_(this),
       observer_binding_(this),
@@ -69,12 +64,9 @@ AppListViewDelegate::AppListViewDelegate(AppListControllerDelegate* controller)
   registrar_.Add(this, chrome::NOTIFICATION_APP_TERMINATING,
                  content::NotificationService::AllSources());
 
-  content::ServiceManagerConnection::GetForProcess()
-      ->GetConnector()
-      ->BindInterface(ash::mojom::kServiceName, &wallpaper_controller_ptr_);
   ash::mojom::WallpaperObserverAssociatedPtrInfo ptr_info;
   observer_binding_.Bind(mojo::MakeRequest(&ptr_info));
-  wallpaper_controller_ptr_->AddObserver(std::move(ptr_info));
+  WallpaperControllerClient::Get()->AddObserver(std::move(ptr_info));
 }
 
 AppListViewDelegate::~AppListViewDelegate() {
@@ -89,18 +81,12 @@ void AppListViewDelegate::SetProfile(Profile* new_profile) {
     return;
 
   if (profile_) {
-    DCHECK(model_);
-    DCHECK(search_model_);
     DCHECK(model_updater_);
-    // |search_controller_| will be destroyed on profile switch. Before that,
-    // delete |model_|'s search results to clear any dangling pointers.
-    search_model_->results()->DeleteAll();
+    model_updater_->SetActive(false);
 
     search_resource_manager_.reset();
     search_controller_.reset();
     app_sync_ui_state_watcher_.reset();
-    model_ = nullptr;
-    search_model_ = nullptr;
     model_updater_ = nullptr;
   }
 
@@ -123,13 +109,12 @@ void AppListViewDelegate::SetProfile(Profile* new_profile) {
 
   app_list::AppListSyncableService* syncable_service =
       app_list::AppListSyncableServiceFactory::GetForProfile(profile_);
-  model_ = syncable_service->GetModel();
-  search_model_ = syncable_service->GetSearchModel();
   model_updater_ = syncable_service->GetModelUpdater();
+  model_updater_->SetActive(true);
 
-  // After |model_| is initialized, make a GetWallpaperColors mojo call to set
-  // wallpaper colors for |model_|.
-  wallpaper_controller_ptr_->GetWallpaperColors(
+  // After |model_updater_| is initialized, make a GetWallpaperColors mojo call
+  // to set wallpaper colors for |model_updater_|.
+  WallpaperControllerClient::Get()->GetWallpaperColors(
       base::Bind(&AppListViewDelegate::OnGetWallpaperColorsCallback,
                  weak_ptr_factory_.GetWeakPtr()));
 
@@ -157,6 +142,8 @@ void AppListViewDelegate::SetUpSearchUI() {
       app_list::CreateSearchController(profile_, model_updater_, controller_);
 }
 
+void AppListViewDelegate::OnWallpaperChanged(uint32_t image_id) {}
+
 void AppListViewDelegate::OnWallpaperColorsChanged(
     const std::vector<SkColor>& prominent_colors) {
   if (wallpaper_prominent_colors_ == prominent_colors)
@@ -172,11 +159,13 @@ AppListModelUpdater* AppListViewDelegate::GetModelUpdater() {
 }
 
 app_list::AppListModel* AppListViewDelegate::GetModel() {
-  return model_;
+  NOTREACHED();
+  return nullptr;
 }
 
 app_list::SearchModel* AppListViewDelegate::GetSearchModel() {
-  return search_model_;
+  NOTREACHED();
+  return nullptr;
 }
 
 void AppListViewDelegate::StartSearch(const base::string16& raw_query) {
@@ -188,7 +177,7 @@ void AppListViewDelegate::StartSearch(const base::string16& raw_query) {
 
 void AppListViewDelegate::OpenSearchResult(const std::string& result_id,
                                            int event_flags) {
-  app_list::SearchResult* result = model_updater_->FindSearchResult(result_id);
+  ChromeSearchResult* result = model_updater_->FindSearchResult(result_id);
   if (result)
     search_controller_->OpenResult(result, event_flags);
 }
@@ -196,7 +185,7 @@ void AppListViewDelegate::OpenSearchResult(const std::string& result_id,
 void AppListViewDelegate::InvokeSearchResultAction(const std::string& result_id,
                                                    int action_index,
                                                    int event_flags) {
-  app_list::SearchResult* result = model_updater_->FindSearchResult(result_id);
+  ChromeSearchResult* result = model_updater_->FindSearchResult(result_id);
   if (result)
     search_controller_->InvokeResultAction(result, action_index, event_flags);
 }

@@ -4,6 +4,7 @@
 
 #include "chrome/browser/chromeos/login/test/oobe_base_test.h"
 
+#include "ash/public/cpp/ash_switches.h"
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/path_service.h"
@@ -138,6 +139,7 @@ void OobeBaseTest::TearDownOnMainThread() {
 void OobeBaseTest::SetUpCommandLine(base::CommandLine* command_line) {
   ExtensionApiTest::SetUpCommandLine(command_line);
 
+  command_line->AppendSwitch(ash::switches::kShowWebUiLogin);
   command_line->AppendSwitch(chromeos::switches::kLoginManager);
   command_line->AppendSwitch(chromeos::switches::kForceLoginManagerInTests);
   if (!needs_background_networking_)
@@ -218,7 +220,25 @@ void OobeBaseTest::WaitForGaiaPageLoad() {
   WaitForGaiaPageReload();
 }
 
+void OobeBaseTest::WaitForGaiaPageLoadAndPropertyUpdate() {
+  // Some tests need to checks properties such as back button visibility and
+  // #identifier in the gaia location, which are modified after the gaia page
+  // 'ready' event arrives.  To ensure that these properties are updated before
+  // they are checked, use WaitForGaiaPageBackButtonUpdate() instead of
+  // WaitForGaiaPageLoad().
+  WaitForSigninScreen();
+  WaitForGaiaPageBackButtonUpdate();
+}
+
 void OobeBaseTest::WaitForGaiaPageReload() {
+  WaitForGaiaPageEvent("ready");
+}
+
+void OobeBaseTest::WaitForGaiaPageBackButtonUpdate() {
+  WaitForGaiaPageEvent("backButton");
+}
+
+void OobeBaseTest::WaitForGaiaPageEvent(const std::string& event) {
   // Starts listening to message before executing the JS code that generates
   // the message below.
   content::DOMMessageQueue message_queue;
@@ -227,16 +247,16 @@ void OobeBaseTest::WaitForGaiaPageReload() {
       "(function() {"
       "  var authenticator = $('gaia-signin').gaiaAuthHost_;"
       "  var f = function() {"
-      "    authenticator.removeEventListener('ready', f);"
-      "    window.domAutomationController.send('GaiaReady');"
+      "    authenticator.removeEventListener('" + event + "', f);"
+      "    window.domAutomationController.send('Done');"
       "  };"
-      "  authenticator.addEventListener('ready', f);"
+      "  authenticator.addEventListener('" + event + "', f);"
       "})();");
 
   std::string message;
   do {
     ASSERT_TRUE(message_queue.WaitForMessage(&message));
-  } while (message != "\"GaiaReady\"");
+  } while (message != "\"Done\"");
 }
 
 void OobeBaseTest::WaitForSigninScreen() {

@@ -7,7 +7,6 @@
 
 from __future__ import print_function
 
-import mock
 import mox
 import os
 import shutil
@@ -130,7 +129,8 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
     self.assertEqual(gen.src_image_file, '/foo/src_image.bin')
     self.assertEqual(gen.tgt_image_file, '/foo/tgt_image.bin')
     self.assertEqual(gen.payload_file, '/foo/delta.bin')
-    self.assertEqual(gen.delta_log_file, '/foo/delta.log')
+    self.assertEqual(gen.log_file, '/foo/delta.log')
+    self.assertEqual(gen.metadata_size_file, '/foo/metadata_size.txt')
 
     # Siged image specific values.
     self.assertEqual(gen.signed_payload_file, '/foo/delta.bin.signed')
@@ -146,9 +146,9 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
     self.assertEqual(gen._MetadataUri('gs://foo/bar'),
                      'gs://foo/bar.metadata-signature')
 
-    self.assertEqual(gen._DeltaLogsUri('/foo/bar'),
+    self.assertEqual(gen._LogsUri('/foo/bar'),
                      '/foo/bar.log')
-    self.assertEqual(gen._DeltaLogsUri('gs://foo/bar'),
+    self.assertEqual(gen._LogsUri('gs://foo/bar'),
                      'gs://foo/bar.log')
 
     self.assertEqual(gen._JsonUri('/foo/bar'),
@@ -171,28 +171,30 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
 
   def testRunGeneratorCmd(self):
     """Test the specialized command to run programs from au-generate.zip."""
-    test_cmd = ['cmd', 'bar', 'jo nes']
-    expected_cmd = ['/foo/au-generator/cmd', 'bar', 'jo nes']
+    expected_cmd = ['cmd', 'bar', 'jo nes']
     original_environ = os.environ.copy()
     gen = self._GetStdGenerator(work_dir='/foo')
 
     self.mox.StubOutWithMock(cros_build_lib, 'RunCommand')
+    self.mox.StubOutWithMock(gen, '_StoreLog')
 
     mock_result = cros_build_lib.CommandResult()
     mock_result.output = 'foo output'
 
     # Set up the test replay script.
     cros_build_lib.RunCommand(
-        expected_cmd, cwd='/foo/au-generator',
+        expected_cmd,
         redirect_stdout=True,
+        enter_chroot=True,
         combine_stdout_stderr=True,
-        error_code_ok=True,
-        extra_env=mox.IgnoreArg()).AndReturn(mock_result)
+        error_code_ok=True).AndReturn(mock_result)
+
+    gen._StoreLog('Output of command: cmd bar jo nes')
+    gen._StoreLog(mock_result.output)
 
     # Run the test verification.
     self.mox.ReplayAll()
-    self.assertEqual(gen._RunGeneratorCmd(test_cmd),
-                     'foo output')
+    gen._RunGeneratorCmd(expected_cmd)
 
     # Demonstrate that the PATH was restored.
     self.assertEqual(os.environ, original_environ)
@@ -276,21 +278,22 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
 
     # Stub out the required functions.
     self.mox.StubOutWithMock(gen, '_RunGeneratorCmd')
-    self.mox.StubOutWithMock(gen, '_StoreDeltaLog')
+    self.mox.StubOutWithMock(gen, '_CheckPartitionFiles')
 
     # Record the expected function calls.
     cmd = ['cros_generate_update_payload',
-           '--outside_chroot',
            '--output', gen.payload_file,
            '--image', gen.tgt_image_file,
            '--channel', 'dev-channel',
            '--board', 'x86-alex',
            '--version', '1620.0.0',
+           '--kern_path', '/work/new_kernel.dat',
+           '--root_path', '/work/new_rootfs.dat',
            '--key', 'mp-v3',
            '--build_channel', 'dev-channel',
            '--build_version', '1620.0.0']
-    gen._RunGeneratorCmd(cmd).AndReturn('log contents')
-    gen._StoreDeltaLog('log contents')
+    gen._RunGeneratorCmd(cmd)
+    gen._CheckPartitionFiles()
 
     # Run the test.
     self.mox.ReplayAll()
@@ -302,16 +305,17 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
 
     # Stub out the required functions.
     self.mox.StubOutWithMock(gen, '_RunGeneratorCmd')
-    self.mox.StubOutWithMock(gen, '_StoreDeltaLog')
+    self.mox.StubOutWithMock(gen, '_CheckPartitionFiles')
 
     # Record the expected function calls.
     cmd = ['cros_generate_update_payload',
-           '--outside_chroot',
            '--output', gen.payload_file,
            '--image', gen.tgt_image_file,
            '--channel', 'dev-channel',
            '--board', 'x86-alex',
            '--version', '4171.0.0',
+           '--kern_path', '/work/new_kernel.dat',
+           '--root_path', '/work/new_rootfs.dat',
            '--key', 'mp-v3',
            '--build_channel', 'dev-channel',
            '--build_version', '4171.0.0',
@@ -319,11 +323,13 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
            '--src_channel', 'dev-channel',
            '--src_board', 'x86-alex',
            '--src_version', '1620.0.0',
+           '--src_kern_path', '/work/old_kernel.dat',
+           '--src_root_path', '/work/old_rootfs.dat',
            '--src_key', 'mp-v3',
            '--src_build_channel', 'dev-channel',
            '--src_build_version', '1620.0.0']
-    gen._RunGeneratorCmd(cmd).AndReturn('log contents')
-    gen._StoreDeltaLog('log contents')
+    gen._RunGeneratorCmd(cmd)
+    gen._CheckPartitionFiles()
 
     # Run the test.
     self.mox.ReplayAll()
@@ -336,21 +342,22 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
 
     # Stub out the required functions.
     self.mox.StubOutWithMock(gen, '_RunGeneratorCmd')
-    self.mox.StubOutWithMock(gen, '_StoreDeltaLog')
+    self.mox.StubOutWithMock(gen, '_CheckPartitionFiles')
 
     # Record the expected function calls.
     cmd = ['cros_generate_update_payload',
-           '--outside_chroot',
            '--output', gen.payload_file,
            '--image', gen.tgt_image_file,
            '--channel', 'dev-channel',
            '--board', 'x86-alex',
            '--version', '1620.0.0',
+           '--kern_path', '/work/new_kernel.dat',
+           '--root_path', '/work/new_rootfs.dat',
            '--key', 'test',
            '--build_channel', 'dev-channel',
            '--build_version', '1620.0.0']
-    gen._RunGeneratorCmd(cmd).AndReturn('log contents')
-    gen._StoreDeltaLog('log contents')
+    gen._RunGeneratorCmd(cmd)
+    gen._CheckPartitionFiles()
 
     # Run the test.
     self.mox.ReplayAll()
@@ -363,16 +370,17 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
 
     # Stub out the required functions.
     self.mox.StubOutWithMock(gen, '_RunGeneratorCmd')
-    self.mox.StubOutWithMock(gen, '_StoreDeltaLog')
+    self.mox.StubOutWithMock(gen, '_CheckPartitionFiles')
 
     # Record the expected function calls.
     cmd = ['cros_generate_update_payload',
-           '--outside_chroot',
            '--output', gen.payload_file,
            '--image', gen.tgt_image_file,
            '--channel', 'dev-channel',
            '--board', 'x86-alex',
            '--version', '4171.0.0',
+           '--kern_path', '/work/new_kernel.dat',
+           '--root_path', '/work/new_rootfs.dat',
            '--key', 'test',
            '--build_channel', 'dev-channel',
            '--build_version', '4171.0.0',
@@ -380,11 +388,13 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
            '--src_channel', 'dev-channel',
            '--src_board', 'x86-alex',
            '--src_version', '1620.0.0',
+           '--src_kern_path', '/work/old_kernel.dat',
+           '--src_root_path', '/work/old_rootfs.dat',
            '--src_key', 'test',
            '--src_build_channel', 'dev-channel',
            '--src_build_version', '1620.0.0']
-    gen._RunGeneratorCmd(cmd).AndReturn('log contents')
-    gen._StoreDeltaLog('log contents')
+    gen._RunGeneratorCmd(cmd)
+    gen._CheckPartitionFiles()
 
     # Run the test.
     self.mox.ReplayAll()
@@ -439,13 +449,17 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
     # Stub out the required functions.
     self.mox.StubOutWithMock(paygen_payload_lib._PaygenPayload,
                              '_RunGeneratorCmd')
+    self.mox.StubOutWithMock(gen, '_ReadMetadataSizeFile')
+
 
     # Record the expected function calls.
     cmd = ['delta_generator',
            '-in_file=' + gen.payload_file,
            mox.IsA(str),
-           '-out_file=' + gen.signed_payload_file]
+           '-out_file=' + gen.signed_payload_file,
+           '-out_metadata_size_file=' + gen.metadata_size_file]
     gen._RunGeneratorCmd(cmd)
+    gen._ReadMetadataSizeFile()
 
     # Run the test.
     self.mox.ReplayAll()
@@ -468,11 +482,66 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
     with file(gen.metadata_signature_file, 'rb') as f:
       self.assertEqual(f.read(), encoded_metadata_signature)
 
+  def testVerifyPayloadDelta(self):
+    """Test _VerifyPayload with delta payload."""
+    gen = self._GetStdGenerator(payload=self.delta_test_payload,
+                                work_dir='/work')
+
+    # Stub out the required functions.
+    self.mox.StubOutWithMock(gen, '_RunGeneratorCmd')
+    gen.metadata_size = 10
+
+    # Record the expected function calls.
+    cmd = ['check_update_payload',
+           '--check',
+           '--type', 'delta',
+           '--disabled_tests', 'move-same-src-dst-block',
+           '--dst_kern', '/work/new_kernel.dat',
+           '--dst_root', '/work/new_rootfs.dat',
+           '--meta-sig', gen.metadata_signature_file,
+           '--metadata-size', "10",
+           '--src_kern', '/work/old_kernel.dat',
+           '--src_root', '/work/old_rootfs.dat',
+           gen.signed_payload_file]
+
+    gen._RunGeneratorCmd(cmd)
+
+    # Run the test.
+    self.mox.ReplayAll()
+    gen._VerifyPayload()
+
+  def testVerifyPayloadFull(self):
+    """Test _VerifyPayload with Full payload."""
+    gen = self._GetStdGenerator(payload=self.full_test_payload,
+                                work_dir='/work')
+
+    # Stub out the required functions.
+    self.mox.StubOutWithMock(gen, '_RunGeneratorCmd')
+    gen.metadata_size = 10
+
+    # Record the expected function calls.
+    cmd = ['check_update_payload',
+           '--check',
+           '--type', 'full',
+           '--disabled_tests', 'move-same-src-dst-block',
+           '--dst_kern', '/work/new_kernel.dat',
+           '--dst_root', '/work/new_rootfs.dat',
+           '--meta-sig', gen.metadata_signature_file,
+           '--metadata-size', "10",
+           gen.signed_payload_file]
+
+    gen._RunGeneratorCmd(cmd)
+
+    # Run the test.
+    self.mox.ReplayAll()
+    gen._VerifyPayload()
+
   def testPayloadJson(self):
     """Test how we store the payload description in json."""
     gen = self._GetStdGenerator(payload=self.delta_payload, sign=False)
     # Intentionally don't create signed file, to ensure it's never used.
     osutils.WriteFile(gen.payload_file, 'Fake payload contents.')
+    gen.metadata_size = 10
 
     metadata_signatures = ()
 
@@ -483,13 +552,7 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
         ' "sha1_hex": "FDwoNOUO+kNwrQJMSLnLDY7iZ/E=",'
         ' "sha256_hex": "gkm9207E7xbqpNRBFjEPO43nxyp/MNGQfyH3IYrq2kE=",'
         ' "version": 2}')
-
-    # To really look up the metadata size, we'd need a real payload for parsing.
-    with mock.patch.object(gen, '_MetadataSize', return_value=10) as mock_size:
-      gen._StorePayloadJson(metadata_signatures)
-
-    # Validate we fetched size from the right file.
-    mock_size.assert_called_once_with(gen.payload_file)
+    gen._StorePayloadJson(metadata_signatures)
 
     # Validate the results.
     self.assertEqual(osutils.ReadFile(gen.description_file), expected_json)
@@ -499,6 +562,7 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
     gen = self._GetStdGenerator(payload=self.delta_payload, sign=True)
     # Intentionally don't create unsigned file, to ensure it's never used.
     osutils.WriteFile(gen.signed_payload_file, 'Fake signed payload contents.')
+    gen.metadata_size = 10
 
     metadata_signatures = ('1',)
 
@@ -509,13 +573,7 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
         ' "sha1_hex": "99zX3vZhTfwRJCi4zGK1A14AY3Y=",'
         ' "sha256_hex": "yZjWgvsNdzclJzJOleQrTjVFBQy810ZlUAU5+i0okME=",'
         ' "version": 2}')
-
-    # To really look up the metadata size, we'd need a real payload for parsing.
-    with mock.patch.object(gen, '_MetadataSize', return_value=10) as mock_size:
-      gen._StorePayloadJson(metadata_signatures)
-
-    # Validate we fetched size from the right file.
-    mock_size.assert_called_once_with(gen.signed_payload_file)
+    gen._StorePayloadJson(metadata_signatures)
 
     # Validate the results.
     self.assertEqual(osutils.ReadFile(gen.description_file), expected_json)

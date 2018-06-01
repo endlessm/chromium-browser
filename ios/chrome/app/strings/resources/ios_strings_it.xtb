@@ -137,6 +137,7 @@ Ad esempio, alcuni siti web potrebbero rispondere alla richiesta visualizzando a
 <translation id="3393920035788932672">Popup consentiti</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> min</translation>
 <translation id="3448016392200048164">Visualizzazione divisa</translation>
+<translation id="3469166899695866866">Interrompere il download?</translation>
 <translation id="3474624961160222204">Continua come <ph name="NAME" /></translation>
 <translation id="3474649192738347024">Moduli compilati.</translation>
 <translation id="3478058380795961209">Mese di scadenza</translation>
@@ -159,6 +160,7 @@ Ad esempio, alcuni siti web potrebbero rispondere alla richiesta visualizzando a
 <translation id="3789841737615482174">Installa</translation>
 <translation id="385051799172605136">Indietro</translation>
 <translation id="3897092660631435901">Menu</translation>
+<translation id="3915450441834151894">Informazioni sito</translation>
 <translation id="3928666092801078803">Unisci i miei dati</translation>
 <translation id="3950820424414687140">Accedi</translation>
 <translation id="3963231839620026525">Nuova scheda in incognito</translation>
@@ -167,6 +169,7 @@ Ad esempio, alcuni siti web potrebbero rispondere alla richiesta visualizzando a
 <translation id="4002066346123236978">Titolo</translation>
 <translation id="4038354071007134711">Impossibile aprire il file con le app sul dispositivo.</translation>
 <translation id="4049507953662678203">Controlla la connessione di rete e riprova.</translation>
+<translation id="4084682180776658562">Aggiungi ai Preferiti</translation>
 <translation id="411254640334432676">Download non riuscito.</translation>
 <translation id="4121993058175073134">Per inviare dati net-export, configura il tuo account email nell'app Impostazioni.</translation>
 <translation id="4124987746317609294">Intervallo di tempo</translation>
@@ -191,6 +194,7 @@ Ad esempio, alcuni siti web potrebbero rispondere alla richiesta visualizzando a
 <translation id="4536418791685807335">Prova ad accedere nuovamente.</translation>
 <translation id="457386861538956877">Altro...</translation>
 <translation id="461440297010471931">Ricerca con Google</translation>
+<translation id="4619615317237390068">Schede di altri dispositivi</translation>
 <translation id="4620246317052452550">Pagine che hai letto</translation>
 <translation id="4636930964841734540">Info</translation>
 <translation id="4659667755519643272">Apri selettore di schede</translation>
@@ -221,6 +225,7 @@ I tuoi dati vengono criptati con la tua passphrase di sincronizzazione. Inserisc
 <translation id="5197255632782567636">Internet</translation>
 <translation id="5228579091201413441">Abilita sincronizzazione</translation>
 <translation id="5244474230056479698">Sincronizzazione con <ph name="EMAIL" /></translation>
+<translation id="527973086555161537">Apri una scheda per navigare sul Web in privato.</translation>
 <translation id="5300589172476337783">Mostra</translation>
 <translation id="5317780077021120954">Salva</translation>
 <translation id="5327248766486351172">Nome</translation>
@@ -319,6 +324,7 @@ I tuoi dati sono stati criptati con la tua passphrase di sincronizzazione in dat
 <translation id="6914783257214138813">Le tue password saranno visibili a chiunque abbia accesso al file esportato.</translation>
 <translation id="6945221475159498467">Seleziona</translation>
 <translation id="6973630695168034713">Cartelle</translation>
+<translation id="6979158407327259162">Google Drive</translation>
 <translation id="7004499039102548441">Schede recenti</translation>
 <translation id="7006788746334555276">Impostazioni contenuti</translation>
 <translation id="7029809446516969842">Password</translation>
@@ -370,16 +376,20 @@ I tuoi dati sono stati criptati con la tua passphrase di sincronizzazione in dat
 <translation id="7971521879845308059">Blocca popup</translation>
 <translation id="7982789257301363584">Rete</translation>
 <translation id="8019783059653722575">In questo modo puoi salvare e caricare foto.</translation>
+<translation id="802154636333426148">Download non riuscito</translation>
 <translation id="8023878949384262191">Viene espansa la sezione.</translation>
 <translation id="8059533439631660104">Viene compressa la sezione.</translation>
 <translation id="806745655614357130">Mantieni separati i miei dati</translation>
+<translation id="8073670137947914548">Download terminato</translation>
 <translation id="8076014560081431679">Le impostazioni del sito salvate non verranno eliminate e potrebbero rispecchiare le tue abitudini di navigazione. <ph name="BEGIN_LINK" />Ulteriori informazioni<ph name="END_LINK" /></translation>
 <translation id="8080028325999236607">Chiudi tutte le schede</translation>
+<translation id="8114753159095730575">È possibile il download dei file. Le opzioni sono disponibili nella parte inferiore della schermata.</translation>
 <translation id="8205564605687841303">Annulla</translation>
 <translation id="8225985093977202398">Immagini e file memorizzati nella cache</translation>
 <translation id="8261506727792406068">Elimina</translation>
 <translation id="8272426682713568063">Carte di credito</translation>
 <translation id="8281781826761538115">Predefinita - <ph name="DEFAULT_LOCALE" /></translation>
+<translation id="8328777765163860529">Chiudi tutte</translation>
 <translation id="8381750437846184350">Controlla il modo in cui Google utilizza la tua cronologia di navigazione per personalizzare la Ricerca, gli annunci e altri servizi Google.</translation>
 <translation id="842017693807136194">Accesso eseguito con</translation>
 <translation id="8428045167754449968">Città/località</translation>
@@ -422,7 +432,6 @@ I tuoi dati sono stati criptati con la tua passphrase di sincronizzazione in dat
 <translation id="9083392325882095631">1 elemento</translation>
 <translation id="9100610230175265781">Passphrase obbligatoria</translation>
 <translation id="9148126808321036104">Esegui di nuovo l'accesso</translation>
-<translation id="915371508759614899">Annullare il download?</translation>
 <translation id="9157836665414082580">Elimina finestre di dialogo</translation>
 <translation id="9188680907066685419">Esci dall'account gestito</translation>
 <translation id="9203116392574189331">Handoff</translation>

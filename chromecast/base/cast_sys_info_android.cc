@@ -15,7 +15,11 @@
 #include "base/sys_info.h"
 #include "chromecast/base/cast_sys_info_util.h"
 #include "chromecast/base/version.h"
+#include "chromecast/chromecast_buildflags.h"
 #include "jni/CastSysInfoAndroid_jni.h"
+#if BUILDFLAG(IS_ANDROID_THINGS_NON_PUBLIC)
+#include "jni/CastSysInfoAndroidThings_jni.h"
+#endif
 
 namespace chromecast {
 
@@ -54,9 +58,9 @@ CastSysInfo::BuildType CastSysInfoAndroid::GetBuildType() {
   if (!base::StringToInt(CAST_BUILD_INCREMENTAL, &build_number))
     build_number = 0;
 
-  // Note: no way to determine which channel was used on play store.
+  const std::string channel(GetSystemReleaseChannel());
   if (strcmp(build_info_->build_type(), kBuildTypeUser) == 0 &&
-      build_number > 0) {
+      build_number > 0 && (channel.empty() || channel == "stable-channel")) {
     return BUILD_PRODUCTION;
   }
 
@@ -92,7 +96,13 @@ std::string CastSysInfoAndroid::GetSystemBuildNumber() {
 }
 
 std::string CastSysInfoAndroid::GetSystemReleaseChannel() {
+#if BUILDFLAG(IS_ANDROID_THINGS_NON_PUBLIC)
+  JNIEnv* env = base::android::AttachCurrentThread();
+  return base::android::ConvertJavaStringToUTF8(
+      Java_CastSysInfoAndroidThings_getReleaseChannel(env));
+#else
   return "";
+#endif
 }
 
 std::string CastSysInfoAndroid::GetBoardName() {

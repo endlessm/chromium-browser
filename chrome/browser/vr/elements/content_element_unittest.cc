@@ -17,7 +17,7 @@
 #include "chrome/browser/vr/text_edit_action.h"
 #include "chrome/browser/vr/ui_scene.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
 
 using ::testing::_;
 using ::testing::InSequence;
@@ -160,12 +160,12 @@ TEST_F(ContentElementSceneTest, WebInputFocus) {
   EXPECT_TRUE(OnBeginFrame());
 
   // Taking focus away from content should clear the delegate state.
-  EXPECT_CALL(*kb_delegate, OnBeginFrame()).InSequence(in_sequence_);
-  EXPECT_CALL(*kb_delegate, SetTransform(_)).InSequence(in_sequence_);
   EXPECT_FALSE(input_forwarder_->clear_focus_called());
   content->OnFocusChanged(false);
   EXPECT_TRUE(input_forwarder_->clear_focus_called());
-  EXPECT_TRUE(OnBeginFrame());
+  // OnBeginFrame on the keyboard delegate should be called despite of
+  // visibility.
+  scene_->CallPerFrameCallbacks();
 }
 
 class ContentElementInputEditingTest : public UiTest {

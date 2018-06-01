@@ -29,14 +29,8 @@
 using chrome_test_util::PrimarySignInButton;
 using chrome_test_util::SecondarySignInButton;
 using chrome_test_util::SettingsAccountButton;
+using chrome_test_util::SettingsDoneButton;
 using chrome_test_util::ButtonWithAccessibilityLabelId;
-
-namespace {
-
-id<GREYMatcher> NavigationBarDoneButton() {
-  return ButtonWithAccessibilityLabelId(IDS_IOS_NAVIGATION_BAR_DONE_BUTTON);
-}
-}
 
 @interface SigninSettingsTestCase : ChromeTestCase
 @end
@@ -50,7 +44,9 @@ id<GREYMatcher> NavigationBarDoneButton() {
       checkSigninPromoVisibleWithMode:SigninPromoViewModeColdState];
   [ChromeEarlGreyUI tapSettingsMenuButton:PrimarySignInButton()];
 
-  [[EarlGrey selectElementWithMatcher:grey_buttonTitle(@"Cancel")]
+  [[EarlGrey
+      selectElementWithMatcher:grey_allOf(grey_buttonTitle(@"Cancel"),
+                                          grey_sufficientlyVisible(), nil)]
       performAction:grey_tap()];
   [SigninEarlGreyUtils
       checkSigninPromoVisibleWithMode:SigninPromoViewModeColdState];
@@ -113,7 +109,7 @@ id<GREYMatcher> NavigationBarDoneButton() {
       prefs->GetInteger(prefs::kIosSettingsSigninPromoDisplayedCount),
       @"Should have incremented the display count");
   // Close the settings menu and open it again.
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:SettingsDoneButton()]
       performAction:grey_tap()];
   [ChromeEarlGreyUI openSettingsMenu];
   // Check that the sign-in promo is not visible anymore.

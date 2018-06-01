@@ -17,6 +17,7 @@
 #include "chrome/browser/vr/ui_element_renderer.h"
 
 namespace vr {
+class AudioDelegate;
 class BrowserUiInterface;
 class ContentInputDelegate;
 class ContentInputForwarder;
@@ -51,14 +52,16 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
  public:
   Ui(UiBrowserInterface* browser,
      ContentInputForwarder* content_input_forwarder,
-     vr::KeyboardDelegate* keyboard_delegate,
-     vr::TextInputDelegate* text_input_delegate,
+     KeyboardDelegate* keyboard_delegate,
+     TextInputDelegate* text_input_delegate,
+     AudioDelegate* audio_delegate,
      const UiInitialState& ui_initial_state);
 
   Ui(UiBrowserInterface* browser,
      std::unique_ptr<ContentInputDelegate> content_input_delegate,
-     vr::KeyboardDelegate* keyboard_delegate,
-     vr::TextInputDelegate* text_input_delegate,
+     KeyboardDelegate* keyboard_delegate,
+     TextInputDelegate* text_input_delegate,
+     AudioDelegate* audio_delegate,
      const UiInitialState& ui_initial_state);
 
   ~Ui() override;
@@ -71,10 +74,10 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
   UiRenderer* ui_renderer() { return ui_renderer_.get(); }
   UiInputManager* input_manager() { return input_manager_.get(); }
 
-  base::WeakPtr<vr::BrowserUiInterface> GetBrowserUiWeakPtr();
+  base::WeakPtr<BrowserUiInterface> GetBrowserUiWeakPtr();
 
   // BrowserUiInterface
-  void SetWebVrMode(bool enabled, bool show_toast) override;
+  void SetWebVrMode(bool enabled) override;
   void SetFullscreen(bool enabled) override;
   void SetToolbarState(const ToolbarState& state) override;
   void SetIncognito(bool enabled) override;
@@ -82,11 +85,7 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
   void SetLoadProgress(float progress) override;
   void SetIsExiting() override;
   void SetHistoryButtonsEnabled(bool can_go_back, bool can_go_forward) override;
-  void SetVideoCaptureEnabled(bool enabled) override;
-  void SetScreenCaptureEnabled(bool enabled) override;
-  void SetAudioCaptureEnabled(bool enabled) override;
-  void SetBluetoothConnected(bool enabled) override;
-  void SetLocationAccessEnabled(bool enabled) override;
+  void SetCapturingState(const CapturingStateModel& state) override;
   void ShowExitVrPrompt(UiUnsupportedMode reason) override;
   void SetSpeechRecognitionEnabled(bool enabled) override;
   void SetRecognitionResult(const base::string16& result) override;
@@ -97,6 +96,8 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
                       std::unique_ptr<Assets> assets,
                       const base::Version& component_version) override;
   void OnAssetsUnavailable() override;
+  void SetIncognitoTabsOpen(bool open) override;
+  void SetOverlayTextureEmpty(bool empty) override;
 
   // TODO(ymalik): We expose this to stop sending VSync to the WebVR page until
   // the splash screen has been visible for its minimum duration. The visibility
@@ -113,9 +114,13 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
 
   void SetAlertDialogEnabled(bool enabled,
                              ContentInputDelegate* delegate,
-                             int width,
-                             int height);
-  void SetAlertDialogSize(int width, int height);
+                             float width,
+                             float height);
+  void SetAlertDialogSize(float width, float height);
+  void SetDialogLocation(float x, float y);
+  void SetDialogFloating(bool floating);
+  void ShowPlatformToast(const base::string16& text);
+  void CancelPlatformToast();
   bool ShouldRenderWebVr();
 
   void OnGlInitialized(
@@ -127,8 +132,7 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
       bool use_ganesh);
 
   void OnAppButtonClicked();
-  void OnAppButtonGesturePerformed(
-      PlatformController::SwipeDirection direction);
+  void OnAppButtonSwipePerformed(PlatformController::SwipeDirection direction);
   void OnControllerUpdated(const ControllerModel& controller_model,
                            const ReticleModel& reticle_model);
   void OnProjMatrixChanged(const gfx::Transform& proj_matrix);
@@ -136,6 +140,7 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
   void OnWebVrTimedOut();
   void OnWebVrTimeoutImminent();
   bool IsControllerVisible() const;
+  bool IsAppButtonLongPressed() const;
   bool SkipsRedrawWhenNotDirty() const;
   void OnSwapContents(int new_content_id);
   void OnContentBoundsChanged(int width, int height);
@@ -165,13 +170,15 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
   UiBrowserInterface* browser_;
 
   // This state may be further abstracted into a SkiaUi object.
-  std::unique_ptr<vr::UiScene> scene_;
-  std::unique_ptr<vr::Model> model_;
-  std::unique_ptr<vr::ContentInputDelegate> content_input_delegate_;
-  std::unique_ptr<vr::UiElementRenderer> ui_element_renderer_;
-  std::unique_ptr<vr::UiInputManager> input_manager_;
-  std::unique_ptr<vr::UiRenderer> ui_renderer_;
+  std::unique_ptr<UiScene> scene_;
+  std::unique_ptr<Model> model_;
+  std::unique_ptr<ContentInputDelegate> content_input_delegate_;
+  std::unique_ptr<UiElementRenderer> ui_element_renderer_;
+  std::unique_ptr<UiInputManager> input_manager_;
+  std::unique_ptr<UiRenderer> ui_renderer_;
   std::unique_ptr<SkiaSurfaceProvider> provider_;
+
+  AudioDelegate* audio_delegate_ = nullptr;
 
   base::WeakPtrFactory<Ui> weak_ptr_factory_;
 

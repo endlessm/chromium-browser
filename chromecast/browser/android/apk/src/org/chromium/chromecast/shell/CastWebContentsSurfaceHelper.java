@@ -5,18 +5,19 @@
 package org.chromium.chromecast.shell;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Color;
 import android.media.AudioManager;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.Handler;
-import android.support.v4.content.LocalBroadcastManager;
 import android.widget.FrameLayout;
 
-import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.annotations.JNINamespace;
+import org.chromium.chromecast.base.CastSwitches;
 import org.chromium.chromecast.base.Controller;
 import org.chromium.chromecast.base.Unit;
 import org.chromium.components.content_view.ContentView;
@@ -46,7 +47,6 @@ class CastWebContentsSurfaceHelper {
 
     private static final int TEARDOWN_GRACE_PERIOD_TIMEOUT_MILLIS = 300;
 
-    private final Controller<WebContents> mHasWebContentsState = new Controller<>();
     private final Controller<Unit> mResumedState = new Controller<>();
     private final Controller<Uri> mHasUriState = new Controller<>();
 
@@ -54,7 +54,6 @@ class CastWebContentsSurfaceHelper {
     private final boolean mShowInFragment;
     private final Handler mHandler;
     private final FrameLayout mCastWebContentsLayout;
-    private final CastAudioManager mAudioManager;
 
     private Uri mUri;
     private String mInstanceId;
@@ -66,6 +65,50 @@ class CastWebContentsSurfaceHelper {
     // TODO(vincentli) interrupt touch event from Fragment's root view when it's false.
     private boolean mTouchInputEnabled = false;
 
+    public static class StartParams {
+        public final Uri uri;
+        public final WebContents webContents;
+        public final boolean touchInputEnabled;
+
+        public StartParams(Uri uri, WebContents webContents, boolean touchInputEnabled) {
+            this.uri = uri;
+            this.webContents = webContents;
+            this.touchInputEnabled = touchInputEnabled;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (other instanceof StartParams) {
+                StartParams that = (StartParams) other;
+                return this.uri.equals(that.uri) && this.webContents.equals(that.webContents)
+                        && this.touchInputEnabled == that.touchInputEnabled;
+            }
+            return false;
+        }
+
+        public static StartParams fromBundle(Bundle bundle) {
+            final String uriString = CastWebContentsIntentUtils.getUriString(bundle);
+            if (uriString == null) {
+                Log.i(TAG, "Intent without uri received!");
+                return null;
+            }
+            final Uri uri = Uri.parse(uriString);
+            if (uri == null) {
+                Log.i(TAG, "Invalid URI string: %s", uriString);
+                return null;
+            }
+            bundle.setClassLoader(WebContents.class.getClassLoader());
+            final WebContents webContents = CastWebContentsIntentUtils.getWebContents(bundle);
+            if (webContents == null) {
+                Log.e(TAG, "Received null WebContents in bundle.");
+                return null;
+            }
+
+            final boolean touchInputEnabled = CastWebContentsIntentUtils.isTouchable(bundle);
+            return new StartParams(uri, webContents, touchInputEnabled);
+        }
+    }
+
     /**
      * @param hostActivity Activity hosts the view showing WebContents
      * @param castWebContentsLayout view group to add ContentViewRenderView and ContentView
@@ -76,13 +119,12 @@ class CastWebContentsSurfaceHelper {
         mHostActivity = hostActivity;
         mShowInFragment = showInFragment;
         mCastWebContentsLayout = castWebContentsLayout;
+        mCastWebContentsLayout.setBackgroundColor(CastSwitches.getSwitchValueColor(
+                CastSwitches.CAST_APP_BACKGROUND_COLOR, Color.BLACK));
         mHandler = new Handler();
-        mAudioManager = CastAudioManager.getAudioManager(getActivity());
-        mAudioManager.requestAudioFocusWhen(
-                mResumedState, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
 
         // Receive broadcasts indicating the screen turned off while we have active WebContents.
-        mHasWebContentsState.watch(() -> {
+        mHasUriState.watch(() -> {
             IntentFilter filter = new IntentFilter();
             filter.addAction(CastIntents.ACTION_SCREEN_OFF);
             return new LocalBroadcastReceiverScope(filter, (Intent intent) -> {
@@ -90,36 +132,57 @@ class CastWebContentsSurfaceHelper {
                 maybeFinishLater();
             });
         });
+
         // Receive broadcasts requesting to tear down this app while we have a valid URI.
         mHasUriState.watch((Uri uri) -> {
             IntentFilter filter = new IntentFilter();
             filter.addAction(CastIntents.ACTION_STOP_WEB_CONTENT);
             return new LocalBroadcastReceiverScope(filter, (Intent intent) -> {
-                String intentUri = intent.getStringExtra(CastWebContentsComponent.INTENT_EXTRA_URI);
+                String intentUri = CastWebContentsIntentUtils.getUriString(intent);
                 Log.d(TAG, "Intent action=" + intent.getAction() + "; URI=" + intentUri);
                 if (!uri.toString().equals(intentUri)) {
-                    Log.d(TAG, "Current URI=" + uri + "; intent URI=" + intentUri);
+                    Log.d(TAG, "Current URI=" + mUri + "; intent URI=" + intentUri);
                     return;
                 }
                 detachWebContentsIfAny();
                 maybeFinishLater();
             });
         });
+
+        // Receive broadcasts indicating that touch input should be enabled.
+        // TODO(yyzhong) Handle this intent in an external activity hosting a cast fragment as
+        // well.
+        mHasUriState.watch((Uri uri) -> {
+            IntentFilter filter = new IntentFilter();
+            filter.addAction(CastWebContentsIntentUtils.ACTION_ENABLE_TOUCH_INPUT);
+            return new LocalBroadcastReceiverScope(filter, (Intent intent) -> {
+                String intentUri = CastWebContentsIntentUtils.getUriString(intent);
+                Log.d(TAG, "Intent action=" + intent.getAction() + "; URI=" + intentUri);
+                if (!uri.toString().equals(intentUri)) {
+                    Log.d(TAG, "Current URI=" + mUri + "; intent URI=" + intentUri);
+                    return;
+                }
+                mTouchInputEnabled = CastWebContentsIntentUtils.isTouchable(intent);
+            });
+        });
+
+        mResumedState.watch(() -> {
+            if (mContentViewCore != null) {
+                mContentViewCore.onResume();
+            }
+            return () -> {
+                if (mContentViewCore != null) {
+                    mContentViewCore.onPause();
+                }
+            };
+        });
     }
 
-    void onNewWebContents(
-            final Uri uri, final WebContents webContents, final boolean touchInputEnabled) {
-        if (webContents == null) {
-            Log.e(TAG, "Received null WebContents in bundle.");
-            maybeFinishLater();
-            return;
-        }
-
-        mTouchInputEnabled = touchInputEnabled;
-
-        Log.d(TAG, "content_uri=" + uri);
-        mUri = uri;
-        mInstanceId = uri.getPath();
+    void onNewStartParams(final StartParams params) {
+        mTouchInputEnabled = params.touchInputEnabled;
+        Log.d(TAG, "content_uri=" + params.uri);
+        mUri = params.uri;
+        mInstanceId = params.uri.getPath();
 
         // Whenever our app is visible, volume controls should modify the music stream.
         // For more information read:
@@ -127,26 +190,22 @@ class CastWebContentsSurfaceHelper {
         mHostActivity.setVolumeControlStream(AudioManager.STREAM_MUSIC);
 
         mHasUriState.set(mUri);
-        mHasWebContentsState.set(webContents);
 
-        showWebContents(webContents);
+        showWebContents(params.webContents);
     }
 
     // Closes this activity if a new WebContents is not being displayed.
     private void maybeFinishLater() {
-        Log.d(TAG, "maybeFinishLater");
+        Log.d(TAG, "maybeFinishLater: " + mUri);
         final String currentInstanceId = mInstanceId;
         mHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
                 if (currentInstanceId != null && currentInstanceId.equals(mInstanceId)) {
                     if (mShowInFragment) {
-                        Intent in = new Intent();
-                        in.setAction(CastIntents.ACTION_ON_WEB_CONTENT_STOPPED);
-                        in.putExtra(CastWebContentsComponent.INTENT_EXTRA_URI, mUri.toString());
                         Log.d(TAG, "Sending intent: ON_WEB_CONTENT_STOPPED: URI=" + mUri);
-                        LocalBroadcastManager.getInstance(ContextUtils.getApplicationContext())
-                                .sendBroadcastSync(in);
+                        CastWebContentsIntentUtils.getLocalBroadcastManager().sendBroadcastSync(
+                                CastWebContentsIntentUtils.onWebContentStopped(mUri));
                     } else {
                         Log.d(TAG, "Finishing cast content activity of URI:" + mUri);
                         mHostActivity.finish();
@@ -162,7 +221,7 @@ class CastWebContentsSurfaceHelper {
 
     // Sets webContents to be the currently displayed webContents.
     private void showWebContents(WebContents webContents) {
-        Log.d(TAG, "showWebContents");
+        Log.d(TAG, "showWebContents: " + mUri);
 
         detachWebContentsIfAny();
 
@@ -178,33 +237,33 @@ class CastWebContentsSurfaceHelper {
             }
         };
         mContentViewRenderView.onNativeLibraryLoaded(mWindow);
-        // Setting the background color to black avoids rendering a white splash screen
+        // Setting the background color avoids rendering a white splash screen
         // before the players are loaded. See https://crbug/307113 for details.
-        mContentViewRenderView.setSurfaceViewBackgroundColor(Color.BLACK);
+        mContentViewRenderView.setSurfaceViewBackgroundColor(CastSwitches.getSwitchValueColor(
+                CastSwitches.CAST_APP_BACKGROUND_COLOR, Color.BLACK));
 
         mCastWebContentsLayout.addView(mContentViewRenderView,
                 new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT));
 
+        Context context = getActivity().getApplicationContext();
+        mContentView = ContentView.createContentView(context, webContents);
         // TODO(derekjchow): productVersion
-        mContentViewCore = ContentViewCore.create(getActivity().getApplicationContext(), "");
-        mContentView = ContentView.createContentView(
-                getActivity().getApplicationContext(), mContentViewCore);
-        mContentViewCore.initialize(ViewAndroidDelegate.createBasicDelegate(mContentView),
-                mContentView, webContents, mWindow);
+        mContentViewCore = ContentViewCore.create(context, "", webContents,
+                ViewAndroidDelegate.createBasicDelegate(mContentView), mContentView, mWindow);
         // Enable display of current webContents.
-        mContentViewCore.onShow();
+        webContents.onShow();
         mCastWebContentsLayout.addView(mContentView,
                 new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT));
         mContentView.setFocusable(true);
         mContentView.requestFocus();
-        mContentViewRenderView.setCurrentContentViewCore(mContentViewCore);
+        mContentViewRenderView.setCurrentWebContents(webContents);
     }
 
     // Remove the currently displayed webContents. no-op if nothing is being displayed.
-    void detachWebContentsIfAny() {
-        Log.d(TAG, "Detach web contents if any.");
+    private void detachWebContentsIfAny() {
+        Log.d(TAG, "Maybe detach web contents if any: " + mUri);
         if (mContentView != null) {
             mCastWebContentsLayout.removeView(mContentView);
             mCastWebContentsLayout.removeView(mContentViewRenderView);
@@ -215,51 +274,25 @@ class CastWebContentsSurfaceHelper {
             mContentViewCore = null;
             mContentViewRenderView = null;
             mWindow = null;
-            CastWebContentsComponent.onComponentClosed(getActivity(), mInstanceId);
-            Log.d(TAG, "Detach web contents done.");
+            CastWebContentsComponent.onComponentClosed(mInstanceId);
+            Log.d(TAG, "Detach web contents done: " + mUri);
         }
     }
 
     void onPause() {
+        Log.d(TAG, "onPause: " + mUri);
         mResumedState.reset();
-
-        if (mContentViewCore != null) {
-            mContentViewCore.onPause();
-        }
-
-        releaseStreamMuteIfNecessary();
-    }
-
-    @SuppressWarnings("deprecation")
-    private void releaseStreamMuteIfNecessary() {
-        AudioManager audioManager = mAudioManager.getInternal();
-        boolean isMuted = false;
-        try {
-            isMuted = (Boolean) audioManager.getClass()
-                              .getMethod("isStreamMute", int.class)
-                              .invoke(audioManager, AudioManager.STREAM_MUSIC);
-        } catch (Exception e) {
-            Log.e(TAG, "Cannot call AudioManager.isStreamMute().", e);
-        }
-
-        if (isMuted) {
-            // Note: this is a no-op on fixed-volume devices.
-            audioManager.setStreamMute(AudioManager.STREAM_MUSIC, false);
-        }
     }
 
     void onResume() {
+        Log.d(TAG, "onResume: " + mUri);
         mResumedState.set(Unit.unit());
-
-        if (mContentViewCore != null) {
-            mContentViewCore.onResume();
-        }
     }
 
     // Destroys all resources. After calling this method, this object must be dropped.
     void onDestroy() {
+        Log.d(TAG, "onDestroy: " + mUri);
         detachWebContentsIfAny();
-        mHasWebContentsState.reset();
         mHasUriState.reset();
     }
 

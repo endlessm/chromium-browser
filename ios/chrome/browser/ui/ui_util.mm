@@ -57,14 +57,18 @@ bool IsIPhoneX() {
           CGRectGetHeight([[UIScreen mainScreen] nativeBounds]) == 2436);
 }
 
+bool IsRefreshLocationBarEnabled() {
+  return base::FeatureList::IsEnabled(kUIRefreshLocationBar);
+}
+
+bool IsRefreshPopupPresentationEnabled() {
+  return base::FeatureList::IsEnabled(kRefreshPopupPresentation);
+}
+
 bool IsUIRefreshPhase1Enabled() {
   if (tests_hook::ForceUIRefreshPhase1())
     return true;
   return base::FeatureList::IsEnabled(kUIRefreshPhase1);
-}
-
-bool IsTabSwitcherTabGridEnabled() {
-  return base::FeatureList::IsEnabled(kTabSwitcherTabGrid);
 }
 
 CGFloat StatusBarHeight() {

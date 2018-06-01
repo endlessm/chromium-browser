@@ -97,7 +97,7 @@
             }
           ]
         },
-        "test": "cc_unittests"
+        "test": "cast_unittests"
       },
       {
         "swarming": {
@@ -109,7 +109,7 @@
             }
           ]
         },
-        "test": "chrome_public_test_vr_apk"
+        "test": "cc_unittests"
       },
       {
         "swarming": {
@@ -303,18 +303,6 @@
             }
           ]
         },
-        "test": "gpu_ipc_service_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "device_os": "MMB29Q",
-              "device_type": "bullhead"
-            }
-          ]
-        },
         "test": "gpu_unittests"
       },
       {
@@ -352,6 +340,18 @@
           ]
         },
         "test": "media_blink_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "device_os": "MMB29Q",
+              "device_type": "bullhead"
+            }
+          ]
+        },
+        "test": "media_service_unittests"
       },
       {
         "swarming": {
@@ -641,6 +641,26 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "app_shell_unittests"
+      },
+      {
+        "args": [
+          "--test-launcher-batch-limit=1",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "aura_unittests"
+      },
+      {
+        "args": [
+          "--test-launcher-batch-limit=1",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "base_unittests"
       },
       {
@@ -720,10 +740,30 @@
           "--test-launcher-print-test-stdio=always"
         ],
         "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "chromedriver_unittests"
+      },
+      {
+        "args": [
+          "--test-launcher-batch-limit=1",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "swarming": {
           "can_use_on_swarming_builders": true,
           "shards": 5
         },
         "test": "components_unittests"
+      },
+      {
+        "args": [
+          "--test-launcher-batch-limit=1",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "compositor_unittests"
       },
       {
         "args": [
@@ -755,7 +795,37 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "cronet_tests"
+      },
+      {
+        "args": [
+          "--test-launcher-batch-limit=1",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "cronet_unittests"
+      },
+      {
+        "args": [
+          "--test-launcher-batch-limit=1",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "crypto_unittests"
+      },
+      {
+        "args": [
+          "--test-launcher-batch-limit=1",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "dbus_unittests"
       },
       {
         "args": [
@@ -776,6 +846,16 @@
           "can_use_on_swarming_builders": true
         },
         "test": "display_unittests"
+      },
+      {
+        "args": [
+          "--test-launcher-batch-limit=1",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "events_unittests"
       },
       {
         "args": [
@@ -825,7 +905,7 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "google_apis_unittests"
+        "test": "gl_unittests"
       },
       {
         "args": [
@@ -835,7 +915,17 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gpu_ipc_service_unittests"
+        "test": "gn_unittests"
+      },
+      {
+        "args": [
+          "--test-launcher-batch-limit=1",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "google_apis_unittests"
       },
       {
         "args": [
@@ -886,7 +976,27 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "latency_unittests"
+      },
+      {
+        "args": [
+          "--test-launcher-batch-limit=1",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "media_blink_unittests"
+      },
+      {
+        "args": [
+          "--test-launcher-batch-limit=1",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "media_service_unittests"
       },
       {
         "args": [
@@ -927,6 +1037,16 @@
           "can_use_on_swarming_builders": true
         },
         "test": "mojo_unittests"
+      },
+      {
+        "args": [
+          "--test-launcher-batch-limit=1",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "native_theme_unittests"
       },
       {
         "args": [
@@ -1045,6 +1165,16 @@
           "--test-launcher-print-test-stdio=always"
         ],
         "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "ui_touch_selection_unittests"
+      },
+      {
+        "args": [
+          "--test-launcher-batch-limit=1",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "swarming": {
           "can_use_on_swarming_builders": true,
           "shards": 4
         },
@@ -1068,6 +1198,16 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "views_unittests"
+      },
+      {
+        "args": [
+          "--test-launcher-batch-limit=1",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "viz_unittests"
       },
       {
@@ -1080,6 +1220,16 @@
           "shards": 5
         },
         "test": "webkit_unit_tests"
+      },
+      {
+        "args": [
+          "--test-launcher-batch-limit=1",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "wm_unittests"
       },
       {
         "args": [
@@ -1231,6 +1381,18 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "cronet_tests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "cronet_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "crypto_unittests"
       },
       {
@@ -1321,12 +1483,6 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gpu_ipc_service_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
         "test": "gpu_unittests"
       },
       {
@@ -1358,6 +1514,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "media_blink_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "media_service_unittests"
       },
       {
         "swarming": {
@@ -1435,6 +1597,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "services_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "skia_unittests"
       },
       {
@@ -1483,6 +1651,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "viz_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "webkit_unit_tests"
       },
       {
@@ -1523,9 +1697,27 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "app_shell_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "ash_content_unittests"
       },
       {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "ash_unittests"
+      },
+      {
+        "args": [
+          "--enable-features=Mash",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/mash.ash_unittests.filter"
+        ],
+        "name": "mash_ash_unittests",
+        "override_isolate_target": "ash_unittests",
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -1552,6 +1744,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "base_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "blink_heap_unittests"
       },
       {
         "args": [
@@ -1598,6 +1796,18 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "cc_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "chromedriver_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "chromeos_components_unittests"
       },
       {
@@ -1620,7 +1830,8 @@
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "shards": 4
         },
         "test": "content_browsertests"
       },
@@ -1661,6 +1872,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "dbus_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "device_unittests"
       },
       {
@@ -1679,6 +1896,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "extensions_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "gcm_unit_tests"
       },
       {
@@ -1692,12 +1915,6 @@
           "can_use_on_swarming_builders": true
         },
         "test": "google_apis_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "gpu_ipc_service_unittests"
       },
       {
         "swarming": {
@@ -1746,6 +1963,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "media_service_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "media_unittests"
       },
       {
@@ -1787,7 +2010,7 @@
       {
         "swarming": {
           "can_use_on_swarming_builders": true,
-          "shards": 4
+          "shards": 8
         },
         "test": "net_unittests"
       },
@@ -1905,6 +2128,24 @@
           "can_use_on_swarming_builders": true
         },
         "test": "viz_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "webkit_unit_tests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "wm_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "wtf_unittests"
       }
     ]
   },
@@ -1920,6 +2161,58 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "app_list_presenter_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "app_list_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "app_shell_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "ash_content_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "ash_unittests"
+      },
+      {
+        "args": [
+          "--enable-features=Mash",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/mash.ash_unittests.filter"
+        ],
+        "name": "mash_ash_unittests",
+        "override_isolate_target": "ash_unittests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "ash_unittests"
+      },
+      {
+        "args": [
+          "--enable-features=Mus"
+        ],
+        "name": "mus_ash_unittests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "ash_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "aura_unittests"
       },
       {
@@ -1929,6 +2222,25 @@
         "test": "base_unittests"
       },
       {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "blink_heap_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 10
+        },
+        "test": "browser_tests"
+      },
+      {
+        "args": [
+          "--enable-features=Mus",
+          "--ozone-platform=headless",
+          "--override-use-software-gl-for-tests"
+        ],
+        "name": "mus_browser_tests",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "shards": 10
@@ -1969,6 +2281,18 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "chromeos_components_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "chromeos_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "components_unittests"
       },
       {
@@ -1984,6 +2308,27 @@
         "test": "content_browsertests"
       },
       {
+        "args": [
+          "--enable-features=Mus"
+        ],
+        "name": "mus_content_browsertests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 2
+        },
+        "test": "content_browsertests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "content_unittests"
+      },
+      {
+        "args": [
+          "--enable-features=Mus"
+        ],
+        "name": "mus_content_unittests",
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -2041,13 +2386,13 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "google_apis_unittests"
+        "test": "gfx_unittests"
       },
       {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gpu_ipc_service_unittests"
+        "test": "google_apis_unittests"
       },
       {
         "swarming": {
@@ -2084,13 +2429,31 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "mash_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "media_blink_unittests"
       },
       {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "media_service_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "media_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "message_center_unittests"
       },
       {
         "swarming": {
@@ -2109,6 +2472,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "mojo_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "nacl_helper_nonsfi_unittests"
       },
       {
         "swarming": {
@@ -2180,9 +2549,37 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "ui_arc_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "ui_base_unittests"
       },
       {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "ui_chromeos_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "ui_touch_selection_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "unit_tests"
+      },
+      {
+        "args": [
+          "--enable-features=Mus"
+        ],
+        "name": "mus_unit_tests",
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -2210,7 +2607,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "webkit_unit_tests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "wm_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "wtf_unittests"
       }
     ]
   },
@@ -2221,6 +2630,18 @@
           "can_use_on_swarming_builders": true
         },
         "test": "accessibility_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "angle_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "app_shell_unittests"
       },
       {
         "swarming": {
@@ -2239,6 +2660,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "blink_heap_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "blink_platform_unittests"
       },
       {
         "swarming": {
@@ -2305,6 +2732,18 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "cronet_tests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "cronet_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "crypto_unittests"
       },
       {
@@ -2359,13 +2798,25 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "google_apis_unittests"
+        "test": "gin_unittests"
       },
       {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gpu_ipc_service_unittests"
+        "test": "gl_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "gn_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "google_apis_unittests"
       },
       {
         "swarming": {
@@ -2402,6 +2853,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "media_blink_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "media_service_unittests"
       },
       {
         "swarming": {
@@ -2561,6 +3018,18 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "angle_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "app_shell_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "aura_unittests"
       },
       {
@@ -2568,6 +3037,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "base_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "blink_platform_unittests"
       },
       {
         "swarming": {
@@ -2607,6 +3082,12 @@
       },
       {
         "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "compositor_unittests"
+      },
+      {
+        "swarming": {
           "can_use_on_swarming_builders": true,
           "shards": 5
         },
@@ -2617,6 +3098,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "content_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "cronet_unittests"
       },
       {
         "swarming": {
@@ -2670,13 +3157,25 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "google_apis_unittests"
+        "test": "gin_unittests"
       },
       {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gpu_ipc_service_unittests"
+        "test": "gl_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "gn_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "google_apis_unittests"
       },
       {
         "swarming": {
@@ -2700,7 +3199,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "latency_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "media_blink_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "media_service_unittests"
       },
       {
         "swarming": {
@@ -2773,6 +3284,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "services_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "skia_unittests"
       },
       {
@@ -2835,11 +3352,23 @@
           "can_use_on_swarming_builders": true
         },
         "test": "wm_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "wtf_unittests"
       }
     ]
   },
   "Mac ASan 64 Tests (1)": {
     "gtest_tests": [
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "app_shell_unittests"
+      },
       {
         "swarming": {
           "can_use_on_swarming_builders": true
@@ -2881,6 +3410,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "cast_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "cc_unittests"
       },
       {
@@ -2912,7 +3447,37 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "cronet_tests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "cronet_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "crypto_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "device_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "display_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "extensions_unittests"
       },
       {
         "swarming": {
@@ -2924,7 +3489,13 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gpu_ipc_service_unittests"
+        "test": "gfx_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "google_apis_unittests"
       },
       {
         "swarming": {
@@ -2961,7 +3532,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "media_service_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "media_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "message_center_unittests"
       },
       {
         "swarming": {
@@ -3004,6 +3587,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "remoting_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "services_unittests"
       },
       {
         "swarming": {

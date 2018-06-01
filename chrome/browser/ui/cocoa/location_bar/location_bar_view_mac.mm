@@ -42,6 +42,7 @@
 #import "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
 #include "chrome/browser/ui/content_settings/content_setting_bubble_model.h"
 #include "chrome/browser/ui/content_settings/content_setting_image_model.h"
+#include "chrome/browser/ui/page_info/page_info_dialog.h"
 #include "chrome/browser/ui/passwords/manage_passwords_ui_controller.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/pref_names.h"
@@ -236,6 +237,11 @@ void LocationBarViewMac::Revert() {
   omnibox_view_->RevertAll();
 }
 
+bool LocationBarViewMac::ShowPageInfoDialog(WebContents* contents) {
+  // Cocoa doesn't show page info on the location bar.
+  return ::ShowPageInfoDialog(contents);
+}
+
 const OmniboxView* LocationBarViewMac::GetOmniboxView() const {
   return omnibox_view_.get();
 }
@@ -327,10 +333,6 @@ NSPoint LocationBarViewMac::GetSaveCreditCardBubblePoint() const {
 
 NSPoint LocationBarViewMac::GetPageInfoBubblePoint() const {
   return [field_ bubblePointForDecoration:page_info_decoration_.get()];
-}
-
-NSPoint LocationBarViewMac::GetInfoBarAnchorPoint() const {
-  return [field_ arrowAnchorPointForDecoration:page_info_decoration_.get()];
 }
 
 void LocationBarViewMac::OnDecorationsChanged() {

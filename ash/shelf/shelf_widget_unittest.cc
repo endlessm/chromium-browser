@@ -140,7 +140,6 @@ TEST_F(ShelfWidgetTest, DontReferenceShelfAfterDeletion) {
   views::Widget* widget = new views::Widget;
   views::Widget::InitParams params(views::Widget::InitParams::TYPE_WINDOW);
   params.bounds = gfx::Rect(0, 0, 200, 200);
-  params.context = CurrentContext();
   // Widget is now owned by the parent window.
   widget->Init(params);
   widget->SetFullscreen(true);
@@ -206,7 +205,6 @@ TEST_F(ShelfWidgetTest, ShelfEdgeOverlappingWindowHitTestMouse) {
   params.bounds = gfx::Rect(shelf_bounds.height() - kOverlapSize,
                             shelf_bounds.y() - kWindowHeight + kOverlapSize,
                             kWindowWidth, kWindowHeight);
-  params.context = CurrentContext();
   // Widget is now owned by the parent window.
   widget->Init(params);
   widget->Show();
@@ -285,7 +283,6 @@ TEST_F(ShelfWidgetTest, HiddenShelfHitTestTouch) {
   views::Widget* widget = new views::Widget;
   views::Widget::InitParams params(views::Widget::InitParams::TYPE_WINDOW);
   params.bounds = gfx::Rect(0, 0, 200, 200);
-  params.context = CurrentContext();
   // Widget is now owned by the parent window.
   widget->Init(params);
   widget->Show();
@@ -459,7 +456,9 @@ class ShelfWidgetViewsVisibilityTest : public AshTestBase {
 };
 
 TEST_F(ShelfWidgetViewsVisibilityTest, LoginWebUiLockViews) {
-  // Web UI login enabled by default. Views lock enabled by default.
+  // Enable web UI login.
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kShowWebUiLogin);
   ASSERT_NO_FATAL_FAILURE(InitShelfVariables());
 
   // Both shelf views are hidden when session state hasn't been initialized.
@@ -499,9 +498,10 @@ TEST_F(ShelfWidgetViewsVisibilityTest, LoginViewsLockViews) {
 }
 
 TEST_F(ShelfWidgetViewsVisibilityTest, LoginWebUiLockWebUi) {
-  // Enable web UI lock. Web UI login enabled by default.
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      switches::kShowWebUiLock);
+  // Enable web UI lock and login.
+  base::CommandLine* cl = base::CommandLine::ForCurrentProcess();
+  cl->AppendSwitch(switches::kShowWebUiLogin);
+  cl->AppendSwitch(switches::kShowWebUiLock);
   ASSERT_NO_FATAL_FAILURE(InitShelfVariables());
 
   // Views based shelf is never visible.

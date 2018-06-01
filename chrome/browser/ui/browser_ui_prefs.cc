@@ -4,9 +4,11 @@
 
 #include "chrome/browser/ui/browser_ui_prefs.h"
 
+#include "base/numerics/safe_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/upgrade_detector.h"
 #include "chrome/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -14,7 +16,7 @@
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/translate/core/browser/translate_pref_names.h"
 #include "content/public/common/webrtc_ip_handling_policy.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 
 #if defined(OS_WIN)
 #include "base/win/windows_version.h"
@@ -40,8 +42,11 @@ void RegisterBrowserPrefs(PrefRegistrySimple* registry) {
 #if !defined(OS_CHROMEOS)
   registry->RegisterIntegerPref(prefs::kRelaunchNotification, 0);
 #endif  // !defined(OS_CHROMEOS)
-  registry->RegisterIntegerPref(prefs::kRelaunchNotificationPeriod,
-                                7 * 24 * 60 * 60 * 1000);  // 1 week.
+  registry->RegisterIntegerPref(
+      prefs::kRelaunchNotificationPeriod,
+      base::saturated_cast<int>(
+          UpgradeDetector::GetDefaultHighAnnoyanceThreshold()
+              .InMilliseconds()));
 #endif  // !defined(OS_ANDROID)
 }
 

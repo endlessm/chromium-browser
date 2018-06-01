@@ -30,6 +30,7 @@
  * @param {boolean} hasMedia When true the volume has been identified
  *     as containing media such as photos or videos.
  * @param {boolean} configurable When true, then the volume can be configured.
+ * @param {boolean} watchable When true, then the volume can be watched.
  * @param {VolumeManagerCommon.Source} source Source of the volume's data.
  * @param {VolumeManagerCommon.FileSystemType} diskFileSystemType File system
  *     type indentifier.
@@ -234,7 +235,7 @@ VolumeInfoImpl.prototype.resolveDisplayRoot = function(opt_onSuccess,
             Promise.reject(this.error));
     } else {
       // For Drive, we need to resolve.
-      var displayRootURL = this.fileSystem_.root.toURL() + '/root';
+      var displayRootURL = this.fileSystem_.root.toURL() + 'root';
       this.displayRootPromise_ = new Promise(
           window.webkitResolveLocalFileSystemURL.bind(null, displayRootURL));
       if (this.isTeamDrivesEnabled_) {
@@ -247,7 +248,7 @@ VolumeInfoImpl.prototype.resolveDisplayRoot = function(opt_onSuccess,
                   new Promise(window.webkitResolveLocalFileSystemURL.bind(
                       null,
                       this.fileSystem_.root.toURL() +
-                          VolumeManagerCommon.TEAM_DRIVES_DIRECTORY_PATH))
+                          VolumeManagerCommon.TEAM_DRIVES_DIRECTORY_NAME))
                 ])
                 .then(function(displayRoots) {
                   this.teamDriveDisplayRoot_ = displayRoots[1];

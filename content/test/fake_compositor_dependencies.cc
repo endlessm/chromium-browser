@@ -6,7 +6,6 @@
 
 #include <stddef.h>
 
-#include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "cc/test/test_ukm_recorder_factory.h"
@@ -30,10 +29,6 @@ int FakeCompositorDependencies::GetGpuRasterizationMSAASampleCount() {
 }
 
 bool FakeCompositorDependencies::IsLcdTextEnabled() {
-  return false;
-}
-
-bool FakeCompositorDependencies::IsDistanceFieldTextEnabled() {
   return false;
 }
 
@@ -63,8 +58,8 @@ FakeCompositorDependencies::GetCompositorImplThreadTaskRunner() {
   return nullptr;  // Currently never threaded compositing in unit tests.
 }
 
-blink::scheduler::RendererScheduler*
-FakeCompositorDependencies::GetRendererScheduler() {
+blink::scheduler::WebMainThreadScheduler*
+FakeCompositorDependencies::GetWebMainThreadScheduler() {
   return &renderer_scheduler_;
 }
 

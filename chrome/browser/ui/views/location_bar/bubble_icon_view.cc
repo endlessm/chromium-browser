@@ -10,6 +10,7 @@
 #include "chrome/browser/ui/views/location_bar/location_bar_bubble_delegate_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "ui/accessibility/ax_node_data.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/events/event.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/paint_vector_icon.h"
@@ -28,13 +29,19 @@ void BubbleIconView::Init() {
   SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
 }
 
-BubbleIconView::BubbleIconView(CommandUpdater* command_updater, int command_id)
+BubbleIconView::BubbleIconView(CommandUpdater* command_updater,
+                               int command_id,
+                               BubbleIconView::Delegate* delegate)
     : widget_observer_(this),
       image_(new views::ImageView()),
       command_updater_(command_updater),
+      delegate_(delegate),
       command_id_(command_id),
       active_(false),
-      suppress_mouse_released_action_(false) {}
+      suppress_mouse_released_action_(false) {
+  SetBorder(views::CreateEmptyBorder(
+      gfx::Insets(GetLayoutConstant(LOCATION_BAR_ICON_INTERIOR_PADDING))));
+}
 
 BubbleIconView::~BubbleIconView() {}
 
@@ -44,16 +51,18 @@ bool BubbleIconView::IsBubbleShowing() const {
   return GetBubble() != nullptr;
 }
 
+bool BubbleIconView::SetCommandEnabled(bool enabled) const {
+  DCHECK(command_updater_);
+  command_updater_->UpdateCommandEnabled(command_id_, enabled);
+  return command_updater_->IsCommandEnabled(command_id_);
+}
+
 void BubbleIconView::SetImage(const gfx::ImageSkia* image_skia) {
   image_->SetImage(image_skia);
 }
 
 const gfx::ImageSkia& BubbleIconView::GetImage() const {
   return image_->GetImage();
-}
-
-void BubbleIconView::SetTooltipText(const base::string16& tooltip) {
-  image_->SetTooltipText(tooltip);
 }
 
 void BubbleIconView::SetHighlighted(bool bubble_visible) {
@@ -69,30 +78,31 @@ void BubbleIconView::OnBubbleWidgetCreated(views::Widget* bubble_widget) {
     SetHighlighted(true);
 }
 
+bool BubbleIconView::Refresh() {
+  return false;
+}
+
 void BubbleIconView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  image_->GetAccessibleNodeData(node_data);
   node_data->role = ax::mojom::Role::kButton;
+  node_data->SetName(GetTextForTooltipAndAccessibleName());
 }
 
 bool BubbleIconView::GetTooltipText(const gfx::Point& p,
                                     base::string16* tooltip) const {
-  return !IsBubbleShowing() && image_->GetTooltipText(p, tooltip);
+  if (IsBubbleShowing())
+    return false;
+  *tooltip = GetTextForTooltipAndAccessibleName();
+  return true;
 }
 
 gfx::Size BubbleIconView::CalculatePreferredSize() const {
-  gfx::Rect image_rect(image_->GetPreferredSize());
-  image_rect.Inset(
-      -gfx::Insets(GetLayoutConstant(LOCATION_BAR_ICON_INTERIOR_PADDING)));
-  DCHECK_EQ(image_rect.height(),
-            GetLayoutConstant(LOCATION_BAR_HEIGHT) -
-                2 * (GetLayoutConstant(LOCATION_BAR_ELEMENT_PADDING) +
-                     BackgroundWith1PxBorder::kLocationBarBorderThicknessDip));
-  return image_rect.size();
+  gfx::Size image_rect(image_->GetPreferredSize());
+  image_rect.Enlarge(GetInsets().width(), GetInsets().height());
+  return image_rect;
 }
 
 void BubbleIconView::Layout() {
-  View::Layout();
-  image_->SetBoundsRect(GetLocalBounds());
+  image_->SetBoundsRect(GetContentsBounds());
 }
 
 bool BubbleIconView::OnMousePressed(const ui::MouseEvent& event) {
@@ -195,7 +205,7 @@ SkColor BubbleIconView::GetInkDropBaseColor() const {
 }
 
 std::unique_ptr<views::InkDropMask> BubbleIconView::CreateInkDropMask() const {
-  if (!BackgroundWith1PxBorder::IsRounded())
+  if (!LocationBarView::IsRounded())
     return nullptr;
   return std::make_unique<views::RoundRectInkDropMask>(size(), gfx::Insets(),
                                                        height() / 2.f);
@@ -238,6 +248,10 @@ void BubbleIconView::SetActiveInternal(bool active) {
     return;
   active_ = active;
   UpdateIcon();
+}
+
+content::WebContents* BubbleIconView::GetWebContents() const {
+  return delegate_->GetWebContentsForBubbleIconView();
 }
 
 BubbleIconView::WidgetObserver::WidgetObserver(BubbleIconView* parent)

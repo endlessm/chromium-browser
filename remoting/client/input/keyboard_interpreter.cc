@@ -11,14 +11,25 @@
 
 namespace remoting {
 
-KeyboardInterpreter::KeyboardInterpreter(ClientInputInjector* input_injector) {
-  // TODO(nicholss): This should be configurable.
-  input_strategy_.reset(new TextKeyboardInputStrategy(input_injector));
-}
+KeyboardInterpreter::KeyboardInterpreter() = default;
 
 KeyboardInterpreter::~KeyboardInterpreter() = default;
 
+void KeyboardInterpreter::SetContext(ClientInputInjector* input_injector) {
+  // TODO(nicholss): This should be configurable.
+  if (input_injector) {
+    input_strategy_ =
+        std::make_unique<TextKeyboardInputStrategy>(input_injector);
+  } else {
+    input_strategy_.reset();
+  }
+}
+
 void KeyboardInterpreter::HandleKeypressEvent(const KeypressInfo& keypress) {
+  if (!input_strategy_) {
+    return;
+  }
+
   DCHECK(keypress.dom_code != ui::DomCode::NONE);
   base::queue<KeyEvent> keys;
   if (keypress.modifiers & KeypressInfo::Modifier::SHIFT) {
@@ -34,10 +45,18 @@ void KeyboardInterpreter::HandleKeypressEvent(const KeypressInfo& keypress) {
 
 void KeyboardInterpreter::HandleTextEvent(const std::string& text,
                                           uint8_t modifiers) {
+  if (!input_strategy_) {
+    return;
+  }
+
   input_strategy_->HandleTextEvent(text, modifiers);
 }
 
 void KeyboardInterpreter::HandleDeleteEvent(uint8_t modifiers) {
+  if (!input_strategy_) {
+    return;
+  }
+
   base::queue<KeyEvent> keys;
   // TODO(nicholss): Handle modifers.
   // Key press.
@@ -50,6 +69,10 @@ void KeyboardInterpreter::HandleDeleteEvent(uint8_t modifiers) {
 }
 
 void KeyboardInterpreter::HandleCtrlAltDeleteEvent() {
+  if (!input_strategy_) {
+    return;
+  }
+
   base::queue<KeyEvent> keys;
 
   // Key press.
@@ -66,6 +89,10 @@ void KeyboardInterpreter::HandleCtrlAltDeleteEvent() {
 }
 
 void KeyboardInterpreter::HandlePrintScreenEvent() {
+  if (!input_strategy_) {
+    return;
+  }
+
   base::queue<KeyEvent> keys;
 
   // Key press.

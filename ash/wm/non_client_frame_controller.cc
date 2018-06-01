@@ -91,6 +91,7 @@ class ImmersiveFullscreenControllerDelegateMus
     SetVisibleFraction(0);
   }
   void OnImmersiveRevealEnded() override { DestroyTitleAreaWindow(); }
+  void OnImmersiveFullscreenEntered() override {}
   void OnImmersiveFullscreenExited() override { DestroyTitleAreaWindow(); }
   void SetVisibleFraction(double visible_fraction) override {
     aura::Window* title_area_window = GetTitleAreaWindow();
@@ -334,14 +335,12 @@ NonClientFrameController* NonClientFrameController::Get(aura::Window* window) {
 // static
 gfx::Insets NonClientFrameController::GetPreferredClientAreaInsets() {
   return gfx::Insets(
-      GetAshLayoutSize(AshLayoutSize::NON_BROWSER_CAPTION_BUTTON).height(), 0,
-      0, 0);
+      GetAshLayoutSize(AshLayoutSize::kNonBrowserCaption).height(), 0, 0, 0);
 }
 
 // static
 int NonClientFrameController::GetMaxTitleBarButtonWidth() {
-  return GetAshLayoutSize(AshLayoutSize::NON_BROWSER_CAPTION_BUTTON).width() *
-         3;
+  return GetAshLayoutSize(AshLayoutSize::kNonBrowserCaption).width() * 3;
 }
 
 void NonClientFrameController::SetClientArea(

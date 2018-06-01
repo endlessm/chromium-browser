@@ -68,7 +68,6 @@ CHROMEOS_EXPORT extern const char kDisableHIDDetectionOnOOBE[];
 CHROMEOS_EXPORT extern const char kDisableLockScreenApps[];
 CHROMEOS_EXPORT extern const char kDisableLoginAnimations[];
 CHROMEOS_EXPORT extern const char kDisableMachineCertRequest[];
-CHROMEOS_EXPORT extern const char kDisableMdErrorScreen[];
 CHROMEOS_EXPORT extern const char kDisableMtpWriteSupport[];
 CHROMEOS_EXPORT extern const char kDisableMultiDisplayLayout[];
 CHROMEOS_EXPORT extern const char kDisableNetworkPortalNotification[];
@@ -93,7 +92,6 @@ CHROMEOS_EXPORT extern const char kEnableChromeVoxArcSupport[];
 CHROMEOS_EXPORT extern const char kEnableConsumerKiosk[];
 CHROMEOS_EXPORT extern const char kEnableDataSaverPrompt[];
 CHROMEOS_EXPORT extern const char kEnableDemoMode[];
-CHROMEOS_EXPORT extern const char kEnableDisplayZoomSetting[];
 CHROMEOS_EXPORT extern const char kEnableEncryptionMigration[];
 CHROMEOS_EXPORT extern const char kEnableExperimentalAccessibilityFeatures[];
 CHROMEOS_EXPORT extern const char kEnableExtensionAssetsSharing[];
@@ -127,6 +125,7 @@ CHROMEOS_EXPORT extern const char kGuestWallpaperLarge[];
 CHROMEOS_EXPORT extern const char kGuestWallpaperSmall[];
 CHROMEOS_EXPORT extern const char kHasChromeOSDiamondKey[];
 CHROMEOS_EXPORT extern const char kHasChromeOSKeyboard[];
+CHROMEOS_EXPORT extern const char kHideActiveAppsFromShelf[];
 CHROMEOS_EXPORT extern const char kHomedir[];
 CHROMEOS_EXPORT extern const char kHostPairingOobe[];
 CHROMEOS_EXPORT extern const char kIgnoreUserProfileMappingForTests[];
@@ -145,6 +144,7 @@ CHROMEOS_EXPORT extern const char kOobeSkipPostLogin[];
 CHROMEOS_EXPORT extern const char kOobeSkipToLogin[];
 CHROMEOS_EXPORT extern const char kOobeTimerInterval[];
 CHROMEOS_EXPORT extern const char kProfileRequiresPolicy[];
+CHROMEOS_EXPORT extern const char kRlzPingDelay[];
 CHROMEOS_EXPORT extern const char kShillStub[];
 CHROMEOS_EXPORT extern const char kShowLoginDevOverlay[];
 CHROMEOS_EXPORT extern const char kSmsTestMessages[];
@@ -207,6 +207,13 @@ CHROMEOS_EXPORT bool IsSigninFrameClientCertUserSelectionEnabled();
 
 // Returns true if experimental accessibility features are enabled.
 CHROMEOS_EXPORT bool AreExperimentalAccessibilityFeaturesEnabled();
+
+// Returns true if we should hide open apps that aren't pinned from the shelf.
+CHROMEOS_EXPORT bool ShouldHideActiveAppsFromShelf();
+
+// Returns true if Instant Tethering should support hosts which use the
+// background advertisement model
+CHROMEOS_EXPORT bool IsInstantTetheringBackgroundAdvertisingSupported();
 
 }  // namespace switches
 }  // namespace chromeos

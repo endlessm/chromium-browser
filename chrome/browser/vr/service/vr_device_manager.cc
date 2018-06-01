@@ -8,13 +8,12 @@
 
 #include "base/bind.h"
 #include "base/feature_list.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/singleton.h"
 #include "build/build_config.h"
 #include "chrome/common/chrome_features.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/service_manager_connection.h"
-#include "device/vr/features/features.h"
+#include "device/vr/buildflags/buildflags.h"
 #include "device/vr/orientation/orientation_device_provider.h"
 #include "device/vr/vr_device_provider.h"
 

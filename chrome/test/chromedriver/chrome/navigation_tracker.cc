@@ -240,7 +240,8 @@ Status NavigationTracker::OnEvent(DevToolsClient* client,
     pending_frame_set_.insert(frame_id);
     loading_state_ = kLoading;
 
-    if (browser_info_->major_version >= 63) {
+    if (browser_info_->major_version >= 63 &&
+        browser_info_->major_version < 67) {
       // Check if the document is really loading.
       base::DictionaryValue params;
       params.SetString("expression", "document.readyState");
@@ -353,7 +354,9 @@ Status NavigationTracker::OnEvent(DevToolsClient* client,
       // contexts created and destroyed for this dummy frame.
       std::string name;
       if (!params.GetString("frame.name", &name))
-        return Status(kUnknownError, "missing or invalid 'frame.name'");
+        // https://bugs.chromium.org/p/chromium/issues/detail?id=823579
+        // OOPIF frames might not have names. Ignore them.
+        return Status(kOk);
       std::string url;
       if (!params.GetString("frame.url", &url))
         return Status(kUnknownError, "missing or invalid 'frame.url'");

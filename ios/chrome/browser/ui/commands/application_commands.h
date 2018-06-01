@@ -64,7 +64,7 @@
 - (void)switchModesAndOpenNewTab:(OpenNewTabCommand*)newTabCommand;
 
 // Starts a voice search on the current BVC.
-- (void)startVoiceSearch:(StartVoiceSearchCommand*)command;
+- (void)startVoiceSearch;
 
 // Shows the History UI.
 - (void)showHistory;

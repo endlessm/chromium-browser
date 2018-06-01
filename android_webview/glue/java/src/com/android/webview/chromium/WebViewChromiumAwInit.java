@@ -14,7 +14,6 @@ import android.os.Process;
 import android.util.Log;
 import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
-import android.webkit.ServiceWorkerController;
 import android.webkit.TokenBindingService;
 import android.webkit.WebStorage;
 import android.webkit.WebViewDatabase;
@@ -30,13 +29,12 @@ import org.chromium.android_webview.AwCookieManager;
 import org.chromium.android_webview.AwNetworkChangeNotifierRegistrationPolicy;
 import org.chromium.android_webview.AwQuotaManagerBridge;
 import org.chromium.android_webview.AwResource;
-import org.chromium.android_webview.AwSwitches;
+import org.chromium.android_webview.AwServiceWorkerController;
 import org.chromium.android_webview.AwTracingController;
 import org.chromium.android_webview.HttpAuthDatabase;
+import org.chromium.android_webview.VariationsSeedLoader;
 import org.chromium.android_webview.command_line.CommandLineUtil;
-import org.chromium.android_webview.services.AwVariationsSeedHandler;
 import org.chromium.base.BuildConfig;
-import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.PathService;
 import org.chromium.base.ThreadUtils;
@@ -44,6 +42,7 @@ import org.chromium.base.TraceEvent;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.ProcessInitException;
+import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.net.NetworkChangeNotifier;
 
 /**
@@ -66,8 +65,9 @@ public class WebViewChromiumAwInit {
     private WebIconDatabaseAdapter mWebIconDatabase;
     private WebStorageAdapter mWebStorage;
     private WebViewDatabaseAdapter mWebViewDatabase;
-    private Object mServiceWorkerController;
+    private AwServiceWorkerController mServiceWorkerController;
     private AwTracingController mAwTracingController;
+    private VariationsSeedLoader mSeedLoader;
 
     // Guards accees to the other members, and is notifyAll() signalled on the UI thread
     // when the chromium process has been started.
@@ -112,11 +112,10 @@ public class WebViewChromiumAwInit {
             return;
         }
 
-        // Make sure that ResourceProvider is initialized before starting the browser process.
         final PackageInfo webViewPackageInfo = WebViewFactory.getLoadedPackageInfo();
-        final String webViewPackageName = webViewPackageInfo.packageName;
         final Context context = ContextUtils.getApplicationContext();
 
+        // Make sure that ResourceProvider is initialized before starting the browser process.
         Thread startUpResourcesThread = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -148,16 +147,14 @@ public class WebViewChromiumAwInit {
         }
         // NOTE: Finished writing Java resources. From this point on, it's safe to use them.
 
-        // The WebView package name is used to locate the separate Service to which we copy crash
-        // minidumps. This package name must be set before a render process has a chance to crash -
-        // otherwise we might try to copy a minidump without knowing what process to copy it to.
-        // It's also used to determine channel for UMA, so it must be set before initializing UMA.
-        final boolean isExternalService = true;
-        AwBrowserProcess.setWebViewPackageName(webViewPackageName);
-        AwBrowserProcess.configureChildProcessLauncher(webViewPackageName, isExternalService);
+        AwBrowserProcess.configureChildProcessLauncher();
+
+        // finishVariationsInitLocked() must precede native initialization so the seed is available
+        // when AwFieldTrialCreator::SetUpFieldTrials() runs.
+        finishVariationsInitLocked();
+
         AwBrowserProcess.start();
-        AwBrowserProcess.handleMinidumpsAndSetMetricsConsent(
-                webViewPackageName, true /* updateMetricsConsent */);
+        AwBrowserProcess.handleMinidumpsAndSetMetricsConsent(true /* updateMetricsConsent */);
 
         mSharedStatics = new SharedStatics();
         if (CommandLineUtil.isBuildDebuggable()) {
@@ -175,24 +172,18 @@ public class WebViewChromiumAwInit {
 
         mStarted = true;
 
+        RecordHistogram.recordSparseSlowlyHistogram(
+                "Android.WebView.TargetSdkVersion", context.getApplicationInfo().targetSdkVersion);
+
         // Initialize thread-unsafe singletons.
         AwBrowserContext awBrowserContext = getBrowserContextOnUiThread();
         mGeolocationPermissions = new GeolocationPermissionsAdapter(
                 mFactory, awBrowserContext.getGeolocationPermissions());
         mWebStorage = new WebStorageAdapter(mFactory, AwQuotaManagerBridge.getInstance());
         mAwTracingController = awBrowserContext.getTracingController();
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
-            mServiceWorkerController = new ServiceWorkerControllerAdapter(
-                    awBrowserContext.getServiceWorkerController());
-        }
+        mServiceWorkerController = awBrowserContext.getServiceWorkerController();
 
         mFactory.getRunQueue().drainQueue();
-
-        boolean enableVariations =
-                CommandLine.getInstance().hasSwitch(AwSwitches.ENABLE_WEBVIEW_VARIATIONS);
-        if (enableVariations) {
-            AwVariationsSeedHandler.bindToVariationsService(webViewPackageName);
-        }
     }
 
     private void setUpResources(PackageInfo webViewPackageInfo, Context context) {
@@ -331,13 +322,13 @@ public class WebViewChromiumAwInit {
         return mCookieManager;
     }
 
-    public ServiceWorkerController getServiceWorkerController() {
+    public AwServiceWorkerController getServiceWorkerController() {
         synchronized (mLock) {
             if (mServiceWorkerController == null) {
                 ensureChromiumStartedLocked(true);
             }
         }
-        return (ServiceWorkerController) mServiceWorkerController;
+        return mServiceWorkerController;
     }
 
     public TokenBindingService getTokenBindingService() {
@@ -377,5 +368,25 @@ public class WebViewChromiumAwInit {
             }
         }
         return mWebViewDatabase;
+    }
+
+    // See comments in VariationsSeedLoader.java on when it's safe to call this.
+    public void startVariationsInit() {
+        synchronized (mLock) {
+            if (mSeedLoader == null) {
+                mSeedLoader = new VariationsSeedLoader();
+                mSeedLoader.startVariationsInit();
+            }
+        }
+    }
+
+    private void finishVariationsInitLocked() {
+        assert Thread.holdsLock(mLock);
+        if (mSeedLoader == null) {
+            Log.e(TAG, "finishVariationsInitLocked() called before startVariationsInit()");
+            startVariationsInit();
+        }
+        mSeedLoader.finishVariationsInit();
+        mSeedLoader = null; // Allow this to be GC'd after its background thread finishes.
     }
 }

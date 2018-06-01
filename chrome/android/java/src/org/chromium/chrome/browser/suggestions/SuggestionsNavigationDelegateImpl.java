@@ -14,7 +14,9 @@ import org.chromium.chrome.browser.NativePageHost;
 import org.chromium.chrome.browser.UrlConstants;
 import org.chromium.chrome.browser.bookmarks.BookmarkUtils;
 import org.chromium.chrome.browser.device.DeviceClassManager;
+import org.chromium.chrome.browser.download.DownloadMetrics;
 import org.chromium.chrome.browser.download.DownloadUtils;
+import org.chromium.chrome.browser.help.HelpAndFeedback;
 import org.chromium.chrome.browser.multiwindow.MultiWindowUtils;
 import org.chromium.chrome.browser.net.spdyproxy.DataReductionProxySettings;
 import org.chromium.chrome.browser.ntp.NewTabPageUma;
@@ -43,6 +45,8 @@ import org.chromium.ui.widget.Toast;
 public class SuggestionsNavigationDelegateImpl implements SuggestionsNavigationDelegate {
     private static final String CHROME_CONTENT_SUGGESTIONS_REFERRER =
             "https://www.googleapis.com/auth/chrome-content-suggestions";
+    private static final String CHROME_CONTEXTUAL_SUGGESTIONS_REFERRER =
+            "https://goto.google.com/explore-on-content-viewer";
     private static final String NEW_TAB_URL_HELP =
             "https://support.google.com/chrome/?p=new_tab";
 
@@ -112,7 +116,7 @@ public class SuggestionsNavigationDelegateImpl implements SuggestionsNavigationD
                     || windowOpenDisposition == WindowOpenDisposition.NEW_BACKGROUND_TAB;
             DownloadUtils.openFile(article.getAssetDownloadFile(),
                     article.getAssetDownloadMimeType(), article.getAssetDownloadGuid(), false, null,
-                    null);
+                    null, DownloadMetrics.NEW_TAP_PAGE);
             return;
         }
 
@@ -155,6 +159,13 @@ public class SuggestionsNavigationDelegateImpl implements SuggestionsNavigationD
                     WebReferrerPolicy.ALWAYS));
         }
 
+        // Set appropriate referrer for contextual suggestions to distinguish them from navigation
+        // from a page.
+        if (article.mCategory == KnownCategories.CONTEXTUAL) {
+            loadUrlParams.setReferrer(
+                    new Referrer(CHROME_CONTEXTUAL_SUGGESTIONS_REFERRER, WebReferrerPolicy.ALWAYS));
+        }
+
         Tab loadingTab = openUrl(windowOpenDisposition, loadUrlParams);
         if (loadingTab != null) SuggestionsMetrics.recordVisit(loadingTab, article);
     }
@@ -192,6 +203,14 @@ public class SuggestionsNavigationDelegateImpl implements SuggestionsNavigationD
         }
 
         return loadingTab;
+    }
+
+    @Override
+    public void showFeedback() {
+        Tab currentTab = mTabModelSelector.getCurrentTab();
+        HelpAndFeedback.getInstance(mActivity).showFeedback(mActivity, Profile.getLastUsedProfile(),
+                currentTab != null ? currentTab.getUrl() : null,
+                /* categoryTag = */ null);
     }
 
     private boolean openRecentTabSnippet(SnippetArticle article) {

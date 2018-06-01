@@ -28,9 +28,9 @@
 #endif
 #include "content/public/common/common_param_traits.h"
 #include "content/public/common/common_param_traits_macros.h"
-#include "extensions/features/features.h"
-#include "media/media_features.h"
-#include "printing/features/features.h"
+#include "extensions/buildflags/buildflags.h"
+#include "media/media_buildflags.h"
+#include "printing/buildflags/buildflags.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #undef CHROME_COMMON_CAST_MESSAGES_H_

@@ -13,7 +13,6 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
 #include "base/memory/memory_pressure_listener.h"
-#include "base/memory/ptr_util.h"
 #include "base/process/launch.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind_test_util.h"
@@ -21,7 +20,6 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/defaults.h"
-#include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile.h"
@@ -62,6 +60,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/download_test_observer.h"
 #include "content/public/test/test_navigation_observer.h"
+#include "content/public/test/test_utils.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "ui/base/page_transition_types.h"
 
@@ -669,8 +668,8 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, IncognitotoNonIncognito) {
 namespace {
 
 // Verifies that the given NavigationController has exactly two
-// entries that correspond to the given URLs and that all but the last
-// entry have null timestamps.
+// entries that correspond to the given URLs and that all entries have non-null
+// timestamps.
 void VerifyNavigationEntries(
     const content::NavigationController& controller,
     GURL url1, GURL url2) {
@@ -678,7 +677,7 @@ void VerifyNavigationEntries(
   EXPECT_EQ(1, controller.GetCurrentEntryIndex());
   EXPECT_EQ(url1, controller.GetEntryAtIndex(0)->GetURL());
   EXPECT_EQ(url2, controller.GetEntryAtIndex(1)->GetURL());
-  EXPECT_TRUE(controller.GetEntryAtIndex(0)->GetTimestamp().is_null());
+  EXPECT_FALSE(controller.GetEntryAtIndex(0)->GetTimestamp().is_null());
   EXPECT_FALSE(controller.GetEntryAtIndex(1)->GetTimestamp().is_null());
 }
 
@@ -704,7 +703,7 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, RestoreForeignTab) {
   tab.SetFromSyncData(sync_data, base::Time::Now());
   EXPECT_EQ(2U, tab.navigations.size());
   for (size_t i = 0; i < tab.navigations.size(); ++i)
-    EXPECT_TRUE(tab.navigations[i].timestamp().is_null());
+    EXPECT_FALSE(tab.navigations[i].timestamp().is_null());
 
   ASSERT_EQ(1, browser()->tab_strip_model()->count());
 
@@ -1245,8 +1244,8 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, PersistAndRestoreUserAgentOverride) {
   // Create a tab with an overridden user agent.
   ui_test_utils::NavigateToURL(browser(), url1_);
   ASSERT_EQ(0, browser()->tab_strip_model()->active_index());
-  browser()->tab_strip_model()->GetWebContentsAt(0)->
-      SetUserAgentOverride("override");
+  browser()->tab_strip_model()->GetWebContentsAt(0)->SetUserAgentOverride(
+      "override", false);
 
   // Create a tab without an overridden user agent.
   ui_test_utils::NavigateToURLWithDisposition(
@@ -1478,15 +1477,9 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, SessionStorageAfterTabReplace) {
 }
 
 IN_PROC_BROWSER_TEST_F(SessionRestoreTest, TabWithDownloadDoesNotGetRestored) {
-  base::ScopedAllowBlockingForTesting allow_blocking;
-  base::ScopedTempDir download_directory;
-  ASSERT_TRUE(download_directory.CreateUniqueTempDir());
   ASSERT_TRUE(embedded_test_server()->Start());
   ASSERT_EQ(Browser::TYPE_TABBED, browser()->type());
 
-  DownloadPrefs* download_prefs =
-      DownloadPrefs::FromBrowserContext(browser()->profile());
-  download_prefs->SetDownloadPath(download_directory.GetPath());
   GURL first_download_url =
       embedded_test_server()->GetURL("/downloads/a_zip_file.zip");
 

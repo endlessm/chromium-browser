@@ -12,13 +12,22 @@
 
 namespace ash {
 
+enum class AuthTarget { kPrimary, kSecondary };
+
 // Helpers for constructing TestApi instances.
 LockContentsView::TestApi MakeLockContentsViewTestApi(LockContentsView* view);
-LoginAuthUserView::TestApi MakeLoginPrimaryAuthTestApi(LockContentsView* view);
-LoginPasswordView::TestApi MakeLoginPasswordTestApi(LockContentsView* view);
+LoginAuthUserView::TestApi MakeLoginAuthTestApi(LockContentsView* view,
+                                                AuthTarget auth);
+LoginPasswordView::TestApi MakeLoginPasswordTestApi(LockContentsView* view,
+                                                    AuthTarget auth);
 
-// Utility method to create a new |mojom::UserInfoPtr| instance.
+// Utility method to create a new |mojom::LoginUserInfoPtr| instance
+// for regular user.
 mojom::LoginUserInfoPtr CreateUser(const std::string& email);
+
+// Utility method to create a new |mojom::LoginUserInfoPtr| instance for
+// public account user.
+mojom::LoginUserInfoPtr CreatePublicAccountUser(const std::string& email);
 
 }  // namespace ash
 

@@ -15,7 +15,6 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.StrictMode;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.View.MeasureSpec;
@@ -27,6 +26,7 @@ import android.widget.AbsListView;
 import android.widget.ListAdapter;
 
 import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.Log;
 
 import java.io.File;
 import java.io.IOException;
@@ -239,7 +239,7 @@ public class UiUtils {
                 // keyboard height. In certain cases this also means including the height of the
                 // Android navigation.
                 final float density = context.getResources().getDisplayMetrics().density;
-                bottomMargin -= KEYBOARD_DETECT_BOTTOM_THRESHOLD_DP * density;
+                bottomMargin = (int) (bottomMargin - KEYBOARD_DETECT_BOTTOM_THRESHOLD_DP * density);
             }
         }
 
@@ -482,5 +482,23 @@ public class UiUtils {
         }
 
         return maxWidth;
+    }
+
+    /**
+     * Get the index of a child {@link View} in a {@link ViewGroup}.
+     * @param child The child to find the index of.
+     * @return The index of the child in its parent. -1 if the child has no parent.
+     */
+    public static int getChildIndexInParent(View child) {
+        if (child.getParent() == null) return -1;
+        ViewGroup parent = (ViewGroup) child.getParent();
+        int indexInParent = -1;
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            if (parent.getChildAt(i) == child) {
+                indexInParent = i;
+                break;
+            }
+        }
+        return indexInParent;
     }
 }

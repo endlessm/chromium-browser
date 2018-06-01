@@ -22,16 +22,20 @@
 #include "content/browser/frame_host/render_frame_host_delegate.h"
 #include "content/browser/frame_host/render_frame_proxy_host.h"
 #include "content/browser/renderer_host/delegated_frame_host.h"
-#include "content/common/frame_messages.h"
+#include "content/common/frame_resize_params.h"
+#include "content/common/view_messages.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/resource_dispatcher_host.h"
 #include "content/public/browser/resource_throttle.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/common/file_chooser_file_info.h"
 #include "content/public/common/use_zoom_for_dsf_policy.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/test_frame_navigation_observer.h"
+#include "content/public/test/test_navigation_observer.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/browser/shell_javascript_dialog_manager.h"
 #include "net/url_request/url_request.h"
@@ -56,6 +60,20 @@ void SetShouldProceedOnBeforeUnload(Shell* shell, bool proceed, bool success) {
 
 RenderFrameHost* ConvertToRenderFrameHost(FrameTreeNode* frame_tree_node) {
   return frame_tree_node->current_frame_host();
+}
+
+bool NavigateToURLInSameBrowsingInstance(Shell* window, const GURL& url) {
+  TestNavigationObserver observer(window->web_contents());
+  // Using a PAGE_TRANSITION_LINK transition with a browser-initiated
+  // navigation forces it to stay in the current BrowsingInstance, as normally
+  // that transition is used by renderer-initiated navigations.
+  window->LoadURLForFrame(url, std::string(),
+                          ui::PageTransitionFromInt(ui::PAGE_TRANSITION_LINK));
+  observer.Wait();
+
+  if (!IsLastCommittedEntryOfPageType(window->web_contents(), PAGE_TYPE_NORMAL))
+    return false;
+  return window->web_contents()->GetLastCommittedURL() == url;
 }
 
 FrameTreeVisualizer::FrameTreeVisualizer() {
@@ -371,18 +389,17 @@ viz::FrameSinkId UpdateResizeParamsMessageFilter::GetOrWaitForId() {
 UpdateResizeParamsMessageFilter::~UpdateResizeParamsMessageFilter() {}
 
 void UpdateResizeParamsMessageFilter::OnUpdateResizeParams(
-    const gfx::Rect& screen_space_rect,
-    const gfx::Size& local_frame_size,
-    const ScreenInfo& screen_info,
-    uint64_t sequence_number,
-    const viz::SurfaceId& surface_id) {
-  gfx::Rect screen_space_rect_in_dip = screen_space_rect;
+    const viz::SurfaceId& surface_id,
+    const FrameResizeParams& resize_params) {
+  gfx::Rect screen_space_rect_in_dip = resize_params.screen_space_rect;
   if (IsUseZoomForDSFEnabled()) {
-    screen_space_rect_in_dip = gfx::Rect(
-        gfx::ScaleToFlooredPoint(screen_space_rect.origin(),
-                                 1.f / screen_info.device_scale_factor),
-        gfx::ScaleToCeiledSize(screen_space_rect.size(),
-                               1.f / screen_info.device_scale_factor));
+    screen_space_rect_in_dip =
+        gfx::Rect(gfx::ScaleToFlooredPoint(
+                      resize_params.screen_space_rect.origin(),
+                      1.f / resize_params.screen_info.device_scale_factor),
+                  gfx::ScaleToCeiledSize(
+                      resize_params.screen_space_rect.size(),
+                      1.f / resize_params.screen_info.device_scale_factor));
   }
   // Track each rect updates.
   content::BrowserThread::PostTask(
@@ -465,6 +482,65 @@ RenderProcessHostKillWaiter::Wait() {
 
   // Translate contents of the bucket into bad_message::BadMessageReason.
   return static_cast<bad_message::BadMessageReason>(bucket.min);
+}
+
+ShowWidgetMessageFilter::ShowWidgetMessageFilter()
+#if defined(OS_MACOSX) || defined(OS_ANDROID)
+    : content::BrowserMessageFilter(FrameMsgStart),
+#else
+    : content::BrowserMessageFilter(ViewMsgStart),
+#endif
+      message_loop_runner_(new content::MessageLoopRunner) {
+}
+
+ShowWidgetMessageFilter::~ShowWidgetMessageFilter() {}
+
+bool ShowWidgetMessageFilter::OnMessageReceived(const IPC::Message& message) {
+  IPC_BEGIN_MESSAGE_MAP(ShowWidgetMessageFilter, message)
+#if defined(OS_MACOSX) || defined(OS_ANDROID)
+    IPC_MESSAGE_HANDLER(FrameHostMsg_ShowPopup, OnShowPopup)
+#else
+    IPC_MESSAGE_HANDLER(ViewHostMsg_ShowWidget, OnShowWidget)
+#endif
+  IPC_END_MESSAGE_MAP()
+  return false;
+}
+
+void ShowWidgetMessageFilter::Wait() {
+  initial_rect_ = gfx::Rect();
+  routing_id_ = MSG_ROUTING_NONE;
+  message_loop_runner_->Run();
+}
+
+void ShowWidgetMessageFilter::Reset() {
+  initial_rect_ = gfx::Rect();
+  routing_id_ = MSG_ROUTING_NONE;
+  message_loop_runner_ = new content::MessageLoopRunner;
+}
+
+void ShowWidgetMessageFilter::OnShowWidget(int route_id,
+                                           const gfx::Rect& initial_rect) {
+  content::BrowserThread::PostTask(
+      content::BrowserThread::UI, FROM_HERE,
+      base::BindOnce(&ShowWidgetMessageFilter::OnShowWidgetOnUI, this, route_id,
+                     initial_rect));
+}
+
+#if defined(OS_MACOSX) || defined(OS_ANDROID)
+void ShowWidgetMessageFilter::OnShowPopup(
+    const FrameHostMsg_ShowPopup_Params& params) {
+  content::BrowserThread::PostTask(
+      content::BrowserThread::UI, FROM_HERE,
+      base::Bind(&ShowWidgetMessageFilter::OnShowWidgetOnUI, this,
+                 MSG_ROUTING_NONE, params.bounds));
+}
+#endif
+
+void ShowWidgetMessageFilter::OnShowWidgetOnUI(int route_id,
+                                               const gfx::Rect& initial_rect) {
+  initial_rect_ = initial_rect;
+  routing_id_ = route_id;
+  message_loop_runner_->Quit();
 }
 
 }  // namespace content

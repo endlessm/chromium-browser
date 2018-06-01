@@ -10,7 +10,7 @@
 #include "ash/shell.h"
 #include "ash/shell_test_api.h"
 #include "ash/system/power/power_button_controller.h"
-#include "ash/system/power/tablet_power_button_controller_test_api.h"
+#include "ash/system/power/power_button_controller_test_api.h"
 #include "ash/wm/lock_state_controller.h"
 #include "ash/wm/lock_state_controller_test_api.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
@@ -38,14 +38,6 @@ void PowerButtonTestBase::SetUp() {
   session_manager_client_ = new chromeos::FakeSessionManagerClient;
   dbus_setter->SetSessionManagerClient(
       base::WrapUnique(session_manager_client_));
-  if (has_tablet_mode_switch_) {
-    base::CommandLine::ForCurrentProcess()->AppendSwitch(
-        switches::kAshEnableTabletMode);
-  }
-  if (show_power_button_menu_) {
-    base::CommandLine::ForCurrentProcess()->AppendSwitch(
-        switches::kShowPowerButtonMenu);
-  }
   AshTestBase::SetUp();
 
   lock_state_controller_ = Shell::Get()->lock_state_controller();
@@ -60,6 +52,7 @@ void PowerButtonTestBase::TearDown() {
 
 void PowerButtonTestBase::ResetPowerButtonController() {
   ShellTestApi().ResetPowerButtonControllerForTest();
+  power_button_test_api_ = nullptr;
   InitPowerButtonControllerMembers(
       chromeos::PowerManagerClient::TabletMode::UNSUPPORTED);
 }
@@ -67,20 +60,16 @@ void PowerButtonTestBase::ResetPowerButtonController() {
 void PowerButtonTestBase::InitPowerButtonControllerMembers(
     chromeos::PowerManagerClient::TabletMode initial_tablet_mode_switch_state) {
   power_button_controller_ = Shell::Get()->power_button_controller();
-  power_button_controller_->SetTickClockForTesting(&tick_clock_);
+  power_button_test_api_ =
+      std::make_unique<PowerButtonControllerTestApi>(power_button_controller_);
+  power_button_test_api_->SetTickClock(&tick_clock_);
 
   if (initial_tablet_mode_switch_state !=
       chromeos::PowerManagerClient::TabletMode::UNSUPPORTED) {
     SetTabletModeSwitchState(initial_tablet_mode_switch_state);
-    tablet_controller_ =
-        power_button_controller_->tablet_power_button_controller_for_test();
-    tablet_test_api_ = std::make_unique<TabletPowerButtonControllerTestApi>(
-        tablet_controller_);
-    screenshot_controller_ =
-        power_button_controller_->screenshot_controller_for_test();
+    screenshot_controller_ = power_button_test_api_->GetScreenshotController();
   } else {
-    tablet_test_api_ = nullptr;
-    tablet_controller_ = nullptr;
+    power_button_test_api_->SetTurnScreenOffForTap(false);
     screenshot_controller_ = nullptr;
   }
 }
@@ -92,10 +81,7 @@ void PowerButtonTestBase::SetTabletModeSwitchState(
           chromeos::PowerManagerClient::LidState::OPEN,
           tablet_mode_switch_state});
 
-  tablet_controller_ =
-      power_button_controller_->tablet_power_button_controller_for_test();
-  screenshot_controller_ =
-      power_button_controller_->screenshot_controller_for_test();
+  screenshot_controller_ = power_button_test_api_->GetScreenshotController();
 }
 
 void PowerButtonTestBase::ForceClamshellPowerButton() {
@@ -129,7 +115,7 @@ void PowerButtonTestBase::GenerateMouseMoveEvent() {
 void PowerButtonTestBase::Initialize(
     PowerButtonController::ButtonType button_type,
     LoginStatus status) {
-  power_button_controller_->set_power_button_type_for_test(button_type);
+  power_button_test_api_->SetPowerButtonType(button_type);
   if (status == LoginStatus::NOT_LOGGED_IN)
     ClearLogin();
   else
@@ -154,9 +140,8 @@ void PowerButtonTestBase::EnableTabletMode(bool enable) {
 }
 
 void PowerButtonTestBase::AdvanceClockToAvoidIgnoring() {
-  tick_clock_.Advance(
-      TabletPowerButtonController::kIgnoreRepeatedButtonUpDelay +
-      base::TimeDelta::FromMilliseconds(1));
+  tick_clock_.Advance(PowerButtonController::kIgnoreRepeatedButtonUpDelay +
+                      base::TimeDelta::FromMilliseconds(1));
 }
 
 }  // namespace ash

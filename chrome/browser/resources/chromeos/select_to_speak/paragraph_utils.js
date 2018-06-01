@@ -136,7 +136,8 @@ function buildNodeGroup(nodes, index) {
   // While next node is in the same paragraph as this node AND is
   // a text type node, continue building the paragraph.
   while (index < nodes.length) {
-    if (node.name !== undefined && !isWhitespace(node.name)) {
+    if ((node.name !== undefined && !isWhitespace(node.name)) ||
+        (node.role == RoleType.TEXT_FIELD && node.value !== undefined)) {
       let newNode;
       if (node.role == RoleType.INLINE_TEXT_BOX && node.parent !== undefined) {
         if (node.parent.role == RoleType.STATIC_TEXT) {
@@ -161,7 +162,15 @@ function buildNodeGroup(nodes, index) {
         newNode = new NodeGroupItem(node, result.text.length, false);
       }
       if (newNode) {
-        result.text += newNode.node.name + ' ';
+        if (newNode.node.role == RoleType.TEXT_FIELD &&
+            newNode.node.children.length == 0 && newNode.node.value) {
+          // A text field with no children should use its value instead of
+          // the name element, this is the contents of the text field.
+          // This occurs in native UI such as the omnibox.
+          result.text += newNode.node.value + ' ';
+        } else {
+          result.text += newNode.node.name + ' ';
+        }
         result.nodes.push(newNode);
       }
     }

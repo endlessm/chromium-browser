@@ -35,8 +35,9 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/crash/content/app/crashpad.h"
 #include "components/url_formatter/elide_url.h"
+#include "content/public/browser/browser_thread.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
-#include "third_party/WebKit/public/platform/modules/notifications/WebNotificationConstants.h"
+#include "third_party/blink/public/platform/modules/notifications/web_notification_constants.h"
 #include "third_party/crashpad/crashpad/client/crashpad_client.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/message_center/public/cpp/notification.h"
@@ -205,8 +206,7 @@ bool NotificationPlatformBridge::CanHandleType(
 
 void NotificationPlatformBridgeMac::Display(
     NotificationHandler::Type notification_type,
-    const std::string& profile_id,
-    bool incognito,
+    Profile* profile,
     const message_center::Notification& notification,
     std::unique_ptr<NotificationCommon::Metadata> metadata) {
   base::scoped_nsobject<NotificationBuilder> builder(
@@ -270,8 +270,8 @@ void NotificationPlatformBridgeMac::Display(
 
   [builder setOrigin:base::SysUTF8ToNSString(notification.origin_url().spec())];
   [builder setNotificationId:base::SysUTF8ToNSString(notification.id())];
-  [builder setProfileId:base::SysUTF8ToNSString(profile_id)];
-  [builder setIncognito:incognito];
+  [builder setProfileId:base::SysUTF8ToNSString(GetProfileId(profile))];
+  [builder setIncognito:profile->IsOffTheRecord()];
   [builder
       setNotificationType:[NSNumber numberWithInteger:static_cast<NSInteger>(
                                                           notification_type)]];
@@ -288,10 +288,10 @@ void NotificationPlatformBridgeMac::Display(
   }
 }
 
-void NotificationPlatformBridgeMac::Close(const std::string& profile_id,
+void NotificationPlatformBridgeMac::Close(Profile* profile,
                                           const std::string& notification_id) {
   NSString* candidate_id = base::SysUTF8ToNSString(notification_id);
-  NSString* current_profile_id = base::SysUTF8ToNSString(profile_id);
+  NSString* current_profile_id = base::SysUTF8ToNSString(GetProfileId(profile));
 
   bool notification_removed = false;
   for (NSUserNotification* toast in
@@ -319,14 +319,13 @@ void NotificationPlatformBridgeMac::Close(const std::string& profile_id,
 }
 
 void NotificationPlatformBridgeMac::GetDisplayed(
-    const std::string& profile_id,
-    bool incognito,
-    const GetDisplayedNotificationsCallback& callback) const {
-  [alert_dispatcher_
-      getDisplayedAlertsForProfileId:base::SysUTF8ToNSString(profile_id)
-                           incognito:incognito
-                  notificationCenter:notification_center_
-                            callback:callback];
+    Profile* profile,
+    GetDisplayedNotificationsCallback callback) const {
+  [alert_dispatcher_ getDisplayedAlertsForProfileId:base::SysUTF8ToNSString(
+                                                        GetProfileId(profile))
+                                          incognito:profile->IsOffTheRecord()
+                                 notificationCenter:notification_center_
+                                           callback:std::move(callback)];
 }
 
 void NotificationPlatformBridgeMac::SetReadyCallback(

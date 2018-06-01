@@ -68,7 +68,7 @@ AwRenderThreadContextProvider::AwRenderThreadContextProvider(
                        gpu::kNullSurfaceHandle, nullptr /* share_context */,
                        attributes, limits, nullptr, nullptr, nullptr, nullptr);
 
-  context_->GetImplementation()->SetLostContextCallback(base::Bind(
+  context_->GetImplementation()->SetLostContextCallback(base::BindOnce(
       &AwRenderThreadContextProvider::OnLostContext, base::Unretained(this)));
 
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -140,8 +140,8 @@ class GrContext* AwRenderThreadContextProvider::GrContext() {
   if (gr_context_)
     return gr_context_.get();
 
-  sk_sp<GrGLInterface> interface(
-      skia_bindings::CreateGLES2InterfaceBindings(ContextGL()));
+  sk_sp<GrGLInterface> interface(skia_bindings::CreateGLES2InterfaceBindings(
+      ContextGL(), ContextSupport()));
   gr_context_ = GrContext::MakeGL(std::move(interface));
   cache_controller_->SetGrContext(gr_context_.get());
   return gr_context_.get();
@@ -150,13 +150,6 @@ class GrContext* AwRenderThreadContextProvider::GrContext() {
 viz::ContextCacheController* AwRenderThreadContextProvider::CacheController() {
   DCHECK(main_thread_checker_.CalledOnValidThread());
   return cache_controller_.get();
-}
-
-void AwRenderThreadContextProvider::InvalidateGrContext(uint32_t state) {
-  DCHECK(main_thread_checker_.CalledOnValidThread());
-
-  if (gr_context_)
-    gr_context_->resetContext(state);
 }
 
 base::Lock* AwRenderThreadContextProvider::GetLock() {

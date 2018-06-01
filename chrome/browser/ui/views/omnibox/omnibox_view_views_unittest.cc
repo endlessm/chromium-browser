@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
@@ -20,6 +21,7 @@
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/views/chrome_views_test_base.h"
 #include "components/omnibox/browser/omnibox_edit_model.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/toolbar/test_toolbar_model.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -163,13 +165,10 @@ class TestingOmniboxEditController : public ChromeOmniboxEditController {
 
  private:
   // ChromeOmniboxEditController:
-  void UpdateWithoutTabRestore() override {}
-  void OnChanged() override {}
   ToolbarModel* GetToolbarModel() override { return toolbar_model_; }
   const ToolbarModel* GetToolbarModel() const override {
     return toolbar_model_;
   }
-  content::WebContents* GetWebContents() override { return nullptr; }
 
   ToolbarModel* toolbar_model_;
 
@@ -184,8 +183,9 @@ class OmniboxViewViewsTest : public ChromeViewsTestBase {
  public:
   OmniboxViewViewsTest();
 
-  TestingOmniboxView* omnibox_view() { return omnibox_view_.get(); }
-  views::Textfield* omnibox_textfield() { return omnibox_view(); }
+  TestToolbarModel* toolbar_model() { return &toolbar_model_; }
+  TestingOmniboxView* omnibox_view() const { return omnibox_view_.get(); }
+  views::Textfield* omnibox_textfield() const { return omnibox_view(); }
   ui::TextEditCommand scheduled_text_edit_command() const {
     return test_api_->scheduled_text_edit_command();
   }
@@ -199,11 +199,12 @@ class OmniboxViewViewsTest : public ChromeViewsTestBase {
     return test_api_->GetRenderText()->cursor_enabled();
   }
 
- private:
+ protected:
   // testing::Test:
   void SetUp() override;
   void TearDown() override;
 
+ private:
   content::TestBrowserThreadBundle thread_bundle_;
   TestingProfile profile_;
   TemplateURLServiceFactoryTestUtil util_;
@@ -389,4 +390,144 @@ TEST_F(OmniboxViewViewsTest, Emphasis) {
                 omnibox_view()->scheme_range());
     }
   }
+}
+
+TEST_F(OmniboxViewViewsTest, RevertOnBlur) {
+  toolbar_model()->set_formatted_full_url(base::ASCIIToUTF16("permanent text"));
+  omnibox_view()->model()->ResetDisplayUrls();
+  omnibox_view()->RevertAll();
+
+  EXPECT_EQ(base::ASCIIToUTF16("permanent text"), omnibox_view()->text());
+  EXPECT_FALSE(omnibox_view()->model()->user_input_in_progress());
+
+  omnibox_view()->SetUserText(base::ASCIIToUTF16("user text"));
+
+  EXPECT_EQ(base::ASCIIToUTF16("user text"), omnibox_view()->text());
+  EXPECT_TRUE(omnibox_view()->model()->user_input_in_progress());
+
+  // Expect that on blur, if the text has been edited, stay in user input mode.
+  omnibox_textfield()->OnBlur();
+  EXPECT_EQ(base::ASCIIToUTF16("user text"), omnibox_view()->text());
+  EXPECT_TRUE(omnibox_view()->model()->user_input_in_progress());
+
+  // Expect that on blur, if the text is the same as the permanent text, exit
+  // user input mode.
+  omnibox_view()->SetUserText(base::ASCIIToUTF16("permanent text"));
+  EXPECT_TRUE(omnibox_view()->model()->user_input_in_progress());
+  omnibox_textfield()->OnBlur();
+  EXPECT_EQ(base::ASCIIToUTF16("permanent text"), omnibox_view()->text());
+  EXPECT_FALSE(omnibox_view()->model()->user_input_in_progress());
+}
+
+class OmniboxViewViewsSteadyStateElisionsTest : public OmniboxViewViewsTest {
+ protected:
+  void SetUp() override {
+    scoped_feature_list_.InitAndEnableFeature(
+        omnibox::kUIExperimentHideSteadyStateUrlSchemeAndSubdomains);
+
+    OmniboxViewViewsTest::SetUp();
+
+    toolbar_model()->set_formatted_full_url(
+        base::ASCIIToUTF16("https://example.com"));
+    toolbar_model()->set_url_for_display(base::ASCIIToUTF16("example.com"));
+    omnibox_view()->model()->ResetDisplayUrls();
+    omnibox_view()->RevertAll();
+
+    ExpectElidedUrlDisplayed();
+  }
+
+  bool IsSelectAll() const { return omnibox_view()->IsSelectAll(); }
+
+  void FocusAndSelectAll() {
+    omnibox_textfield()->OnFocus();
+    EXPECT_EQ(OMNIBOX_FOCUS_VISIBLE, omnibox_view()->model()->focus_state());
+
+    omnibox_view()->SelectAll(true);
+    EXPECT_TRUE(omnibox_view()->IsSelectAll());
+    ExpectElidedUrlDisplayed();
+  }
+
+  void ExpectFullUrlDisplayed() {
+    EXPECT_EQ(base::ASCIIToUTF16("https://example.com"),
+              omnibox_view()->text());
+    EXPECT_TRUE(omnibox_view()->model()->user_input_in_progress());
+  }
+
+  void ExpectElidedUrlDisplayed() {
+    EXPECT_EQ(base::ASCIIToUTF16("example.com"), omnibox_view()->text());
+    EXPECT_FALSE(omnibox_view()->model()->user_input_in_progress());
+  }
+
+  // Used to access members that are marked private in views::TextField.
+  views::View* omnibox_textfield_view() { return omnibox_view(); }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+TEST_F(OmniboxViewViewsSteadyStateElisionsTest, StayElidedOnFocus) {
+  // We should not unelide on focus.
+  omnibox_textfield()->OnFocus();
+
+  EXPECT_EQ(OMNIBOX_FOCUS_VISIBLE, omnibox_view()->model()->focus_state());
+  ExpectElidedUrlDisplayed();
+}
+
+TEST_F(OmniboxViewViewsSteadyStateElisionsTest, UnelideOnArrowKey) {
+  FocusAndSelectAll();
+
+  // Right key should unelide and move the cursor to the end.
+  omnibox_textfield_view()->OnKeyPressed(
+      ui::KeyEvent(ui::ET_KEY_PRESSED, ui::VKEY_RIGHT, 0));
+  ExpectFullUrlDisplayed();
+  size_t start, end;
+  omnibox_view()->GetSelectionBounds(&start, &end);
+  EXPECT_EQ(19U, start);
+  EXPECT_EQ(19U, end);
+
+  // Blur and restore the elided URL.
+  omnibox_textfield()->OnBlur();
+  FocusAndSelectAll();
+
+  // Left key should unelide and move the cursor to the beginning of the elided
+  // part.
+  omnibox_textfield_view()->OnKeyPressed(
+      ui::KeyEvent(ui::ET_KEY_PRESSED, ui::VKEY_LEFT, 0));
+  ExpectFullUrlDisplayed();
+  omnibox_view()->GetSelectionBounds(&start, &end);
+  EXPECT_EQ(8U, start);
+  EXPECT_EQ(8U, end);
+}
+
+TEST_F(OmniboxViewViewsSteadyStateElisionsTest, UnelideOnHomeKey) {
+  FocusAndSelectAll();
+
+  // Home key should unelide and move the cursor to the beginning of the full
+  // unelided URL.
+  omnibox_textfield_view()->OnKeyPressed(
+      ui::KeyEvent(ui::ET_KEY_PRESSED, ui::VKEY_HOME, 0));
+  ExpectFullUrlDisplayed();
+  size_t start, end;
+  omnibox_view()->GetSelectionBounds(&start, &end);
+  EXPECT_EQ(0U, start);
+  EXPECT_EQ(0U, end);
+}
+
+TEST_F(OmniboxViewViewsSteadyStateElisionsTest, GestureTaps) {
+  ui::GestureEvent tap_down(0, 0, 0, ui::EventTimeForNow(),
+                            ui::GestureEventDetails(ui::ET_GESTURE_TAP_DOWN));
+  omnibox_textfield_view()->OnGestureEvent(&tap_down);
+
+  // Select all on first tap.
+  ui::GestureEventDetails tap_details(ui::ET_GESTURE_TAP);
+  tap_details.set_tap_count(1);
+  ui::GestureEvent tap(0, 0, 0, ui::EventTimeForNow(), tap_details);
+  omnibox_textfield_view()->OnGestureEvent(&tap);
+
+  EXPECT_TRUE(IsSelectAll());
+  ExpectElidedUrlDisplayed();
+
+  // Unelide on second tap (cursor placement).
+  omnibox_textfield_view()->OnGestureEvent(&tap);
+  ExpectFullUrlDisplayed();
 }

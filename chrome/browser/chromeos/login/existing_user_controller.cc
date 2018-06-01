@@ -30,6 +30,7 @@
 #include "chrome/browser/chromeos/customization/customization_document.h"
 #include "chrome/browser/chromeos/login/arc_kiosk_controller.h"
 #include "chrome/browser/chromeos/login/auth/chrome_login_performer.h"
+#include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_service.h"
 #include "chrome/browser/chromeos/login/enterprise_user_session_metrics.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/screens/encryption_migration_screen.h"
@@ -50,7 +51,6 @@
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/system/device_disabling_manager.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/signin/easy_unlock_service.h"
 #include "chrome/browser/ui/aura/accessibility/automation_manager_aura.h"
 #include "chrome/browser/ui/webui/chromeos/login/l10n_util.h"
 #include "chrome/common/channel_info.h"
@@ -190,6 +190,11 @@ bool CanShowDebuggingFeatures() {
          base::CommandLine::ForCurrentProcess()->HasSwitch(
              chromeos::switches::kLoginManager) &&
          !session_manager::SessionManager::Get()->IsSessionStarted();
+}
+
+bool DemoModeEnabled() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      chromeos::switches::kEnableDemoMode);
 }
 
 void RecordPasswordChangeFlow(LoginPasswordChangeFlow flow) {
@@ -688,6 +693,11 @@ void ExistingUserController::OnStartEnableDebuggingScreen() {
     ShowEnableDebuggingScreen();
 }
 
+void ExistingUserController::OnStartDemoModeSetupScreen() {
+  if (DemoModeEnabled())
+    ShowDemoModeSetupScreen();
+}
+
 void ExistingUserController::OnStartKioskEnableScreen() {
   KioskAppManager::Get()->GetConsumerKioskAutoLaunchStatus(base::Bind(
       &ExistingUserController::OnConsumerKioskAutoLaunchCheckCompleted,
@@ -771,6 +781,10 @@ void ExistingUserController::ShowEnrollmentScreen() {
 
 void ExistingUserController::ShowEnableDebuggingScreen() {
   host_->StartWizard(OobeScreen::SCREEN_OOBE_ENABLE_DEBUGGING);
+}
+
+void ExistingUserController::ShowDemoModeSetupScreen() {
+  host_->StartWizard(OobeScreen::SCREEN_OOBE_DEMO_SETUP);
 }
 
 void ExistingUserController::ShowKioskEnableScreen() {
@@ -1081,8 +1095,9 @@ void ExistingUserController::OnOldEncryptionDetected(
       DBusThreadManager::Get()->GetSessionManagerClient(),
       std::move(cloud_policy_client), IsActiveDirectoryManaged(),
       user_context.GetAccountId(),
-      cryptohome::KeyDefinition(user_context.GetKey()->GetSecret(),
-                                std::string(), cryptohome::PRIV_DEFAULT));
+      cryptohome::KeyDefinition::CreateForPassword(
+          user_context.GetKey()->GetSecret(), std::string(),
+          cryptohome::PRIV_DEFAULT));
   pre_signin_policy_fetcher_->FetchPolicy(
       base::BindOnce(&ExistingUserController::OnPolicyFetchResult,
                      weak_factory_.GetWeakPtr(), user_context));

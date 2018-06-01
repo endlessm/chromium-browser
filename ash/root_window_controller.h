@@ -45,7 +45,6 @@ class ScopedCaptureClient;
 
 namespace ash {
 class AlwaysOnTopController;
-class AshTouchExplorationManager;
 class AshWindowTreeHost;
 class LockScreenActionBackgroundController;
 enum class LoginStatus;
@@ -58,6 +57,7 @@ class StatusAreaWidget;
 class SystemModalContainerLayoutManager;
 class SystemTray;
 class SystemWallpaperController;
+class TouchExplorationManager;
 class TouchHudDebug;
 class TouchHudProjection;
 class WallpaperWidgetController;
@@ -312,7 +312,7 @@ class ASH_EXPORT RootWindowController {
 
   // Responsible for initializing TouchExplorationController when spoken
   // feedback is on.
-  std::unique_ptr<AshTouchExplorationManager> touch_exploration_manager_;
+  std::unique_ptr<TouchExplorationManager> touch_exploration_manager_;
 
   // Heads-up displays for touch events. These HUDs are not owned by the root
   // window controller and manage their own lifetimes.
@@ -326,6 +326,10 @@ class ASH_EXPORT RootWindowController {
 
   std::unique_ptr<LockScreenActionBackgroundController>
       lock_screen_action_background_controller_;
+
+  // Whether child windows have been closed during shutdown. Exists to avoid
+  // calling related cleanup code more than once.
+  bool did_close_child_windows_ = false;
 
   static std::vector<RootWindowController*>* root_window_controllers_;
 

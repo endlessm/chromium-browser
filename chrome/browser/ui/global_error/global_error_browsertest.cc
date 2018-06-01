@@ -23,6 +23,7 @@
 #include "chrome/browser/ui/test/test_browser_dialog.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/extension_creator.h"
 #include "extensions/browser/extension_prefs.h"
@@ -127,7 +128,7 @@ void GlobalErrorBubbleTest::ShowUi(const std::string& name) {
     // delay, but some tasks run on the IO thread, so post a task there to
     // ensure it was flushed.
     // The test also needs to invoke OnBlacklistUpdated() directly. Usually this
-    // happens via NOTIFICATION_SAFE_BROWSING_UPDATE_COMPLETE but TestBlacklist
+    // happens via a callback from the SafeBrowsing DB, but TestBlacklist
     // replaced the SafeBrowsing DB with a fake one, so the notification source
     // is different.
     static_cast<extensions::Blacklist::Observer*>(extension_service)

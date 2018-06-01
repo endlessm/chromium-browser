@@ -4,6 +4,7 @@
 
 #include "chrome/browser/media/router/mojo/media_router_desktop.h"
 
+#include "base/bind_helpers.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/media/router/media_router_factory.h"
@@ -16,6 +17,7 @@
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/media_router/media_source_helper.h"
 #include "components/cast_channel/cast_socket_service.h"
+#include "content/public/browser/browser_thread.h"
 #include "extensions/common/extension.h"
 #if defined(OS_WIN)
 #include "chrome/browser/media/router/mojo/media_route_provider_util_win.h"
@@ -49,6 +51,10 @@ void MediaRouterDesktop::OnUserGesture() {
 #if defined(OS_WIN)
   EnsureMdnsDiscoveryEnabled();
 #endif
+}
+
+base::Value MediaRouterDesktop::GetState() const {
+  return media_sink_service_status_.GetStatusAsValue();
 }
 
 base::Optional<MediaRouteProviderId>
@@ -202,6 +208,8 @@ void MediaRouterDesktop::InitializeMediaRouteProviders() {
     InitializeWiredDisplayMediaRouteProvider();
   if (CastMediaRouteProviderEnabled())
     InitializeCastMediaRouteProvider();
+  if (DialSinkQueryEnabled())
+    InitializeDialMediaRouteProvider();
 }
 
 void MediaRouterDesktop::InitializeExtensionMediaRouteProviderProxy() {
@@ -240,6 +248,19 @@ void MediaRouterDesktop::InitializeCastMediaRouteProvider() {
           base::OnTaskRunnerDeleter(task_runner));
   RegisterMediaRouteProvider(MediaRouteProviderId::CAST,
                              std::move(cast_provider_ptr), base::DoNothing());
+}
+
+void MediaRouterDesktop::InitializeDialMediaRouteProvider() {
+  mojom::MediaRouterPtr media_router_ptr;
+  MediaRouterMojoImpl::BindToMojoRequest(mojo::MakeRequest(&media_router_ptr));
+  mojom::MediaRouteProviderPtr dial_provider_ptr;
+  DCHECK(media_sink_service_);
+
+  dial_provider_ = std::make_unique<DialMediaRouteProvider>(
+      mojo::MakeRequest(&dial_provider_ptr), std::move(media_router_ptr),
+      media_sink_service_->dial_media_sink_service());
+  RegisterMediaRouteProvider(MediaRouteProviderId::DIAL,
+                             std::move(dial_provider_ptr), base::DoNothing());
 }
 
 #if defined(OS_WIN)

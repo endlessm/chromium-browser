@@ -13,7 +13,6 @@
 #include "base/auto_reset.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/stl_util.h"
@@ -37,7 +36,7 @@
 #include "content/common/indexed_db/indexed_db_key_range.h"
 #include "content/public/common/content_switches.h"
 #include "storage/browser/blob/blob_data_handle.h"
-#include "third_party/WebKit/public/platform/modules/indexeddb/WebIDBDatabaseException.h"
+#include "third_party/blink/public/platform/modules/indexeddb/web_idb_database_exception.h"
 #include "third_party/leveldatabase/env_chromium.h"
 #include "url/origin.h"
 
@@ -258,8 +257,6 @@ class IndexedDBDatabase::OpenRequest
 
   void UpgradeTransactionFinished(bool committed) override {
     // Ownership of connection was already passed along in OnUpgradeNeeded.
-    DCHECK(!connection_);
-
     if (committed) {
       DCHECK_EQ(pending_->version, db_->metadata_.version);
       pending_->callbacks->OnSuccess(std::unique_ptr<IndexedDBConnection>(),

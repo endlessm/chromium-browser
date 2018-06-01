@@ -12,6 +12,7 @@
 namespace ash {
 
 class UnifiedSystemTrayBubble;
+class UnifiedSystemTrayModel;
 
 // UnifiedSystemTray is system menu of Chromium OS, which is typically
 // accessible from the button on the right bottom of the screen (Status Area).
@@ -32,6 +33,9 @@ class UnifiedSystemTray : public TrayBackgroundView {
   explicit UnifiedSystemTray(Shelf* shelf);
   ~UnifiedSystemTray() override;
 
+  // True if the bubble is shown.
+  bool IsBubbleShown() const;
+
   // TrayBackgroundView:
   bool PerformAction(const ui::Event& event) override;
   void ShowBubble(bool show_by_click) override;
@@ -40,8 +44,22 @@ class UnifiedSystemTray : public TrayBackgroundView {
   void HideBubbleWithView(const views::TrayBubbleView* bubble_view) override;
   void ClickedOutsideBubble() override;
 
+  UnifiedSystemTrayModel* model() { return model_.get(); }
+
  private:
+  // Private class implements message_center::UiDelegate.
+  class UiDelegate;
+
+  // Forwarded from UiDelegate.
+  void ShowBubbleInternal();
+  void HideBubbleInternal();
+
+  std::unique_ptr<UiDelegate> ui_delegate_;
+
   std::unique_ptr<UnifiedSystemTrayBubble> bubble_;
+
+  // Model class that stores UnifiedSystemTray's UI specific variables.
+  std::unique_ptr<UnifiedSystemTrayModel> model_;
 
   DISALLOW_COPY_AND_ASSIGN(UnifiedSystemTray);
 };

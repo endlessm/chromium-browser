@@ -12,7 +12,6 @@
 
 #include "base/feature_list.h"
 #include "base/ios/block_types.h"
-#include "base/ios/ios_util.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
 #import "base/mac/bind_objc_block.h"
@@ -562,6 +561,12 @@ paymentRequestFromMessage:(const base::DictionaryValue&)message
 }
 
 - (BOOL)handleRequestShow:(const base::DictionaryValue&)message {
+  bool waitForShowPromise;
+  if (!message.GetBoolean("waitForShowPromise", &waitForShowPromise)) {
+    LOG(ERROR) << "JS message parameter 'waitForShowPromise' is missing";
+    return NO;
+  }
+
   std::string errorMessage;
   payments::PaymentRequest* paymentRequest =
       [self paymentRequestFromMessage:message errorMessage:&errorMessage];
@@ -671,6 +676,14 @@ paymentRequestFromMessage:(const base::DictionaryValue&)message
   [_paymentRequestCoordinator setDelegate:self];
 
   [_paymentRequestCoordinator start];
+
+  if (waitForShowPromise) {
+    // Disable the UI and display the spinner.
+    [_paymentRequestCoordinator setPending:waitForShowPromise];
+
+    [self setUnblockEventQueueTimer];
+    [self setUpdateEventTimeoutTimer];
+  }
 
   return YES;
 }

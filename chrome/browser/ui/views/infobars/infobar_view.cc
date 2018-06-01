@@ -10,10 +10,9 @@
 
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/themes/theme_properties.h"
-#include "chrome/browser/ui/infobar_container_delegate.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/harmony/chrome_typography.h"
-#include "chrome/browser/ui/views/infobars/infobar_background.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/infobars/core/infobar_delegate.h"
 #include "components/strings/grit/components_strings.h"
@@ -89,27 +88,40 @@ gfx::Insets GetCloseButtonSpacing() {
 
 InfoBarView::InfoBarView(std::unique_ptr<infobars::InfoBarDelegate> delegate)
     : infobars::InfoBar(std::move(delegate)),
-      views::ExternalFocusTracker(this, nullptr),
-      child_container_(new views::View()),
-      icon_(nullptr),
-      close_button_(nullptr) {
+      views::ExternalFocusTracker(this, nullptr) {
   set_owned_by_client();  // InfoBar deletes itself at the appropriate time.
-  SetBackground(std::make_unique<InfoBarBackground>());
-  SetEventTargeter(std::make_unique<views::ViewTargeter>(this));
 
-  AddChildView(child_container_);
-
+  // Clip child layers; without this, buttons won't look correct during
+  // animation.
   SetPaintToLayer();
-  layer()->SetFillsBoundsOpaquely(false);
+  layer()->SetMasksToBounds(true);
 
-  child_container_->SetPaintToLayer();
-  child_container_->layer()->SetMasksToBounds(true);
-}
+  gfx::Image image = this->delegate()->GetIcon();
+  if (!image.IsEmpty()) {
+    icon_ = new views::ImageView;
+    icon_->SetImage(image.ToImageSkia());
+    icon_->SizeToPreferredSize();
+    icon_->SetProperty(
+        views::kMarginsKey,
+        new gfx::Insets(ChromeLayoutProvider::Get()->GetDistanceMetric(
+                            DISTANCE_TOAST_LABEL_VERTICAL),
+                        0));
+    AddChildView(icon_);
+  }
 
-const infobars::InfoBarContainer::Delegate* InfoBarView::container_delegate()
-    const {
-  const infobars::InfoBarContainer* infobar_container = container();
-  return infobar_container ? infobar_container->delegate() : NULL;
+  close_button_ = views::CreateVectorImageButton(this);
+  // This is the wrong color, but allows the button's size to be computed
+  // correctly.  We'll reset this with the correct color in OnThemeChanged().
+  views::SetImageFromVectorIcon(close_button_, vector_icons::kClose16Icon,
+                                gfx::kPlaceholderColor);
+  close_button_->SetAccessibleName(
+      l10n_util::GetStringUTF16(IDS_ACCNAME_CLOSE));
+  close_button_->SetFocusForPlatform();
+  gfx::Insets close_button_spacing = GetCloseButtonSpacing();
+  close_button_->SetProperty(views::kMarginsKey,
+                             new gfx::Insets(close_button_spacing.top(), 0,
+                                             close_button_spacing.bottom(), 0));
+  AddChildView(close_button_);
 }
 
 InfoBarView::~InfoBarView() {
@@ -117,6 +129,18 @@ InfoBarView::~InfoBarView() {
   // subclasses' RunMenu() functions should have prevented opening any new ones
   // once we became unowned.
   DCHECK(!menu_runner_.get());
+}
+
+void InfoBarView::RecalculateHeight() {
+  // Ensure the infobar is tall enough to display its contents.
+  int height = 0;
+  for (int i = 0; i < child_count(); ++i) {
+    View* child = child_at(i);
+    const gfx::Insets* const margins = child->GetProperty(views::kMarginsKey);
+    const int margin_height = margins ? margins->height() : 0;
+    height = std::max(height, child->height() + margin_height);
+  }
+  SetTargetHeight(height + GetSeparatorHeightDip());
 }
 
 views::Label* InfoBarView::CreateLabel(const base::string16& text) const {
@@ -143,14 +167,6 @@ void InfoBarView::AssignWidths(Labels* labels, int available_width) {
 }
 
 void InfoBarView::Layout() {
-  child_container_->SetBounds(
-      0, arrow_height(), width(),
-      bar_height() - InfoBarContainerDelegate::kSeparatorLineHeight);
-  // |child_container_| should be the only child.
-  DCHECK_EQ(1, child_count());
-
-  // Even though other views are technically grandchildren, we'll lay them out
-  // here on behalf of |child_container_|.
   const int spacing = GetElementSpacing();
   int start_x = 0;
   if (icon_) {
@@ -178,59 +194,33 @@ void InfoBarView::ViewHierarchyChanged(
     const ViewHierarchyChangedDetails& details) {
   View::ViewHierarchyChanged(details);
 
-  if (details.is_add && (details.child == this) && (close_button_ == NULL)) {
-    gfx::Image image = delegate()->GetIcon();
-    if (!image.IsEmpty()) {
-      icon_ = new views::ImageView;
-      icon_->SetImage(image.ToImageSkia());
-      icon_->SizeToPreferredSize();
-      icon_->SetProperty(
-          views::kMarginsKey,
-          new gfx::Insets(ChromeLayoutProvider::Get()->GetDistanceMetric(
-                              DISTANCE_TOAST_LABEL_VERTICAL),
-                          0));
-      child_container_->AddChildView(icon_);
-    }
-
-    close_button_ = views::CreateVectorImageButton(this);
-    views::SetImageFromVectorIcon(close_button_, vector_icons::kClose16Icon,
-                                  GetColor(kTextColor));
-    close_button_->SetAccessibleName(
-        l10n_util::GetStringUTF16(IDS_ACCNAME_CLOSE));
-    close_button_->SetFocusForPlatform();
-    gfx::Insets close_button_spacing = GetCloseButtonSpacing();
-    close_button_->SetProperty(
-        views::kMarginsKey, new gfx::Insets(close_button_spacing.top(), 0,
-                                            close_button_spacing.bottom(), 0));
-    // Subclasses should already be done adding child views by this point (see
-    // related DCHECK in Layout()).
-    child_container_->AddChildView(close_button_);
+  // Anything that needs to happen once after all subclasses add their children.
+  if (details.is_add && (details.child == this)) {
+    ReorderChildView(close_button_, -1);
+    RecalculateHeight();
   }
+}
 
-  // Ensure the infobar is tall enough to display its contents.
-  int height = 0;
-  for (int i = 0; i < child_container_->child_count(); ++i) {
-    View* child = child_container_->child_at(i);
-    const gfx::Insets* const margins = child->GetProperty(views::kMarginsKey);
-    const int margin_height = margins ? margins->height() : 0;
-    height = std::max(height, child->height() + margin_height);
+void InfoBarView::OnPaint(gfx::Canvas* canvas) {
+  views::View::OnPaint(canvas);
+
+  if (ShouldDrawSeparator()) {
+    const SkColor color =
+        GetColor(ThemeProperties::COLOR_DETACHED_BOOKMARK_BAR_SEPARATOR);
+    BrowserView::Paint1pxHorizontalLine(canvas, color, GetLocalBounds(), false);
   }
-  SetBarTargetHeight(height + InfoBarContainerDelegate::kSeparatorLineHeight);
 }
 
 void InfoBarView::OnThemeChanged() {
   const SkColor background_color = GetColor(kBackgroundColor);
-  child_container_->SetBackground(
-      views::CreateSolidBackground(background_color));
+  SetBackground(views::CreateSolidBackground(background_color));
 
   const SkColor text_color = GetColor(kTextColor);
-  if (close_button_) {
-    views::SetImageFromVectorIcon(close_button_, vector_icons::kClose16Icon,
-                                  text_color);
-  }
+  views::SetImageFromVectorIcon(close_button_, vector_icons::kClose16Icon,
+                                text_color);
 
-  for (int i = 0; i < child_container_->child_count(); ++i) {
-    View* child = child_container_->child_at(i);
+  for (int i = 0; i < child_count(); ++i) {
+    View* child = child_at(i);
     LabelType label_type = child->GetProperty(kLabelType);
     if (label_type != LabelType::kNone) {
       auto* label = static_cast<views::Label*>(child);
@@ -242,7 +232,13 @@ void InfoBarView::OnThemeChanged() {
 }
 
 void InfoBarView::OnNativeThemeChanged(const ui::NativeTheme* theme) {
+  // The constructor could not set initial colors correctly, since the
+  // ThemeProvider wasn't available yet.  When this function is called, the view
+  // has been added to a Widget, so that ThemeProvider is now present.
   OnThemeChanged();
+
+  // Native theme changes can affect font sizes.
+  RecalculateHeight();
 }
 
 void InfoBarView::ButtonPressed(views::Button* sender,
@@ -272,12 +268,9 @@ int InfoBarView::EndX() const {
 }
 
 int InfoBarView::OffsetY(views::View* view) const {
-  return std::max((bar_target_height() - view->height()) / 2, 0) -
-         (bar_target_height() - bar_height());
-}
-
-void InfoBarView::AddViewToContentArea(views::View* view) {
-  child_container_->AddChildView(view);
+  return GetSeparatorHeightDip() +
+         std::max((target_height() - view->height()) / 2, 0) -
+         (target_height() - height());
 }
 
 // static
@@ -323,7 +316,7 @@ void InfoBarView::PlatformSpecificHide(bool animate) {
     FocusLastFocusedExternalView();
 }
 
-void InfoBarView::PlatformSpecificOnHeightsRecalculated() {
+void InfoBarView::PlatformSpecificOnHeightRecalculated() {
   // Ensure that notifying our container of our size change will result in a
   // re-layout.
   InvalidateLayout();
@@ -349,7 +342,7 @@ gfx::Size InfoBarView::CalculatePreferredSize() const {
 
   return gfx::Size(
       width + GetCloseButtonSpacing().width() + close_button_->width(),
-      total_height());
+      computed_height());
 }
 
 void InfoBarView::OnWillChangeFocus(View* focused_before, View* focused_now) {
@@ -363,13 +356,31 @@ void InfoBarView::OnWillChangeFocus(View* focused_before, View* focused_now) {
   }
 }
 
-bool InfoBarView::DoesIntersectRect(const View* target,
-                                    const gfx::Rect& rect) const {
-  DCHECK_EQ(this, target);
-  // Only events that intersect the portion below the arrow are interesting.
-  gfx::Rect non_arrow_bounds = GetLocalBounds();
-  non_arrow_bounds.Inset(0, arrow_height(), 0, 0);
-  return rect.Intersects(non_arrow_bounds);
+bool InfoBarView::ShouldDrawSeparator() const {
+  // There will be no parent when this infobar is not in a container, e.g. if
+  // it's in a background tab.  It's still possible to reach here in that case,
+  // e.g. if ElevationIconSetter triggers a Layout().
+  return parent() && parent()->GetIndexOf(this) != 0;
+}
+
+int InfoBarView::GetSeparatorHeightDip() const {
+  // We only need a separator for infobars after the first; the topmost infobar
+  // uses the toolbar as its top separator.
+  //
+  // Ideally the separator would take out 1 px in layout, but since we lay out
+  // in DIPs, we reserve 1 DIP below scale factor 2x, and 0 DIPs at 2 or above.
+  // This way the padding above the infobar content will never be more than 1 px
+  // from its ideal value.
+  //
+  // This only works because all infobars have padding at the top; if we
+  // actually draw all the way to the top, we'd risk drawing a separator atop
+  // some infobar content.
+  auto scale_factor = [this]() {
+    auto* widget = GetWidget();
+    // There may be no widget in tests.
+    return widget ? widget->GetCompositor()->device_scale_factor() : 1;
+  };
+  return (ShouldDrawSeparator() && (scale_factor() < 2)) ? 1 : 0;
 }
 
 SkColor InfoBarView::GetColor(int id) const {

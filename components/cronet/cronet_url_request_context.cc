@@ -48,7 +48,7 @@
 #include "net/log/file_net_log_observer.h"
 #include "net/log/net_log_util.h"
 #include "net/nqe/network_quality_estimator_params.h"
-#include "net/proxy_resolution/proxy_service.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
 #include "net/quic/core/quic_versions.h"
 #include "net/ssl/channel_id_service.h"
 #include "net/url_request/url_request_context.h"
@@ -319,8 +319,9 @@ void CronetURLRequestContext::NetworkTasks::Initialize(
       std::make_unique<BasicNetworkDelegate>());
   context_builder.set_net_log(g_net_log.Get().net_log());
 
-  context_builder.set_proxy_resolution_service(cronet::CreateProxyService(
-      std::move(proxy_config_service), g_net_log.Get().net_log()));
+  context_builder.set_proxy_resolution_service(
+      cronet::CreateProxyResolutionService(std::move(proxy_config_service),
+                                           g_net_log.Get().net_log()));
 
   config->ConfigureURLRequestContextBuilder(&context_builder,
                                             g_net_log.Get().net_log());
@@ -350,7 +351,12 @@ void CronetURLRequestContext::NetworkTasks::Initialize(
 
   // Set up pref file if storage path is specified.
   if (!config->storage_path.empty()) {
+#if defined(OS_WIN)
+    base::FilePath storage_path(
+        base::FilePath::FromUTF8Unsafe(config->storage_path));
+#else
     base::FilePath storage_path(config->storage_path);
+#endif
     // Set up the HttpServerPropertiesManager.
     cronet_prefs_manager_ = std::make_unique<CronetPrefsManager>(
         config->storage_path, network_task_runner_, file_task_runner,
@@ -505,7 +511,11 @@ CronetURLRequestContext::GetNetworkTaskRunner() const {
 
 bool CronetURLRequestContext::StartNetLogToFile(const std::string& file_name,
                                                 bool log_all) {
+#if defined(OS_WIN)
+  base::FilePath file_path(base::FilePath::FromUTF8Unsafe(file_name));
+#else
   base::FilePath file_path(file_name);
+#endif
   base::ScopedFILE file(base::OpenFile(file_path, "w"));
   if (!file) {
     LOG(ERROR) << "Failed to open NetLog file for writing.";
@@ -640,8 +650,13 @@ void CronetURLRequestContext::NetworkTasks::StartNetLogToBoundedFile(
 
   // TODO(eroman): The cronet API passes a directory here. But it should now
   // just pass a file path.
-  base::FilePath file_path =
-      base::FilePath(dir_path).AppendASCII("netlog.json");
+#if defined(OS_WIN)
+  base::FilePath file_path(base::FilePath::FromUTF8Unsafe(dir_path));
+#else
+  base::FilePath file_path(dir_path);
+#endif
+  file_path = file_path.AppendASCII("netlog.json");
+
   {
     base::ScopedAllowBlocking allow_blocking;
     if (!base::PathIsWritable(file_path)) {

@@ -4,8 +4,7 @@
 
 #include "chromeos/components/tether/ble_connection_manager.h"
 
-#include "base/test/histogram_tester.h"
-#include "base/test/simple_test_clock.h"
+#include "base/memory/ptr_util.h"
 #include "base/timer/mock_timer.h"
 #include "chromeos/components/tether/ble_constants.h"
 #include "chromeos/components/tether/connection_reason.h"
@@ -42,11 +41,6 @@ const char kUserId[] = "userId";
 const char kBluetoothAddress1[] = "11:22:33:44:55:66";
 const char kBluetoothAddress2[] = "22:33:44:55:66:77";
 const char kBluetoothAddress3[] = "33:44:55:66:77:88";
-
-constexpr base::TimeDelta kStatusConnectedTime =
-    base::TimeDelta::FromSeconds(1);
-constexpr base::TimeDelta kStatusAuthenticatedTime =
-    base::TimeDelta::FromSeconds(3);
 
 struct SecureChannelStatusChange {
   SecureChannelStatusChange(
@@ -152,6 +146,102 @@ class UnregisteringObserver : public BleConnectionManager::Observer {
  private:
   BleConnectionManager* manager_;
   ConnectionReason connection_reason_;
+};
+
+class TestMetricsObserver final : public BleConnectionManager::MetricsObserver {
+ public:
+  TestMetricsObserver() = default;
+
+  bool HasDeviceStartedScan(const std::string& device_id) {
+    return base::ContainsKey(device_id_started_scan_set_, device_id);
+  }
+
+  bool HasDeviceReceivedAdvertisement(
+      const std::string& device_id,
+      bool is_background_advertisement_expected) {
+    return base::ContainsKey(device_id_to_received_advertisement_map_,
+                             device_id) &&
+           device_id_to_received_advertisement_map_[device_id] ==
+               is_background_advertisement_expected;
+  }
+
+  bool HasDeviceConnected(const std::string& device_id,
+                          bool is_background_advertisement_expected) {
+    return base::ContainsKey(device_id_to_connected_map_, device_id) &&
+           device_id_to_connected_map_[device_id] ==
+               is_background_advertisement_expected;
+  }
+
+  bool HasDeviceCreatedSecureChannel(
+      const std::string& device_id,
+      bool is_background_advertisement_expected) {
+    return base::ContainsKey(device_id_to_secure_channel_created_map_,
+                             device_id) &&
+           device_id_to_secure_channel_created_map_[device_id] ==
+               is_background_advertisement_expected;
+  }
+
+  bool HasDeviceDisconnected(
+      const std::string& device_id,
+      BleConnectionManager::StateChangeDetail expected_state_change_detail,
+      bool is_background_advertisement_expected) {
+    if (!base::ContainsKey(device_id_to_disconnected_map_, device_id))
+      return false;
+
+    for (std::pair<BleConnectionManager::StateChangeDetail, bool> event_pair :
+         device_id_to_disconnected_map_[device_id]) {
+      if (event_pair.first == expected_state_change_detail &&
+          event_pair.second == is_background_advertisement_expected)
+        return true;
+    }
+
+    return false;
+  }
+
+  // BleConnectionManager::MetricsObserver:
+  void OnConnectionAttemptStarted(const std::string& device_id) override {
+    device_id_started_scan_set_.insert(device_id);
+  }
+
+  void OnAdvertisementReceived(const std::string& device_id,
+                               bool is_background_advertisement) override {
+    device_id_to_received_advertisement_map_[device_id] =
+        is_background_advertisement;
+  }
+
+  void OnConnection(const std::string& device_id,
+                    bool is_background_advertisement) override {
+    device_id_to_connected_map_[device_id] = is_background_advertisement;
+  }
+
+  void OnSecureChannelCreated(const std::string& device_id,
+                              bool is_background_advertisement) override {
+    device_id_to_secure_channel_created_map_[device_id] =
+        is_background_advertisement;
+  }
+
+  void OnDeviceDisconnected(
+      const std::string& device_id,
+      BleConnectionManager::StateChangeDetail state_change_detail,
+      bool is_background_advertisement) override {
+    device_id_to_disconnected_map_[device_id].push_back(
+        std::make_pair(state_change_detail, is_background_advertisement));
+  }
+
+ private:
+  std::set<std::string> device_id_started_scan_set_;
+
+  // Maps to whether the call indicated that it was a background advertisement.
+  std::map<std::string, bool> device_id_to_received_advertisement_map_;
+  std::map<std::string, bool> device_id_to_connected_map_;
+  std::map<std::string, bool> device_id_to_secure_channel_created_map_;
+
+  // The |second| item tracks if the call indicated that it was a background
+  // advertisement.
+  std::map<
+      std::string,
+      std::vector<std::pair<BleConnectionManager::StateChangeDetail, bool>>>
+      device_id_to_disconnected_map_;
 };
 
 class FakeConnectionWithAddress : public cryptauth::FakeConnection {
@@ -300,24 +390,27 @@ class BleConnectionManagerTest : public testing::Test {
         fake_ad_hoc_ble_advertiser_.get()));
     test_observer_ = base::WrapUnique(new TestObserver());
     manager_->AddObserver(test_observer_.get());
+    test_metrics_observer_ = base::WrapUnique(new TestMetricsObserver());
+    manager_->AddMetricsObserver(test_metrics_observer_.get());
 
-    test_clock_.SetNow(base::Time::UnixEpoch());
     mock_timer_factory_ = new MockTimerFactory();
-    manager_->SetTestDoubles(&test_clock_,
-                             base::WrapUnique(mock_timer_factory_));
+    manager_->SetTestTimerFactoryForTesting(
+        base::WrapUnique(mock_timer_factory_));
   }
 
   void TearDown() override {
     // All state changes should have already been verified. This ensures that
     // no test has missed one.
-    VerifyConnectionStateChanges(std::vector<SecureChannelStatusChange>());
+    VerifyConnectionStateChanges(std::vector<SecureChannelStatusChange>(),
+                                 used_background_advertisements_);
 
     // Same with received messages.
     VerifyReceivedMessages(std::vector<ReceivedMessage>());
   }
 
   void VerifyConnectionStateChanges(
-      const std::vector<SecureChannelStatusChange>& expected_changes) {
+      const std::vector<SecureChannelStatusChange>& expected_changes,
+      bool is_background_advertisement = false) {
     verified_status_changes_.insert(verified_status_changes_.end(),
                                     expected_changes.begin(),
                                     expected_changes.end());
@@ -335,6 +428,28 @@ class BleConnectionManagerTest : public testing::Test {
       EXPECT_EQ(
           verified_status_changes_[i].status_change_detail,
           test_observer_->connection_status_changes()[i].status_change_detail);
+
+      if (verified_status_changes_[i].new_status ==
+          cryptauth::SecureChannel::Status::CONNECTING) {
+        EXPECT_TRUE(test_metrics_observer_->HasDeviceStartedScan(
+            verified_status_changes_[i].device_id));
+      } else if (verified_status_changes_[i].new_status ==
+                 cryptauth::SecureChannel::Status::CONNECTED) {
+        EXPECT_TRUE(test_metrics_observer_->HasDeviceConnected(
+            verified_status_changes_[i].device_id,
+            is_background_advertisement));
+      } else if (verified_status_changes_[i].new_status ==
+                 cryptauth::SecureChannel::Status::AUTHENTICATED) {
+        EXPECT_TRUE(test_metrics_observer_->HasDeviceCreatedSecureChannel(
+            verified_status_changes_[i].device_id,
+            is_background_advertisement));
+      } else if (verified_status_changes_[i].new_status ==
+                 cryptauth::SecureChannel::Status::DISCONNECTED) {
+        EXPECT_TRUE(test_metrics_observer_->HasDeviceDisconnected(
+            verified_status_changes_[i].device_id,
+            verified_status_changes_[i].status_change_detail,
+            is_background_advertisement));
+      }
     }
   }
 
@@ -400,12 +515,13 @@ class BleConnectionManagerTest : public testing::Test {
 
   void NotifyReceivedAdvertisementFromDevice(
       const std::string& bluetooth_address,
-      const cryptauth::RemoteDevice& remote_device) {
+      const cryptauth::RemoteDevice& remote_device,
+      bool is_background_advertisement) {
     device::MockBluetoothDevice device(
         mock_adapter_.get(), 0u /* bluetooth_class */, "name",
         bluetooth_address, false /* paired */, false /* connected */);
-    fake_ble_scanner_->NotifyReceivedAdvertisementFromDevice(remote_device,
-                                                             &device);
+    fake_ble_scanner_->NotifyReceivedAdvertisementFromDevice(
+        remote_device, &device, is_background_advertisement);
   }
 
   FakeSecureChannel* GetChannelForDevice(
@@ -436,40 +552,47 @@ class BleConnectionManagerTest : public testing::Test {
   FakeSecureChannel* ConnectSuccessfully(
       const cryptauth::RemoteDevice& remote_device,
       const std::string& bluetooth_address,
-      const ConnectionReason connection_reason) {
-    test_clock_.SetNow(base::Time::UnixEpoch());
-
+      const ConnectionReason connection_reason,
+      bool is_background_advertisement) {
     manager_->RegisterRemoteDevice(remote_device.GetDeviceId(),
                                    connection_reason);
     VerifyAdvertisingTimeoutSet(remote_device);
-    VerifyConnectionStateChanges(std::vector<SecureChannelStatusChange>{
-        {remote_device.GetDeviceId(),
-         cryptauth::SecureChannel::Status::DISCONNECTED,
-         cryptauth::SecureChannel::Status::CONNECTING,
-         BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE}});
+    VerifyConnectionStateChanges(
+        std::vector<SecureChannelStatusChange>{
+            {remote_device.GetDeviceId(),
+             cryptauth::SecureChannel::Status::DISCONNECTED,
+             cryptauth::SecureChannel::Status::CONNECTING,
+             BleConnectionManager::StateChangeDetail::
+                 STATE_CHANGE_DETAIL_NONE}},
+        is_background_advertisement);
 
-    FakeSecureChannel* channel =
-        ConnectChannel(remote_device, bluetooth_address);
-    AuthenticateChannel(remote_device);
+    FakeSecureChannel* channel = ReceiveAdvertisementAndConnectChannel(
+        remote_device, bluetooth_address, is_background_advertisement);
+    AuthenticateChannel(remote_device, is_background_advertisement);
     return channel;
   }
 
   // Creates a connection to |remote_device| at |bluetooth_address|. The device
   // must be registered before calling this function.
-  FakeSecureChannel* ConnectChannel(
+  FakeSecureChannel* ReceiveAdvertisementAndConnectChannel(
       const cryptauth::RemoteDevice& remote_device,
-      const std::string& bluetooth_address) {
+      const std::string& bluetooth_address,
+      bool is_background_advertisement) {
     VerifyDeviceRegistered(remote_device);
 
     fake_secure_channel_factory_->SetExpectedDeviceAddress(bluetooth_address);
-    NotifyReceivedAdvertisementFromDevice(bluetooth_address, remote_device);
+
+    NotifyReceivedAdvertisementFromDevice(bluetooth_address, remote_device,
+                                          is_background_advertisement);
+
     return GetChannelForDevice(remote_device);
   }
 
   // Authenticates the SecureChannel associated with |remote_device|. The device
   // must be registered and already have an associated channel before calling
   // this function.
-  void AuthenticateChannel(const cryptauth::RemoteDevice& remote_device) {
+  void AuthenticateChannel(const cryptauth::RemoteDevice& remote_device,
+                           bool is_background_advertisement) {
     VerifyDeviceRegistered(remote_device);
 
     FakeSecureChannel* channel = GetChannelForDevice(remote_device);
@@ -477,35 +600,27 @@ class BleConnectionManagerTest : public testing::Test {
 
     num_expected_authenticated_channels_++;
 
-    test_clock_.SetNow(base::Time::UnixEpoch());
-    channel->ChangeStatus(cryptauth::SecureChannel::Status::CONNECTING);
-
-    test_clock_.Advance(kStatusConnectedTime);
     channel->ChangeStatus(cryptauth::SecureChannel::Status::CONNECTED);
-    histogram_tester_.ExpectTimeBucketCount(
-        "InstantTethering.Performance.AdvertisementToConnectionDuration",
-        kStatusConnectedTime, num_expected_authenticated_channels_);
 
-    test_clock_.Advance(kStatusAuthenticatedTime);
     channel->ChangeStatus(cryptauth::SecureChannel::Status::AUTHENTICATING);
     channel->ChangeStatus(cryptauth::SecureChannel::Status::AUTHENTICATED);
-    histogram_tester_.ExpectTimeBucketCount(
-        "InstantTethering.Performance.ConnectionToAuthenticationDuration",
-        kStatusAuthenticatedTime, num_expected_authenticated_channels_);
 
-    VerifyConnectionStateChanges(std::vector<SecureChannelStatusChange>{
-        {remote_device.GetDeviceId(),
-         cryptauth::SecureChannel::Status::CONNECTING,
-         cryptauth::SecureChannel::Status::CONNECTED,
-         BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE},
-        {remote_device.GetDeviceId(),
-         cryptauth::SecureChannel::Status::CONNECTED,
-         cryptauth::SecureChannel::Status::AUTHENTICATING,
-         BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE},
-        {remote_device.GetDeviceId(),
-         cryptauth::SecureChannel::Status::AUTHENTICATING,
-         cryptauth::SecureChannel::Status::AUTHENTICATED,
-         BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE}});
+    VerifyConnectionStateChanges(
+        std::vector<SecureChannelStatusChange>{
+            {remote_device.GetDeviceId(),
+             cryptauth::SecureChannel::Status::CONNECTING,
+             cryptauth::SecureChannel::Status::CONNECTED,
+             BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE},
+            {remote_device.GetDeviceId(),
+             cryptauth::SecureChannel::Status::CONNECTED,
+             cryptauth::SecureChannel::Status::AUTHENTICATING,
+             BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE},
+            {remote_device.GetDeviceId(),
+             cryptauth::SecureChannel::Status::AUTHENTICATING,
+             cryptauth::SecureChannel::Status::AUTHENTICATED,
+             BleConnectionManager::StateChangeDetail::
+                 STATE_CHANGE_DETAIL_NONE}},
+        is_background_advertisement);
   }
 
   void VerifyLastMessageSent(FakeSecureChannel* channel,
@@ -528,16 +643,6 @@ class BleConnectionManagerTest : public testing::Test {
     EXPECT_EQ(sequence_number, sent_sequence_numbers_after_finished.back());
   }
 
-  void VerifyAdvertisingToConnectionDurationMetricNotRecorded() {
-    histogram_tester_.ExpectTotalCount(
-        "InstantTethering.Performance.AdvertisementToConnectionDuration", 0);
-  }
-
-  void VerifyConnectionToAuthenticationDurationMetricNotRecorded() {
-    histogram_tester_.ExpectTotalCount(
-        "InstantTethering.Performance.ConnectionToAuthenticationDuration", 0);
-  }
-
   const std::vector<cryptauth::RemoteDevice> test_devices_;
 
   std::unique_ptr<cryptauth::FakeCryptAuthService> fake_cryptauth_service_;
@@ -547,18 +652,18 @@ class BleConnectionManagerTest : public testing::Test {
   std::unique_ptr<FakeAdHocBleAdvertiser> fake_ad_hoc_ble_advertiser_;
   std::unique_ptr<BleAdvertisementDeviceQueue> device_queue_;
   MockTimerFactory* mock_timer_factory_;
-  base::SimpleTestClock test_clock_;
   std::unique_ptr<FakeConnectionFactory> fake_connection_factory_;
   std::unique_ptr<FakeSecureChannelFactory> fake_secure_channel_factory_;
   std::unique_ptr<TestObserver> test_observer_;
+  std::unique_ptr<TestMetricsObserver> test_metrics_observer_;
 
   std::vector<SecureChannelStatusChange> verified_status_changes_;
   std::vector<ReceivedMessage> verified_received_messages_;
+  bool used_background_advertisements_ = false;
 
   std::unique_ptr<BleConnectionManager> manager_;
 
   int num_expected_authenticated_channels_ = 0;
-  base::HistogramTester histogram_tester_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(BleConnectionManagerTest);
@@ -575,9 +680,6 @@ TEST_F(BleConnectionManagerTest, TestCannotScan) {
        cryptauth::SecureChannel::Status::DISCONNECTED,
        cryptauth::SecureChannel::Status::CONNECTING,
        BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE}});
-
-  VerifyAdvertisingToConnectionDurationMetricNotRecorded();
-  VerifyConnectionToAuthenticationDurationMetricNotRecorded();
 }
 
 TEST_F(BleConnectionManagerTest, TestCannotAdvertise) {
@@ -591,9 +693,6 @@ TEST_F(BleConnectionManagerTest, TestCannotAdvertise) {
        cryptauth::SecureChannel::Status::DISCONNECTED,
        cryptauth::SecureChannel::Status::CONNECTING,
        BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE}});
-
-  VerifyAdvertisingToConnectionDurationMetricNotRecorded();
-  VerifyConnectionToAuthenticationDurationMetricNotRecorded();
 }
 
 TEST_F(BleConnectionManagerTest, TestRegistersButNoResult) {
@@ -605,9 +704,6 @@ TEST_F(BleConnectionManagerTest, TestRegistersButNoResult) {
        cryptauth::SecureChannel::Status::DISCONNECTED,
        cryptauth::SecureChannel::Status::CONNECTING,
        BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE}});
-
-  VerifyAdvertisingToConnectionDurationMetricNotRecorded();
-  VerifyConnectionToAuthenticationDurationMetricNotRecorded();
 }
 
 TEST_F(BleConnectionManagerTest, TestRegistersAndUnregister_NoConnection) {
@@ -629,9 +725,6 @@ TEST_F(BleConnectionManagerTest, TestRegistersAndUnregister_NoConnection) {
        cryptauth::SecureChannel::Status::DISCONNECTED,
        BleConnectionManager::StateChangeDetail::
            STATE_CHANGE_DETAIL_DEVICE_WAS_UNREGISTERED}});
-
-  VerifyAdvertisingToConnectionDurationMetricNotRecorded();
-  VerifyConnectionToAuthenticationDurationMetricNotRecorded();
 }
 
 TEST_F(BleConnectionManagerTest, TestAdHocBleAdvertiser) {
@@ -645,8 +738,9 @@ TEST_F(BleConnectionManagerTest, TestAdHocBleAdvertiser) {
        BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE}});
 
   // Simulate the channel failing to find GATT services and disconnecting.
-  FakeSecureChannel* channel =
-      ConnectChannel(test_devices_[0], kBluetoothAddress1);
+  FakeSecureChannel* channel = ReceiveAdvertisementAndConnectChannel(
+      test_devices_[0], kBluetoothAddress1,
+      false /* is_background_advertisement */);
   channel->NotifyGattCharacteristicsNotAvailable();
   channel->Disconnect();
   VerifyConnectionStateChanges(std::vector<SecureChannelStatusChange>{
@@ -696,9 +790,6 @@ TEST_F(BleConnectionManagerTest, TestRegisterWithNoConnection_TimeoutOccurs) {
        cryptauth::SecureChannel::Status::DISCONNECTED,
        BleConnectionManager::StateChangeDetail::
            STATE_CHANGE_DETAIL_DEVICE_WAS_UNREGISTERED}});
-
-  VerifyAdvertisingToConnectionDurationMetricNotRecorded();
-  VerifyConnectionToAuthenticationDurationMetricNotRecorded();
 }
 
 TEST_F(BleConnectionManagerTest, TestSuccessfulConnection_FailsAuthentication) {
@@ -712,7 +803,9 @@ TEST_F(BleConnectionManagerTest, TestSuccessfulConnection_FailsAuthentication) {
        BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE}});
 
   fake_secure_channel_factory_->SetExpectedDeviceAddress(kBluetoothAddress1);
-  NotifyReceivedAdvertisementFromDevice(kBluetoothAddress1, test_devices_[0]);
+  NotifyReceivedAdvertisementFromDevice(
+      kBluetoothAddress1, test_devices_[0],
+      false /* is_background_advertisement */);
   FakeSecureChannel* channel = GetChannelForDevice(test_devices_[0]);
 
   // Should not result in an additional "disconnected => connecting" broadcast.
@@ -745,14 +838,13 @@ TEST_F(BleConnectionManagerTest, TestSuccessfulConnection_FailsAuthentication) {
        cryptauth::SecureChannel::Status::DISCONNECTED,
        cryptauth::SecureChannel::Status::CONNECTING,
        BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE}});
-
-  VerifyConnectionToAuthenticationDurationMetricNotRecorded();
 }
 
 TEST_F(BleConnectionManagerTest, TestSuccessfulConnection_SendAndReceive) {
   FakeSecureChannel* channel =
       ConnectSuccessfully(test_devices_[0], kBluetoothAddress1,
-                          ConnectionReason::TETHER_AVAILABILITY_REQUEST);
+                          ConnectionReason::TETHER_AVAILABILITY_REQUEST,
+                          false /* is_background_advertisement */);
 
   int sequence_number =
       manager_->SendMessage(test_devices_[0].GetDeviceId(), "request1");
@@ -790,6 +882,14 @@ TEST_F(BleConnectionManagerTest, TestSuccessfulConnection_SendAndReceive) {
            STATE_CHANGE_DETAIL_DEVICE_WAS_UNREGISTERED}});
 }
 
+TEST_F(BleConnectionManagerTest,
+       TestSuccessfulConnection_BackgroundAdvertisement) {
+  ConnectSuccessfully(test_devices_[0], kBluetoothAddress1,
+                      ConnectionReason::TETHER_AVAILABILITY_REQUEST,
+                      true /* is_background_advertisement */);
+  used_background_advertisements_ = true;
+}
+
 // Test for fix to crbug.com/706640. This test will crash without the fix.
 TEST_F(BleConnectionManagerTest,
        TestSuccessfulConnection_MultipleAdvertisementsReceived) {
@@ -805,14 +905,20 @@ TEST_F(BleConnectionManagerTest,
   fake_secure_channel_factory_->SetExpectedDeviceAddress(kBluetoothAddress1);
 
   // Simulate multiple advertisements being received:
-  NotifyReceivedAdvertisementFromDevice(kBluetoothAddress1, test_devices_[0]);
+  NotifyReceivedAdvertisementFromDevice(
+      kBluetoothAddress1, test_devices_[0],
+      false /* is_background_advertisement */);
   FakeSecureChannel* channel = GetChannelForDevice(test_devices_[0]);
 
-  NotifyReceivedAdvertisementFromDevice(kBluetoothAddress1, test_devices_[0]);
+  NotifyReceivedAdvertisementFromDevice(
+      kBluetoothAddress1, test_devices_[0],
+      false /* is_background_advertisement */);
   // Verify that a new channel has not been created:
   EXPECT_EQ(channel, GetChannelForDevice(test_devices_[0]));
 
-  NotifyReceivedAdvertisementFromDevice(kBluetoothAddress1, test_devices_[0]);
+  NotifyReceivedAdvertisementFromDevice(
+      kBluetoothAddress1, test_devices_[0],
+      false /* is_background_advertisement */);
   // Verify that a new channel has not been created:
   EXPECT_EQ(channel, GetChannelForDevice(test_devices_[0]));
 }
@@ -820,7 +926,8 @@ TEST_F(BleConnectionManagerTest,
 TEST_F(BleConnectionManagerTest,
        TestSuccessfulConnection_MultipleConnectionReasons) {
   ConnectSuccessfully(test_devices_[0], kBluetoothAddress1,
-                      ConnectionReason::TETHER_AVAILABILITY_REQUEST);
+                      ConnectionReason::TETHER_AVAILABILITY_REQUEST,
+                      false /* is_background_advertisement */);
 
   // Now, register a different connection reason.
   manager_->RegisterRemoteDevice(test_devices_[0].GetDeviceId(),
@@ -876,7 +983,9 @@ TEST_F(BleConnectionManagerTest, TestGetStatusForDevice) {
   EXPECT_EQ(cryptauth::SecureChannel::Status::CONNECTING, status);
 
   fake_secure_channel_factory_->SetExpectedDeviceAddress(kBluetoothAddress1);
-  NotifyReceivedAdvertisementFromDevice(kBluetoothAddress1, test_devices_[0]);
+  NotifyReceivedAdvertisementFromDevice(
+      kBluetoothAddress1, test_devices_[0],
+      false /* is_background_advertisement */);
   FakeSecureChannel* channel = GetChannelForDevice(test_devices_[0]);
 
   channel->ChangeStatus(cryptauth::SecureChannel::Status::CONNECTING);
@@ -943,7 +1052,8 @@ TEST_F(BleConnectionManagerTest,
        TestSuccessfulConnection_DisconnectsAfterConnection) {
   FakeSecureChannel* channel =
       ConnectSuccessfully(test_devices_[0], kBluetoothAddress1,
-                          ConnectionReason::TETHER_AVAILABILITY_REQUEST);
+                          ConnectionReason::TETHER_AVAILABILITY_REQUEST,
+                          false /* is_background_advertisement */);
 
   channel->ChangeStatus(cryptauth::SecureChannel::Status::DISCONNECTED);
   VerifyConnectionStateChanges(std::vector<SecureChannelStatusChange>{
@@ -999,9 +1109,6 @@ TEST_F(BleConnectionManagerTest, TwoDevices_NeitherCanAdvertise) {
        cryptauth::SecureChannel::Status::DISCONNECTED,
        cryptauth::SecureChannel::Status::CONNECTING,
        BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE}});
-
-  VerifyAdvertisingToConnectionDurationMetricNotRecorded();
-  VerifyConnectionToAuthenticationDurationMetricNotRecorded();
 }
 
 TEST_F(BleConnectionManagerTest,
@@ -1073,15 +1180,13 @@ TEST_F(BleConnectionManagerTest,
        cryptauth::SecureChannel::Status::DISCONNECTED,
        BleConnectionManager::StateChangeDetail::
            STATE_CHANGE_DETAIL_DEVICE_WAS_UNREGISTERED}});
-
-  VerifyAdvertisingToConnectionDurationMetricNotRecorded();
-  VerifyConnectionToAuthenticationDurationMetricNotRecorded();
 }
 
 TEST_F(BleConnectionManagerTest, TwoDevices_OneConnects) {
   // Successfully connect to device 0.
   ConnectSuccessfully(test_devices_[0], kBluetoothAddress1,
-                      ConnectionReason::TETHER_AVAILABILITY_REQUEST);
+                      ConnectionReason::TETHER_AVAILABILITY_REQUEST,
+                      false /* is_background_advertisement */);
 
   // Register device 1.
   manager_->RegisterRemoteDevice(test_devices_[1].GetDeviceId(),
@@ -1140,11 +1245,13 @@ TEST_F(BleConnectionManagerTest, TwoDevices_OneConnects) {
 TEST_F(BleConnectionManagerTest, TwoDevices_BothConnectSendAndReceive) {
   FakeSecureChannel* channel0 =
       ConnectSuccessfully(test_devices_[0], kBluetoothAddress1,
-                          ConnectionReason::TETHER_AVAILABILITY_REQUEST);
+                          ConnectionReason::TETHER_AVAILABILITY_REQUEST,
+                          false /* is_background_advertisement */);
 
   FakeSecureChannel* channel1 =
       ConnectSuccessfully(test_devices_[1], kBluetoothAddress2,
-                          ConnectionReason::TETHER_AVAILABILITY_REQUEST);
+                          ConnectionReason::TETHER_AVAILABILITY_REQUEST,
+                          false /* is_background_advertisement */);
 
   int sequence_number =
       manager_->SendMessage(test_devices_[0].GetDeviceId(), "request1_device0");
@@ -1245,8 +1352,9 @@ TEST_F(BleConnectionManagerTest, FourDevices_ComprehensiveTest) {
        BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE}});
 
   // Device 0 connects successfully.
-  FakeSecureChannel* channel0 =
-      ConnectChannel(test_devices_[0], kBluetoothAddress1);
+  FakeSecureChannel* channel0 = ReceiveAdvertisementAndConnectChannel(
+      test_devices_[0], kBluetoothAddress1,
+      false /* is_background_advertisement */);
 
   // Since device 0 has connected, advertising to that device is no longer
   // necessary. Device 2 should have filled up that advertising slot.
@@ -1273,7 +1381,8 @@ TEST_F(BleConnectionManagerTest, FourDevices_ComprehensiveTest) {
        BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE}});
 
   // Now, device 0 authenticates and sends and receives a message.
-  AuthenticateChannel(test_devices_[0]);
+  AuthenticateChannel(test_devices_[0],
+                      false /* is_background_advertisement */);
   int sequence_number =
       manager_->SendMessage(test_devices_[0].GetDeviceId(), "request1");
   VerifyLastMessageSent(channel0, sequence_number, "request1", 1);
@@ -1317,8 +1426,9 @@ TEST_F(BleConnectionManagerTest, FourDevices_ComprehensiveTest) {
        BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE}});
 
   // Device 3 connects successfully.
-  FakeSecureChannel* channel3 =
-      ConnectChannel(test_devices_[3], kBluetoothAddress3);
+  FakeSecureChannel* channel3 = ReceiveAdvertisementAndConnectChannel(
+      test_devices_[3], kBluetoothAddress3,
+      false /* is_background_advertisement */);
 
   // Since device 3 has connected, device 2 starts connecting again.
   VerifyConnectionStateChanges(std::vector<SecureChannelStatusChange>{
@@ -1328,7 +1438,8 @@ TEST_F(BleConnectionManagerTest, FourDevices_ComprehensiveTest) {
        BleConnectionManager::StateChangeDetail::STATE_CHANGE_DETAIL_NONE}});
 
   // Now, device 3 authenticates and sends and receives a message.
-  AuthenticateChannel(test_devices_[3]);
+  AuthenticateChannel(test_devices_[3],
+                      false /* is_background_advertisement */);
   sequence_number =
       manager_->SendMessage(test_devices_[3].GetDeviceId(), "request3");
   VerifyLastMessageSent(channel3, sequence_number, "request3", 1);
@@ -1392,7 +1503,8 @@ TEST_F(BleConnectionManagerTest, FourDevices_ComprehensiveTest) {
 TEST_F(BleConnectionManagerTest, ObserverUnregisters) {
   FakeSecureChannel* channel =
       ConnectSuccessfully(test_devices_[0], kBluetoothAddress1,
-                          ConnectionReason::TETHER_AVAILABILITY_REQUEST);
+                          ConnectionReason::TETHER_AVAILABILITY_REQUEST,
+                          false /* is_background_advertisement */);
 
   // Register two separate UnregisteringObservers. When a message is received,
   // the first observer will unregister the device.

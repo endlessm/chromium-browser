@@ -160,9 +160,9 @@ class TestShellObserver : public ShellObserver {
 
 class ShellTest : public AshTestBase {
  public:
+  // TODO(jamescook): Convert to AshTestBase::CreateTestWidget().
   views::Widget* CreateTestWindow(views::Widget::InitParams params) {
     views::Widget* widget = new views::Widget;
-    params.context = CurrentContext();
     widget->Init(params);
     return widget;
   }
@@ -491,7 +491,7 @@ TEST_F(ShellTest, TestPreTargetHandlerOrder) {
   ui::EventTargetTestApi test_api(shell);
   ShellTestApi shell_test_api(shell);
 
-  const ui::EventHandlerList& handlers = test_api.pre_target_handlers();
+  ui::EventHandlerList handlers = test_api.GetPreTargetHandlers();
   ui::EventHandlerList::const_iterator cursor_filter =
       std::find(handlers.begin(), handlers.end(), shell->mouse_cursor_filter());
   ui::EventHandlerList::const_iterator drag_drop = std::find(
@@ -567,7 +567,7 @@ TEST_F(ShellLocalStateTest, LocalState) {
   TestingPrefServiceSimple* local_state_ptr = local_state.get();
   ShellTestApi().OnLocalStatePrefServiceInitialized(std::move(local_state));
   EXPECT_EQ(local_state_ptr, observer.last_local_state_);
-  EXPECT_EQ(local_state_ptr, Shell::Get()->GetLocalStatePrefService());
+  EXPECT_EQ(local_state_ptr, ash_test_helper()->GetLocalStatePrefService());
 
   Shell::Get()->RemoveShellObserver(&observer);
 }

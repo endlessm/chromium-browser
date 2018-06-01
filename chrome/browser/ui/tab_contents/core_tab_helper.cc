@@ -9,7 +9,6 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
@@ -35,7 +34,7 @@
 #include "content/public/common/context_menu_params.h"
 #include "net/base/load_states.h"
 #include "net/http/http_request_headers.h"
-#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if !defined(OS_ANDROID)
@@ -139,8 +138,8 @@ bool CoreTabHelper::GetStatusTextForWebContents(
     if (!guest_manager)
       return false;
     return guest_manager->ForEachGuest(
-        source, base::Bind(&CoreTabHelper::GetStatusTextForWebContents,
-                           status_text));
+        source, base::BindRepeating(&CoreTabHelper::GetStatusTextForWebContents,
+                                    status_text));
 #else  // !BUILDFLAG(ENABLE_EXTENSIONS)
     return false;
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
@@ -175,17 +174,17 @@ bool CoreTabHelper::GetStatusTextForWebContents(
       *status_text =
           l10n_util::GetStringUTF16(IDS_LOAD_STATE_ESTABLISHING_PROXY_TUNNEL);
       return true;
-    case net::LOAD_STATE_DOWNLOADING_PROXY_SCRIPT:
+    case net::LOAD_STATE_DOWNLOADING_PAC_FILE:
       *status_text =
-          l10n_util::GetStringUTF16(IDS_LOAD_STATE_DOWNLOADING_PROXY_SCRIPT);
+          l10n_util::GetStringUTF16(IDS_LOAD_STATE_DOWNLOADING_PAC_FILE);
       return true;
     case net::LOAD_STATE_RESOLVING_PROXY_FOR_URL:
       *status_text =
           l10n_util::GetStringUTF16(IDS_LOAD_STATE_RESOLVING_PROXY_FOR_URL);
       return true;
-    case net::LOAD_STATE_RESOLVING_HOST_IN_PROXY_SCRIPT:
-      *status_text = l10n_util::GetStringUTF16(
-          IDS_LOAD_STATE_RESOLVING_HOST_IN_PROXY_SCRIPT);
+    case net::LOAD_STATE_RESOLVING_HOST_IN_PAC_FILE:
+      *status_text =
+          l10n_util::GetStringUTF16(IDS_LOAD_STATE_RESOLVING_HOST_IN_PAC_FILE);
       return true;
     case net::LOAD_STATE_RESOLVING_HOST:
       *status_text = l10n_util::GetStringUTF16(IDS_LOAD_STATE_RESOLVING_HOST);
@@ -212,9 +211,6 @@ bool CoreTabHelper::GetStatusTextForWebContents(
       *status_text =
           l10n_util::GetStringFUTF16(IDS_LOAD_STATE_WAITING_FOR_RESPONSE,
                                      source->GetLoadStateHost());
-      return true;
-    case net::LOAD_STATE_THROTTLED:
-      *status_text = l10n_util::GetStringUTF16(IDS_LOAD_STATE_THROTTLED);
       return true;
     // Ignore net::LOAD_STATE_READING_RESPONSE and net::LOAD_STATE_IDLE
     case net::LOAD_STATE_IDLE:

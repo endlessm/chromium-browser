@@ -30,6 +30,7 @@
 #include "chrome/browser/net/loading_predictor_observer.h"
 #include "chrome/browser/page_load_metrics/metrics_web_contents_observer.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
+#include "chrome/browser/plugins/plugin_utils.h"
 #include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/prerender/prerender_manager_factory.h"
 #include "chrome/browser/prerender/prerender_resource_throttle.h"
@@ -81,7 +82,7 @@
 #include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/previews_state.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/load_flags.h"
@@ -103,10 +104,7 @@
 #include "chrome/browser/renderer_host/chrome_navigation_ui_data.h"
 #include "extensions/browser/extension_throttle_manager.h"
 #include "extensions/browser/guest_view/web_view/web_view_renderer_state.h"
-#include "extensions/browser/info_map.h"
-#include "extensions/common/constants.h"
 #include "extensions/common/extension_urls.h"
-#include "extensions/common/manifest_handlers/mime_types_handler.h"
 #include "extensions/common/user_script.h"
 #endif
 
@@ -128,8 +126,8 @@
 #endif
 
 using content::BrowserThread;
+using content::LoginDelegate;
 using content::RenderViewHost;
-using content::ResourceDispatcherHostLoginDelegate;
 using content::ResourceRequestInfo;
 using content::ResourceType;
 
@@ -143,8 +141,6 @@ using navigation_interception::InterceptNavigationDelegate;
 #endif
 
 namespace {
-
-ExternalProtocolHandler::Delegate* g_external_protocol_handler_delegate = NULL;
 
 void NotifyDownloadInitiatedOnUI(
     const content::ResourceRequestInfo::WebContentsGetter& wc_getter) {
@@ -186,95 +182,6 @@ void UpdatePrerenderNetworkBytesCallback(content::WebContents* web_contents,
       GetPrerenderManager(web_contents);
   if (prerender_manager)
     prerender_manager->AddProfileNetworkBytesIfEnabled(bytes);
-}
-
-#if BUILDFLAG(ENABLE_EXTENSIONS)
-void SendExecuteMimeTypeHandlerEvent(
-    std::unique_ptr<content::StreamInfo> stream,
-    int64_t expected_content_size,
-    const std::string& extension_id,
-    const std::string& view_id,
-    bool embedded,
-    int frame_tree_node_id,
-    int render_process_id,
-    int render_frame_id) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  content::WebContents* web_contents = nullptr;
-  if (frame_tree_node_id != -1) {
-    web_contents =
-        content::WebContents::FromFrameTreeNodeId(frame_tree_node_id);
-  } else {
-    web_contents = content::WebContents::FromRenderFrameHost(
-        content::RenderFrameHost::FromID(render_process_id, render_frame_id));
-  }
-  if (!web_contents)
-    return;
-
-  // If the request was for a prerender, abort the prerender and do not
-  // continue.
-  prerender::PrerenderContents* prerender_contents =
-      prerender::PrerenderContents::FromWebContents(web_contents);
-  if (prerender_contents) {
-    prerender_contents->Destroy(prerender::FINAL_STATUS_DOWNLOAD);
-    return;
-  }
-
-  Profile* profile =
-      Profile::FromBrowserContext(web_contents->GetBrowserContext());
-
-  StreamsPrivateAPI* streams_private = StreamsPrivateAPI::Get(profile);
-  if (!streams_private)
-    return;
-  streams_private->ExecuteMimeTypeHandler(
-      extension_id, std::move(stream), view_id, expected_content_size, embedded,
-      frame_tree_node_id, render_process_id, render_frame_id);
-}
-#endif  // !BUILDFLAG(ENABLE_EXTENSIONS)
-
-void LaunchURL(
-    const GURL& url,
-    const content::ResourceRequestInfo::WebContentsGetter& web_contents_getter,
-    ui::PageTransition page_transition,
-    bool has_user_gesture) {
-  // If there is no longer a WebContents, the request may have raced with tab
-  // closing. Don't fire the external request. (It may have been a prerender.)
-  content::WebContents* web_contents = web_contents_getter.Run();
-  if (!web_contents)
-    return;
-
-  // Do not launch external requests attached to unswapped prerenders.
-  prerender::PrerenderContents* prerender_contents =
-      prerender::PrerenderContents::FromWebContents(web_contents);
-  if (prerender_contents) {
-    prerender_contents->Destroy(prerender::FINAL_STATUS_UNSUPPORTED_SCHEME);
-    prerender::ReportPrerenderExternalURL();
-    return;
-  }
-
-  bool is_whitelisted = false;
-  Profile* profile =
-      Profile::FromBrowserContext(web_contents->GetBrowserContext());
-  PolicyBlacklistService* service =
-      PolicyBlacklistFactory::GetForProfile(profile);
-  if (service) {
-    const policy::URLBlacklist::URLBlacklistState url_state =
-        service->GetURLBlacklistState(url);
-    is_whitelisted =
-        url_state == policy::URLBlacklist::URLBlacklistState::URL_IN_WHITELIST;
-  }
-
-  // If the URL is in whitelist, we launch it without asking the user and
-  // without any additional security checks. Since the URL is whitelisted,
-  // we assume it can be executed.
-  if (is_whitelisted) {
-    ExternalProtocolHandler::LaunchUrlWithoutSecurityCheck(url, web_contents);
-  } else {
-    ExternalProtocolHandler::LaunchUrlWithDelegate(
-        url, web_contents->GetRenderViewHost()->GetProcess()->GetID(),
-        web_contents->GetRenderViewHost()->GetRoutingID(), page_transition,
-        has_user_gesture, g_external_protocol_handler_delegate);
-  }
 }
 
 #if BUILDFLAG(ENABLE_NACL)
@@ -614,39 +521,6 @@ void ChromeResourceDispatcherHostDelegate::DownloadStarting(
 #endif
 }
 
-bool ChromeResourceDispatcherHostDelegate::HandleExternalProtocol(
-    const GURL& url,
-    content::ResourceRequestInfo* info) {
-
-#if BUILDFLAG(ENABLE_EXTENSIONS)
-  // External protocols are disabled for guests. An exception is made for the
-  // "mailto" protocol, so that pages that utilize it work properly in a
-  // WebView.
-  int child_id = info->GetChildID();
-  ChromeNavigationUIData* navigation_data =
-      static_cast<ChromeNavigationUIData*>(info->GetNavigationUIData());
-  if ((extensions::WebViewRendererState::GetInstance()->IsGuest(child_id) ||
-      (navigation_data &&
-       navigation_data->GetExtensionNavigationUIData()->is_web_view())) &&
-      !url.SchemeIs(url::kMailToScheme)) {
-    return false;
-  }
-#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
-
-#if defined(OS_ANDROID)
-  // Main frame external protocols are handled by
-  // InterceptNavigationResourceThrottle.
-  if (info->IsMainFrame())
-    return false;
-#endif  // defined(ANDROID)
-
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
-      base::BindOnce(&LaunchURL, url, info->GetWebContentsGetterForRequest(),
-                     info->GetPageTransition(), info->HasUserGesture()));
-  return true;
-}
-
 void ChromeResourceDispatcherHostDelegate::AppendStandardResourceThrottles(
     net::URLRequest* request,
     content::ResourceContext* resource_context,
@@ -722,43 +596,16 @@ bool ChromeResourceDispatcherHostDelegate::ShouldInterceptResourceAsStream(
     std::string* payload) {
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request);
-  ProfileIOData* io_data =
-      ProfileIOData::FromResourceContext(info->GetContext());
-  bool profile_is_off_the_record = io_data->IsOffTheRecord();
-  const scoped_refptr<const extensions::InfoMap> extension_info_map(
-      io_data->GetExtensionInfoMap());
-  std::vector<std::string> whitelist = MimeTypesHandler::GetMIMETypeWhitelist();
-  // Go through the white-listed extensions and try to use them to intercept
-  // the URL request.
-  for (const std::string& extension_id : whitelist) {
-    const Extension* extension =
-        extension_info_map->extensions().GetByID(extension_id);
-    // The white-listed extension may not be installed, so we have to NULL check
-    // |extension|.
-    if (!extension ||
-        (profile_is_off_the_record &&
-         !extension_info_map->IsIncognitoEnabled(extension_id))) {
-      continue;
-    }
-
-    if (extension_id == extension_misc::kPdfExtensionId &&
-        io_data->always_open_pdf_externally()->GetValue()) {
-      continue;
-    }
-
-    MimeTypesHandler* handler = MimeTypesHandler::GetHandler(extension);
-    if (!handler)
-      continue;
-
-    if (handler->CanHandleMIMEType(mime_type)) {
-      StreamTargetInfo target_info;
-      *origin = Extension::GetBaseURLFromExtensionId(extension_id);
-      target_info.extension_id = extension_id;
-      target_info.view_id = base::GenerateGUID();
-      *payload = target_info.view_id;
-      stream_target_info_[request] = target_info;
-      return true;
-    }
+  std::string extension_id =
+      PluginUtils::GetExtensionIdForMimeType(info->GetContext(), mime_type);
+  if (!extension_id.empty()) {
+    StreamTargetInfo target_info;
+    *origin = Extension::GetBaseURLFromExtensionId(extension_id);
+    target_info.extension_id = extension_id;
+    target_info.view_id = base::GenerateGUID();
+    *payload = target_info.view_id;
+    stream_target_info_[request] = target_info;
+    return true;
   }
 #endif
   return false;
@@ -775,10 +622,12 @@ void ChromeResourceDispatcherHostDelegate::OnStreamCreated(
   bool embedded = info->GetResourceType() != content::RESOURCE_TYPE_MAIN_FRAME;
   content::BrowserThread::PostTask(
       content::BrowserThread::UI, FROM_HERE,
-      base::BindOnce(&SendExecuteMimeTypeHandlerEvent, std::move(stream),
-                     request->GetExpectedContentSize(), ix->second.extension_id,
-                     ix->second.view_id, embedded, info->GetFrameTreeNodeId(),
-                     info->GetChildID(), info->GetRenderFrameID()));
+      base::BindOnce(
+          &extensions::StreamsPrivateAPI::SendExecuteMimeTypeHandlerEvent,
+          request->GetExpectedContentSize(), ix->second.extension_id,
+          ix->second.view_id, embedded, info->GetFrameTreeNodeId(),
+          info->GetChildID(), info->GetRenderFrameID(), std::move(stream),
+          nullptr /* transferrable_loader */, GURL()));
   stream_target_info_.erase(request);
 #endif
 }
@@ -992,13 +841,6 @@ ChromeResourceDispatcherHostDelegate::DetermineEnabledPreviews(
       previews_state = content::PREVIEWS_OFF;
   }
   return previews_state;
-}
-
-// static
-void ChromeResourceDispatcherHostDelegate::
-    SetExternalProtocolHandlerDelegateForTesting(
-    ExternalProtocolHandler::Delegate* delegate) {
-  g_external_protocol_handler_delegate = delegate;
 }
 
 content::NavigationData*

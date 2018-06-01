@@ -186,6 +186,7 @@
         'test_suites': {
           'gtest_tests': 'chromium_android_gtests',
           'junit_tests': 'chromium_junit_tests',
+          'isolated_scripts': 'monochrome_apk_checker_isolated_script',
         },
         'swarming': {
           'dimension_sets': [
@@ -266,7 +267,7 @@
         ],
         'test_suites': {
           'gtest_tests': 'chromium_android_gtests',
-          'isolated_scripts': 'telemetry_perf_unittests_isolated_scripts',
+          'isolated_scripts': 'marshmallow_isolated_scripts',
         },
         'swarming': {
           'dimension_sets': [
@@ -662,6 +663,21 @@
         'additional_compile_targets': [
           'all',
         ],
+        # This mirrors 'KitKat Phone Tester (rel)'.
+        'test_suites': {
+          'gtest_tests': 'chromium_android_gtests',
+          'junit_tests': 'chromium_junit_tests',
+          'isolated_scripts': 'monochrome_apk_checker_isolated_script',
+        },
+        'swarming': {
+          'dimension_sets': [
+            {
+              'device_os': 'KTU84P',
+              'device_type': 'hammerhead',
+            },
+          ],
+        },
+        'os_type': 'android',
       },
       'ToTAndroid x64': {
         'swarming': {
@@ -833,6 +849,14 @@
           'gtest_tests': 'goma_gtests',
         },
       },
+      'Chromium Linux Goma RBE Staging': {
+        'additional_compile_targets': [
+          'all',
+        ],
+        'test_suites': {
+          'gtest_tests': 'goma_gtests',
+        },
+      },
       'Chromium Linux Goma Staging': {
         'additional_compile_targets': [
           'all',
@@ -917,22 +941,15 @@
           'gtest_tests': 'chromium_linux_clang_and_gl_gtests',
         },
       },
-      'linux-gcc-rel': {
-        'additional_compile_targets': [
-          'empty_main',
-        ],
-      },
       'linux-annotator-rel': {
-        # TODO(dpranke): Replace this with the full test when it's ready.
         'test_suites': {
-          'scripts': 'check_network_annotations_script',
+          'scripts': 'check_network_annotation_auditor_script',
         }
       },
-      'Chromium Mac 10.10 MacViews': {
+      'mac-views-rel': {
         'test_suites': {
           'gtest_tests': 'chromium_mac_fyi_gtests',
         },
-        'use_swarming': False,
       },
       'Chromium Mac 10.11': {
         'test_suites': {
@@ -1120,12 +1137,18 @@
           'isolated_scripts': 'linux_viz_isolated_scripts',
         },
       },
+      'linux-blink-heap-verification': {
+        'test_suites': {
+          'gtest_tests': 'chromium_gtests',
+          'isolated_scripts': 'chromium_webkit_isolated_scripts',
+        },
+      },
       'Mac Builder (dbg) Goma Canary': {
         'additional_compile_targets': [
           'all',
         ],
         'test_suites': {
-          'gtest_tests': 'goma_gtests',
+          'gtest_tests': 'goma_mac_gtests',
         },
       },
       'Mac Builder (dbg) Goma Canary (clobber)': {
@@ -1133,7 +1156,7 @@
           'all',
         ],
         'test_suites': {
-          'gtest_tests': 'goma_gtests',
+          'gtest_tests': 'goma_mac_gtests',
         },
       },
       'Mac Builder Goma Canary': {
@@ -1142,7 +1165,7 @@
           'pdf_fuzzers',
         ],
         'test_suites': {
-          'gtest_tests': 'goma_gtests',
+          'gtest_tests': 'goma_mac_gtests',
         },
       },
       'Mac Goma Canary (clobber)': {
@@ -1150,7 +1173,7 @@
           'all',
         ],
         'test_suites': {
-          'gtest_tests': 'goma_gtests',
+          'gtest_tests': 'goma_mac_gtests',
         },
       },
       'Mac Goma Canary LocalOutputCache': {
@@ -1158,7 +1181,7 @@
           'all',
         ],
         'test_suites': {
-          'gtest_tests': 'goma_gtests',
+          'gtest_tests': 'goma_mac_gtests',
         },
       },
       'Mojo Android': {
@@ -1420,6 +1443,11 @@
           'scripts': 'check_network_annotations_script',
         }
       },
+      'linux64-jumbo-rel': {
+        'additional_compile_targets': [
+          'all'
+        ]
+      },
       'Linux Builder (dbg)': {
         'additional_compile_targets': [
           'all'
@@ -1490,6 +1518,11 @@
         'test_suites': {
           'gtest_tests': 'ozone_linux_gtests',
         },
+      },
+      'linux-gcc-rel': {
+        'additional_compile_targets': [
+          'empty_main',
+        ],
       },
     },
   },
@@ -1586,11 +1619,6 @@
           'chromium_builder_asan',
         ],
       },
-      'Win SyzyASAN LKGR': {
-        'additional_compile_targets': [
-          'chromium_builder_asan',
-        ],
-      },
     },
   },
   {
@@ -1619,32 +1647,14 @@
           'isolated_scripts': 'chromium_rel_isolated_scripts',
         },
       },
-      'Mac10.9 Tests': {
+      'Mac10.13 Tests': {
         'test_suites': {
           'gtest_tests': 'chromium_mac_gtests',
           'isolated_scripts': 'chromium_rel_isolated_scripts',
           'scripts': 'chromium_scripts',
         },
-        'swarming': {
-          'dimension_sets': [
-            {
-              "gpu": "none",
-              "cpu": "x86-64",
-              "os": "Mac-10.9",
-              "pool": "Chrome",
-            },
-          ],
-        },
-        'use_multi_dimension_trigger_script': True,
-        'alternate_swarming_dimensions': [
-          {
-            "cpu": "x86-64",
-            "os": "Mac-10.13",
-            "pool": "Chrome",
-          },
-        ],
       },
-      'Mac10.9 Tests (dbg)': {
+      'Mac10.13 Tests (dbg)': {
         'test_suites': {
           'gtest_tests': 'chromium_mac_gtests',
           'isolated_scripts': 'chromium_dbg_isolated_scripts',
@@ -1694,17 +1704,17 @@
       },
       'Linux ChromiumOS MSan Tests': {
         'test_suites': {
-          'gtest_tests': 'chromium_memory_chromiumos_msan_gtests',
+          'gtest_tests': 'chromium_memory_chromiumos_asan_gtests',
         },
       },
       'Linux MSan Tests': {
         'test_suites': {
-          'gtest_tests': 'chromium_memory_linux_msan_gtests',
+          'gtest_tests': 'chromium_memory_linux_asan_gtests',
         },
       },
       'Linux TSan Tests': {
         'test_suites': {
-          'gtest_tests': 'chromium_memory_linux_tsan_gtests',
+          'gtest_tests': 'chromium_memory_linux_asan_gtests',
         },
       },
       'Mac ASan 64 Tests (1)': {
@@ -1746,6 +1756,22 @@
           'expiration': 10800,
         },
         'os_type': 'android',
+      },
+      'ChromeOS Swarm': {
+        'additional_compile_targets': [
+          'chromiumos_preflight',
+        ],
+        'test_suites': {
+          'isolated_scripts': 'chromeos_remote_device_isolated_tests',
+        },
+        'swarming': {
+          'dimension_sets': [
+            {
+              'device_type': 'kevin-signed-mpkeys',
+              'os': 'ChromeOS',
+            }
+          ],
+        },
       },
       'Linux Swarm': {
         'test_suites': {
@@ -1831,7 +1857,7 @@
           ],
         },
       },
-      'WebKit Mac10.11 (retina)': {
+      'WebKit Mac10.12 (retina)': {
         'test_suites': {
           'isolated_scripts': 'chromium_webkit_isolated_scripts',
         },
@@ -1847,18 +1873,8 @@
         },
       },
       'WebKit Mac10.12': {
-        'test_suites': {
-          'isolated_scripts': 'chromium_webkit_isolated_scripts',
-        },
-        'swarming': {
-          'dimension_sets': [
-            {
-              'gpu': '8086:0a2e',
-              'hidpi': '0',
-              'os': 'Mac-10.12.6',
-            },
-          ],
-        },
+        # TODO(dpranke): Remove this builder, it is now redundant
+        # w/ Mac10.13 Tests on chromium.mac
       },
       'WebKit Win x64 Builder': {
         # TODO(dpranke): Remove this builder, it is now redundant
@@ -1936,28 +1952,6 @@
     'machines': {
       'Android Builder': {
         'additional_compile_targets': [
-          'all',
-        ],
-      },
-      'Android Builder (dbg)': {
-        'additional_compile_targets': [
-          'content_browsertests',
-        ],
-      },
-      'Android Builder ARM64 (dbg)': {
-        'additional_compile_targets': [
-          'content_browsertests',
-        ],
-      },
-      'Linux Builder': {
-        'additional_compile_targets': [
-          'all',
-        ],
-      },
-      'Linux Builder (dbg)': {
-        'additional_compile_targets': [
-          'all',
-          # TODO(dpranke): Specifying these additional targets is pointless :).
           'browser_tests',
           'capture_unittests',
           'content_browsertests',
@@ -1966,14 +1960,55 @@
           'remoting_unittests',
         ],
       },
-      'Mac Builder': {
+      'Android Builder (dbg)': {
+        'additional_compile_targets': [
+          'browser_tests',
+          'capture_unittests',
+          'content_browsertests',
+          'content_unittests',
+          'jingle_unittests',
+          'remoting_unittests',
+        ],
+      },
+      'Android Builder ARM64 (dbg)': {
+        'additional_compile_targets': [
+          'browser_tests',
+          'capture_unittests',
+          'content_browsertests',
+          'content_unittests',
+          'jingle_unittests',
+          'remoting_unittests',
+        ],
+      },
+      'Linux Builder': {
+        'additional_compile_targets': [
+          'browser_tests',
+          'capture_unittests',
+          'content_browsertests',
+          'content_unittests',
+          'frame_analyzer',
+          'jingle_unittests',
+          'remoting_unittests',
+        ],
+      },
+      'Linux Builder (dbg)': {
         'additional_compile_targets': [
           'all',
         ],
       },
+      'Mac Builder': {
+        'additional_compile_targets': [
+          'browser_tests',
+          'capture_unittests',
+          'content_browsertests',
+          'content_unittests',
+          'frame_analyzer',
+          'jingle_unittests',
+          'remoting_unittests',
+        ],
+      },
       'Mac Builder (dbg)': {
         'additional_compile_targets': [
-          'all',
           'browser_tests',
           'capture_unittests',
           'content_browsertests',
@@ -1984,18 +2019,18 @@
       },
       'Win Builder': {
         'additional_compile_targets': [
-          'all',
+          'browser_tests',
+          'capture_unittests',
+          'content_browsertests',
+          'content_unittests',
+          'frame_analyzer',
+          'jingle_unittests',
+          'remoting_unittests',
         ],
       },
       'Win Builder (dbg)': {
         'additional_compile_targets': [
           'all',
-          'browser_tests',
-          'capture_unittests',
-          'content_browsertests',
-          'content_unittests',
-          'jingle_unittests',
-          'remoting_unittests',
         ],
       },
     },
@@ -2034,6 +2069,7 @@
       'Win10 Tests x64': {
         'test_suites': {
           'gtest_tests': 'chromium_win_gtests',
+          'isolated_scripts': 'win_specific_isolated_scripts',
         },
       },
       'Win7 (32) Tests': {
@@ -2049,6 +2085,12 @@
         },
       },
       'Win7 Tests (dbg)(1)': {
+        'test_suites': {
+          'gtest_tests': 'chromium_win_gtests',
+          'isolated_scripts': 'chromium_dbg_isolated_scripts',
+        },
+      },
+      'Win10 Tests x64 (dbg)': {
         'test_suites': {
           'gtest_tests': 'chromium_win_gtests',
           'isolated_scripts': 'chromium_dbg_isolated_scripts',
@@ -2082,42 +2124,45 @@
     'machines': {
       'win_chromium_compile': {
         'additional_compile_targets': [
-          'all',
+          'browser_tests',
+          'capture_unittests',
+          'content_browsertests',
+          'content_unittests',
+          'jingle_unittests',
+          'remoting_unittests',
+          'remoting/webapp:webapp',
         ],
       },
       'mac_chromium_compile': {
         'additional_compile_targets': [
-          'all',
+          'browser_tests',
+          'capture_unittests',
+          'content_browsertests',
+          'content_unittests',
+          'jingle_unittests',
+          'remoting_unittests',
+          'remoting/webapp:webapp',
         ],
       },
       'linux_chromium_compile': {
         'additional_compile_targets': [
-          'all',
+          'browser_tests',
+          'capture_unittests',
+          'content_browsertests',
+          'content_unittests',
+          'jingle_unittests',
+          'remoting_unittests',
+          'remoting/webapp:webapp',
         ],
       },
       'android_chromium_compile': {
         'additional_compile_targets': [
-          'all',
-        ],
-      },
-      'win_chromium_webrtc_compile_rel_ng': {
-        'additional_compile_targets': [
-          'all',
-        ],
-      },
-      'mac_chromium_webrtc_compile_rel_ng': {
-        'additional_compile_targets': [
-          'all',
-        ],
-      },
-      'linux_chromium_webrtc_compile_rel_ng': {
-        'additional_compile_targets': [
-          'all',
-        ],
-      },
-      'android_webrtc_compile_rel': {
-        'additional_compile_targets': [
-          'all',
+          'browser_tests',
+          'capture_unittests',
+          'content_browsertests',
+          'content_unittests',
+          'jingle_unittests',
+          'remoting_unittests',
         ],
       },
     },

@@ -42,7 +42,6 @@ namespace {
 
 using RetrievePolicyResponseType =
     SessionManagerClient::RetrievePolicyResponseType;
-using login_manager::PolicyDescriptor;
 
 constexpr char kEmptyAccountId[] = "";
 
@@ -89,10 +88,11 @@ void LogPolicyResponseUma(login_manager::PolicyAccountType account_type,
   }
 }
 
-PolicyDescriptor MakePolicyDescriptor(
+// Creates a PolicyDescriptor object to store/retrieve Chrome policy.
+login_manager::PolicyDescriptor MakeChromePolicyDescriptor(
     login_manager::PolicyAccountType account_type,
     const std::string& account_id) {
-  PolicyDescriptor descriptor;
+  login_manager::PolicyDescriptor descriptor;
   descriptor.set_account_type(account_type);
   descriptor.set_account_id(account_id);
   descriptor.set_domain(login_manager::POLICY_DOMAIN_CHROME);
@@ -153,6 +153,11 @@ class SessionManagerClientImpl : public SessionManagerClient {
         login_manager::kSessionManagerEmitLoginPromptVisible);
     for (auto& observer : observers_)
       observer.EmitLoginPromptVisibleCalled();
+  }
+
+  void EmitAshInitialized() override {
+    SimpleMethodCallToSessionManager(
+        login_manager::kSessionManagerEmitAshInitialized);
   }
 
   void RestartJob(int socket_fd,
@@ -263,21 +268,21 @@ class SessionManagerClientImpl : public SessionManagerClient {
   }
 
   void RetrieveDevicePolicy(RetrievePolicyCallback callback) override {
-    PolicyDescriptor descriptor = MakePolicyDescriptor(
+    login_manager::PolicyDescriptor descriptor = MakeChromePolicyDescriptor(
         login_manager::ACCOUNT_TYPE_DEVICE, kEmptyAccountId);
     CallRetrievePolicy(descriptor, std::move(callback));
   }
 
   RetrievePolicyResponseType BlockingRetrieveDevicePolicy(
       std::string* policy_out) override {
-    PolicyDescriptor descriptor = MakePolicyDescriptor(
+    login_manager::PolicyDescriptor descriptor = MakeChromePolicyDescriptor(
         login_manager::ACCOUNT_TYPE_DEVICE, kEmptyAccountId);
     return BlockingRetrievePolicy(descriptor, policy_out);
   }
 
   void RetrievePolicyForUser(const cryptohome::Identification& cryptohome_id,
                              RetrievePolicyCallback callback) override {
-    PolicyDescriptor descriptor = MakePolicyDescriptor(
+    login_manager::PolicyDescriptor descriptor = MakeChromePolicyDescriptor(
         login_manager::ACCOUNT_TYPE_USER, cryptohome_id.id());
     CallRetrievePolicy(descriptor, std::move(callback));
   }
@@ -285,7 +290,7 @@ class SessionManagerClientImpl : public SessionManagerClient {
   RetrievePolicyResponseType BlockingRetrievePolicyForUser(
       const cryptohome::Identification& cryptohome_id,
       std::string* policy_out) override {
-    PolicyDescriptor descriptor = MakePolicyDescriptor(
+    login_manager::PolicyDescriptor descriptor = MakeChromePolicyDescriptor(
         login_manager::ACCOUNT_TYPE_USER, cryptohome_id.id());
     return BlockingRetrievePolicy(descriptor, policy_out);
   }
@@ -293,7 +298,7 @@ class SessionManagerClientImpl : public SessionManagerClient {
   void RetrievePolicyForUserWithoutSession(
       const cryptohome::Identification& cryptohome_id,
       RetrievePolicyCallback callback) override {
-    PolicyDescriptor descriptor = MakePolicyDescriptor(
+    login_manager::PolicyDescriptor descriptor = MakeChromePolicyDescriptor(
         login_manager::ACCOUNT_TYPE_SESSIONLESS_USER, cryptohome_id.id());
     CallRetrievePolicy(descriptor, std::move(callback));
   }
@@ -301,7 +306,7 @@ class SessionManagerClientImpl : public SessionManagerClient {
   void RetrieveDeviceLocalAccountPolicy(
       const std::string& account_name,
       RetrievePolicyCallback callback) override {
-    PolicyDescriptor descriptor = MakePolicyDescriptor(
+    login_manager::PolicyDescriptor descriptor = MakeChromePolicyDescriptor(
         login_manager::ACCOUNT_TYPE_DEVICE_LOCAL_ACCOUNT, account_name);
     CallRetrievePolicy(descriptor, std::move(callback));
   }
@@ -309,14 +314,14 @@ class SessionManagerClientImpl : public SessionManagerClient {
   RetrievePolicyResponseType BlockingRetrieveDeviceLocalAccountPolicy(
       const std::string& account_name,
       std::string* policy_out) override {
-    PolicyDescriptor descriptor = MakePolicyDescriptor(
+    login_manager::PolicyDescriptor descriptor = MakeChromePolicyDescriptor(
         login_manager::ACCOUNT_TYPE_DEVICE_LOCAL_ACCOUNT, account_name);
     return BlockingRetrievePolicy(descriptor, policy_out);
   }
 
   void StoreDevicePolicy(const std::string& policy_blob,
                          VoidDBusMethodCallback callback) override {
-    PolicyDescriptor descriptor = MakePolicyDescriptor(
+    login_manager::PolicyDescriptor descriptor = MakeChromePolicyDescriptor(
         login_manager::ACCOUNT_TYPE_DEVICE, kEmptyAccountId);
     CallStorePolicy(descriptor, policy_blob, std::move(callback));
   }
@@ -324,7 +329,7 @@ class SessionManagerClientImpl : public SessionManagerClient {
   void StorePolicyForUser(const cryptohome::Identification& cryptohome_id,
                           const std::string& policy_blob,
                           VoidDBusMethodCallback callback) override {
-    PolicyDescriptor descriptor = MakePolicyDescriptor(
+    login_manager::PolicyDescriptor descriptor = MakeChromePolicyDescriptor(
         login_manager::ACCOUNT_TYPE_USER, cryptohome_id.id());
     CallStorePolicy(descriptor, policy_blob, std::move(callback));
   }
@@ -332,7 +337,7 @@ class SessionManagerClientImpl : public SessionManagerClient {
   void StoreDeviceLocalAccountPolicy(const std::string& account_name,
                                      const std::string& policy_blob,
                                      VoidDBusMethodCallback callback) override {
-    PolicyDescriptor descriptor = MakePolicyDescriptor(
+    login_manager::PolicyDescriptor descriptor = MakeChromePolicyDescriptor(
         login_manager::ACCOUNT_TYPE_DEVICE_LOCAL_ACCOUNT, account_name);
     CallStorePolicy(descriptor, policy_blob, std::move(callback));
   }
@@ -368,21 +373,41 @@ class SessionManagerClientImpl : public SessionManagerClient {
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
-  void StartArcInstance(const login_manager::StartArcInstanceRequest& request,
-                        StartArcInstanceCallback callback) override {
+  void StartArcMiniContainer(
+      const login_manager::StartArcMiniContainerRequest& request,
+      StartArcMiniContainerCallback callback) override {
     DCHECK(!callback.is_null());
-
     dbus::MethodCall method_call(
         login_manager::kSessionManagerInterface,
-        login_manager::kSessionManagerStartArcInstance);
+        login_manager::kSessionManagerStartArcMiniContainer);
+    dbus::MessageWriter writer(&method_call);
+
+    writer.AppendProtoAsArrayOfBytes(request);
+
+    session_manager_proxy_->CallMethod(
+        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        base::BindOnce(&SessionManagerClientImpl::OnStartArcMiniContainer,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+  }
+
+  void UpgradeArcContainer(
+      const login_manager::UpgradeArcContainerRequest& request,
+      UpgradeArcContainerCallback success_callback,
+      UpgradeErrorCallback error_callback) override {
+    DCHECK(!success_callback.is_null());
+    DCHECK(!error_callback.is_null());
+    dbus::MethodCall method_call(
+        login_manager::kSessionManagerInterface,
+        login_manager::kSessionManagerUpgradeArcContainer);
     dbus::MessageWriter writer(&method_call);
 
     writer.AppendProtoAsArrayOfBytes(request);
 
     session_manager_proxy_->CallMethodWithErrorResponse(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::BindOnce(&SessionManagerClientImpl::OnStartArcInstance,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+        base::BindOnce(&SessionManagerClientImpl::OnUpgradeArcContainer,
+                       weak_ptr_factory_.GetWeakPtr(),
+                       std::move(success_callback), std::move(error_callback)));
   }
 
   void StopArcInstance(VoidDBusMethodCallback callback) override {
@@ -457,36 +482,36 @@ class SessionManagerClientImpl : public SessionManagerClient {
         login_manager::kOwnerKeySetSignal,
         base::Bind(&SessionManagerClientImpl::OwnerKeySetReceived,
                    weak_ptr_factory_.GetWeakPtr()),
-        base::Bind(&SessionManagerClientImpl::SignalConnected,
-                   weak_ptr_factory_.GetWeakPtr()));
+        base::BindOnce(&SessionManagerClientImpl::SignalConnected,
+                       weak_ptr_factory_.GetWeakPtr()));
     session_manager_proxy_->ConnectToSignal(
         login_manager::kSessionManagerInterface,
         login_manager::kPropertyChangeCompleteSignal,
         base::Bind(&SessionManagerClientImpl::PropertyChangeCompleteReceived,
                    weak_ptr_factory_.GetWeakPtr()),
-        base::Bind(&SessionManagerClientImpl::SignalConnected,
-                   weak_ptr_factory_.GetWeakPtr()));
+        base::BindOnce(&SessionManagerClientImpl::SignalConnected,
+                       weak_ptr_factory_.GetWeakPtr()));
     session_manager_proxy_->ConnectToSignal(
         login_manager::kSessionManagerInterface,
         login_manager::kScreenIsLockedSignal,
         base::Bind(&SessionManagerClientImpl::ScreenIsLockedReceived,
                    weak_ptr_factory_.GetWeakPtr()),
-        base::Bind(&SessionManagerClientImpl::SignalConnected,
-                   weak_ptr_factory_.GetWeakPtr()));
+        base::BindOnce(&SessionManagerClientImpl::SignalConnected,
+                       weak_ptr_factory_.GetWeakPtr()));
     session_manager_proxy_->ConnectToSignal(
         login_manager::kSessionManagerInterface,
         login_manager::kScreenIsUnlockedSignal,
         base::Bind(&SessionManagerClientImpl::ScreenIsUnlockedReceived,
                    weak_ptr_factory_.GetWeakPtr()),
-        base::Bind(&SessionManagerClientImpl::SignalConnected,
-                   weak_ptr_factory_.GetWeakPtr()));
+        base::BindOnce(&SessionManagerClientImpl::SignalConnected,
+                       weak_ptr_factory_.GetWeakPtr()));
     session_manager_proxy_->ConnectToSignal(
         login_manager::kSessionManagerInterface,
         login_manager::kArcInstanceStopped,
         base::Bind(&SessionManagerClientImpl::ArcInstanceStoppedReceived,
                    weak_ptr_factory_.GetWeakPtr()),
-        base::Bind(&SessionManagerClientImpl::SignalConnected,
-                   weak_ptr_factory_.GetWeakPtr()));
+        base::BindOnce(&SessionManagerClientImpl::SignalConnected,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
 
  private:
@@ -506,7 +531,7 @@ class SessionManagerClientImpl : public SessionManagerClient {
   }
 
   // Non-blocking call to Session Manager to retrieve policy.
-  void CallRetrievePolicy(const PolicyDescriptor& descriptor,
+  void CallRetrievePolicy(const login_manager::PolicyDescriptor& descriptor,
                           RetrievePolicyCallback callback) {
     dbus::MethodCall method_call(
         login_manager::kSessionManagerInterface,
@@ -526,7 +551,7 @@ class SessionManagerClientImpl : public SessionManagerClient {
 
   // Blocking call to Session Manager to retrieve policy.
   RetrievePolicyResponseType BlockingRetrievePolicy(
-      const PolicyDescriptor& descriptor,
+      const login_manager::PolicyDescriptor& descriptor,
       std::string* policy_out) {
     dbus::MethodCall method_call(
         login_manager::kSessionManagerInterface,
@@ -549,13 +574,13 @@ class SessionManagerClientImpl : public SessionManagerClient {
       ExtractPolicyResponseString(descriptor.account_type(), response.get(),
                                   policy_out);
     } else {
-      *policy_out = "";
+      policy_out->clear();
     }
     LogPolicyResponseUma(descriptor.account_type(), result);
     return result;
   }
 
-  void CallStorePolicy(const PolicyDescriptor& descriptor,
+  void CallStorePolicy(const login_manager::PolicyDescriptor& descriptor,
                        const std::string& policy_blob,
                        VoidDBusMethodCallback callback) {
     dbus::MethodCall method_call(login_manager::kSessionManagerInterface,
@@ -587,8 +612,8 @@ class SessionManagerClientImpl : public SessionManagerClient {
     dbus::MessageReader reader(response);
     dbus::MessageReader array_reader(nullptr);
     if (!reader.PopArray(&array_reader)) {
-      LOG(ERROR) << method_name << " response is incorrect: "
-                 << response->ToString();
+      LOG(ERROR) << method_name
+                 << " response is incorrect: " << response->ToString();
       std::move(callback).Run(base::nullopt);
       return;
     }
@@ -690,14 +715,35 @@ class SessionManagerClientImpl : public SessionManagerClient {
 
   void ArcInstanceStoppedReceived(dbus::Signal* signal) {
     dbus::MessageReader reader(signal);
+
+    auto reason = login_manager::ArcContainerStopReason::CRASH;
+    uint32_t value = 0;
     bool clean = false;
+    if (reader.PopUint32(&value)) {
+      reason = static_cast<login_manager::ArcContainerStopReason>(value);
+    } else if (reader.PopBool(&clean)) {
+      // This is for the transition period.
+      // We can think the change is virtually split into two;
+      // - bool becomes enum ArcContainerStopReason. true is mapped to
+      //   USER_REQUEST, false is to CRASH. Then,
+      // - USER_REQUEST cases are split into more precise categories.
+      // The only client of this signal, which is ArcSessionImpl, can handle
+      // this approach.
+      // TODO(b/76152951): Remove this.
+      reason = clean ? login_manager::ArcContainerStopReason::USER_REQUEST
+                     : login_manager::ArcContainerStopReason::CRASH;
+    } else {
+      LOG(ERROR) << "Invalid signal: " << signal->ToString();
+      return;
+    }
+
     std::string container_instance_id;
-    if (!reader.PopBool(&clean) || !reader.PopString(&container_instance_id)) {
+    if (!reader.PopString(&container_instance_id)) {
       LOG(ERROR) << "Invalid signal: " << signal->ToString();
       return;
     }
     for (auto& observer : observers_)
-      observer.ArcInstanceStopped(clean, container_instance_id);
+      observer.ArcInstanceStopped(reason, container_instance_id);
   }
 
   // Called when the object is connected to the signal.
@@ -752,34 +798,44 @@ class SessionManagerClientImpl : public SessionManagerClient {
     std::move(callback).Run(base::TimeTicks::FromInternalValue(ticks));
   }
 
-  void OnStartArcInstance(StartArcInstanceCallback callback,
-                          dbus::Response* response,
-                          dbus::ErrorResponse* error) {
+  void OnStartArcMiniContainer(StartArcMiniContainerCallback callback,
+                               dbus::Response* response) {
     if (!response) {
-      LOG(ERROR) << "Failed to call StartArcInstance: "
-                 << (error ? error->ToString() : "(null)");
-      std::move(callback).Run(
-          error && error->GetErrorName() ==
-                       login_manager::dbus_error::kLowFreeDisk
-              ? StartArcInstanceResult::LOW_FREE_DISK_SPACE
-              : StartArcInstanceResult::UNKNOWN_ERROR,
-          std::string(), base::ScopedFD());
+      std::move(callback).Run(base::nullopt);
       return;
     }
 
     dbus::MessageReader reader(response);
     std::string container_instance_id;
-    base::ScopedFD server_socket;
-    if (!reader.PopString(&container_instance_id) ||
-        !reader.PopFileDescriptor(&server_socket)) {
+    if (!reader.PopString(&container_instance_id)) {
       LOG(ERROR) << "Invalid response: " << response->ToString();
-      std::move(callback).Run(StartArcInstanceResult::UNKNOWN_ERROR,
-                              std::string(), base::ScopedFD());
+      std::move(callback).Run(base::nullopt);
+      return;
+    }
+    std::move(callback).Run(std::move(container_instance_id));
+  }
+
+  void OnUpgradeArcContainer(UpgradeArcContainerCallback success_callback,
+                             UpgradeErrorCallback error_callback,
+                             dbus::Response* response,
+                             dbus::ErrorResponse* error) {
+    if (!response) {
+      LOG(ERROR) << "Failed to call UpgradeArcContainer: "
+                 << (error ? error->ToString() : "(null)");
+      std::move(error_callback)
+          .Run(error && error->GetErrorName() ==
+                            login_manager::dbus_error::kLowFreeDisk);
       return;
     }
 
-    std::move(callback).Run(StartArcInstanceResult::SUCCESS,
-                            container_instance_id, std::move(server_socket));
+    dbus::MessageReader reader(response);
+    base::ScopedFD server_socket;
+    if (!reader.PopFileDescriptor(&server_socket)) {
+      LOG(ERROR) << "Invalid response: " << response->ToString();
+      std::move(error_callback).Run(false);
+      return;
+    }
+    std::move(success_callback).Run(std::move(server_socket));
   }
 
   dbus::ObjectProxy* session_manager_proxy_ = nullptr;

@@ -7,7 +7,6 @@
 #include <string>
 
 #include "base/feature_list.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/optional.h"
 #include "chrome/browser/browser_process.h"
@@ -21,7 +20,7 @@
 #include "chrome/common/chrome_features.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
-#include "components/signin/core/browser/signin_header_helper.h"
+#include "components/signin/core/browser/cookie_settings_util.h"
 #include "content/public/browser/browser_context.h"
 
 // static

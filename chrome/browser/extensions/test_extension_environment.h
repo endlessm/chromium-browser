@@ -6,10 +6,13 @@
 #define CHROME_BROWSER_EXTENSIONS_TEST_EXTENSION_ENVIRONMENT_H_
 
 #include <memory>
+#include <string>
 
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/memory/scoped_refptr.h"
 #include "build/build_config.h"
+#include "content/public/test/mock_render_process_host.h"
+#include "extensions/common/extension.h"
 
 #if defined(OS_WIN)
 #include "ui/base/win/scoped_ole_initializer.h"
@@ -23,8 +26,8 @@ class Value;
 }
 
 namespace content {
-class WebContents;
 class TestBrowserThreadBundle;
+class WebContents;
 }
 
 namespace extensions {
@@ -42,12 +45,16 @@ class TestExtensionEnvironment {
   static ExtensionService* CreateExtensionServiceForProfile(
       TestingProfile* profile);
 
-  TestExtensionEnvironment();
+  enum class Type {
+    // A TestExtensionEnvironment which will provide a TestBrowserThreadBundle
+    // in its scope.
+    kWithTaskEnvironment,
+    // A TestExtensionEnvironment which will run on top of the existing task
+    // environment without trying to provide one.
+    kInheritExistingTaskEnvironment,
+  };
 
-  // Allows a test harness to pass its own message loop (typically
-  // base::MessageLoopForUI::current()), rather than have
-  // TestExtensionEnvironment create and own a TestBrowserThreadBundle.
-  explicit TestExtensionEnvironment(base::MessageLoopForUI* message_loop);
+  explicit TestExtensionEnvironment(Type type = Type::kWithTaskEnvironment);
 
   ~TestExtensionEnvironment();
 
@@ -90,14 +97,28 @@ class TestExtensionEnvironment {
 
   void Init();
 
-  std::unique_ptr<content::TestBrowserThreadBundle> thread_bundle_;
-  std::unique_ptr<ChromeOSEnv> chromeos_env_;
+  // If |thread_bundle_| is needed, then it needs to constructed before
+  // |profile_| and destroyed after |profile_|.
+  const std::unique_ptr<content::TestBrowserThreadBundle> thread_bundle_;
+
+#if defined(OS_CHROMEOS)
+  const std::unique_ptr<ChromeOSEnv> chromeos_env_;
+#endif
 
 #if defined(OS_WIN)
   ui::ScopedOleInitializer ole_initializer_;
 #endif
+
+  // This makes sure that creating a renderer during a test will created a
+  // MockRenderProcessHost instead of a RenderProcessHostImpl.  It is important
+  // that the factory is created and registered before |profile_| and destroyed
+  // after |profile_|.
+  // TODO(lukasza): https://crbug.com/832100: Move the factory into
+  // TestingProfile, so individual tests don't need to worry about it.
+  content::ScopedMockRenderProcessHostFactory process_factory_;
+
   std::unique_ptr<TestingProfile> profile_;
-  ExtensionService* extension_service_;
+  ExtensionService* extension_service_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(TestExtensionEnvironment);
 };

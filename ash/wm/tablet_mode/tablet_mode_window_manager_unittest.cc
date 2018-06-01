@@ -109,7 +109,6 @@ class TabletModeWindowManagerTest : public AshTestBase {
   aura::Window* CreateWindowWithWidget(const gfx::Rect& bounds) {
     views::Widget* widget = new views::Widget();
     views::Widget::InitParams params;
-    params.context = CurrentContext();
     // Note: The widget will get deleted with the window.
     widget->Init(params);
     widget->Show();
@@ -1684,6 +1683,7 @@ class TestObserver : public wm::WindowStateObserver {
   void OnPostWindowStateTypeChange(wm::WindowState* window_state,
                                    mojom::WindowStateType old_type) override {
     post_count_++;
+    post_layer_visibility_ = window_state->window()->layer()->visible();
     EXPECT_EQ(last_old_state_, old_type);
   }
 
@@ -1699,6 +1699,12 @@ class TestObserver : public wm::WindowStateObserver {
     return r;
   }
 
+  bool GetPostLayerVisibilityAndReset() {
+    bool r = post_layer_visibility_;
+    post_layer_visibility_ = false;
+    return r;
+  }
+
   mojom::WindowStateType GetLastOldStateAndReset() {
     mojom::WindowStateType r = last_old_state_;
     last_old_state_ = mojom::WindowStateType::DEFAULT;
@@ -1708,6 +1714,7 @@ class TestObserver : public wm::WindowStateObserver {
  private:
   int pre_count_ = 0;
   int post_count_ = 0;
+  bool post_layer_visibility_ = false;
   mojom::WindowStateType last_old_state_ = mojom::WindowStateType::DEFAULT;
 
   DISALLOW_COPY_AND_ASSIGN(TestObserver);
@@ -1763,6 +1770,7 @@ TEST_F(TabletModeWindowManagerTest, StateTypeChange) {
   EXPECT_EQ(1, observer.GetPostCountAndReset());
   EXPECT_EQ(mojom::WindowStateType::MINIMIZED,
             observer.GetLastOldStateAndReset());
+  EXPECT_EQ(true, observer.GetPostLayerVisibilityAndReset());
 
   window_state->RemoveObserver(&observer);
 
@@ -1796,6 +1804,32 @@ TEST_F(TabletModeWindowManagerTest, NoWindowResizerInTabletMode) {
   resizer = CreateWindowResizer(window.get(), gfx::Point(), HTCAPTION,
                                 ::wm::WINDOW_MOVE_SOURCE_MOUSE);
   EXPECT_FALSE(resizer.get());
+}
+
+// Test that the minimized window bounds doesn't change until it's unminimized.
+TEST_F(TabletModeWindowManagerTest, DontChangeBoundsForMinimizedWindow) {
+  gfx::Rect rect(10, 10, 200, 50);
+  std::unique_ptr<aura::Window> window(
+      CreateWindow(aura::client::WINDOW_TYPE_NORMAL, rect));
+  wm::WindowState* window_state = wm::GetWindowState(window.get());
+  window_state->Minimize();
+  EXPECT_TRUE(window_state->IsMinimized());
+
+  TabletModeWindowManager* manager = CreateTabletModeWindowManager();
+  ASSERT_TRUE(manager);
+  EXPECT_EQ(1, manager->GetNumberOfManagedWindows());
+  EXPECT_TRUE(window_state->IsMinimized());
+  EXPECT_EQ(window->bounds(), rect);
+
+  WindowSelectorController* window_selector_controller =
+      Shell::Get()->window_selector_controller();
+  window_selector_controller->ToggleOverview();
+  EXPECT_EQ(window->bounds(), rect);
+
+  // Exit overview mode will update all windows' bounds. However, if the window
+  // is minimized, the bounds will not be updated.
+  window_selector_controller->ToggleOverview();
+  EXPECT_EQ(window->bounds(), rect);
 }
 
 }  // namespace ash

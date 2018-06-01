@@ -5,20 +5,18 @@
 #ifndef CHROME_BROWSER_SAFE_BROWSING_PING_MANAGER_H_
 #define CHROME_BROWSER_SAFE_BROWSING_PING_MANAGER_H_
 
-#include "chrome/browser/permissions/permission_uma_util.h"
 #include "components/safe_browsing/base_ping_manager.h"
-#include "content/public/browser/permission_type.h"
 
+class Profile;
 class SkBitmap;
 
-namespace net {
-class URLRequestContextGetter;
-}  // namespace net
+namespace network {
+class SharedURLLoaderFactory;
+}  // namespace network
 
 namespace safe_browsing {
 
 class NotificationImageReporter;
-class PermissionReporter;
 class SafeBrowsingDatabaseManager;
 
 class SafeBrowsingPingManager : public BasePingManager {
@@ -27,11 +25,8 @@ class SafeBrowsingPingManager : public BasePingManager {
 
   // Create an instance of the safe browsing ping manager.
   static std::unique_ptr<SafeBrowsingPingManager> Create(
-      net::URLRequestContextGetter* request_context_getter,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const SafeBrowsingProtocolConfig& config);
-
-  // Report permission action to SafeBrowsing servers.
-  void ReportPermissionAction(const PermissionReportInfo& report_info);
 
   // Report notification content image to SafeBrowsing CSD server if necessary.
   void ReportNotificationImage(
@@ -42,18 +37,14 @@ class SafeBrowsingPingManager : public BasePingManager {
 
  private:
   friend class NotificationImageReporterTest;
-  friend class PermissionReporterBrowserTest;
   FRIEND_TEST_ALL_PREFIXES(SafeBrowsingPingManagerCertReportingTest,
                            UMAOnFailure);
 
   // Constructs a SafeBrowsingPingManager that issues network requests
-  // using |request_context_getter|.
+  // using |url_loader_factory|.
   SafeBrowsingPingManager(
-      net::URLRequestContextGetter* request_context_getter,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const SafeBrowsingProtocolConfig& config);
-
-  // Sends reports of permission actions.
-  std::unique_ptr<PermissionReporter> permission_reporter_;
 
   // Sends reports of notification content images.
   std::unique_ptr<NotificationImageReporter> notification_image_reporter_;

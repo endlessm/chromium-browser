@@ -21,7 +21,7 @@
 #include "base/trace_event/memory_usage_estimator.h"
 #include "build/build_config.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
-#include "components/omnibox/browser/features.h"
+#include "components/omnibox/browser/buildflags.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/suggestion_answer.h"
 #include "components/search_engines/template_url.h"
@@ -92,6 +92,7 @@ AutocompleteMatch::AutocompleteMatch()
       swap_contents_and_description(false),
       transition(ui::PAGE_TRANSITION_GENERATED),
       type(AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED),
+      has_tab_match(false),
       subtype_identifier(0),
       from_previous(false) {}
 
@@ -107,6 +108,7 @@ AutocompleteMatch::AutocompleteMatch(AutocompleteProvider* provider,
       swap_contents_and_description(false),
       transition(ui::PAGE_TRANSITION_TYPED),
       type(type),
+      has_tab_match(false),
       subtype_identifier(0),
       from_previous(false) {}
 
@@ -130,6 +132,7 @@ AutocompleteMatch::AutocompleteMatch(const AutocompleteMatch& match)
       answer(SuggestionAnswer::copy(match.answer.get())),
       transition(match.transition),
       type(match.type),
+      has_tab_match(match.has_tab_match),
       subtype_identifier(match.subtype_identifier),
       associated_keyword(match.associated_keyword.get()
                              ? new AutocompleteMatch(*match.associated_keyword)
@@ -170,6 +173,7 @@ AutocompleteMatch& AutocompleteMatch::operator=(
   answer = SuggestionAnswer::copy(match.answer.get());
   transition = match.transition;
   type = match.type;
+  has_tab_match = match.has_tab_match;
   subtype_identifier = match.subtype_identifier;
   associated_keyword.reset(
       match.associated_keyword.get()
@@ -188,7 +192,8 @@ AutocompleteMatch& AutocompleteMatch::operator=(
 
 // static
 const gfx::VectorIcon& AutocompleteMatch::TypeToVectorIcon(Type type,
-                                                           bool is_bookmark) {
+                                                           bool is_bookmark,
+                                                           bool is_tab_match) {
 #if (!defined(OS_ANDROID) || BUILDFLAG(ENABLE_VR)) && !defined(OS_IOS)
   const bool is_touch_ui =
       ui::MaterialDesignController::IsTouchOptimizedUiEnabled();
@@ -196,6 +201,10 @@ const gfx::VectorIcon& AutocompleteMatch::TypeToVectorIcon(Type type,
   if (is_bookmark)
     return is_touch_ui ? omnibox::kTouchableBookmarkIcon : omnibox::kStarIcon;
 
+  if (is_tab_match &&
+      !OmniboxFieldTrial::InTabSwitchSuggestionWithButtonTrial()) {
+    return omnibox::kTabIcon;
+  }
   switch (type) {
     case Type::URL_WHAT_YOU_TYPED:
     case Type::HISTORY_URL:
@@ -208,10 +217,8 @@ const gfx::VectorIcon& AutocompleteMatch::TypeToVectorIcon(Type type,
     case Type::CLIPBOARD:
     case Type::PHYSICAL_WEB:
     case Type::PHYSICAL_WEB_OVERFLOW:
+    case Type::TAB_SEARCH_DEPRECATED:
       return is_touch_ui ? omnibox::kTouchablePageIcon : omnibox::kHttpIcon;
-
-    case Type::TAB_SEARCH:
-      return omnibox::kTabIcon;
 
     case Type::SEARCH_WHAT_YOU_TYPED:
     case Type::SEARCH_HISTORY:
@@ -226,7 +233,8 @@ const gfx::VectorIcon& AutocompleteMatch::TypeToVectorIcon(Type type,
                          : vector_icons::kSearchIcon;
 
     case Type::EXTENSION_APP:
-      return omnibox::kExtensionAppIcon;
+      return is_touch_ui ? omnibox::kExtensionApp20Icon
+                         : omnibox::kExtensionAppIcon;
 
     case Type::CALCULATOR:
       return omnibox::kCalculatorIcon;
@@ -435,9 +443,19 @@ TemplateURL* AutocompleteMatch::GetTemplateURLWithKeyword(
     TemplateURLService* template_url_service,
     const base::string16& keyword,
     const std::string& host) {
+  return const_cast<TemplateURL*>(GetTemplateURLWithKeyword(
+      static_cast<const TemplateURLService*>(template_url_service), keyword,
+      host));
+}
+
+// static
+const TemplateURL* AutocompleteMatch::GetTemplateURLWithKeyword(
+    const TemplateURLService* template_url_service,
+    const base::string16& keyword,
+    const std::string& host) {
   if (template_url_service == nullptr)
     return nullptr;
-  TemplateURL* template_url =
+  const TemplateURL* template_url =
       keyword.empty() ? nullptr
                       : template_url_service->GetTemplateURLForKeyword(keyword);
   return (template_url || host.empty()) ?
@@ -448,7 +466,7 @@ TemplateURL* AutocompleteMatch::GetTemplateURLWithKeyword(
 GURL AutocompleteMatch::GURLToStrippedGURL(
     const GURL& url,
     const AutocompleteInput& input,
-    TemplateURLService* template_url_service,
+    const TemplateURLService* template_url_service,
     const base::string16& keyword) {
   if (!url.is_valid())
     return url;
@@ -571,14 +589,11 @@ url_formatter::FormatUrlTypes AutocompleteMatch::GetFormatTypes(
   auto format_types = url_formatter::kFormatUrlOmitDefaults;
   if (preserve_scheme) {
     format_types &= ~url_formatter::kFormatUrlOmitHTTP;
-  } else if (base::FeatureList::IsEnabled(
-                 omnibox::kUIExperimentHideSuggestionUrlScheme)) {
+  } else {
     format_types |= url_formatter::kFormatUrlOmitHTTPS;
   }
 
-  if (!preserve_subdomain &&
-      base::FeatureList::IsEnabled(
-          omnibox::kUIExperimentHideSuggestionUrlTrivialSubdomains)) {
+  if (!preserve_subdomain) {
     format_types |= url_formatter::kFormatUrlOmitTrivialSubdomains;
   }
 
@@ -738,7 +753,7 @@ size_t AutocompleteMatch::EstimateMemoryUsage() const {
   return res;
 }
 
-#ifndef NDEBUG
+#if DCHECK_IS_ON()
 void AutocompleteMatch::Validate() const {
   ValidateClassifications(contents, contents_class);
   ValidateClassifications(description, description_class);
@@ -775,4 +790,4 @@ void AutocompleteMatch::ValidateClassifications(
     last_offset = i->offset;
   }
 }
-#endif
+#endif  // DCHECK_IS_ON()

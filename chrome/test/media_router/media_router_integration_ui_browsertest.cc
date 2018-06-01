@@ -18,7 +18,7 @@ namespace {
 const char kTestSinkName[] = "test-sink-1";
 }
 
-IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest, MANUAL_Dialog_Basic) {
+IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest, Dialog_Basic) {
   OpenTestPage(FILE_PATH_LITERAL("basic_test.html"));
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
@@ -133,6 +133,7 @@ IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest, MANUAL_Dialog_Basic) {
   LOG(INFO) << "Closed dialog, end of test";
 }
 
+// TODO(crbug.com/822301): Flaky in Chromium waterfall.
 IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
                        MANUAL_Dialog_RouteCreationTimedOut) {
   SetTestData(FILE_PATH_LITERAL("route_creation_timed_out.json"));

@@ -32,34 +32,34 @@
 #include "content/shell/test_runner/test_runner_for_specific_view.h"
 #include "content/shell/test_runner/web_test_delegate.h"
 #include "content/shell/test_runner/web_view_test_proxy.h"
-#include "device/sensors/public/cpp/motion_data.h"
-#include "device/sensors/public/cpp/orientation_data.h"
 #include "gin/arguments.h"
 #include "gin/array_buffer.h"
 #include "gin/handle.h"
 #include "gin/object_template_builder.h"
 #include "gin/wrappable.h"
-#include "third_party/WebKit/public/platform/WebCanvas.h"
-#include "third_party/WebKit/public/platform/WebData.h"
-#include "third_party/WebKit/public/platform/WebPoint.h"
-#include "third_party/WebKit/public/platform/WebURLResponse.h"
-#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerRegistration.h"
-#include "third_party/WebKit/public/web/WebArrayBuffer.h"
-#include "third_party/WebKit/public/web/WebArrayBufferConverter.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebDocumentLoader.h"
-#include "third_party/WebKit/public/web/WebFindOptions.h"
-#include "third_party/WebKit/public/web/WebFrame.h"
-#include "third_party/WebKit/public/web/WebInputElement.h"
-#include "third_party/WebKit/public/web/WebKit.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebPageImportanceSignals.h"
-#include "third_party/WebKit/public/web/WebScriptSource.h"
-#include "third_party/WebKit/public/web/WebSecurityPolicy.h"
-#include "third_party/WebKit/public/web/WebSerializedScriptValue.h"
-#include "third_party/WebKit/public/web/WebSettings.h"
-#include "third_party/WebKit/public/web/WebSurroundingText.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "services/device/public/cpp/generic_sensor/motion_data.h"
+#include "services/device/public/cpp/generic_sensor/orientation_data.h"
+#include "third_party/blink/public/platform/modules/serviceworker/web_service_worker_registration.h"
+#include "third_party/blink/public/platform/web_canvas.h"
+#include "third_party/blink/public/platform/web_data.h"
+#include "third_party/blink/public/platform/web_point.h"
+#include "third_party/blink/public/platform/web_url_response.h"
+#include "third_party/blink/public/web/blink.h"
+#include "third_party/blink/public/web/web_array_buffer.h"
+#include "third_party/blink/public/web/web_array_buffer_converter.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_document_loader.h"
+#include "third_party/blink/public/web/web_find_options.h"
+#include "third_party/blink/public/web/web_frame.h"
+#include "third_party/blink/public/web/web_input_element.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_page_importance_signals.h"
+#include "third_party/blink/public/web/web_script_source.h"
+#include "third_party/blink/public/web/web_security_policy.h"
+#include "third_party/blink/public/web/web_serialized_script_value.h"
+#include "third_party/blink/public/web/web_settings.h"
+#include "third_party/blink/public/web/web_surrounding_text.h"
+#include "third_party/blink/public/web/web_view.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "ui/display/display_switches.h"
@@ -69,7 +69,7 @@
 #include "ui/gfx/skia_util.h"
 
 #if defined(OS_LINUX) || defined(OS_ANDROID) || defined(OS_FUCHSIA)
-#include "third_party/WebKit/public/platform/WebFontRenderStyle.h"
+#include "third_party/blink/public/platform/web_font_render_style.h"
 #endif
 
 using namespace blink;
@@ -99,7 +99,7 @@ class TestRunnerBindings : public gin::Wrappable<TestRunnerBindings> {
   static void Install(base::WeakPtr<TestRunner> test_runner,
                       base::WeakPtr<TestRunnerForSpecificView> view_test_runner,
                       WebLocalFrame* frame,
-                      bool is_web_platform_tests_mode);
+                      bool is_wpt_reftest);
 
  private:
   explicit TestRunnerBindings(
@@ -292,7 +292,7 @@ void TestRunnerBindings::Install(
     base::WeakPtr<TestRunner> test_runner,
     base::WeakPtr<TestRunnerForSpecificView> view_test_runner,
     WebLocalFrame* frame,
-    bool is_web_platform_tests_mode) {
+    bool is_wpt_reftest) {
   v8::Isolate* isolate = blink::MainThreadIsolate();
   v8::HandleScope handle_scope(isolate);
   v8::Local<v8::Context> context = frame->MainWorldScriptContext();
@@ -312,33 +312,44 @@ void TestRunnerBindings::Install(
 
   global->Set(gin::StringToV8(isolate, "testRunner"), v8_bindings);
 
-  // The web-platform-tests suite require that reference comparison is delayed
-  // for any test with a 'reftest-wait' class on the root element, until that
-  // class attribute is removed. To support this approach, we inject some
-  // JavaScript that implements the same behavior using TestRunner.
+  // Inject some JavaScript to the top-level frame of a reftest in the
+  // web-platform-tests suite to have the same reftest screenshot timing as
+  // upstream WPT:
   //
-  // See http://web-platform-tests.org/writing-tests/reftests.html for more
-  // details about reference tests in the web-platform-tests suite.
-  if (is_web_platform_tests_mode) {
+  // 1. For normal reftest, we would like to take screenshots after web fonts
+  //    are loaded, i.e. replicate the behavior of this injected script:
+  //    https://github.com/w3c/web-platform-tests/blob/master/tools/wptrunner/wptrunner/executors/reftest-wait_webdriver.js
+  // 2. For reftests with a 'reftest-wait' class on the root element, reference
+  //    comparison is delayed until that class attribute is removed. To support
+  //    this feature, we use a mutation observer.
+  //    http://web-platform-tests.org/writing-tests/reftests.html#controlling-when-comparison-occurs
+  //
+  // Note that this method may be called multiple times on a frame, so we put
+  // the code behind a flag. The flag is safe to be installed on testRunner
+  // because WPT reftests never access this object.
+  if (is_wpt_reftest && !frame->Parent()) {
     frame->ExecuteScript(blink::WebString(
-        R"(window.addEventListener('load', function() {
-          if (!window.testRunner) {
-            return;
-          }
-          const target = document.documentElement;
-          if (target != null && target.classList.contains('reftest-wait')) {
+        R"(if (!window.testRunner._wpt_reftest_setup) {
+          window.testRunner._wpt_reftest_setup = true;
+
+          window.addEventListener('load', function() {
             window.testRunner.waitUntilDone();
-            const observer = new MutationObserver(function(mutations) {
-              mutations.forEach(function(mutation) {
-                if (!target.classList.contains('reftest-wait')) {
-                  window.testRunner.notifyDone();
-                }
+            const target = document.documentElement;
+            if (target != null && target.classList.contains('reftest-wait')) {
+              const observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                  if (!target.classList.contains('reftest-wait')) {
+                    window.testRunner.notifyDone();
+                  }
+                });
               });
-            });
-            const config = {attributes: true};
-            observer.observe(target, config);
-          }
-        });)"));
+              const config = {attributes: true};
+              observer.observe(target, config);
+            } else {
+              document.fonts.ready.then(() => window.testRunner.notifyDone());
+            }
+          });
+        })"));
   }
 }
 
@@ -1583,8 +1594,11 @@ TestRunner::~TestRunner() {}
 void TestRunner::Install(
     WebLocalFrame* frame,
     base::WeakPtr<TestRunnerForSpecificView> view_test_runner) {
+  // In WPT, only reftests generate pixel results.
+  bool is_wpt_reftest =
+      is_web_platform_tests_mode() && ShouldGeneratePixelResults();
   TestRunnerBindings::Install(weak_factory_.GetWeakPtr(), view_test_runner,
-                              frame, is_web_platform_tests_mode());
+                              frame, is_wpt_reftest);
   mock_screen_orientation_client_->OverrideAssociatedInterfaceProviderForFrame(
       frame);
 }

@@ -5,6 +5,7 @@
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_controller.h"
 
 #import "ios/chrome/browser/ui/table_view/cells/table_view_item.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_text_header_footer_item.h"
 #import "ios/chrome/browser/ui/table_view/table_view_model.h"
 #include "testing/platform_test.h"
 
@@ -23,9 +24,29 @@
 
 @synthesize configureCellCalled = _configureCellCalled;
 
-- (void)configureCell:(UITableViewCell*)cell {
+- (void)configureCell:(UITableViewCell*)cell
+           withStyler:(ChromeTableViewStyler*)styler {
   self.configureCellCalled = YES;
-  [super configureCell:cell];
+  [super configureCell:cell withStyler:styler];
+}
+
+@end
+
+// Checks that key methods are called.
+// TableViewHeaderFooterItem can't easily be mocked via OCMock as one of the
+// methods to mock returns a Class type.
+@interface FakeTableViewHeaderFooterItem : TableViewHeaderFooterItem
+@property(nonatomic, assign) BOOL configureHeaderFooterViewCalled;
+@end
+
+@implementation FakeTableViewHeaderFooterItem
+
+@synthesize configureHeaderFooterViewCalled = _configureHeaderFooterViewCalled;
+
+- (void)configureHeaderFooterView:(UITableViewHeaderFooterView*)headerFooter
+                       withStyler:(ChromeTableViewStyler*)styler {
+  self.configureHeaderFooterViewCalled = YES;
+  [super configureHeaderFooterView:headerFooter withStyler:styler];
 }
 
 @end
@@ -57,6 +78,38 @@ TEST_F(ChromeTableViewControllerTest, CellForItemAtIndexPath) {
   [controller tableView:[controller tableView]
       cellForRowAtIndexPath:[NSIndexPath indexPathForItem:0 inSection:0]];
   EXPECT_EQ(YES, [someItem configureCellCalled]);
+}
+
+TEST_F(ChromeTableViewControllerTest, HeaderForItemAtSection) {
+  ChromeTableViewController* controller =
+      [[ChromeTableViewController alloc] initWithStyle:UITableViewStylePlain];
+  [controller loadModel];
+
+  [[controller tableViewModel] addSectionWithIdentifier:SectionIdentifierFoo];
+  FakeTableViewHeaderFooterItem* headerItem =
+      [[FakeTableViewHeaderFooterItem alloc] initWithType:ItemTypeFooBar];
+  [[controller tableViewModel] setHeader:headerItem
+                forSectionWithIdentifier:SectionIdentifierFoo];
+
+  ASSERT_EQ(NO, [headerItem configureHeaderFooterViewCalled]);
+  [controller tableView:[controller tableView] viewForHeaderInSection:0];
+  EXPECT_EQ(YES, [headerItem configureHeaderFooterViewCalled]);
+}
+
+TEST_F(ChromeTableViewControllerTest, FooterForItemAtSection) {
+  ChromeTableViewController* controller =
+      [[ChromeTableViewController alloc] initWithStyle:UITableViewStylePlain];
+  [controller loadModel];
+
+  [[controller tableViewModel] addSectionWithIdentifier:SectionIdentifierFoo];
+  FakeTableViewHeaderFooterItem* footerItem =
+      [[FakeTableViewHeaderFooterItem alloc] initWithType:ItemTypeFooBar];
+  [[controller tableViewModel] setFooter:footerItem
+                forSectionWithIdentifier:SectionIdentifierFoo];
+
+  ASSERT_EQ(NO, [footerItem configureHeaderFooterViewCalled]);
+  [controller tableView:[controller tableView] viewForFooterInSection:0];
+  EXPECT_EQ(YES, [footerItem configureHeaderFooterViewCalled]);
 }
 
 }  // namespace

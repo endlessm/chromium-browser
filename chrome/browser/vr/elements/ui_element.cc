@@ -13,7 +13,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "chrome/browser/vr/model/camera_model.h"
-#include "third_party/WebKit/public/platform/WebGestureEvent.h"
+#include "third_party/blink/public/platform/web_gesture_event.h"
 #include "third_party/skia/include/core/SkRRect.h"
 #include "third_party/skia/include/core/SkRect.h"
 #include "ui/gfx/geometry/angle_conversions.h"
@@ -23,6 +23,7 @@ namespace vr {
 
 namespace {
 
+constexpr bool kEnableOptimizedTreeWalks = false;
 constexpr float kHitTestResolutionInMeter = 0.000001f;
 
 int AllocateId() {
@@ -86,6 +87,7 @@ void DumpTransformOperations(const cc::TransformOperations& ops,
 
 EventHandlers::EventHandlers() = default;
 EventHandlers::~EventHandlers() = default;
+EventHandlers::EventHandlers(const EventHandlers& other) = default;
 
 UiElement::UiElement() : id_(AllocateId()) {
   animation_.set_target(this);
@@ -109,6 +111,18 @@ void UiElement::OnSetName() {}
 void UiElement::SetType(UiElementType type) {
   type_ = type;
   OnSetType();
+}
+
+UiElement* UiElement::GetDescendantByType(UiElementType type) {
+  if (type_ == type)
+    return this;
+
+  for (auto& child : children_) {
+    auto* result = child->GetDescendantByType(type);
+    if (result)
+      return result;
+  }
+  return nullptr;
 }
 
 void UiElement::OnSetType() {}
@@ -139,6 +153,10 @@ void UiElement::Render(UiElementRenderer* renderer,
 void UiElement::Initialize(SkiaSurfaceProvider* provider) {}
 
 void UiElement::OnHoverEnter(const gfx::PointF& position) {
+  if (GetSounds().hover_enter != kSoundNone && audio_delegate_) {
+    audio_delegate_->PlaySound(GetSounds().hover_enter);
+  }
+
   if (event_handlers_.hover_enter) {
     event_handlers_.hover_enter.Run();
   } else if (parent() && bubble_events()) {
@@ -147,6 +165,9 @@ void UiElement::OnHoverEnter(const gfx::PointF& position) {
 }
 
 void UiElement::OnHoverLeave() {
+  if (GetSounds().hover_leave != kSoundNone && audio_delegate_) {
+    audio_delegate_->PlaySound(GetSounds().hover_leave);
+  }
   if (event_handlers_.hover_leave) {
     event_handlers_.hover_leave.Run();
   } else if (parent() && bubble_events()) {
@@ -155,6 +176,9 @@ void UiElement::OnHoverLeave() {
 }
 
 void UiElement::OnMove(const gfx::PointF& position) {
+  if (GetSounds().move != kSoundNone && audio_delegate_) {
+    audio_delegate_->PlaySound(GetSounds().move);
+  }
   if (event_handlers_.hover_move) {
     event_handlers_.hover_move.Run(position);
   } else if (parent() && bubble_events()) {
@@ -163,6 +187,9 @@ void UiElement::OnMove(const gfx::PointF& position) {
 }
 
 void UiElement::OnButtonDown(const gfx::PointF& position) {
+  if (GetSounds().button_down != kSoundNone && audio_delegate_) {
+    audio_delegate_->PlaySound(GetSounds().button_down);
+  }
   if (event_handlers_.button_down) {
     event_handlers_.button_down.Run();
   } else if (parent() && bubble_events()) {
@@ -171,6 +198,9 @@ void UiElement::OnButtonDown(const gfx::PointF& position) {
 }
 
 void UiElement::OnButtonUp(const gfx::PointF& position) {
+  if (GetSounds().button_up != kSoundNone && audio_delegate_) {
+    audio_delegate_->PlaySound(GetSounds().button_up);
+  }
   if (event_handlers_.button_up) {
     event_handlers_.button_up.Run();
   } else if (parent() && bubble_events()) {
@@ -211,28 +241,41 @@ void UiElement::UpdateInput(const EditedText& info) {
   NOTREACHED();
 }
 
+bool UiElement::DoBeginFrame(const gfx::Transform& head_pose) {
+  set_update_phase(UiElement::kDirty);
+  // TODO(mthiesse): This is overly cautious. We may have keyframe_models but
+  // not trigger any updates, so we should refine this logic and have
+  // Animation::Tick return a boolean. Similarly, the bindings update may have
+  // had no visual effect and dirtiness should be related to setting properties
+  // that do indeed cause visual updates.
+  bool keyframe_models_updated = animation_.keyframe_models().size() > 0;
+  animation_.Tick(last_frame_time_);
+  set_update_phase(kUpdatedAnimations);
+  bool begin_frame_updated = OnBeginFrame(head_pose);
+  UpdateComputedOpacity();
+  bool was_visible_at_any_point = IsVisible() || updated_visibility_this_frame_;
+  bool dirty = (begin_frame_updated || keyframe_models_updated ||
+                updated_bindings_this_frame_) &&
+               was_visible_at_any_point;
+
+  if (!kEnableOptimizedTreeWalks || was_visible_at_any_point ||
+      visibility_bindings_depend_on_child_visibility_) {
+    for (auto& child : children_)
+      dirty |= child->DoBeginFrame(head_pose);
+  }
+
+  return dirty;
+}
+
+bool UiElement::OnBeginFrame(const gfx::Transform& head_pose) {
+  return false;
+}
+
 bool UiElement::PrepareToDraw() {
   return false;
 }
 
-bool UiElement::DoBeginFrame(const base::TimeTicks& time,
-                             const gfx::Transform& head_pose) {
-  // TODO(mthiesse): This is overly cautious. We may have keyframe_models but
-  // not trigger any updates, so we should refine this logic and have
-  // Animation::Tick return a boolean.
-  bool keyframe_models_updated = animation_.keyframe_models().size() > 0;
-  animation_.Tick(time);
-  last_frame_time_ = time;
-  set_update_phase(kUpdatedAnimations);
-  bool begin_frame_updated = OnBeginFrame(time, head_pose);
-  UpdateComputedOpacity();
-  bool was_visible_at_any_point = IsVisible() || updated_visibility_this_frame_;
-  return (begin_frame_updated || keyframe_models_updated) &&
-         was_visible_at_any_point;
-}
-
-bool UiElement::OnBeginFrame(const base::TimeTicks& time,
-                             const gfx::Transform& head_pose) {
+bool UiElement::UpdateTexture() {
   return false;
 }
 
@@ -261,31 +304,57 @@ bool UiElement::IsVisible() const {
   return opacity() > 0.0f && computed_opacity() > 0.0f;
 }
 
+bool UiElement::IsOrWillBeLocallyVisible() const {
+  return opacity() > 0.0f || GetTargetOpacity() > 0.0f;
+}
+
 gfx::SizeF UiElement::size() const {
-  DCHECK_LE(kUpdatedTexturesAndSizes, phase_);
+  DCHECK_LE(kUpdatedSize, update_phase_);
   return size_;
 }
 
 void UiElement::SetLayoutOffset(float x, float y) {
   if (x_centering() == LEFT) {
     x += size_.width() / 2;
+    if (!bounds_contain_padding_)
+      x -= left_padding_;
   } else if (x_centering() == RIGHT) {
     x -= size_.width() / 2;
+    if (!bounds_contain_padding_)
+      x += right_padding_;
   }
   if (y_centering() == TOP) {
     y -= size_.height() / 2;
+    if (!bounds_contain_padding_)
+      y += top_padding_;
   } else if (y_centering() == BOTTOM) {
     y += size_.height() / 2;
+    if (!bounds_contain_padding_)
+      y -= bottom_padding_;
   }
+
+  if (x == layout_offset_.at(0).translate.x &&
+      y == layout_offset_.at(0).translate.y &&
+      !IsAnimatingProperty(LAYOUT_OFFSET)) {
+    return;
+  }
+
   cc::TransformOperations operations = layout_offset_;
   cc::TransformOperation& op = operations.at(0);
   op.translate = {x, y, 0};
   op.Bake();
   animation_.TransitionTransformOperationsTo(last_frame_time_, LAYOUT_OFFSET,
-                                             transform_operations_, operations);
+                                             layout_offset_, operations);
 }
 
 void UiElement::SetTranslate(float x, float y, float z) {
+  if (x == transform_operations_.at(kTranslateIndex).translate.x &&
+      y == transform_operations_.at(kTranslateIndex).translate.y &&
+      z == transform_operations_.at(kTranslateIndex).translate.z &&
+      !IsAnimatingProperty(TRANSFORM)) {
+    return;
+  }
+
   cc::TransformOperations operations = transform_operations_;
   cc::TransformOperation& op = operations.at(kTranslateIndex);
   op.translate = {x, y, z};
@@ -295,16 +364,33 @@ void UiElement::SetTranslate(float x, float y, float z) {
 }
 
 void UiElement::SetRotate(float x, float y, float z, float radians) {
+  float degrees = gfx::RadToDeg(radians);
+
+  if (x == transform_operations_.at(kRotateIndex).rotate.axis.x &&
+      y == transform_operations_.at(kRotateIndex).rotate.axis.y &&
+      z == transform_operations_.at(kRotateIndex).rotate.axis.z &&
+      degrees == transform_operations_.at(kRotateIndex).rotate.angle &&
+      !IsAnimatingProperty(TRANSFORM)) {
+    return;
+  }
+
   cc::TransformOperations operations = transform_operations_;
   cc::TransformOperation& op = operations.at(kRotateIndex);
   op.rotate.axis = {x, y, z};
-  op.rotate.angle = gfx::RadToDeg(radians);
+  op.rotate.angle = degrees;
   op.Bake();
   animation_.TransitionTransformOperationsTo(last_frame_time_, TRANSFORM,
                                              transform_operations_, operations);
 }
 
 void UiElement::SetScale(float x, float y, float z) {
+  if (x == transform_operations_.at(kScaleIndex).scale.x &&
+      y == transform_operations_.at(kScaleIndex).scale.y &&
+      z == transform_operations_.at(kScaleIndex).scale.z &&
+      !IsAnimatingProperty(TRANSFORM)) {
+    return;
+  }
+
   cc::TransformOperations operations = transform_operations_;
   cc::TransformOperation& op = operations.at(kScaleIndex);
   op.scale = {x, y, z};
@@ -354,8 +440,12 @@ float UiElement::ComputeTargetOpacity() const {
 }
 
 float UiElement::computed_opacity() const {
-  DCHECK_LE(kUpdatedComputedOpacity, phase_);
+  DCHECK_LE(kUpdatedComputedOpacity, update_phase_) << DebugName();
   return computed_opacity_;
+}
+
+float UiElement::ComputedAndLocalOpacityForTest() const {
+  return computed_opacity();
 }
 
 bool UiElement::LocalHitTest(const gfx::PointF& point) const {
@@ -414,7 +504,7 @@ void UiElement::HitTest(const HitTestRequest& request,
 }
 
 const gfx::Transform& UiElement::world_space_transform() const {
-  DCHECK_LE(kUpdatedWorldSpaceTransform, phase_);
+  DCHECK_LE(kUpdatedWorldSpaceTransform, update_phase_);
   return world_space_transform_;
 }
 
@@ -473,20 +563,24 @@ void UiElement::DumpHierarchy(std::vector<size_t> counts,
   }
   *os << kReset;
 
-  if (!IsVisible() || draw_phase() == kPhaseNone) {
+  if (update_phase_ < kUpdatedComputedOpacity || !IsVisible()) {
     *os << kBlue;
   }
 
   *os << DebugName() << kReset << " " << kCyan << DrawPhaseToString(draw_phase_)
       << " " << kReset;
 
-  if (size().width() != 0.0f || size().height() != 0.0f) {
-    *os << kRed << "[" << size().width() << ", " << size().height() << "] "
-        << kReset;
+  if (update_phase_ >= kUpdatedSize) {
+    if (size().width() != 0.0f || size().height() != 0.0f) {
+      *os << kRed << "[" << size().width() << ", " << size().height() << "] "
+          << kReset;
+    }
   }
 
-  *os << kGreen;
-  DumpGeometry(os);
+  if (update_phase_ >= kUpdatedWorldSpaceTransform) {
+    *os << kGreen;
+    DumpGeometry(os);
+  }
 
   counts.push_back(0u);
 
@@ -527,19 +621,28 @@ void UiElement::DumpGeometry(std::ostringstream* os) const {
 }
 #endif
 
+void UiElement::SetSounds(Sounds sounds, AudioDelegate* delegate) {
+  sounds_ = sounds;
+  audio_delegate_ = delegate;
+}
+
 void UiElement::OnUpdatedWorldSpaceTransform() {}
 
+// TODO(cgrant): Remove this method, and use bindings instead.
 gfx::SizeF UiElement::stale_size() const {
-  DCHECK_LE(kUpdatedBindings, phase_);
   return size_;
 }
 
 void UiElement::AddChild(std::unique_ptr<UiElement> child) {
+  for (UiElement* current = this; current; current = current->parent())
+    current->set_descendants_updated(true);
   child->parent_ = this;
   children_.push_back(std::move(child));
 }
 
 std::unique_ptr<UiElement> UiElement::RemoveChild(UiElement* to_remove) {
+  for (UiElement* current = this; current; current = current->parent())
+    current->set_descendants_updated(true);
   DCHECK_EQ(this, to_remove->parent_);
   to_remove->parent_ = nullptr;
   size_t old_size = children_.size();
@@ -561,11 +664,20 @@ void UiElement::AddBinding(std::unique_ptr<BindingBase> binding) {
 }
 
 void UiElement::UpdateBindings() {
+  bool should_recur = IsOrWillBeLocallyVisible();
   updated_bindings_this_frame_ = false;
   for (auto& binding : bindings_) {
     if (binding->Update())
       updated_bindings_this_frame_ = true;
   }
+  should_recur |= IsOrWillBeLocallyVisible();
+
+  set_update_phase(kUpdatedBindings);
+  if (!should_recur && kEnableOptimizedTreeWalks)
+    return;
+
+  for (auto& child : children_)
+    child->UpdateBindings();
 }
 
 gfx::Point3F UiElement::GetCenter() const {
@@ -624,12 +736,17 @@ void UiElement::NotifyClientTransformOperationsAnimated(
   } else {
     NOTREACHED();
   }
+  local_transform_ = layout_offset_.Apply() * transform_operations_.Apply();
+  world_space_transform_dirty_ = true;
 }
 
 void UiElement::NotifyClientSizeAnimated(const gfx::SizeF& size,
                                          int target_property_id,
                                          cc::KeyframeModel* keyframe_model) {
+  if (size_ == size)
+    return;
   size_ = size;
+  world_space_transform_dirty_ = true;
 }
 
 void UiElement::SetTransitionedProperties(
@@ -651,27 +768,61 @@ void UiElement::RemoveKeyframeModel(int keyframe_model_id) {
   animation_.RemoveKeyframeModel(keyframe_model_id);
 }
 
+void UiElement::RemoveKeyframeModels(int target_property) {
+  animation_.RemoveKeyframeModels(target_property);
+}
+
 bool UiElement::IsAnimatingProperty(TargetProperty property) const {
   return animation_.IsAnimatingProperty(static_cast<int>(property));
+}
+
+bool UiElement::SizeAndLayOut() {
+  if (!IsVisible() && kEnableOptimizedTreeWalks)
+    return false;
+  bool changed = false;
+  for (auto& child : children_)
+    changed |= child->SizeAndLayOut();
+  changed |= PrepareToDraw();
+  set_update_phase(kUpdatedSize);
+  DoLayOutChildren();
+  set_update_phase(kUpdatedLayout);
+  return changed;
 }
 
 void UiElement::DoLayOutChildren() {
   LayOutChildren();
   if (!bounds_contain_children_) {
-    DCHECK_EQ(0.0f, x_padding_);
-    DCHECK_EQ(0.0f, y_padding_);
+    DCHECK_EQ(0.0f, right_padding_);
+    DCHECK_EQ(0.0f, left_padding_);
+    DCHECK_EQ(0.0f, top_padding_);
+    DCHECK_EQ(0.0f, bottom_padding_);
     return;
   }
 
+  bool requires_relayout = false;
   gfx::RectF bounds;
   for (auto& child : children_) {
-    if (!child->IsVisible() || child->size().IsEmpty() ||
-        !child->contributes_to_parent_bounds()) {
+    if (!child->IsVisible())
       continue;
+
+    gfx::RectF outer_bounds(child->size());
+    gfx::RectF inner_bounds(child->size());
+    if (!child->bounds_contain_padding_) {
+      inner_bounds.Inset(child->left_padding_, child->bottom_padding_,
+                         child->right_padding_, child->top_padding_);
     }
-    gfx::Point3F child_center(child->local_origin());
-    gfx::Vector3dF corner_offset(child->size().width(), child->size().height(),
-                                 0);
+    gfx::SizeF size = inner_bounds.size();
+    if (child->x_anchoring() != NONE || child->y_anchoring() != NONE) {
+      DCHECK(!child->contributes_to_parent_bounds());
+      requires_relayout = true;
+    }
+    if (size.IsEmpty() || !child->contributes_to_parent_bounds())
+      continue;
+
+    gfx::Vector2dF delta =
+        outer_bounds.CenterPoint() - inner_bounds.CenterPoint();
+    gfx::Point3F child_center(child->local_origin() - delta);
+    gfx::Vector3dF corner_offset(size.width(), size.height(), 0);
     corner_offset.Scale(-0.5);
     gfx::Point3F child_upper_left = child_center + corner_offset;
     gfx::Point3F child_lower_right = child_center - corner_offset;
@@ -685,30 +836,64 @@ void UiElement::DoLayOutChildren() {
     bounds.Union(local_rect);
   }
 
-  bounds.Inset(-x_padding_, -y_padding_);
+  bounds.Inset(-left_padding_, -bottom_padding_, -right_padding_,
+               -top_padding_);
   bounds.set_origin(bounds.CenterPoint());
-  local_origin_ = bounds.origin();
+  if (local_origin_ != bounds.origin()) {
+    world_space_transform_dirty_ = true;
+    local_origin_ = bounds.origin();
+  }
+  if (bounds.size() == GetTargetSize())
+    return;
+
   SetSize(bounds.width(), bounds.height());
+
+  if (requires_relayout)
+    LayOutChildren();
 }
 
 void UiElement::LayOutChildren() {
-  DCHECK_LE(kUpdatedTexturesAndSizes, phase_);
+  DCHECK_LE(kUpdatedSize, update_phase_);
   for (auto& child : children_) {
+    if (!child->IsVisible())
+      continue;
     // To anchor a child, use the parent's size to find its edge.
     float x_offset = 0.0f;
     if (child->x_anchoring() == LEFT) {
       x_offset = -0.5f * size().width();
+      if (!child->bounds_contain_padding())
+        x_offset += left_padding_;
     } else if (child->x_anchoring() == RIGHT) {
       x_offset = 0.5f * size().width();
+      if (!child->bounds_contain_padding())
+        x_offset -= right_padding_;
     }
     float y_offset = 0.0f;
     if (child->y_anchoring() == TOP) {
       y_offset = 0.5f * size().height();
+      if (!child->bounds_contain_padding())
+        y_offset -= top_padding_;
     } else if (child->y_anchoring() == BOTTOM) {
       y_offset = -0.5f * size().height();
+      if (!child->bounds_contain_padding())
+        y_offset += bottom_padding_;
     }
     child->SetLayoutOffset(x_offset, y_offset);
   }
+}
+
+UiElement* UiElement::FirstLaidOutChild() const {
+  auto i = std::find_if(
+      children_.begin(), children_.end(),
+      [](const std::unique_ptr<UiElement>& e) { return e->requires_layout(); });
+  return i == children_.end() ? nullptr : i->get();
+}
+
+UiElement* UiElement::LastLaidOutChild() const {
+  auto i = std::find_if(
+      children_.rbegin(), children_.rend(),
+      [](const std::unique_ptr<UiElement>& e) { return e->requires_layout(); });
+  return i == children_.rend() ? nullptr : i->get();
 }
 
 void UiElement::UpdateComputedOpacity() {
@@ -721,39 +906,57 @@ void UiElement::UpdateComputedOpacity() {
   updated_visibility_this_frame_ = IsVisible() != was_visible;
 }
 
-void UiElement::UpdateWorldSpaceTransformRecursive() {
-  gfx::Transform transform;
-  transform.Translate(local_origin_.x(), local_origin_.y());
-  if (!size_.IsEmpty()) {
-    transform.Scale(size_.width(), size_.height());
+void UiElement::UpdateWorldSpaceTransform(bool parent_changed) {
+  if (!IsVisible() && !updated_visibility_this_frame_ &&
+      kEnableOptimizedTreeWalks)
+    return;
+
+  bool changed = false;
+  if (ShouldUpdateWorldSpaceTransform(parent_changed)) {
+    gfx::Transform transform;
+    transform.Translate(local_origin_.x(), local_origin_.y());
+
+    if (!size_.IsEmpty()) {
+      transform.Scale(size_.width(), size_.height());
+    }
+
+    // Compute an inheritable transformation that can be applied to this
+    // element, and it's children, if applicable.
+    gfx::Transform inheritable = LocalTransform();
+
+    if (parent_) {
+      inheritable.ConcatTransform(parent_->inheritable_transform());
+    }
+
+    transform.ConcatTransform(inheritable);
+    set_world_space_transform(transform);
+    set_inheritable_transform(inheritable);
+    changed = true;
   }
 
-  // Compute an inheritable transformation that can be applied to this element,
-  // and it's children, if applicable.
-  gfx::Transform inheritable = LocalTransform();
-
-  if (parent_) {
-    inheritable.ConcatTransform(parent_->inheritable_transform());
-  }
-
-  transform.ConcatTransform(inheritable);
-  set_world_space_transform(transform);
-  set_inheritable_transform(inheritable);
   set_update_phase(kUpdatedWorldSpaceTransform);
-
   for (auto& child : children_) {
-    child->UpdateWorldSpaceTransformRecursive();
+    child->UpdateWorldSpaceTransform(changed);
   }
 
   OnUpdatedWorldSpaceTransform();
 }
 
 gfx::Transform UiElement::LocalTransform() const {
-  return layout_offset_.Apply() * transform_operations_.Apply();
+  return local_transform_;
 }
 
 gfx::Transform UiElement::GetTargetLocalTransform() const {
   return layout_offset_.Apply() * GetTargetTransform().Apply();
+}
+
+const Sounds& UiElement::GetSounds() const {
+  return sounds_;
+}
+
+bool UiElement::ShouldUpdateWorldSpaceTransform(
+    bool parent_transform_changed) const {
+  return parent_transform_changed || world_space_transform_dirty_;
 }
 
 }  // namespace vr

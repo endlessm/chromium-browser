@@ -61,8 +61,8 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/common/origin_util.h"
-#include "ppapi/features/features.h"
-#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
+#include "ppapi/buildflags/buildflags.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -333,16 +333,7 @@ ContentSettingRPHBubbleModel::ContentSettingRPHBubbleModel(
   pending_handler_ = content_settings->pending_protocol_handler();
   previous_handler_ = content_settings->previous_protocol_handler();
 
-  base::string16 protocol;
-  if (pending_handler_.protocol() == "mailto") {
-    protocol =
-        l10n_util::GetStringUTF16(IDS_REGISTER_PROTOCOL_HANDLER_MAILTO_NAME);
-  } else if (pending_handler_.protocol() == "webcal") {
-    protocol =
-        l10n_util::GetStringUTF16(IDS_REGISTER_PROTOCOL_HANDLER_WEBCAL_NAME);
-  } else {
-    protocol = base::UTF8ToUTF16(pending_handler_.protocol());
-  }
+  base::string16 protocol = pending_handler_.GetProtocolDisplayName();
 
   // Note that we ignore the |title| parameter.
   if (previous_handler_.IsEmpty()) {
@@ -401,21 +392,13 @@ void ContentSettingRPHBubbleModel::OnRadioClicked(int radio_index) {
   if (selected_item_ == radio_index)
     return;
 
-  interacted_ = true;
   selected_item_ = radio_index;
-
-  if (radio_index == RPH_ALLOW)
-    RegisterProtocolHandler();
-  else if (radio_index == RPH_BLOCK)
-    UnregisterProtocolHandler();
-  else if (radio_index == RPH_IGNORE)
-    IgnoreProtocolHandler();
-  else
-    NOTREACHED();
+  PerformActionForSelectedItem();
 }
 
 void ContentSettingRPHBubbleModel::OnDoneClicked() {
-  interacted_ = true;
+  if (!interacted_)
+    PerformActionForSelectedItem();
 }
 
 void ContentSettingRPHBubbleModel::RegisterProtocolHandler() {
@@ -457,6 +440,18 @@ void ContentSettingRPHBubbleModel::ClearOrSetPreviousHandler() {
   } else {
     registry_->OnAcceptRegisterProtocolHandler(previous_handler_);
   }
+}
+
+void ContentSettingRPHBubbleModel::PerformActionForSelectedItem() {
+  interacted_ = true;
+  if (selected_item_ == RPH_ALLOW)
+    RegisterProtocolHandler();
+  else if (selected_item_ == RPH_BLOCK)
+    UnregisterProtocolHandler();
+  else if (selected_item_ == RPH_IGNORE)
+    IgnoreProtocolHandler();
+  else
+    NOTREACHED();
 }
 
 // ContentSettingMidiSysExBubbleModel ------------------------------------------
@@ -672,7 +667,8 @@ ContentSettingPluginBubbleModel::ContentSettingPluginBubbleModel(
   GURL url = web_contents->GetURL();
   std::unique_ptr<base::Value> value =
       map->GetWebsiteSetting(url, url, content_type(), std::string(), &info);
-  ContentSetting setting = content_settings::ValueToContentSetting(value.get());
+  ContentSetting setting = PluginUtils::GetFlashPluginContentSetting(
+      map, url::Origin::Create(url), url, nullptr);
 
   // If the setting is not managed by the user, hide the "Manage" button.
   if (info.source != SETTING_SOURCE_USER)

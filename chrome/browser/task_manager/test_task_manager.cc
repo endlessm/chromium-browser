@@ -42,18 +42,6 @@ int64_t TestTaskManager::GetMemoryFootprintUsage(TaskId task_id) const {
   return -1;
 }
 
-int64_t TestTaskManager::GetPhysicalMemoryUsage(TaskId task_id) const {
-  return -1;
-}
-
-int64_t TestTaskManager::GetPrivateMemoryUsage(TaskId task_id) const {
-  return -1;
-}
-
-int64_t TestTaskManager::GetSharedMemoryUsage(TaskId task_id) const {
-  return -1;
-}
-
 int64_t TestTaskManager::GetSwappedMemoryUsage(TaskId task_id) const {
   return -1;
 }
@@ -124,8 +112,8 @@ Task::Type TestTaskManager::GetType(TaskId task_id) const {
   return Task::UNKNOWN;
 }
 
-int TestTaskManager::GetTabId(TaskId task_id) const {
-  return -1;
+SessionID TestTaskManager::GetTabId(TaskId task_id) const {
+  return SessionID::InvalidValue();
 }
 
 int TestTaskManager::GetChildProcessUniqueId(TaskId task_id) const {

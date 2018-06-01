@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/memory/ptr_util.h"
 #include "services/video_capture/test/mock_device_factory.h"
 
 namespace {
@@ -77,6 +76,12 @@ void MockDeviceFactory::GetSupportedFormats(
     const media::VideoCaptureDeviceDescriptor& device_descriptor,
     media::VideoCaptureFormats* supported_formats) {
   supported_formats->push_back(kSupportedFormat);
+}
+
+void MockDeviceFactory::GetCameraLocationsAsync(
+    std::unique_ptr<media::VideoCaptureDeviceDescriptors> device_descriptors,
+    DeviceDescriptorsCallback result_callback) {
+  base::ResetAndReturn(&result_callback).Run(std::move(device_descriptors));
 }
 
 }  // namespace video_capture

@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "content/shell/test_runner/mock_web_audio_device.h"
 #include "content/shell/test_runner/mock_web_midi_accessor.h"
 #include "content/shell/test_runner/test_interfaces.h"
@@ -16,7 +15,7 @@
 #include "content/shell/test_runner/web_view_test_proxy.h"
 #include "content/shell/test_runner/web_widget_test_client.h"
 #include "content/shell/test_runner/web_widget_test_proxy.h"
-#include "third_party/WebKit/public/platform/modules/webmidi/WebMIDIAccessor.h"
+#include "third_party/blink/public/platform/modules/webmidi/web_midi_accessor.h"
 
 using namespace blink;
 

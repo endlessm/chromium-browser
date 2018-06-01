@@ -8,8 +8,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/views/frame/app_menu_button.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/browser/ui/views/frame/browser_view_button_provider.h"
+#include "chrome/browser/ui/views/frame/toolbar_button_provider.h"
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/harmony/chrome_typography.h"
 #include "chrome/common/pref_names.h"
@@ -95,6 +96,7 @@ InvertBubbleView::~InvertBubbleView() {
 views::View* InvertBubbleView::CreateExtraView() {
   views::ImageButton* learn_more = views::CreateVectorImageButton(this);
   views::SetImageFromVectorIcon(learn_more, vector_icons::kHelpOutlineIcon);
+  learn_more->SetTooltipText(l10n_util::GetStringUTF16(IDS_LEARN_MORE));
   learn_more->set_tag(kLearnMoreButton);
   return learn_more;
 }
@@ -184,7 +186,8 @@ void InvertBubbleView::OpenLink(const std::string& url, int event_flags) {
 void MaybeShowInvertBubbleView(BrowserView* browser_view) {
   Browser* browser = browser_view->browser();
   PrefService* pref_service = browser->profile()->GetPrefs();
-  views::View* anchor = browser_view->button_provider()->GetAppMenuButton();
+  views::View* anchor =
+      browser_view->toolbar_button_provider()->GetAppMenuButton();
   if (color_utils::IsInvertedColorScheme() && anchor && anchor->GetWidget() &&
       !pref_service->GetBoolean(prefs::kInvertNotificationShown)) {
     pref_service->SetBoolean(prefs::kInvertNotificationShown, true);

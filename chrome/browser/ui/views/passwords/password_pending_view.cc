@@ -4,6 +4,11 @@
 
 #include "chrome/browser/ui/views/passwords/password_pending_view.h"
 
+#include <algorithm>
+#include <memory>
+#include <utility>
+#include <vector>
+
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
@@ -76,12 +81,23 @@ void BuildColumnSet(views::GridLayout* layout, ColumnSetType type) {
   }
 }
 
+// Create a vector which contains only the values in |items| and no elements.
+std::vector<base::string16> ToValues(
+    const autofill::ValueElementVector& items) {
+  std::vector<base::string16> passwords;
+  passwords.reserve(items.size());
+  for (auto& pair : items)
+    passwords.push_back(pair.first);
+  return passwords;
+}
+
 // A combobox model for password dropdown that allows to reveal/mask values in
 // the combobox.
 class PasswordDropdownModel : public ui::ComboboxModel {
  public:
-  PasswordDropdownModel(bool revealed, const std::vector<base::string16>& items)
-      : revealed_(revealed), passwords_(items) {}
+  PasswordDropdownModel(bool revealed,
+                        const autofill::ValueElementVector& items)
+      : revealed_(revealed), passwords_(ToValues(items)) {}
   ~PasswordDropdownModel() override {}
 
   void SetRevealed(bool revealed) {
@@ -146,10 +162,13 @@ std::unique_ptr<views::Combobox> CreatePasswordDropdownView(
   std::unique_ptr<views::Combobox> combobox =
       std::make_unique<views::Combobox>(std::make_unique<PasswordDropdownModel>(
           are_passwords_revealed, form.all_possible_passwords));
-  size_t index = std::distance(
-      form.all_possible_passwords.begin(),
-      find(form.all_possible_passwords.begin(),
-           form.all_possible_passwords.end(), form.password_value));
+  size_t index =
+      std::distance(form.all_possible_passwords.begin(),
+                    find_if(form.all_possible_passwords.begin(),
+                            form.all_possible_passwords.end(),
+                            [&form](const autofill::ValueElementPair& pair) {
+                              return pair.first == form.password_value;
+                            }));
   // Unlikely, but if we don't find the password in possible passwords,
   // we will set the default to first element.
   if (index == form.all_possible_passwords.size()) {
@@ -169,6 +188,8 @@ PasswordPendingView::PasswordPendingView(content::WebContents* web_contents,
                                          const gfx::Point& anchor_point,
                                          DisplayReason reason)
     : PasswordBubbleViewBase(web_contents, anchor_view, anchor_point, reason),
+      is_update_bubble_(model()->state() ==
+                        password_manager::ui::PENDING_PASSWORD_UPDATE_STATE),
       sign_in_promo_(nullptr),
       desktop_ios_promo_(nullptr),
       username_field_(nullptr),
@@ -178,17 +199,33 @@ PasswordPendingView::PasswordPendingView(content::WebContents* web_contents,
       password_label_(nullptr),
       are_passwords_revealed_(
           model()->are_passwords_revealed_when_bubble_is_opened()) {
-  // Create credentials row.
+  DCHECK(model()->state() == password_manager::ui::PENDING_PASSWORD_STATE ||
+         model()->state() ==
+             password_manager::ui::PENDING_PASSWORD_UPDATE_STATE);
   const autofill::PasswordForm& password_form = model()->pending_password();
-  const bool is_password_credential = password_form.federation_origin.unique();
   if (model()->enable_editing()) {
-    username_field_ = CreateUsernameEditable(password_form).release();
+    views::Textfield* username_field =
+        CreateUsernameEditable(model()->GetCurrentUsername()).release();
+    username_field->set_controller(this);
+    username_field_ = username_field;
   } else {
     username_field_ = CreateUsernameLabel(password_form).release();
   }
 
-  CreatePasswordField();
+  if (password_form.all_possible_passwords.size() > 1 &&
+      model()->enable_editing()) {
+    password_dropdown_ =
+        CreatePasswordDropdownView(password_form, are_passwords_revealed_)
+            .release();
+  } else {
+    password_label_ =
+        CreatePasswordLabel(password_form,
+                            IDS_PASSWORD_MANAGER_SIGNIN_VIA_FEDERATION,
+                            are_passwords_revealed_)
+            .release();
+  }
 
+  const bool is_password_credential = password_form.federation_origin.unique();
   if (is_password_credential) {
     password_view_button_ =
         CreatePasswordViewButton(this, are_passwords_revealed_).release();
@@ -273,6 +310,11 @@ bool PasswordPendingView::Cancel() {
   if (desktop_ios_promo_)
     return desktop_ios_promo_->Cancel();
 #endif
+  UpdateUsernameAndPasswordInModel();
+  if (is_update_bubble_) {
+    model()->OnNopeUpdateClicked();
+    return true;
+  }
   model()->OnNeverForThisSiteClicked();
   return true;
 }
@@ -292,6 +334,17 @@ void PasswordPendingView::StyledLabelLinkClicked(views::StyledLabel* label,
                                                  int event_flags) {
   DCHECK_EQ(model()->title_brand_link_range(), range);
   model()->OnBrandLinkClicked();
+}
+
+void PasswordPendingView::ContentsChanged(views::Textfield* sender,
+                                          const base::string16& new_contents) {
+  bool is_update_before = model()->IsCurrentStateUpdate();
+  UpdateUsernameAndPasswordInModel();
+  // May be the buttons should be updated.
+  if (is_update_before != model()->IsCurrentStateUpdate()) {
+    DialogModelChanged();
+    GetDialogClientView()->Layout();
+  }
 }
 
 gfx::Size PasswordPendingView::CalculatePreferredSize() const {
@@ -316,8 +369,8 @@ int PasswordPendingView::GetDialogButtons() const {
 
 base::string16 PasswordPendingView::GetDialogButtonLabel(
     ui::DialogButton button) const {
-  // TODO(pbos): Generalize the different promotion classes to not store and ask
-  // each different possible promo.
+  // TODO(pbos): Generalize the different promotion classes to not store and
+  // ask each different possible promo.
   if (sign_in_promo_)
     return sign_in_promo_->GetDialogButtonLabel(button);
 #if defined(OS_WIN)
@@ -325,10 +378,17 @@ base::string16 PasswordPendingView::GetDialogButtonLabel(
     return desktop_ios_promo_->GetDialogButtonLabel(button);
 #endif
 
-  return l10n_util::GetStringUTF16(
-      button == ui::DIALOG_BUTTON_OK
-          ? IDS_PASSWORD_MANAGER_SAVE_BUTTON
-          : IDS_PASSWORD_MANAGER_BUBBLE_BLACKLIST_BUTTON);
+  int message = 0;
+  if (button == ui::DIALOG_BUTTON_OK) {
+    message = model()->IsCurrentStateUpdate()
+                  ? IDS_PASSWORD_MANAGER_UPDATE_BUTTON
+                  : IDS_PASSWORD_MANAGER_SAVE_BUTTON;
+  } else {
+    message = is_update_bubble_ ? IDS_PASSWORD_MANAGER_CANCEL_BUTTON
+                                : IDS_PASSWORD_MANAGER_BUBBLE_BLACKLIST_BUTTON;
+  }
+
+  return l10n_util::GetStringUTF16(message);
 }
 
 gfx::ImageSkia PasswordPendingView::GetWindowIcon() {
@@ -366,27 +426,10 @@ void PasswordPendingView::CreateAndSetLayout(bool show_password_label) {
                       password_view_button_, show_password_label);
 }
 
-void PasswordPendingView::CreatePasswordField() {
-  const autofill::PasswordForm& password_form = model()->pending_password();
-  if (password_form.all_possible_passwords.size() > 1 &&
-      model()->enable_editing()) {
-    password_dropdown_ =
-        CreatePasswordDropdownView(password_form, are_passwords_revealed_)
-            .release();
-  } else {
-    password_label_ =
-        CreatePasswordLabel(password_form,
-                            IDS_PASSWORD_MANAGER_SIGNIN_VIA_FEDERATION,
-                            are_passwords_revealed_)
-            .release();
-  }
-}
-
 void PasswordPendingView::TogglePasswordVisibility() {
   if (!are_passwords_revealed_ && !model()->RevealPasswords())
     return;
 
-  UpdateUsernameAndPasswordInModel();
   are_passwords_revealed_ = !are_passwords_revealed_;
   password_view_button_->SetToggled(are_passwords_revealed_);
   DCHECK(!password_dropdown_ || !password_label_);
@@ -412,10 +455,13 @@ void PasswordPendingView::UpdateUsernameAndPasswordInModel() {
     base::TrimString(new_username, base::ASCIIToUTF16(" "), &new_username);
   }
   if (password_editable) {
-    new_password = model()->pending_password().all_possible_passwords.at(
-        password_dropdown_->selected_index());
+    new_password =
+        model()
+            ->pending_password()
+            .all_possible_passwords.at(password_dropdown_->selected_index())
+            .first;
   }
-  model()->OnCredentialEdited(new_username, new_password);
+  model()->OnCredentialEdited(std::move(new_username), std::move(new_password));
 }
 
 void PasswordPendingView::ReplaceWithPromo() {

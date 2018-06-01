@@ -14,7 +14,6 @@
 #include "base/i18n/icu_util.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -177,7 +176,8 @@ void BrowserTestBase::SetUp() {
       base::Int64ToString(TestTimeouts::action_max_timeout().InSeconds()));
 
   // The tests assume that file:// URIs can freely access other file:// URIs.
-  command_line->AppendSwitch(switches::kAllowFileAccessFromFiles);
+  if (AllowFileAccessFromFiles())
+    command_line->AppendSwitch(switches::kAllowFileAccessFromFiles);
 
   command_line->AppendSwitch(switches::kDomAutomationController);
 
@@ -323,6 +323,10 @@ void BrowserTestBase::SetUp() {
 }
 
 void BrowserTestBase::TearDown() {
+}
+
+bool BrowserTestBase::AllowFileAccessFromFiles() const {
+  return true;
 }
 
 void BrowserTestBase::ProxyRunTestOnMainThreadLoop() {

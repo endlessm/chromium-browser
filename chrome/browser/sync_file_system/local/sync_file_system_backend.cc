@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/sync_file_system/local/local_file_change_tracker.h"
 #include "chrome/browser/sync_file_system/local/local_file_sync_context.h"
@@ -34,7 +33,7 @@ bool CalledOnUIThread() {
   // Ensure that these methods are called on the UI thread, except for unittests
   // where a UI thread might not have been created.
   return BrowserThread::CurrentlyOn(BrowserThread::UI) ||
-         !BrowserThread::IsMessageLoopValid(BrowserThread::UI);
+         !BrowserThread::IsThreadInitialized(BrowserThread::UI);
 }
 
 }  // namespace

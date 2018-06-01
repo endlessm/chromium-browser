@@ -82,6 +82,10 @@ public class DownloadForegroundServiceManager {
 
     public void updateDownloadStatus(Context context, DownloadStatus downloadStatus,
             int notificationId, Notification notification) {
+        if (downloadStatus != DownloadStatus.IN_PROGRESS) {
+            Log.w(TAG,
+                    "updateDownloadStatus status: " + downloadStatus + ", id: " + notificationId);
+        }
         mDownloadUpdateQueue.put(notificationId,
                 new DownloadUpdate(notificationId, notification, downloadStatus, context));
         processDownloadUpdateQueue(false /* not isProcessingPending */);
@@ -193,6 +197,7 @@ public class DownloadForegroundServiceManager {
 
     @VisibleForTesting
     void startAndBindService(Context context) {
+        Log.w(TAG, "startAndBindService");
         mIsServiceBound = true;
         startAndBindServiceInternal(context);
     }
@@ -207,6 +212,7 @@ public class DownloadForegroundServiceManager {
     private final ServiceConnection mConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName className, IBinder service) {
+            Log.w(TAG, "onServiceConnected");
             if (!(service instanceof DownloadForegroundService.LocalBinder)) {
                 Log.w(TAG,
                         "Not from DownloadNotificationService, do not connect."
@@ -221,6 +227,7 @@ public class DownloadForegroundServiceManager {
 
         @Override
         public void onServiceDisconnected(ComponentName componentName) {
+            Log.w(TAG, "onServiceDisconnected");
             mBoundService = null;
         }
     };
@@ -229,6 +236,7 @@ public class DownloadForegroundServiceManager {
 
     @VisibleForTesting
     void startOrUpdateForegroundService(int notificationId, Notification notification) {
+        Log.w(TAG, "startOrUpdateForegroundService id: " + notificationId);
         if (mBoundService != null && notificationId != INVALID_NOTIFICATION_ID
                 && notification != null) {
             // If there was an originally pinned notification, get its id and notification.
@@ -249,6 +257,7 @@ public class DownloadForegroundServiceManager {
 
     @VisibleForTesting
     void stopAndUnbindService(DownloadStatus downloadStatus) {
+        Log.w(TAG, "stopAndUnbindService status: " + downloadStatus);
         Preconditions.checkNotNull(mBoundService);
         mIsServiceBound = false;
 

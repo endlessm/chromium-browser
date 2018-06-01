@@ -7,7 +7,6 @@
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file_util.h"
-#include "base/ios/ios_util.h"
 #include "base/json/json_reader.h"
 #include "base/mac/bundle_locations.h"
 #include "base/strings/sys_string_conversions.h"
@@ -173,10 +172,15 @@ void ChromeWebClient::PostBrowserURLRewriterCreation(
   rewriter->AddURLRewriter(&WillHandleWebBrowserAboutURL);
 }
 
+NSString* ChromeWebClient::GetDocumentStartScriptForAllFrames(
+    web::BrowserState* browser_state) const {
+  return GetPageScript(@"chrome_bundle_all_frames");
+}
+
 NSString* ChromeWebClient::GetDocumentStartScriptForMainFrame(
     web::BrowserState* browser_state) const {
   NSMutableArray* scripts = [NSMutableArray array];
-  [scripts addObject:GetPageScript(@"chrome_bundle")];
+  [scripts addObject:GetPageScript(@"chrome_bundle_main_frame")];
 
   if (base::FeatureList::IsEnabled(features::kCredentialManager)) {
     [scripts addObject:GetPageScript(@"credential_manager")];

@@ -10,6 +10,7 @@
 
 package org.webrtc;
 
+import javax.annotation.Nullable;
 import org.webrtc.MediaStreamTrack;
 
 /** Java wrapper for a C++ RtpReceiverInterface. */
@@ -25,21 +26,21 @@ public class RtpReceiver {
   final long nativeRtpReceiver;
   private long nativeObserver;
 
-  private MediaStreamTrack cachedTrack;
+  @Nullable private MediaStreamTrack cachedTrack;
 
   @CalledByNative
   public RtpReceiver(long nativeRtpReceiver) {
     this.nativeRtpReceiver = nativeRtpReceiver;
-    long track = nativeGetTrack(nativeRtpReceiver);
-    // We can assume that an RtpReceiver always has an associated track.
-    cachedTrack = new MediaStreamTrack(track);
+    long nativeTrack = nativeGetTrack(nativeRtpReceiver);
+    cachedTrack = MediaStreamTrack.createMediaStreamTrack(nativeTrack);
   }
 
+  @Nullable
   public MediaStreamTrack track() {
     return cachedTrack;
   }
 
-  public boolean setParameters(RtpParameters parameters) {
+  public boolean setParameters(@Nullable RtpParameters parameters) {
     return parameters == null ? false : nativeSetParameters(nativeRtpReceiver, parameters);
   }
 

@@ -45,6 +45,7 @@
 #import "ios/chrome/browser/autofill/form_suggestion_tab_helper.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
+#import "ios/chrome/browser/download/download_manager_tab_helper.h"
 #include "ios/chrome/browser/experimental_flags.h"
 #import "ios/chrome/browser/find_in_page/find_in_page_controller.h"
 #include "ios/chrome/browser/history/history_service_factory.h"
@@ -53,15 +54,12 @@
 #include "ios/chrome/browser/infobars/infobar_manager_impl.h"
 #import "ios/chrome/browser/metrics/tab_usage_recorder.h"
 #include "ios/chrome/browser/pref_names.h"
-#import "ios/chrome/browser/prerender/prerender_service.h"
-#import "ios/chrome/browser/prerender/prerender_service_factory.h"
 #include "ios/chrome/browser/reading_list/reading_list_model_factory.h"
 #include "ios/chrome/browser/search_engines/template_url_service_factory.h"
 #import "ios/chrome/browser/snapshots/snapshot_cache.h"
 #import "ios/chrome/browser/snapshots/snapshot_cache_factory.h"
 #import "ios/chrome/browser/snapshots/snapshot_tab_helper.h"
 #import "ios/chrome/browser/tabs/legacy_tab_helper.h"
-#import "ios/chrome/browser/tabs/tab_delegate.h"
 #import "ios/chrome/browser/tabs/tab_dialog_delegate.h"
 #import "ios/chrome/browser/tabs/tab_headers_delegate.h"
 #import "ios/chrome/browser/tabs/tab_helper_util.h"
@@ -77,7 +75,6 @@
 #include "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/browser/voice/voice_search_navigations_tab_helper.h"
 #import "ios/chrome/browser/web/page_placeholder_tab_helper.h"
-#import "ios/chrome/browser/web/passkit_dialog_provider.h"
 #import "ios/chrome/browser/web/tab_id_tab_helper.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/web/navigation/navigation_manager_impl.h"
@@ -168,8 +165,6 @@ NSString* const kTabUrlKey = @"url";
 @synthesize overscrollActionsController = _overscrollActionsController;
 @synthesize overscrollActionsControllerDelegate =
     overscrollActionsControllerDelegate_;
-@synthesize passKitDialogProvider = passKitDialogProvider_;
-@synthesize delegate = delegate_;
 @synthesize dialogDelegate = dialogDelegate_;
 @synthesize tabHeadersDelegate = tabHeadersDelegate_;
 
@@ -211,9 +206,18 @@ NSString* const kTabUrlKey = @"url";
 #pragma mark - Properties
 
 - (NSString*)title {
-  base::string16 title = self.webState->GetTitle();
-  if (title.empty())
-    title = l10n_util::GetStringUTF16(IDS_DEFAULT_TAB_TITLE);
+  base::string16 title;
+
+  web::WebState* webState = self.webState;
+  if (!webState->GetNavigationManager()->GetVisibleItem() &&
+      DownloadManagerTabHelper::FromWebState(webState)->has_download_task()) {
+    title = l10n_util::GetStringUTF16(IDS_DOWNLOAD_TAB_TITLE);
+  } else {
+    title = webState->GetTitle();
+    if (title.empty())
+      title = l10n_util::GetStringUTF16(IDS_DEFAULT_TAB_TITLE);
+  }
+
   return base::SysUTF16ToNSString(title);
 }
 
@@ -406,23 +410,11 @@ NSString* const kTabUrlKey = @"url";
     didLoadPageWithSuccess:(BOOL)loadSuccess {
   DCHECK([self loadFinished]);
 
-  // Cancel prerendering if response is "application/octet-stream". It can be a
-  // video file which should not be played from preload tab (crbug.com/436813).
-  if (self.isPrerenderTab &&
-      self.webState->GetContentsMimeType() == "application/octet-stream") {
-    [self discardPrerender];
-  }
-
   if (loadSuccess) {
     scoped_refptr<net::HttpResponseHeaders> headers =
         _webStateImpl->GetHttpResponseHeaders();
     [self handleExportableFile:headers.get()];
   }
-}
-
-- (void)webStateDidSuppressDialog:(web::WebState*)webState {
-  DCHECK(self.isPrerenderTab);
-  [self discardPrerender];
 }
 
 - (void)renderProcessGoneForWebState:(web::WebState*)webState {
@@ -433,7 +425,6 @@ NSString* const kTabUrlKey = @"url";
 - (void)webStateDestroyed:(web::WebState*)webState {
   DCHECK_EQ(_webStateImpl, webState);
   self.overscrollActionsControllerDelegate = nil;
-  self.passKitDialogProvider = nil;
 
   [_openInController detachFromWebController];
   _openInController = nil;
@@ -541,36 +532,20 @@ NSString* const kTabUrlKey = @"url";
 
 - (BOOL)webController:(CRWWebController*)webController
     shouldOpenExternalURL:(const GURL&)URL {
-  if (self.isPrerenderTab) {
-    [self discardPrerender];
-    return NO;
-  }
   return YES;
 }
 
-- (CGFloat)headerHeightForWebController:(CRWWebController*)webController {
+- (CGFloat)nativeContentHeaderHeightForWebController:
+    (CRWWebController*)webController {
   return [self.tabHeadersDelegate tabHeaderHeightForTab:self];
 }
 
-- (void)webController:(CRWWebController*)webController
-    didLoadPassKitObject:(NSData*)data {
-  [self.passKitDialogProvider presentPassKitDialog:data];
+- (CGFloat)nativeContentFooterHeightForWebController:
+    (CRWWebController*)webController {
+  return [self.tabHeadersDelegate tabFooterHeightForTab:self];
 }
 
 #pragma mark - Private methods
-
-- (void)discardPrerender {
-  DCHECK(self.isPrerenderTab);
-  [delegate_ discardPrerender];
-}
-
-- (BOOL)isPrerenderTab {
-  DCHECK(_browserState);
-  PrerenderService* prerenderService =
-      PrerenderServiceFactory::GetForBrowserState(_browserState);
-  return prerenderService &&
-         prerenderService->IsWebStatePrerendered(self.webState);
-}
 
 - (OpenInController*)openInController {
   if (!_openInController) {

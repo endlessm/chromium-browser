@@ -14,9 +14,10 @@ import com.android.webview.chromium.SharedStatics;
 import com.android.webview.chromium.WebViewChromiumAwInit;
 import com.android.webview.chromium.WebkitToSharedGlueConverter;
 
-import org.chromium.support_lib_boundary.BoundaryInterfaceReflectionUtil;
 import org.chromium.support_lib_boundary.StaticsBoundaryInterface;
 import org.chromium.support_lib_boundary.WebViewProviderFactoryBoundaryInterface;
+import org.chromium.support_lib_boundary.util.BoundaryInterfaceReflectionUtil;
+import org.chromium.support_lib_boundary.util.Features;
 
 import java.lang.reflect.InvocationHandler;
 import java.util.List;
@@ -28,9 +29,38 @@ class SupportLibWebViewChromiumFactory implements WebViewProviderFactoryBoundary
     // SupportLibWebkitToCompatConverterAdapter
     private final InvocationHandler mCompatConverterAdapter;
     private final WebViewChromiumAwInit mAwInit;
+    // clang-format off
+    private final String[] mWebViewSupportedFeatures =
+            new String[] {
+                    Features.VISUAL_STATE_CALLBACK,
+                    Features.OFF_SCREEN_PRERASTER,
+                    Features.SAFE_BROWSING_ENABLE,
+                    Features.DISABLED_ACTION_MODE_MENU_ITEMS,
+                    Features.START_SAFE_BROWSING,
+                    Features.SAFE_BROWSING_WHITELIST,
+                    Features.SAFE_BROWSING_PRIVACY_POLICY_URL,
+                    Features.SERVICE_WORKER_BASIC_USAGE,
+                    Features.SERVICE_WORKER_CACHE_MODE,
+                    Features.SERVICE_WORKER_CONTENT_ACCESS,
+                    Features.SERVICE_WORKER_FILE_ACCESS,
+                    Features.SERVICE_WORKER_BLOCK_NETWORK_LOADS,
+                    Features.SERVICE_WORKER_SHOULD_INTERCEPT_REQUEST,
+                    Features.RECEIVE_WEB_RESOURCE_ERROR,
+                    Features.RECEIVE_HTTP_ERROR,
+                    Features.SAFE_BROWSING_HIT,
+                    Features.SHOULD_OVERRIDE_WITH_REDIRECTS,
+                    Features.WEB_RESOURCE_REQUEST_IS_REDIRECT,
+                    Features.WEB_RESOURCE_ERROR_GET_DESCRIPTION,
+                    Features.WEB_RESOURCE_ERROR_GET_CODE,
+                    Features.SAFE_BROWSING_RESPONSE_BACK_TO_SAFETY,
+                    Features.SAFE_BROWSING_RESPONSE_PROCEED,
+                    Features.SAFE_BROWSING_RESPONSE_SHOW_INTERSTITIAL
+            };
+    // clang-format on
 
     // Initialization guarded by mAwInit.getLock()
     private InvocationHandler mStatics;
+    private InvocationHandler mServiceWorkerController;
 
     public SupportLibWebViewChromiumFactory() {
         mCompatConverterAdapter = BoundaryInterfaceReflectionUtil.createInvocationHandlerFor(
@@ -84,5 +114,23 @@ class SupportLibWebViewChromiumFactory implements WebViewProviderFactoryBoundary
             }
         }
         return mStatics;
+    }
+
+    @Override
+    public String[] getSupportedFeatures() {
+        return mWebViewSupportedFeatures;
+    }
+
+    @Override
+    public InvocationHandler getServiceWorkerController() {
+        synchronized (mAwInit.getLock()) {
+            if (mServiceWorkerController == null) {
+                mServiceWorkerController =
+                        BoundaryInterfaceReflectionUtil.createInvocationHandlerFor(
+                                new SupportLibServiceWorkerControllerAdapter(
+                                        mAwInit.getServiceWorkerController()));
+            }
+        }
+        return mServiceWorkerController;
     }
 }

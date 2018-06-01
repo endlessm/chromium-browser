@@ -9,8 +9,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content" >
 
-    <view
-        class="org.chromium.chrome.browser.widget.bottomsheet.BottomSheet$TouchRestrictingFrameLayout"
+    <org.chromium.chrome.browser.widget.bottomsheet.TouchRestrictingFrameLayout
         android:id="@+id/bottom_sheet_content"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -18,9 +17,10 @@
         android:visibility="invisible" />
 
     <FrameLayout
+        android:id="@+id/bottom_sheet_control_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:minHeight="@dimen/bottom_control_container_height" >
+        android:minHeight="@dimen/bottom_control_container_peek_height" >
 
         <ImageView
             android:id="@+id/bottom_sheet_toolbar_top_shadow"
@@ -32,27 +32,17 @@
             android:contentDescription="@null" />
 
         <view
-            class="org.chromium.chrome.browser.widget.bottomsheet.BottomSheet$TouchRestrictingFrameLayout"
+            class="org.chromium.chrome.browser.widget.bottomsheet.TouchRestrictingFrameLayout"
             android:id="@+id/bottom_sheet_toolbar_container"
             android:layout_width="match_parent"
-            android:layout_height="@dimen/bottom_control_container_height"
+            android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/toolbar_shadow_height" >
 
             <View
                 android:id="@+id/bottom_sheet_toolbar"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:background="@color/modern_primary_color" >
-            </View>
-
-            <ImageView
-                android:id="@+id/toolbar_handle"
-                android:src="@drawable/toolbar_handle_dark"
-                android:layout_width="@dimen/toolbar_handle_width"
-                android:layout_height="@dimen/toolbar_handle_height"
-                android:layout_gravity="center"
-                android:contentDescription="@null" />
-
+                android:background="@color/modern_primary_color" />
         </view>
 
     </FrameLayout>
@@ -64,5 +54,11 @@
         android:layout_height="wrap_content"
         android:scaleType="fitXY"
         android:contentDescription="@null" />
+
+    <FrameLayout
+        android:id="@+id/bottom_sheet_snackbar_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start|bottom" />
 
 </org.chromium.chrome.browser.widget.bottomsheet.BottomSheet>

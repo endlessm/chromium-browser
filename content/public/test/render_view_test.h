@@ -21,9 +21,9 @@
 #include "content/public/test/mock_render_thread.h"
 #include "mojo/edk/embedder/scoped_ipc_support.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/platform/Platform.h"
-#include "third_party/WebKit/public/web/WebFrame.h"
-#include "third_party/WebKit/public/web/WebLeakDetector.h"
+#include "third_party/blink/public/platform/platform.h"
+#include "third_party/blink/public/web/web_frame.h"
+#include "third_party/blink/public/web/web_leak_detector.h"
 
 namespace base {
 class FieldTrialList;
@@ -31,7 +31,7 @@ class FieldTrialList;
 
 namespace blink {
 namespace scheduler {
-class RendererScheduler;
+class WebMainThreadScheduler;
 }
 class WebGestureEvent;
 class WebInputElement;
@@ -69,7 +69,8 @@ class RenderViewTest : public testing::Test, blink::WebLeakDetectorClient {
     void Shutdown();
 
    private:
-    std::unique_ptr<blink::scheduler::RendererScheduler> renderer_scheduler_;
+    std::unique_ptr<blink::scheduler::WebMainThreadScheduler>
+        main_thread_scheduler_;
     std::unique_ptr<RendererBlinkPlatformImplTestOverrideImpl>
         blink_platform_impl_;
   };

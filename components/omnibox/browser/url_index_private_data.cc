@@ -190,10 +190,13 @@ ScoredHistoryMatches URLIndexPrivateData::HistoryItemsForTerms(
     // the final filtering we need whitespace separated substrings possibly
     // containing escaped characters.
     base::string16 lower_raw_string(base::i18n::ToLower(search_string));
-    base::string16 lower_unescaped_string = net::UnescapeURLComponent(
-        lower_raw_string,
-        net::UnescapeRule::SPACES | net::UnescapeRule::PATH_SEPARATORS |
-            net::UnescapeRule::URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS);
+    // Have to convert to UTF-8 and back, because UnescapeURLComponent doesn't
+    // support unescaping UTF-8 characters and converting them to UTF-16.
+    base::string16 lower_unescaped_string =
+        base::UTF8ToUTF16(net::UnescapeURLComponent(
+            base::UTF16ToUTF8(lower_raw_string),
+            net::UnescapeRule::SPACES | net::UnescapeRule::PATH_SEPARATORS |
+                net::UnescapeRule::URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS));
 
     // Extract individual 'words' (as opposed to 'terms'; see comment in
     // HistoryIdsToScoredMatches()) from the search string. When the user types
@@ -369,10 +372,17 @@ scoped_refptr<URLIndexPrivateData> URLIndexPrivateData::RestoreFromFile(
   if (!base::PathExists(file_path))
     return nullptr;
   std::string data;
+
+  // To reduce OOM crashes, set a common sense limit on the cache file size we
+  // try to read. Most cache file sizes are under 1MB.
+  constexpr size_t kHistoryProviderCacheSizeLimitBytes = 50 * 1000 * 1000;
+
   // If there is no cache file then simply give up. This will cause us to
   // attempt to rebuild from the history database.
-  if (!base::ReadFileToString(file_path, &data))
+  if (!base::ReadFileToStringWithMaxSize(file_path, &data,
+                                         kHistoryProviderCacheSizeLimitBytes)) {
     return nullptr;
+  }
 
   scoped_refptr<URLIndexPrivateData> restored_data(new URLIndexPrivateData);
   InMemoryURLIndexCacheItem index_cache;

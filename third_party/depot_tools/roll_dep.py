@@ -10,6 +10,8 @@ script will always roll to the tip of to origin/master.
 """
 
 import argparse
+import collections
+import gclient_eval
 import os
 import re
 import subprocess
@@ -68,6 +70,12 @@ def should_show_log(upstream_url):
   return True
 
 
+def get_gclient_root():
+  gclient = os.path.join(
+      os.path.dirname(os.path.abspath(__file__)), 'gclient.py')
+  return check_output([sys.executable, gclient, 'root']).strip()
+
+
 def get_deps(root):
   """Returns the path and the content of the DEPS file."""
   deps_path = os.path.join(root, 'DEPS')
@@ -122,27 +130,25 @@ def generate_commit_message(
   return header + log_section
 
 
-def calculate_roll(full_dir, dependency, deps_content, roll_to, key):
-  """Calculates the roll for a dependency by processing deps_content, and
+def calculate_roll(full_dir, dependency, gclient_dict, roll_to):
+  """Calculates the roll for a dependency by processing gclient_dict, and
   fetching the dependency via git.
   """
-  head = check_output(['git', 'rev-parse', 'HEAD'], cwd=full_dir).strip()
-  if not head in deps_content:
-    print('Warning: %s is not checked out at the expected revision in DEPS' %
-          dependency)
-    if not key:
-      key = dependency
+  if dependency not in gclient_dict['deps']:
+    raise Error(
+        '%s is not in the "deps" section of the DEPS file.' % dependency)
 
-    # It happens if the user checked out a branch in the dependency by himself.
-    # Fall back to reading the DEPS to figure out the original commit.
-    for i in deps_content.splitlines():
-      m = re.match(r'\s+"' + key + '":.*"([a-z0-9]{40})",', i)
-      if m:
-        head = m.group(1)
-        break
-    else:
-      raise Error('Expected to find commit %s for %s in DEPS' % (head, key))
+  head = None
+  if isinstance(gclient_dict['deps'][dependency], basestring):
+    _, _, head = gclient_dict['deps'][dependency].partition('@')
+  elif (isinstance(gclient_dict['deps'][dependency], collections.Mapping)
+        and 'url' in gclient_dict['deps'][dependency]):
+    _, _, head = gclient_dict['deps'][dependency]['url'].partition('@')
+  else:
+    raise Error('%s is not a valid git dependency.' % dependency)
 
+  if not head:
+    raise Error('%s is unpinned.' % dependency)
   check_call(['git', 'fetch', 'origin', '--quiet'], cwd=full_dir)
   roll_to = check_output(['git', 'rev-parse', roll_to], cwd=full_dir).strip()
   return head, roll_to
@@ -160,22 +166,21 @@ def gen_commit_msg(logs, cmdline, rolls, reviewers, bug):
   return commit_msg
 
 
-def finalize(commit_msg, deps_path, deps_content, rolls):
+def finalize(commit_msg, deps_path, deps_content, rolls, is_relative, root_dir):
   """Edits the DEPS file, commits it, then uploads a CL."""
   print('Commit message:')
   print('\n'.join('    ' + i for i in commit_msg.splitlines()))
 
   with open(deps_path, 'wb') as f:
     f.write(deps_content)
-  root = os.path.dirname(deps_path)
-  check_call(['git', 'add', 'DEPS'], cwd=root)
-  check_call(['git', 'commit', '--quiet', '-m', commit_msg], cwd=root)
+  current_dir = os.path.dirname(deps_path)
+  check_call(['git', 'add', 'DEPS'], cwd=current_dir)
+  check_call(['git', 'commit', '--quiet', '-m', commit_msg], cwd=current_dir)
 
   # Pull the dependency to the right revision. This is surprising to users
   # otherwise.
   for dependency, (_head, roll_to) in sorted(rolls.iteritems()):
-    full_dir = os.path.normpath(
-        os.path.join(os.path.dirname(root), dependency))
+    full_dir = os.path.normpath(os.path.join(root_dir, dependency))
     check_call(['git', 'checkout', '--quiet', roll_to], cwd=full_dir)
 
 
@@ -220,24 +225,28 @@ def main():
       if not '@' in r:
         reviewers[i] = r + '@chromium.org'
 
-  root = os.getcwd()
+  gclient_root = get_gclient_root()
+  current_dir = os.getcwd()
   dependencies = sorted(d.rstrip('/').rstrip('\\') for d in args.dep_path)
   cmdline = 'roll-dep ' + ' '.join(dependencies) + ''.join(
       ' --key ' + k for k in args.key)
   try:
-    if not args.ignore_dirty_tree and not is_pristine(root):
-      raise Error('Ensure %s is clean first (no non-merged commits).' % root)
+    if not args.ignore_dirty_tree and not is_pristine(current_dir):
+      raise Error(
+          'Ensure %s is clean first (no non-merged commits).' % current_dir)
     # First gather all the information without modifying anything, except for a
     # git fetch.
-    deps_path, deps_content = get_deps(root)
+    deps_path, deps_content = get_deps(current_dir)
+    gclient_dict = gclient_eval.Parse(deps_content, True, True, deps_path)
+    is_relative = gclient_dict.get('use_relative_paths', False)
+    root_dir = current_dir if is_relative else gclient_root
     rolls = {}
     for dependency in dependencies:
-      full_dir = os.path.normpath(
-          os.path.join(os.path.dirname(root), dependency))
+      full_dir = os.path.normpath(os.path.join(root_dir, dependency))
       if not os.path.isdir(full_dir):
         raise Error('Directory not found: %s (%s)' % (dependency, full_dir))
       head, roll_to = calculate_roll(
-          full_dir, dependency, deps_content, args.roll_to, args.key)
+          full_dir, dependency, gclient_dict, args.roll_to)
       if roll_to == head:
         if len(dependencies) == 1:
           raise AlreadyRolledError('No revision to roll!')
@@ -249,15 +258,16 @@ def main():
 
     logs = []
     for dependency, (head, roll_to) in sorted(rolls.iteritems()):
-      full_dir = os.path.normpath(
-          os.path.join(os.path.dirname(root), dependency))
+      full_dir = os.path.normpath(os.path.join(root_dir, dependency))
       log = generate_commit_message(
           full_dir, dependency, head, roll_to, args.no_log, args.log_limit)
       logs.append(log)
-      deps_content = deps_content.replace(head, roll_to)
+      gclient_eval.SetRevision(gclient_dict, dependency, roll_to)
+
+    deps_content = gclient_eval.RenderDEPSFile(gclient_dict)
 
     commit_msg = gen_commit_msg(logs, cmdline, rolls, reviewers, args.bug)
-    finalize(commit_msg, deps_path, deps_content, rolls)
+    finalize(commit_msg, deps_path, deps_content, rolls, is_relative, root_dir)
   except Error as e:
     sys.stderr.write('error: %s\n' % e)
     return 2 if isinstance(e, AlreadyRolledError) else 1

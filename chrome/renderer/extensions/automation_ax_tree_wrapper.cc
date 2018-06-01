@@ -36,6 +36,7 @@ api::automation::EventType ToAutomationEvent(ax::mojom::Event event_type) {
     case ax::mojom::Event::kExpandedChanged:
       return api::automation::EVENT_TYPE_EXPANDEDCHANGED;
     case ax::mojom::Event::kFocus:
+    case ax::mojom::Event::kFocusContext:
       return api::automation::EVENT_TYPE_FOCUS;
     case ax::mojom::Event::kHide:
       return api::automation::EVENT_TYPE_HIDE;
@@ -103,6 +104,8 @@ api::automation::EventType ToAutomationEvent(ax::mojom::Event event_type) {
       return api::automation::EVENT_TYPE_SELECTIONREMOVE;
     case ax::mojom::Event::kShow:
       return api::automation::EVENT_TYPE_SHOW;
+    case ax::mojom::Event::kStateChanged:
+      return api::automation::EVENT_TYPE_NONE;
     case ax::mojom::Event::kTextChanged:
       return api::automation::EVENT_TYPE_TEXTCHANGED;
     case ax::mojom::Event::kTextSelectionChanged:
@@ -190,39 +193,45 @@ AutomationAXTreeWrapper::~AutomationAXTreeWrapper() {
   tree_.SetDelegate(nullptr);
 }
 
-bool AutomationAXTreeWrapper::OnAccessibilityEvent(
-    const ExtensionMsg_AccessibilityEventParams& params,
+bool AutomationAXTreeWrapper::OnAccessibilityEvents(
+    const std::vector<ExtensionMsg_AccessibilityEventParams>& events,
     bool is_active_profile) {
-  deleted_node_ids_.clear();
+  for (const auto& params : events) {
+    deleted_node_ids_.clear();
 
-  if (!tree_.Unserialize(params.update))
-    return false;
+    if (!tree_.Unserialize(params.update))
+      return false;
 
-  // Don't send any events if it's not the active profile.
+    if (is_active_profile)
+      owner_->SendNodesRemovedEvent(&tree_, deleted_node_ids_);
+  }
+
+  // Exit early if this isn't the active profile.
   if (!is_active_profile)
     return true;
-
-  owner_->SendNodesRemovedEvent(&tree_, deleted_node_ids_);
-  deleted_node_ids_.clear();
-
-  api::automation::EventType automation_event_type =
-      ToAutomationEvent(params.event_type);
-
-  // Send some events directly from the event message, if they're not
-  // handled by AXEventGenerator yet.
-  if (!IsEventTypeHandledByAXEventGenerator(automation_event_type))
-    owner_->SendAutomationEvent(params, params.id, automation_event_type);
 
   // Send auto-generated AXEventGenerator events.
   for (auto targeted_event : *this) {
     api::automation::EventType event_type =
         ToAutomationEvent(targeted_event.event);
     if (IsEventTypeHandledByAXEventGenerator(event_type)) {
-      owner_->SendAutomationEvent(params, targeted_event.node->id(),
+      ExtensionMsg_AccessibilityEventParams generated_params;
+      generated_params.tree_id = tree_id_;
+      owner_->SendAutomationEvent(generated_params, targeted_event.node->id(),
                                   event_type);
     }
   }
   ClearEvents();
+
+  for (auto params : events) {
+    api::automation::EventType automation_event_type =
+        ToAutomationEvent(params.event_type);
+
+    // Send some events directly from the event message, if they're not
+    // handled by AXEventGenerator yet.
+    if (!IsEventTypeHandledByAXEventGenerator(automation_event_type))
+      owner_->SendAutomationEvent(params, params.id, automation_event_type);
+  }
 
   return true;
 }
@@ -287,6 +296,7 @@ bool AutomationAXTreeWrapper::IsEventTypeHandledByAXEventGenerator(
     case api::automation::EVENT_TYPE_ACTIVEDESCENDANTCHANGED:
     case api::automation::EVENT_TYPE_ARIAATTRIBUTECHANGED:
     case api::automation::EVENT_TYPE_CHECKEDSTATECHANGED:
+    case api::automation::EVENT_TYPE_DOCUMENTSELECTIONCHANGED:
     case api::automation::EVENT_TYPE_EXPANDEDCHANGED:
     case api::automation::EVENT_TYPE_INVALIDSTATUSCHANGED:
     case api::automation::EVENT_TYPE_LIVEREGIONCHANGED:
@@ -306,6 +316,7 @@ bool AutomationAXTreeWrapper::IsEventTypeHandledByAXEventGenerator(
     case api::automation::EVENT_TYPE_SELECTIONADD:
     case api::automation::EVENT_TYPE_SELECTIONREMOVE:
     case api::automation::EVENT_TYPE_SHOW:
+    case api::automation::EVENT_TYPE_STATECHANGED:
     case api::automation::EVENT_TYPE_TREECHANGED:
       return false;
 
@@ -314,6 +325,7 @@ bool AutomationAXTreeWrapper::IsEventTypeHandledByAXEventGenerator(
     case api::automation::EVENT_TYPE_NONE:
     case api::automation::EVENT_TYPE_AUTOCORRECTIONOCCURED:
     case api::automation::EVENT_TYPE_CLICKED:
+    case api::automation::EVENT_TYPE_FOCUSCONTEXT:
     case api::automation::EVENT_TYPE_HITTESTRESULT:
     case api::automation::EVENT_TYPE_HOVER:
     case api::automation::EVENT_TYPE_MEDIASTARTEDPLAYING:
@@ -330,7 +342,6 @@ bool AutomationAXTreeWrapper::IsEventTypeHandledByAXEventGenerator(
     case api::automation::EVENT_TYPE_ALERT:
     case api::automation::EVENT_TYPE_BLUR:
     case api::automation::EVENT_TYPE_CHILDRENCHANGED:
-    case api::automation::EVENT_TYPE_DOCUMENTSELECTIONCHANGED:
     case api::automation::EVENT_TYPE_FOCUS:
     case api::automation::EVENT_TYPE_IMAGEFRAMEUPDATED:
     case api::automation::EVENT_TYPE_LOCATIONCHANGED:

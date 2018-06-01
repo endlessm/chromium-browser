@@ -51,6 +51,9 @@ COMMIT_ORIGINAL_POSITION_FOOTER_KEY = 'Cr-Original-Commit-Position'
 # Regular expression to parse gclient's revinfo entries.
 REVINFO_RE = re.compile(r'^([^:]+):\s+([^@]+)@(.+)$')
 
+# Regular expression to match gclient's patch error message.
+PATCH_ERROR_RE = re.compile('Failed to apply .* @ .* to .* at .*')
+
 # Copied from scripts/recipes/chromium.py.
 GOT_REVISION_MAPPINGS = {
     CHROMIUM_SRC_URL: {
@@ -327,7 +330,8 @@ def gclient_configure(solutions, target_os, target_os_only, target_cpu,
 
 def gclient_sync(
     with_branch_heads, with_tags, shallow, revisions, break_repo_locks,
-    disable_syntax_validation):
+    disable_syntax_validation, gerrit_repo, gerrit_ref, gerrit_reset,
+    gerrit_rebase_patch_ref, apply_patch_on_gclient):
   # We just need to allocate a filename.
   fd, gclient_output_file = tempfile.mkstemp(suffix='.json')
   os.close(fd)
@@ -350,9 +354,22 @@ def gclient_sync(
       revision = 'origin/master'
     args.extend(['--revision', '%s@%s' % (name, revision)])
 
+  if apply_patch_on_gclient and gerrit_repo and gerrit_ref:
+    # TODO(ehmaldonado): Merge gerrit_repo and gerrit_ref into a patch-ref flag
+    # and add support for passing multiple patch refs.
+    args.extend(['--patch-ref', gerrit_repo + '@' + gerrit_ref])
+    if not gerrit_reset:
+      args.append('--no-reset-patch-ref')
+    if not gerrit_rebase_patch_ref:
+      args.append('--no-rebase-patch-ref')
+
   try:
     call_gclient(*args)
   except SubprocessFailed as e:
+    # If gclient sync is handling patching, parse the output for a patch error
+    # message.
+    if apply_patch_on_gclient and PATCH_ERROR_RE.search(e.output):
+      raise PatchFailed(e.message, e.code, e.output)
     # Throw a GclientSyncFailed exception so we can catch this independently.
     raise GclientSyncFailed(e.message, e.code, e.output)
   else:
@@ -682,7 +699,9 @@ def _git_checkout(sln, sln_dir, revisions, shallow, refs, git_cache_dir,
       if not path.isdir(sln_dir):
         git('clone', '--no-checkout', '--local', '--shared', mirror_dir,
             sln_dir)
+        _git_disable_gc(sln_dir)
       else:
+        _git_disable_gc(sln_dir)
         git('remote', 'set-url', 'origin', mirror_dir, cwd=sln_dir)
         git('fetch', 'origin', cwd=sln_dir)
       for ref in refs:
@@ -708,6 +727,10 @@ def _git_checkout(sln, sln_dir, revisions, shallow, refs, git_cache_dir,
       else:
         raise
 
+def _git_disable_gc(cwd):
+  git('config', 'gc.autodetach', '0', cwd=cwd)
+  git('config', 'gc.autopacklimit', '0', cwd=cwd)
+
 
 def _download(url):
   """Fetch url and return content, with retries for flake."""
@@ -719,46 +742,6 @@ def _download(url):
         raise
 
 
-def apply_rietveld_issue(issue, patchset, root, server, _rev_map, _revision,
-                         email_file, key_file, oauth2_file,
-                         whitelist=None, blacklist=None):
-  apply_issue_bin = ('apply_issue.bat' if sys.platform.startswith('win')
-                     else 'apply_issue')
-  cmd = [apply_issue_bin,
-         # The patch will be applied on top of this directory.
-         '--root_dir', root,
-         # Tell apply_issue how to fetch the patch.
-         '--issue', issue,
-         '--server', server,
-         # Always run apply_issue.py, otherwise it would see update.flag
-         # and then bail out.
-         '--force',
-         # Don't run gclient sync when it sees a DEPS change.
-         '--ignore_deps',
-  ]
-  # Use an oauth key or json file if specified.
-  if oauth2_file:
-    cmd.extend(['--auth-refresh-token-json', oauth2_file])
-  elif email_file and key_file:
-    cmd.extend(['--email-file', email_file, '--private-key-file', key_file])
-  else:
-    cmd.append('--no-auth')
-
-  if patchset:
-    cmd.extend(['--patchset', patchset])
-  if whitelist:
-    for item in whitelist:
-      cmd.extend(['--whitelist', item])
-  elif blacklist:
-    for item in blacklist:
-      cmd.extend(['--blacklist', item])
-
-  # Only try once, since subsequent failures hide the real failure.
-  try:
-    call(*cmd)
-  except SubprocessFailed as e:
-    raise PatchFailed(e.message, e.code, e.output)
-
 def apply_gerrit_ref(gerrit_repo, gerrit_ref, root, gerrit_reset,
                      gerrit_rebase_patch_ref):
   gerrit_repo = gerrit_repo or 'origin'
@@ -768,7 +751,7 @@ def apply_gerrit_ref(gerrit_repo, gerrit_ref, root, gerrit_reset,
   print '===Applying gerrit ref==='
   print 'Repo is %r @ %r, ref is %r, root is %r' % (
       gerrit_repo, base_rev, gerrit_ref, root)
-  # TODO(tandrii): move the fix below to common rietveld/gerrit codepath.
+  # TODO(tandrii): move the fix below to common gerrit codepath.
   # Speculative fix: prior bot_update run with Rietveld patch may leave git
   # index with unmerged paths. bot_update calls 'checkout --force xyz' thus
   # ignoring such paths, but potentially never cleaning them up. The following
@@ -870,45 +853,37 @@ def emit_json(out_file, did_run, gclient_output=None, **kwargs):
 
 
 def ensure_checkout(solutions, revisions, first_sln, target_os, target_os_only,
-                    target_cpu, patch_root, issue, patchset, rietveld_server,
-                    gerrit_repo, gerrit_ref, gerrit_rebase_patch_ref,
-                    revision_mapping, apply_issue_email_file,
-                    apply_issue_key_file, apply_issue_oauth2_file, shallow,
-                    refs, git_cache_dir, cleanup_dir, gerrit_reset,
-                    disable_syntax_validation):
+                    target_cpu, patch_root, gerrit_repo, gerrit_ref,
+                    gerrit_rebase_patch_ref, shallow, refs, git_cache_dir,
+                    cleanup_dir, gerrit_reset, disable_syntax_validation,
+                    apply_patch_on_gclient):
   # Get a checkout of each solution, without DEPS or hooks.
   # Calling git directly because there is no way to run Gclient without
   # invoking DEPS.
   print 'Fetching Git checkout'
 
-  git_ref = git_checkouts(solutions, revisions, shallow, refs, git_cache_dir,
-                          cleanup_dir)
+  git_checkouts(solutions, revisions, shallow, refs, git_cache_dir, cleanup_dir)
 
-  print '===Processing patch solutions==='
-  already_patched = []
-  patch_root = patch_root or ''
   applied_gerrit_patch = False
-  print 'Patch root is %r' % patch_root
-  for solution in solutions:
-    print 'Processing solution %r' % solution['name']
-    if (patch_root == solution['name'] or
-        solution['name'].startswith(patch_root + '/')):
-      relative_root = solution['name'][len(patch_root) + 1:]
-      target = '/'.join([relative_root, 'DEPS']).lstrip('/')
-      print '  relative root is %r, target is %r' % (relative_root, target)
-      if issue:
-        apply_rietveld_issue(issue, patchset, patch_root, rietveld_server,
-                             revision_mapping, git_ref, apply_issue_email_file,
-                             apply_issue_key_file, apply_issue_oauth2_file,
-                             whitelist=[target])
-        already_patched.append(target)
-      elif gerrit_ref:
-        apply_gerrit_ref(gerrit_repo, gerrit_ref, patch_root, gerrit_reset,
-                         gerrit_rebase_patch_ref)
-        applied_gerrit_patch = True
+  if not apply_patch_on_gclient:
+    print '===Processing patch solutions==='
+    patch_root = patch_root or ''
+    print 'Patch root is %r' % patch_root
+    for solution in solutions:
+      print 'Processing solution %r' % solution['name']
+      if (patch_root == solution['name'] or
+          solution['name'].startswith(patch_root + '/')):
+        relative_root = solution['name'][len(patch_root) + 1:]
+        target = '/'.join([relative_root, 'DEPS']).lstrip('/')
+        print '  relative root is %r, target is %r' % (relative_root, target)
+        if gerrit_ref:
+          apply_gerrit_ref(gerrit_repo, gerrit_ref, patch_root, gerrit_reset,
+                           gerrit_rebase_patch_ref)
+          applied_gerrit_patch = True
 
   # Ensure our build/ directory is set up with the correct .gclient file.
-  gclient_configure(solutions, target_os, target_os_only, target_cpu, git_cache_dir)
+  gclient_configure(solutions, target_os, target_os_only, target_cpu,
+                    git_cache_dir)
 
   # Windows sometimes has trouble deleting files. This can make git commands
   # that rely on locks fail.
@@ -932,7 +907,12 @@ def ensure_checkout(solutions, revisions, first_sln, target_os, target_os_only,
       shallow,
       gc_revisions,
       break_repo_locks,
-      disable_syntax_validation)
+      disable_syntax_validation,
+      gerrit_repo,
+      gerrit_ref,
+      gerrit_reset,
+      gerrit_rebase_patch_ref,
+      apply_patch_on_gclient)
 
   # Now that gclient_sync has finished, we should revert any .DEPS.git so that
   # presubmit doesn't complain about it being modified.
@@ -940,12 +920,7 @@ def ensure_checkout(solutions, revisions, first_sln, target_os, target_os_only,
     git('checkout', 'HEAD', '--', '.DEPS.git', cwd=first_sln)
 
   # Apply the rest of the patch here (sans DEPS)
-  if issue:
-    apply_rietveld_issue(issue, patchset, patch_root, rietveld_server,
-                         revision_mapping, git_ref, apply_issue_email_file,
-                         apply_issue_key_file, apply_issue_oauth2_file,
-                         blacklist=already_patched)
-  elif gerrit_ref and not applied_gerrit_patch:
+  if gerrit_ref and not applied_gerrit_patch and not apply_patch_on_gclient:
     # If gerrit_ref was for solution's main repository, it has already been
     # applied above. This chunk is executed only for patches to DEPS-ed in
     # git repositories.
@@ -955,7 +930,8 @@ def ensure_checkout(solutions, revisions, first_sln, target_os, target_os_only,
   # Reset the deps_file point in the solutions so that hooks get run properly.
   for sln in solutions:
     sln['deps_file'] = sln.get('deps_file', 'DEPS').replace('.DEPS.git', 'DEPS')
-  gclient_configure(solutions, target_os, target_os_only, target_cpu, git_cache_dir)
+  gclient_configure(solutions, target_os, target_os_only, target_cpu,
+                    git_cache_dir)
 
   return gclient_output
 
@@ -1004,23 +980,9 @@ def parse_revisions(revisions, root):
 def parse_args():
   parse = optparse.OptionParser()
 
-  parse.add_option('--issue', help='Issue number to patch from.')
-  parse.add_option('--patchset',
-                   help='Patchset from issue to patch from, if applicable.')
-  parse.add_option('--apply_issue_email_file',
-                   help='--email-file option passthrough for apply_patch.py.')
-  parse.add_option('--apply_issue_key_file',
-                   help='--private-key-file option passthrough for '
-                        'apply_patch.py.')
-  parse.add_option('--apply_issue_oauth2_file',
-                   help='--auth-refresh-token-json option passthrough for '
-                        'apply_patch.py.')
   parse.add_option('--root', dest='patch_root',
                    help='DEPRECATED: Use --patch_root.')
   parse.add_option('--patch_root', help='Directory to patch on top of.')
-  parse.add_option('--rietveld_server',
-                   default='codereview.chromium.org',
-                   help='Rietveld server.')
   parse.add_option('--gerrit_repo',
                    help='Gerrit repository to pull the ref from.')
   parse.add_option('--gerrit_ref', help='Gerrit ref to apply.')
@@ -1064,6 +1026,8 @@ def parse_args():
   parse.add_option(
       '--disable-syntax-validation', action='store_true',
       help='Disable validation of .gclient and DEPS syntax.')
+  parse.add_option('--apply-patch-on-gclient', action='store_true',
+                   help='Patch the gerrit ref in gclient instead of here.')
 
   options, args = parse.parse_args()
 
@@ -1168,16 +1132,9 @@ def checkout(options, git_slns, specs, revisions, step_text, shallow):
 
           # Then, pass in information about how to patch.
           patch_root=options.patch_root,
-          issue=options.issue,
-          patchset=options.patchset,
-          rietveld_server=options.rietveld_server,
           gerrit_repo=options.gerrit_repo,
           gerrit_ref=options.gerrit_ref,
           gerrit_rebase_patch_ref=not options.gerrit_no_rebase_patch_ref,
-          revision_mapping=options.revision_mapping,
-          apply_issue_email_file=options.apply_issue_email_file,
-          apply_issue_key_file=options.apply_issue_key_file,
-          apply_issue_oauth2_file=options.apply_issue_oauth2_file,
 
           # Finally, extra configurations such as shallowness of the clone.
           shallow=shallow,
@@ -1185,7 +1142,8 @@ def checkout(options, git_slns, specs, revisions, step_text, shallow):
           git_cache_dir=options.git_cache_dir,
           cleanup_dir=options.cleanup_dir,
           gerrit_reset=not options.gerrit_no_reset,
-          disable_syntax_validation=options.disable_syntax_validation)
+          disable_syntax_validation=options.disable_syntax_validation,
+          apply_patch_on_gclient=options.apply_patch_on_gclient)
       gclient_output = ensure_checkout(**checkout_parameters)
     except GclientSyncFailed:
       print 'We failed gclient sync, lets delete the checkout and retry.'

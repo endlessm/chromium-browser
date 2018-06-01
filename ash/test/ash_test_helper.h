@@ -12,11 +12,14 @@
 #include <utility>
 #include <vector>
 
+#include "ash/app_list/test/app_list_test_helper.h"
 #include "ash/session/test_session_controller_client.h"
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/test/scoped_command_line.h"
 #include "ui/aura/test/mus/test_window_tree_client_setup.h"
+
+class PrefService;
 
 namespace aura {
 class Window;
@@ -88,6 +91,8 @@ class AshTestHelper {
 
   void NotifyClientAboutAcceleratedWidgets();
 
+  PrefService* GetLocalStatePrefService();
+
   TestShellDelegate* test_shell_delegate() { return test_shell_delegate_; }
   void set_test_shell_delegate(TestShellDelegate* test_shell_delegate) {
     test_shell_delegate_ = test_shell_delegate;
@@ -116,6 +121,10 @@ class AshTestHelper {
     session_controller_client_ = std::move(session_controller_client);
   }
 
+  AppListTestHelper* app_list_test_helper() {
+    return app_list_test_helper_.get();
+  }
+
   void reset_commandline() { command_line_.reset(); }
 
  private:
@@ -140,16 +149,18 @@ class AshTestHelper {
   std::unique_ptr<aura::test::EnvWindowTreeClientSetter>
       env_window_tree_client_setter_;
   AshTestEnvironment* ash_test_environment_;  // Not owned.
-  TestShellDelegate* test_shell_delegate_;  // Owned by ash::Shell.
+  TestShellDelegate* test_shell_delegate_ = nullptr;  // Owned by ash::Shell.
   std::unique_ptr<ui::ScopedAnimationDurationScaleMode> zero_duration_mode_;
 
   std::unique_ptr<::wm::WMState> wm_state_;
   std::unique_ptr<AshTestViewsDelegate> test_views_delegate_;
 
   // Check if DBus Thread Manager was initialized here.
-  bool dbus_thread_manager_initialized_;
+  bool dbus_thread_manager_initialized_ = false;
   // Check if Bluez DBus Manager was initialized here.
-  bool bluez_dbus_manager_initialized_;
+  bool bluez_dbus_manager_initialized_ = false;
+  // Check if PowerPolicyController was initialized here.
+  bool power_policy_controller_initialized_ = false;
 
   aura::TestWindowTreeClientSetup window_tree_client_setup_;
   std::unique_ptr<WindowManagerService> window_manager_service_;
@@ -162,6 +173,8 @@ class AshTestHelper {
   std::unique_ptr<ui::InputDeviceClient> input_device_client_;
 
   std::unique_ptr<base::test::ScopedCommandLine> command_line_;
+
+  std::unique_ptr<AppListTestHelper> app_list_test_helper_;
 
   DISALLOW_COPY_AND_ASSIGN(AshTestHelper);
 };

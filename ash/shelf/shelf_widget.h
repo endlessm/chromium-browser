@@ -24,6 +24,7 @@ class ApplicationDragAndDropHost;
 namespace ash {
 enum class AnimationChangeType;
 class AppListButton;
+class BackButton;
 class FocusCycler;
 class LoginShelfView;
 class Shelf;
@@ -42,6 +43,15 @@ class ASH_EXPORT ShelfWidget : public views::Widget,
  public:
   ShelfWidget(aura::Window* shelf_container, Shelf* shelf);
   ~ShelfWidget() override;
+
+  // Sets the initial session state and show the UI. Not part of the constructor
+  // because showing the UI triggers the accessibility checks in browser_tests,
+  // which will crash unless the constructor returns, allowing the caller
+  // to store the constructed widget.
+  void Initialize();
+
+  // Clean up prior to deletion.
+  void Shutdown();
 
   // Returns true if the views-based shelf is being shown.
   static bool IsUsingViewsShelf();
@@ -73,9 +83,6 @@ class ASH_EXPORT ShelfWidget : public views::Widget,
   void SetFocusCycler(FocusCycler* focus_cycler);
   FocusCycler* GetFocusCycler();
 
-  // Clean up prior to deletion.
-  void Shutdown();
-
   // See Shelf::UpdateIconPositionForPanel().
   void UpdateIconPositionForPanel(aura::Window* panel);
 
@@ -84,6 +91,9 @@ class ASH_EXPORT ShelfWidget : public views::Widget,
 
   // Returns the button that opens the app launcher.
   AppListButton* GetAppListButton() const;
+
+  // Returns the browser back button.
+  BackButton* GetBackButton() const;
 
   // Returns the ApplicationDragAndDropHost for this shelf.
   app_list::ApplicationDragAndDropHost* GetDragAndDropHostForAppList();

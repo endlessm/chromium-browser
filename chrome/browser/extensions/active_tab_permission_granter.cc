@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "chrome/browser/extensions/extension_action_runner.h"
+#include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
@@ -69,7 +70,8 @@ void SendMessageToProcesses(
     tab_process->Send(create_message.Run(false));
 }
 
-ActiveTabPermissionGranter::Delegate* g_delegate = nullptr;
+ActiveTabPermissionGranter::Delegate* g_active_tab_permission_granter_delegate =
+    nullptr;
 
 }  // namespace
 
@@ -90,9 +92,9 @@ ActiveTabPermissionGranter::Delegate*
 ActiveTabPermissionGranter::SetPlatformDelegate(Delegate* delegate) {
   // Disallow setting it twice (but allow resetting - don't forget to free in
   // that case).
-  CHECK(!g_delegate || !delegate);
-  Delegate* previous_delegate = g_delegate;
-  g_delegate = delegate;
+  CHECK(!g_active_tab_permission_granter_delegate || !delegate);
+  Delegate* previous_delegate = g_active_tab_permission_granter_delegate;
+  g_active_tab_permission_granter_delegate = delegate;
   return previous_delegate;
 }
 
@@ -106,15 +108,23 @@ void ActiveTabPermissionGranter::GrantIfRequested(const Extension* extension) {
   const PermissionsData* permissions_data = extension->permissions_data();
 
   bool should_grant_active_tab =
-      !g_delegate ||
-      g_delegate->ShouldGrantActiveTab(extension, web_contents());
+      !g_active_tab_permission_granter_delegate ||
+      g_active_tab_permission_granter_delegate->ShouldGrantActiveTab(
+          extension, web_contents());
   // If the extension requested all-hosts but has had it withheld, we grant it
   // active tab-style permissions, even if it doesn't have the activeTab
   // permission in the manifest.
   if (should_grant_active_tab &&
       (permissions_data->HasWithheldImpliedAllHosts() ||
        permissions_data->HasAPIPermission(APIPermission::kActiveTab))) {
-    new_hosts.AddOrigin(UserScript::ValidUserScriptSchemes(),
+    // Gate activeTab for file urls on extensions having explicit access to file
+    // urls.
+    int valid_schemes = UserScript::ValidUserScriptSchemes();
+    if (!util::AllowFileAccess(extension->id(),
+                               web_contents()->GetBrowserContext())) {
+      valid_schemes &= ~URLPattern::SCHEME_FILE;
+    }
+    new_hosts.AddOrigin(valid_schemes,
                         web_contents()->GetVisibleURL().GetOrigin());
     new_apis.insert(APIPermission::kTab);
   }

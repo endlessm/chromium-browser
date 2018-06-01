@@ -23,7 +23,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
-#include "chrome/browser/ui/infobar_container_delegate.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/views/exclusive_access_bubble_views_context.h"
 #include "chrome/browser/ui/views/extensions/extension_keybinding_registry_views.h"
@@ -35,7 +34,7 @@
 #include "chrome/browser/ui/views/tabs/tab.h"
 #include "chrome/browser/ui/views/tabs/tab_renderer_data.h"
 #include "chrome/common/buildflags.h"
-#include "components/omnibox/browser/omnibox_popup_model_observer.h"
+#include "components/infobars/core/infobar_container.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/gfx/native_widget_types.h"
@@ -53,7 +52,6 @@
 // view: http://dev.chromium.org/developers/design-documents/browser-window
 
 class BookmarkBarView;
-class BrowserViewButtonProvider;
 class Browser;
 class BrowserViewLayout;
 class ContentsLayoutManager;
@@ -64,6 +62,7 @@ class InfoBarContainerView;
 class LocationBarView;
 class StatusBubbleViews;
 class TabStrip;
+class ToolbarButtonProvider;
 class ToolbarView;
 class TopContainerView;
 class WebContentsCloseHandler;
@@ -79,7 +78,6 @@ enum class Channel;
 }
 
 namespace views {
-class AccessiblePaneView;
 class ExternalFocusTracker;
 class WebView;
 }
@@ -96,9 +94,8 @@ class BrowserView : public BrowserWindow,
                     public views::WidgetDelegate,
                     public views::WidgetObserver,
                     public views::ClientView,
-                    public InfoBarContainerDelegate,
+                    public infobars::InfoBarContainer::Delegate,
                     public LoadCompleteListener::Delegate,
-                    public OmniboxPopupModelObserver,
                     public ExclusiveAccessContext,
                     public ExclusiveAccessBubbleViewsContext,
                     public extensions::ExtensionKeybindingRegistry::Delegate {
@@ -263,13 +260,16 @@ class BrowserView : public BrowserWindow,
 
   // Sets the button provider for this BrowserView. Must be called before
   // InitViews() which sets the ToolbarView as the default button provider.
-  void SetButtonProvider(BrowserViewButtonProvider* provider);
-  BrowserViewButtonProvider* button_provider() { return button_provider_; }
+  void SetToolbarButtonProvider(ToolbarButtonProvider* provider);
+  ToolbarButtonProvider* toolbar_button_provider() {
+    return toolbar_button_provider_;
+  }
 
   // Overridden from BrowserWindow:
   void Show() override;
   void ShowInactive() override;
   void Hide() override;
+  bool IsVisible() const override;
   void SetBounds(const gfx::Rect& bounds) override;
   void Close() override;
   void Activate() override;
@@ -429,6 +429,7 @@ class BrowserView : public BrowserWindow,
   views::View* GetContentsView() override;
   views::ClientView* CreateClientView(views::Widget* widget) override;
   void OnWindowBeginUserBoundsChange() override;
+  void OnWindowEndUserBoundsChange() override;
   void OnWidgetMove() override;
   views::Widget* GetWidget() override;
   const views::Widget* GetWidget() const override;
@@ -443,10 +444,8 @@ class BrowserView : public BrowserWindow,
   int NonClientHitTest(const gfx::Point& point) override;
   gfx::Size GetMinimumSize() const override;
 
-  // InfoBarContainerDelegate:
-  SkColor GetInfoBarSeparatorColor() const override;
+  // infobars::InfoBarContainer::Delegate:
   void InfoBarContainerStateChanged(bool is_animating) override;
-  bool DrawInfoBarArrows(int* x) const override;
 
   // Overridden from views::View:
   const char* GetClassName() const override;
@@ -455,15 +454,13 @@ class BrowserView : public BrowserWindow,
   void ViewHierarchyChanged(
       const ViewHierarchyChangedDetails& details) override;
   void PaintChildren(const views::PaintInfo& paint_info) override;
+  void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
   void ChildPreferredSizeChanged(View* child) override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void OnThemeChanged() override;
 
   // Overridden from ui::AcceleratorTarget:
   bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
-
-  // OmniboxPopupModelObserver overrides
-  void OnOmniboxPopupShownOrHidden() override;
 
   // ExclusiveAccessContext overrides
   Profile* GetProfile() override;
@@ -515,10 +512,6 @@ class BrowserView : public BrowserWindow,
   // tab navigations and need to give users a visual clue as to what tabs are
   // affected.
   void RevealTabStripIfNeeded();
-
-  // Appends to |toolbars| a pointer to each AccessiblePaneView that
-  // can be traversed using F6, in the order they should be traversed.
-  void GetAccessiblePanes(std::vector<views::AccessiblePaneView*>* panes);
 
   // Constructs and initializes the child views.
   void InitViews();
@@ -610,9 +603,6 @@ class BrowserView : public BrowserWindow,
   // an existing showing one to the front.
   void ActivateAppModalDialog() const;
 
-  // Returns the max top arrow height for infobar.
-  int GetMaxTopInfoBarArrowHeight();
-
   // Retrieves the chrome command id associated with |accelerator|. The function
   // returns false if |accelerator| is unknown. Otherwise |command_id| will be
   // set to the chrome command id defined in //chrome/app/chrome_command_ids.h.
@@ -696,9 +686,9 @@ class BrowserView : public BrowserWindow,
   // Handled by ContentsLayoutManager.
   views::View* contents_container_ = nullptr;
 
-  // Provides access to the buttons this browser view uses. Buttons may appear
-  // in the frame or in the toolbar.
-  BrowserViewButtonProvider* button_provider_ = nullptr;
+  // Provides access to the toolbar buttons this browser view uses. Buttons may
+  // appear in a hosted app frame or in a tabbed UI toolbar.
+  ToolbarButtonProvider* toolbar_button_provider_ = nullptr;
 
   // Tracks and stores the last focused view which is not the
   // devtools_web_view_ or any of its children. Used to restore focus once
@@ -750,6 +740,16 @@ class BrowserView : public BrowserWindow,
   std::unique_ptr<BrowserWindowHistogramHelper> histogram_helper_;
 
   std::unique_ptr<FullscreenControlHost> fullscreen_control_host_;
+
+  struct ResizeSession {
+    // The time when user started resizing the window.
+    base::TimeTicks begin_timestamp;
+    base::TimeTicks last_resize_timestamp;
+    // The number of times the window size is changed from the start (i.e. since
+    // begin_timestamp).
+    size_t step_count = 0;
+  };
+  base::Optional<ResizeSession> interactive_resize_;
 
   mutable base::WeakPtrFactory<BrowserView> activate_modal_dialog_factory_{
       this};

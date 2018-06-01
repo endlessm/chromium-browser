@@ -4,69 +4,68 @@
 
 #include "chrome/browser/ui/views/omnibox/omnibox_tab_switch_button.h"
 
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/layout_constants.h"
+#include "chrome/browser/ui/omnibox/omnibox_theme.h"
+#include "chrome/browser/ui/views/location_bar/background_with_1_px_border.h"
+#include "chrome/browser/ui/views/omnibox/omnibox_result_view.h"
+#include "components/omnibox/browser/vector_icons.h"
 #include "ui/gfx/color_utils.h"
+#include "ui/gfx/paint_vector_icon.h"
 
-void OmniboxTabSwitchButton::SetPressed() {
-  const SkColor bg_color = result_view_->GetColor(
-      OmniboxResultView::SELECTED, OmniboxResultView::BACKGROUND);
-  // Using transparent does nothing, since the result view is also selected.
-  const SkColor pressed_color =
-      color_utils::AlphaBlend(bg_color, SK_ColorBLACK, 0.8 * 255);
-  SetBackground(
-      std::make_unique<BackgroundWith1PxBorder>(pressed_color, SK_ColorBLACK));
-  SchedulePaint();
-}
-
-void OmniboxTabSwitchButton::ClearState() {
-  // TODO: Consider giving this a non-transparent background.
-  SetBackground(nullptr);
-  SchedulePaint();
-}
-
-bool OmniboxTabSwitchButton::OnMousePressed(const ui::MouseEvent& event) {
-  SetPressed();
-
-  // We return true to tell caller, "We want drag events."
-  return true;
-}
-
-bool OmniboxTabSwitchButton::OnMouseDragged(const ui::MouseEvent& event) {
-  if (HitTestPoint(event.location())) {
-    // TODO: Only do this on the first movement.
-    SetPressed();
-    // I don't think this has any effect.
-    return true;
-  } else {
-    ClearState();
-    SetMouseHandler(result_view_);
-    return false;
-  }
-}
-
-void OmniboxTabSwitchButton::OnMouseReleased(const ui::MouseEvent& event) {
-  // We're not going to be called again.
-  ClearState();
-  const ui::MouseEvent* mouse = event.AsMouseEvent();
-  if (mouse->IsOnlyLeftMouseButton())
-    result_view_->OpenMatch(WindowOpenDisposition::SWITCH_TO_TAB);
+OmniboxTabSwitchButton::OmniboxTabSwitchButton(OmniboxResultView* result_view,
+                                               int text_height)
+    : MdTextButton(result_view, views::style::CONTEXT_BUTTON_MD),
+      text_height_(text_height),
+      result_view_(result_view) {
+  // TODO(krb): SetTooltipText(text);
+  //            SetImageAlignment(ALIGN_CENTER, ALIGN_MIDDLE);
+  SetBgColorOverride(GetBackgroundColor());
+  SetImage(STATE_NORMAL,
+           gfx::CreateVectorIcon(omnibox::kSwitchIcon,
+                                 GetLayoutConstant(LOCATION_BAR_ICON_SIZE),
+                                 SK_ColorBLACK));
+  SetText(base::ASCIIToUTF16("Switch to open tab"));
+  set_corner_radius(CalculatePreferredSize().height() / 2.f);
 }
 
 gfx::Size OmniboxTabSwitchButton::CalculatePreferredSize() const {
-  gfx::Size size = LabelButton::CalculatePreferredSize();
+  gfx::Size size = MdTextButton::CalculatePreferredSize();
+  size.set_height(text_height_ + kVerticalPadding);
   const int horizontal_padding =
-      GetLayoutConstant(LOCATION_BAR_PADDING) +
+      GetLayoutConstant(LOCATION_BAR_ELEMENT_PADDING) +
       GetLayoutConstant(LOCATION_BAR_ICON_INTERIOR_PADDING);
   size.set_width(size.width() + horizontal_padding);
   return size;
 }
 
 void OmniboxTabSwitchButton::StateChanged(ButtonState old_state) {
-  const SkColor bg_color = result_view_->GetColor(
-      state() == STATE_HOVERED ? OmniboxResultView::HOVERED
-                               : OmniboxResultView::NORMAL,
-      OmniboxResultView::BACKGROUND);
-  SetBackground(
-      std::make_unique<BackgroundWith1PxBorder>(bg_color, SK_ColorBLACK));
-  LabelButton::StateChanged(old_state);
+  if (state() == STATE_NORMAL) {
+    SetBgColorOverride(GetBackgroundColor());
+    // If used to be pressed, transer ownership.
+    if (old_state == STATE_PRESSED)
+      SetMouseHandler(parent());
+  }
+  if (state() == STATE_HOVERED) {
+    if (old_state == STATE_NORMAL) {
+      SetBgColorOverride(GetBackgroundColor());
+    }
+  }
+  if (state() == STATE_PRESSED)
+    SetPressed();
+  MdTextButton::StateChanged(old_state);
+}
+
+SkColor OmniboxTabSwitchButton::GetBackgroundColor() const {
+  return GetOmniboxColor(OmniboxPart::RESULTS_BACKGROUND,
+                         result_view_->GetTint(),
+                         state() == STATE_HOVERED ? OmniboxPartState::HOVERED
+                                                  : OmniboxPartState::NORMAL);
+}
+
+void OmniboxTabSwitchButton::SetPressed() {
+  SetBgColorOverride(color_utils::AlphaBlend(
+      GetOmniboxColor(OmniboxPart::RESULTS_BACKGROUND, result_view_->GetTint(),
+                      OmniboxPartState::SELECTED),
+      SK_ColorBLACK, 0.8 * 255));
 }

@@ -39,8 +39,7 @@ class TabModel : public content::NotificationObserver {
   virtual Profile* GetProfile() const;
   virtual bool IsOffTheRecord() const;
   virtual sync_sessions::SyncedWindowDelegate* GetSyncedWindowDelegate() const;
-  virtual SessionID::id_type GetSessionId() const;
-  virtual const SessionID& SessionId() const;
+  virtual SessionID GetSessionId() const;
   virtual sessions::LiveTabContext* GetLiveTabContext() const;
 
   virtual int GetTabCount() const = 0;
@@ -64,6 +63,10 @@ class TabModel : public content::NotificationObserver {
 
   // Return true if we are currently restoring sessions asynchronously.
   virtual bool IsSessionRestoreInProgress() const = 0;
+
+  // Return true if this class is the currently selected in the correspond
+  // tab model selector.
+  virtual bool IsCurrentModel() const = 0;
 
  protected:
   explicit TabModel(Profile* profile, bool is_tabbed_activity);

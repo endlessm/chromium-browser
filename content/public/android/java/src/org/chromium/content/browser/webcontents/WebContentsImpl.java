@@ -15,6 +15,7 @@ import android.os.ParcelUuid;
 import android.os.Parcelable;
 import android.support.annotation.Nullable;
 
+import org.chromium.base.Callback;
 import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
@@ -23,18 +24,20 @@ import org.chromium.base.annotations.JNINamespace;
 import org.chromium.content.browser.AppWebMessagePort;
 import org.chromium.content.browser.MediaSessionImpl;
 import org.chromium.content.browser.RenderCoordinates;
+import org.chromium.content.browser.accessibility.WebContentsAccessibilityImpl;
 import org.chromium.content.browser.framehost.RenderFrameHostDelegate;
 import org.chromium.content.browser.framehost.RenderFrameHostImpl;
+import org.chromium.content.browser.selection.SelectionPopupControllerImpl;
 import org.chromium.content_public.browser.AccessibilitySnapshotCallback;
 import org.chromium.content_public.browser.AccessibilitySnapshotNode;
 import org.chromium.content_public.browser.ChildProcessImportance;
-import org.chromium.content_public.browser.ContentBitmapCallback;
 import org.chromium.content_public.browser.ImageDownloadCallback;
 import org.chromium.content_public.browser.JavaScriptCallback;
 import org.chromium.content_public.browser.MessagePort;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.RenderFrameHost;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.content_public.browser.WebContents.UserDataFactory;
 import org.chromium.content_public.browser.WebContentsInternals;
 import org.chromium.content_public.browser.WebContentsObserver;
 import org.chromium.ui.OverscrollRefreshHandler;
@@ -303,37 +306,51 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate {
         nativeStop(mNativeWebContentsAndroid);
     }
 
-    @Override
+    /**
+     * Cut the selected content.
+     */
     public void cut() {
         nativeCut(mNativeWebContentsAndroid);
     }
 
-    @Override
+    /**
+     * Copy the selected content.
+     */
     public void copy() {
         nativeCopy(mNativeWebContentsAndroid);
     }
 
-    @Override
+    /**
+     * Paste content from the clipboard.
+     */
     public void paste() {
         nativePaste(mNativeWebContentsAndroid);
     }
 
-    @Override
+    /**
+     * Paste content from the clipboard without format.
+     */
     public void pasteAsPlainText() {
         nativePasteAsPlainText(mNativeWebContentsAndroid);
     }
 
-    @Override
+    /**
+     * Replace the selected text with the {@code word}.
+     */
     public void replace(String word) {
         nativeReplace(mNativeWebContentsAndroid, word);
     }
 
-    @Override
+    /**
+     * Select all content.
+     */
     public void selectAll() {
         nativeSelectAll(mNativeWebContentsAndroid);
     }
 
-    @Override
+    /**
+     * Collapse the selection to the end of selection range.
+     */
     public void collapseSelection() {
         // collapseSelection may get triggered when certain selection-related widgets
         // are destroyed. As the timing for such destruction is unpredictable,
@@ -344,12 +361,22 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate {
 
     @Override
     public void onHide() {
+        SelectionPopupControllerImpl controller = getSelectionPopupController();
+        if (controller != null) controller.hidePopupsAndPreserveSelection();
         nativeOnHide(mNativeWebContentsAndroid);
     }
 
     @Override
     public void onShow() {
+        WebContentsAccessibilityImpl wcax = WebContentsAccessibilityImpl.fromWebContents(this);
+        if (wcax != null) wcax.refreshState();
+        SelectionPopupControllerImpl controller = getSelectionPopupController();
+        if (controller != null) controller.restoreSelectionPopupsIfNecessary();
         nativeOnShow(mNativeWebContentsAndroid);
+    }
+
+    private SelectionPopupControllerImpl getSelectionPopupController() {
+        return SelectionPopupControllerImpl.fromWebContents(this);
     }
 
     @Override
@@ -595,13 +622,9 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate {
     }
 
     @Override
-    public void getContentBitmapAsync(int width, int height, ContentBitmapCallback callback) {
-        nativeGetContentBitmap(mNativeWebContentsAndroid, width, height, callback);
-    }
-
-    @CalledByNative
-    private void onGetContentBitmapFinished(ContentBitmapCallback callback, Bitmap bitmap) {
-        callback.onFinishGetBitmap(bitmap);
+    public void getContentBitmapAsync(
+            int width, int height, String path, Callback<String> callback) {
+        nativeGetContentBitmap(mNativeWebContentsAndroid, width, height, path, callback);
     }
 
     @Override
@@ -622,12 +645,16 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate {
         callback.onFinishDownloadImage(id, httpStatusCode, imageUrl, bitmaps, sizes);
     }
 
-    @Override
+    /**
+     * Removes handles used in text selection.
+     */
     public void dismissTextHandles() {
         nativeDismissTextHandles(mNativeWebContentsAndroid);
     }
 
-    @Override
+    /**
+     * Shows paste popup menu at the touch handle at specified location.
+     */
     public void showContextMenuAtTouchHandle(int x, int y) {
         nativeShowContextMenuAtTouchHandle(mNativeWebContentsAndroid, x, y);
     }
@@ -704,41 +731,37 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate {
         return mRenderCoordinates;
     }
 
-    /**
-     * Sets {@link WebContentsUserData} object in {@code UserDataMap}.
-     * <p>
-     * Note: This should be only called by {@link WebContentsUserData}.
-     * @param key Key of the generic object to set (its class instance).
-     * @param data The wrapper {@link WebContentsUserData} of the generic object to store.
-     */
-    void setUserData(Class key, WebContentsUserData data) {
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T> T getOrSetUserData(Class key, UserDataFactory<T> userDataFactory) {
         Map<Class, WebContentsUserData> userDataMap = getUserDataMap();
+
+        // Map can be null after WebView gets gc'ed on its way to destruction.
         if (userDataMap == null) {
             Log.e(TAG, "UserDataMap can't be found");
-            return;
+            return null;
         }
-        assert !userDataMap.containsKey(key); // Do not allow duplicated Data
-        userDataMap.put(key, data);
+
+        WebContentsUserData data = userDataMap.get(key);
+        if (data == null && userDataFactory != null) {
+            assert !userDataMap.containsKey(key); // Do not allow duplicated Data
+
+            T object = userDataFactory.create(this);
+            assert key.isInstance(object);
+            userDataMap.put(key, new WebContentsUserData(object));
+            // Retrieves from the map again to return null in case |setUserData| fails
+            // to store the object.
+            data = userDataMap.get(key);
+        }
+        // Casting Object to T is safe since we make sure the object was of type T upon creation.
+        return data != null ? (T) data.getObject() : null;
     }
 
     /**
-     * Gets {@link WebContentsUserData} object from {@code UserDataMap}.
-     * <p>
-     * Note: This should be only called by {@link WebContentsUserData}.
-     * @param key Key of the generic object wrapped in {@link WebContentsUserData}.
-     * @return The {@link WebContentUserData} wrapping the object associated with the key.
-     */
-    WebContentsUserData getUserData(Class key) {
-        Map<Class, WebContentsUserData> userDataMap = getUserDataMap();
-        return userDataMap != null ? userDataMap.get(key) : null;
-    }
-
-    /**
-     * Note: This should be only called by {@link WebContentsUserData}.
      * @return {@code UserDataMap} that contains internal user data. {@code null} if
      *         the map is already gc'ed.
      */
-    Map<Class, WebContentsUserData> getUserDataMap() {
+    private Map<Class, WebContentsUserData> getUserDataMap() {
         WebContentsInternals internals = mInternalsHolder.get();
         if (internals == null) return null;
         return ((WebContentsInternalsImpl) internals).userDataMap;
@@ -800,8 +823,8 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate {
             long nativeWebContentsAndroid, AccessibilitySnapshotCallback callback);
     private native void nativeSetOverscrollRefreshHandler(
             long nativeWebContentsAndroid, OverscrollRefreshHandler nativeOverscrollRefreshHandler);
-    private native void nativeGetContentBitmap(
-            long nativeWebContentsAndroid, int width, int height, ContentBitmapCallback callback);
+    private native void nativeGetContentBitmap(long nativeWebContentsAndroid, int width, int height,
+            String path, Callback<String> callback);
     private native void nativeReloadLoFiImages(long nativeWebContentsAndroid);
     private native int nativeDownloadImage(long nativeWebContentsAndroid,
             String url, boolean isFavicon, int maxBitmapSize,

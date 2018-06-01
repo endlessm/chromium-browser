@@ -3,10 +3,11 @@
 // found in the LICENSE file.
 
 #include <functional>
-#include <strstream>
 
 #include "base/message_loop/message_loop.h"
+#include "base/path_service.h"
 #include "base/run_loop.h"
+#include "base/threading/thread_restrictions.h"
 #include "content/public/test/browser_test.h"
 #include "headless/public/devtools/domains/dom_snapshot.h"
 #include "headless/public/devtools/domains/page.h"
@@ -29,9 +30,11 @@ namespace headless {
 
 namespace {
 
-const std::string SOME_HOST = "http://www.example.com";
-constexpr char SOME_URL[] = "http://example.com/foobar";
-constexpr char TEXT_HTML[] = "text/html";
+constexpr char kSomeUrl[] = "http://example.com/foobar";
+constexpr char kTextHtml[] = "text/html";
+constexpr char kApplicationOctetStream[] = "application/octet-stream";
+constexpr char kImagePng[] = "image/png";
+constexpr char kImageSvgXml[] = "image/svg+xml";
 
 using dom_snapshot::GetSnapshotResult;
 using dom_snapshot::DOMNode;
@@ -162,8 +165,28 @@ TestInMemoryProtocolHandler::Response HttpRedirect(
   return TestInMemoryProtocolHandler::Response(str.str());
 }
 
-TestInMemoryProtocolHandler::Response HttpOk(const std::string& html) {
-  return TestInMemoryProtocolHandler::Response(html, TEXT_HTML);
+TestInMemoryProtocolHandler::Response HttpOk(
+    const std::string& html,
+    const std::string& mime_type = kTextHtml) {
+  return TestInMemoryProtocolHandler::Response(html, mime_type);
+}
+
+TestInMemoryProtocolHandler::Response ResponseFromFile(
+    const std::string& file_name,
+    const std::string& mime_type) {
+  static const base::FilePath kTestDataDirectory(
+      FILE_PATH_LITERAL("headless/test/data"));
+
+  base::ScopedAllowBlockingForTesting allow_blocking;
+
+  base::FilePath src_dir;
+  CHECK(base::PathService::Get(base::DIR_SOURCE_ROOT, &src_dir));
+  base::FilePath file_path =
+      src_dir.Append(kTestDataDirectory).Append(file_name);
+  std::string contents;
+  CHECK(base::ReadFileToString(file_path, &contents));
+
+  return TestInMemoryProtocolHandler::Response(contents, mime_type);
 }
 
 }  // namespace
@@ -171,10 +194,10 @@ TestInMemoryProtocolHandler::Response HttpOk(const std::string& html) {
 class HelloWorldTest : public HeadlessRenderTest {
  private:
   GURL GetPageUrl(HeadlessDevToolsClient* client) override {
-    GetProtocolHandler()->InsertResponse(SOME_URL, HttpOk(R"|(<!doctype html>
+    GetProtocolHandler()->InsertResponse(kSomeUrl, HttpOk(R"|(<!doctype html>
 <h1>Hello headless world!</h1>
 )|"));
-    return GURL(SOME_URL);
+    return GURL(kSomeUrl);
   }
 
   void VerifyDom(GetSnapshotResult* dom_snapshot) override {
@@ -185,13 +208,13 @@ class HelloWorldTest : public HeadlessRenderTest {
         FilterDOM(dom_snapshot, IsText),
         ElementsAre(NodeValue("Hello headless world!"), NodeValue("\n")));
     EXPECT_THAT(TextLayout(dom_snapshot), ElementsAre("Hello headless world!"));
-    EXPECT_THAT(GetProtocolHandler()->urls_requested(), ElementsAre(SOME_URL));
+    EXPECT_THAT(GetProtocolHandler()->urls_requested(), ElementsAre(kSomeUrl));
     EXPECT_FALSE(main_frame_.empty());
     EXPECT_TRUE(unconfirmed_frame_redirects_.empty());
     EXPECT_TRUE(confirmed_frame_redirects_.empty());
     EXPECT_THAT(frames_[main_frame_].size(), Eq(1u));
     const auto& frame = frames_[main_frame_][0];
-    EXPECT_THAT(frame->GetUrl(), Eq(SOME_URL));
+    EXPECT_THAT(frame->GetUrl(), Eq(kSomeUrl));
   }
 };
 HEADLESS_RENDER_BROWSERTEST(HelloWorldTest);
@@ -213,7 +236,7 @@ HEADLESS_RENDER_BROWSERTEST(TimeoutTest);
 class JavaScriptOverrideTitle_JsEnabled : public HeadlessRenderTest {
  private:
   GURL GetPageUrl(HeadlessDevToolsClient* client) override {
-    GetProtocolHandler()->InsertResponse(SOME_URL, HttpOk(R"|(
+    GetProtocolHandler()->InsertResponse(kSomeUrl, HttpOk(R"|(
 <html>
   <head>
     <title>JavaScript is off</title>
@@ -228,7 +251,7 @@ class JavaScriptOverrideTitle_JsEnabled : public HeadlessRenderTest {
   </body>
 </html>
 )|"));
-    return GURL(SOME_URL);
+    return GURL(kSomeUrl);
   }
 
   void VerifyDom(GetSnapshotResult* dom_snapshot) override {
@@ -258,7 +281,7 @@ HEADLESS_RENDER_BROWSERTEST(JavaScriptOverrideTitle_JsDisabled);
 class JavaScriptConsoleErrors : public HeadlessRenderTest {
  private:
   GURL GetPageUrl(HeadlessDevToolsClient* client) override {
-    GetProtocolHandler()->InsertResponse(SOME_URL, HttpOk(R"|(
+    GetProtocolHandler()->InsertResponse(kSomeUrl, HttpOk(R"|(
 <html>
   <head>
     <script language="JavaScript">
@@ -282,7 +305,7 @@ class JavaScriptConsoleErrors : public HeadlessRenderTest {
   </body>
 </html>
 )|"));
-    return GURL(SOME_URL);
+    return GURL(kSomeUrl);
   }
 
   void VerifyDom(GetSnapshotResult* dom_snapshot) override {
@@ -301,7 +324,7 @@ class DelayedCompletion : public HeadlessRenderTest {
   base::TimeTicks start_;
 
   GURL GetPageUrl(HeadlessDevToolsClient* client) override {
-    GetProtocolHandler()->InsertResponse(SOME_URL, HttpOk(R"|(
+    GetProtocolHandler()->InsertResponse(kSomeUrl, HttpOk(R"|(
 <html>
   <body>
    <script type="text/javascript">
@@ -317,7 +340,7 @@ class DelayedCompletion : public HeadlessRenderTest {
 </html>
 )|"));
     start_ = base::TimeTicks::Now();
-    return GURL(SOME_URL);
+    return GURL(kSomeUrl);
   }
 
   void VerifyDom(GetSnapshotResult* dom_snapshot) override {
@@ -1158,7 +1181,8 @@ document.cookie = x + 'baz';
         network::GetCookiesParams::Builder()
             .SetUrls({"http://www.example.com/"})
             .Build(),
-        base::Bind(&CookieUpdatedFromJs::OnGetCookies, base::Unretained(this)));
+        base::BindOnce(&CookieUpdatedFromJs::OnGetCookies,
+                       base::Unretained(this)));
   }
 
   void OnGetCookies(std::unique_ptr<network::GetCookiesResult> result) {
@@ -1327,5 +1351,138 @@ class FrameLoadEvents : public HeadlessRenderTest {
   }
 };
 HEADLESS_RENDER_BROWSERTEST(FrameLoadEvents);
+
+class CustomFont : public HeadlessRenderTest {
+ private:
+  GURL GetPageUrl(HeadlessDevToolsClient* client) override {
+    GetProtocolHandler()->InsertResponse("http://www.example.com/", HttpOk(R"|(
+<html>
+  <head>
+    <style>
+      @font-face {
+        font-family: testfont;
+        src: url("font.ttf");
+      }
+      span.test {
+        font-family: testfont;
+        font-size: 200px;
+      }
+    </style>
+  </head>
+  <body>
+    <span class="test">Hello</span>
+  </body>
+</html>
+)|"));
+    GetProtocolHandler()->InsertResponse(
+        "http://www.example.com/font.ttf",
+        ResponseFromFile("font.ttf", kApplicationOctetStream));
+    return GURL("http://www.example.com/");
+  }
+
+  base::Optional<ScreenshotOptions> GetScreenshotOptions() override {
+    return ScreenshotOptions("custom_font.png", 0, 0, 500, 250, 1);
+  }
+};
+HEADLESS_RENDER_BROWSERTEST(CustomFont);
+
+// Ensures that "filter: url(...)" does not get into an infinite style update
+// loop.
+class CssUrlFilter : public HeadlessRenderTest {
+ private:
+  GURL GetPageUrl(HeadlessDevToolsClient* client) override {
+    // The image from circle.svg will be drawn with the blur from blur.svg.
+    GetProtocolHandler()->InsertResponse("http://www.example.com/", HttpOk(R"|(
+<!DOCTYPE html>
+<style>
+body { margin: 0; }
+img {
+  -webkit-filter: url(blur.svg#blur);
+  filter: url(blur.svg#blur);
+}
+</style>
+<img src="circle.svg">
+)|"));
+
+    // Just a normal image.
+    GetProtocolHandler()->InsertResponse("http://www.example.com/circle.svg",
+                                         HttpOk(R"|(
+<svg width="100" height="100" version="1.1" xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink">
+<circle cx="50" cy="50" r="50" fill="green" />
+</svg>
+)|",
+                                                kImageSvgXml));
+
+    // A blur filter stored inside an svg file.
+    GetProtocolHandler()->InsertResponse("http://www.example.com/blur.svg#blur",
+                                         HttpOk(R"|(
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink">
+  <filter id="blur">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="5"/>
+  </filter>
+</svg>
+)|",
+                                                kImageSvgXml));
+
+    return GURL("http://www.example.com/");
+  }
+
+  base::Optional<ScreenshotOptions> GetScreenshotOptions() override {
+    return ScreenshotOptions("css_url_filter.png", 0, 0, 100, 100, 1);
+  }
+};
+HEADLESS_RENDER_BROWSERTEST(CssUrlFilter);
+
+// Ensures that a number of SVGs features render correctly.
+class SvgExamples : public HeadlessRenderTest {
+ private:
+  GURL GetPageUrl(HeadlessDevToolsClient* client) override {
+    GetProtocolHandler()->InsertResponse(
+        "http://www.example.com/",
+        ResponseFromFile("svg_examples.svg", kImageSvgXml));
+    GetProtocolHandler()->InsertResponse(
+        "http://www.example.com/svg_example_image.png",
+        ResponseFromFile("svg_example_image.png", kImagePng));
+
+    return GURL("http://www.example.com/");
+  }
+
+  base::Optional<ScreenshotOptions> GetScreenshotOptions() override {
+    return ScreenshotOptions("svg_examples.png", 0, 0, 400, 600, 1);
+  }
+};
+HEADLESS_RENDER_BROWSERTEST(SvgExamples);
+
+// Ensures that basic <canvas> painting is supported.
+class Canvas : public HeadlessRenderTest {
+ private:
+  GURL GetPageUrl(HeadlessDevToolsClient* client) override {
+    GetProtocolHandler()->InsertResponse("http://www.example.com/", HttpOk(R"|(
+<html>
+  <body>
+    <canvas id="test_canvas" width="200" height="200"
+            style="position:absolute;left:0px;top:0px">
+      Oops!  Canvas not supported!
+    </canvas>
+    <script>
+      var context = document.getElementById("test_canvas").
+                    getContext("2d");
+      context.fillStyle = "rgb(255,0,0)";
+      context.fillRect(30, 30, 50, 50);
+    </script>
+  </body>
+</html>
+)|"));
+
+    return GURL("http://www.example.com/");
+  }
+
+  base::Optional<ScreenshotOptions> GetScreenshotOptions() override {
+    return ScreenshotOptions("canvas.png", 0, 0, 200, 200, 1);
+  }
+};
+HEADLESS_RENDER_BROWSERTEST(Canvas);
 
 }  // namespace headless

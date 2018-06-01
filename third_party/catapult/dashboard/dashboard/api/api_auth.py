@@ -22,7 +22,14 @@ OAUTH_CLIENT_ID_WHITELIST = [
     # This oauth client id is used to upload histograms from the perf waterfall.
     '113172445342431053212',
     'chromeperf@webrtc-perf-test.google.com.iam.gserviceaccount.com',
+    # This oauth client id is used to upload histograms when debugging Fuchsia
+    # locally (e.g. in a cron-job).
     'catapult-uploader@fuchsia-infra.iam.gserviceaccount.com',
+    # This oauth client id is used to upload histograms from Fuchsia dev
+    # builders.
+    'garnet-ci-builder-dev@fuchsia-infra.iam.gserviceaccount.com',
+    # This oauth client id is used from Fuchsia Garnet builders.
+    'garnet-ci-builder@fuchsia-infra.iam.gserviceaccount.com',
     # This oauth client id used to upload histograms from cronet bots.
     '113172445342431053212'
 ]
@@ -80,3 +87,15 @@ def Authorize(function_to_wrap):
 
     return function_to_wrap(*args, **kwargs)
   return Wrapper
+
+
+def Email():
+  """Retrieves the email address of the logged-in user.
+
+  Returns:
+    The email address, as a string or None if there is no user logged in.
+  """
+  try:
+    return oauth.get_current_user(OAUTH_SCOPES).email()
+  except oauth.InvalidOAuthParametersError:
+    return None

@@ -5,7 +5,6 @@
 #include "content/public/test/mock_render_thread.h"
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/unguessable_token.h"
@@ -22,7 +21,7 @@
 #include "ipc/message_filter.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/web/WebScriptController.h"
+#include "third_party/blink/public/web/web_script_controller.h"
 
 namespace content {
 
@@ -86,14 +85,10 @@ class MockRenderMessageFilterImpl : public mojom::RenderMessageFilter {
     std::move(callback).Run(false);
   }
 
+#if defined(OS_LINUX)
   void SetThreadPriority(int32_t platform_thread_id,
                          base::ThreadPriority thread_priority) override {}
-
-  void LoadFont(const base::string16& font_name,
-                const float font_size_point,
-                LoadFontCallback callback) override {
-    NOTREACHED();
-  }
+#endif
 
  private:
   MockRenderThread* const thread_;
@@ -263,8 +258,14 @@ void MockRenderThread::PreCacheFont(const LOGFONT& log_font) {
 
 void MockRenderThread::ReleaseCachedFonts() {
 }
-
-#endif  // OS_WIN
+#elif defined(OS_MACOSX)
+bool MockRenderThread::LoadFont(const base::string16& font_name,
+                                float font_point_size,
+                                mojo::ScopedSharedBufferHandle* out_font_data,
+                                uint32_t* out_font_id) {
+  return false;  // Not implemented.
+}
+#endif
 
 ServiceManagerConnection* MockRenderThread::GetServiceManagerConnection() {
   return nullptr;

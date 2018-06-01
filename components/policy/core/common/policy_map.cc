@@ -7,7 +7,6 @@
 #include <algorithm>
 
 #include "base/callback.h"
-#include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 
 namespace policy {
@@ -66,8 +65,18 @@ const PolicyMap::Entry* PolicyMap::Get(const std::string& policy) const {
   return entry == map_.end() ? nullptr : &entry->second;
 }
 
+PolicyMap::Entry* PolicyMap::GetMutable(const std::string& policy) {
+  PolicyMapType::iterator entry = map_.find(policy);
+  return entry == map_.end() ? nullptr : &entry->second;
+}
+
 const base::Value* PolicyMap::GetValue(const std::string& policy) const {
   PolicyMapType::const_iterator entry = map_.find(policy);
+  return entry == map_.end() ? nullptr : entry->second.value.get();
+}
+
+base::Value* PolicyMap::GetMutableValue(const std::string& policy) {
+  PolicyMapType::iterator entry = map_.find(policy);
   return entry == map_.end() ? nullptr : entry->second.value.get();
 }
 

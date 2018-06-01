@@ -301,15 +301,36 @@ class ArcBluetoothBridge
   // Set up or disable multiple advertising.
   void ReserveAdvertisementHandle(
       ReserveAdvertisementHandleCallback callback) override;
-  void BroadcastAdvertisement(
+  void EnableAdvertisement(
       int32_t adv_handle,
       std::unique_ptr<device::BluetoothAdvertisement::Data> advertisement,
-      BroadcastAdvertisementCallback callback) override;
+      EnableAdvertisementCallback callback) override;
+  void DisableAdvertisement(int32_t adv_handle,
+                            DisableAdvertisementCallback callback) override;
   void ReleaseAdvertisementHandle(
       int32_t adv_handle,
       ReleaseAdvertisementHandleCallback callback) override;
 
  private:
+  template <typename... Args>
+  void AddAdvertisementTask(
+      base::OnceCallback<void(base::OnceCallback<void(Args...)>)> task,
+      base::OnceCallback<void(Args...)> callback);
+  template <typename... Args>
+  void CompleteAdvertisementTask(base::OnceCallback<void(Args...)> callback,
+                                 Args... args);
+  void ReserveAdvertisementHandleImpl(
+      ReserveAdvertisementHandleCallback callback);
+  void EnableAdvertisementImpl(
+      int32_t adv_handle,
+      std::unique_ptr<device::BluetoothAdvertisement::Data> advertisement,
+      EnableAdvertisementCallback callback);
+  void DisableAdvertisementImpl(int32_t adv_handle,
+                                DisableAdvertisementCallback callback);
+  void ReleaseAdvertisementHandleImpl(
+      int32_t adv_handle,
+      ReleaseAdvertisementHandleCallback callback);
+
   template <typename InstanceType, typename HostType>
   class ConnectionObserverImpl;
 
@@ -412,20 +433,24 @@ class ArcBluetoothBridge
 
   // Common code for OnCharacteristicReadRequest and OnDescriptorReadRequest
   template <class LocalGattAttribute>
-  void OnGattAttributeReadRequest(const device::BluetoothDevice* device,
-                                  const LocalGattAttribute* attribute,
-                                  int offset,
-                                  const ValueCallback& success_callback,
-                                  const ErrorCallback& error_callback);
+  void OnGattAttributeReadRequest(
+      const device::BluetoothDevice* device,
+      const LocalGattAttribute* attribute,
+      int offset,
+      mojom::BluetoothGattDBAttributeType attribute_type,
+      const ValueCallback& success_callback,
+      const ErrorCallback& error_callback);
 
   // Common code for OnCharacteristicWriteRequest and OnDescriptorWriteRequest
   template <class LocalGattAttribute>
-  void OnGattAttributeWriteRequest(const device::BluetoothDevice* device,
-                                   const LocalGattAttribute* attribute,
-                                   const std::vector<uint8_t>& value,
-                                   int offset,
-                                   const base::Closure& success_callback,
-                                   const ErrorCallback& error_callback);
+  void OnGattAttributeWriteRequest(
+      const device::BluetoothDevice* device,
+      const LocalGattAttribute* attribute,
+      const std::vector<uint8_t>& value,
+      int offset,
+      mojom::BluetoothGattDBAttributeType attribute_type,
+      const base::Closure& success_callback,
+      const ErrorCallback& error_callback);
 
   void OnSetDiscoverable(bool discoverable, bool success, uint32_t timeout);
   void SetDiscoverable(bool discoverable, uint32_t timeout);
@@ -466,13 +491,18 @@ class ArcBluetoothBridge
       GattStatusCallback callback,
       int32_t adv_handle,
       device::BluetoothAdvertisement::ErrorCode error_code);
-  // Both of the following are called after we've tried to unregister
-  // the advertisement for |adv_handle|. Either way, we will no
-  // longer be broadcasting this advertisement, so in either case, the
-  // handle can be released.
   void OnUnregisterAdvertisementDone(GattStatusCallback callback,
                                      int32_t adv_handle);
   void OnUnregisterAdvertisementError(
+      GattStatusCallback callback,
+      int32_t adv_handle,
+      device::BluetoothAdvertisement::ErrorCode error_code);
+  // Both of the following are called after we've tried to release |adv_handle|.
+  // Either way, we will no longer be broadcasting this advertisement, so in
+  // either case, the handle can be released.
+  void OnReleaseAdvertisementHandleDone(GattStatusCallback callback,
+                                        int32_t adv_handle);
+  void OnReleaseAdvertisementHandleError(
       GattStatusCallback callback,
       int32_t adv_handle,
       device::BluetoothAdvertisement::ErrorCode error_code);
@@ -544,6 +574,7 @@ class ArcBluetoothBridge
   enum { kMaxAdvertisements = 1 };
   std::map<int32_t, scoped_refptr<device::BluetoothAdvertisement>>
       advertisements_;
+  base::queue<base::OnceClosure> advertisement_task_queue_;
 
   THREAD_CHECKER(thread_checker_);
 

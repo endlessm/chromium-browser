@@ -15,6 +15,9 @@
 #include "build/build_config.h"
 #include "chrome/browser/search/search.h"
 #include "chrome/browser/themes/theme_properties.h"
+#include "chrome/browser/ui/layout_constants.h"
+#include "chrome/browser/ui/omnibox/omnibox_theme.h"
+#include "chrome/browser/ui/views/location_bar/background_with_1_px_border.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_result_view.h"
 #include "chrome/browser/ui/views/omnibox/rounded_omnibox_results_frame.h"
@@ -31,6 +34,7 @@
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/safe_integer_conversions.h"
+#include "ui/gfx/image/canvas_image_source.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/path.h"
@@ -51,12 +55,8 @@ base::LazyInstance<gfx::ImageSkia>::DestructorAtExit g_bottom_shadow =
 
 constexpr int kPopupVerticalPadding = 4;
 
-bool IsRounded() {
-  return ui::MaterialDesignController::IsTouchOptimizedUiEnabled();
-}
-
 bool IsNarrow() {
-  return IsRounded() ||
+  return LocationBarView::IsRounded() ||
          base::FeatureList::IsEnabled(omnibox::kUIExperimentNarrowDropdown);
 }
 
@@ -157,6 +157,8 @@ class OmniboxPopupContentsView::AutocompletePopupWidget
     : public ThemeCopyingWidget,
       public base::SupportsWeakPtr<AutocompletePopupWidget> {
  public:
+  // TODO(tapted): Remove |role_model| when the omnibox is completely decoupled
+  // from NativeTheme.
   explicit AutocompletePopupWidget(views::Widget* role_model)
       : ThemeCopyingWidget(role_model) {}
   ~AutocompletePopupWidget() override {}
@@ -174,7 +176,7 @@ class OmniboxPopupContentsView::AutocompletePopupWidget
     params.bounds = bounds;
     params.context = parent_widget->GetNativeWindow();
 
-    if (IsRounded())
+    if (LocationBarView::IsRounded())
       RoundedOmniboxResultsFrame::OnBeforeWidgetInit(&params);
     else
       animator_ = std::make_unique<WidgetShrinkAnimation>(this, bounds);
@@ -183,7 +185,7 @@ class OmniboxPopupContentsView::AutocompletePopupWidget
   }
 
   void SetPopupContentsView(OmniboxPopupContentsView* contents) {
-    if (IsRounded()) {
+    if (LocationBarView::IsRounded()) {
       SetContentsView(new RoundedOmniboxResultsFrame(
           contents, contents->location_bar_view_));
     } else {
@@ -248,7 +250,28 @@ void OmniboxPopupContentsView::OpenMatch(size_t index,
 gfx::Image OmniboxPopupContentsView::GetMatchIcon(
     const AutocompleteMatch& match,
     SkColor vector_icon_color) const {
-  return model_->GetMatchIcon(match, vector_icon_color);
+  gfx::Image icon = model_->GetMatchIcon(match, vector_icon_color);
+  if (icon.IsEmpty())
+    return icon;
+
+  const int icon_size = GetLayoutConstant(LOCATION_BAR_ICON_SIZE);
+  // In touch mode, icons are 20x20. FaviconCache and ExtensionIconManager both
+  // guarantee favicons and extension icons will be 16x16, so add extra padding
+  // around them to align them vertically with the other vector icons.
+  DCHECK_GE(icon_size, icon.Height());
+  DCHECK_GE(icon_size, icon.Width());
+  gfx::Insets padding_border((icon_size - icon.Height()) / 2,
+                             (icon_size - icon.Width()) / 2);
+  if (!padding_border.IsEmpty()) {
+    return gfx::Image(gfx::CanvasImageSource::CreatePadded(*icon.ToImageSkia(),
+                                                           padding_border));
+  }
+  return icon;
+}
+
+OmniboxTint OmniboxPopupContentsView::GetTint() const {
+  // Use LIGHT in tests.
+  return location_bar_view_ ? location_bar_view_->tint() : OmniboxTint::LIGHT;
 }
 
 void OmniboxPopupContentsView::SetSelectedLine(size_t index) {
@@ -320,9 +343,9 @@ void OmniboxPopupContentsView::UpdatePopupAppearance() {
     child_at(i)->SetVisible(false);
 
   gfx::Rect new_target_bounds = UpdateMarginsAndGetTargetBounds();
-  if (IsNarrow() && !IsRounded()) {
-    SkColor background_color = GetNativeTheme()->GetSystemColor(
-        ui::NativeTheme::kColorId_ResultsTableNormalBackground);
+  if (IsNarrow() && !LocationBarView::IsRounded()) {
+    SkColor background_color =
+        GetOmniboxColor(OmniboxPart::RESULTS_BACKGROUND, GetTint());
     auto border = std::make_unique<views::BubbleBorder>(
         views::BubbleBorder::NONE, views::BubbleBorder::SMALL_SHADOW,
         background_color);
@@ -444,7 +467,7 @@ void OmniboxPopupContentsView::OnGestureEvent(ui::GestureEvent* event) {
 // OmniboxPopupContentsView, private:
 
 gfx::Rect OmniboxPopupContentsView::UpdateMarginsAndGetTargetBounds() {
-  if (IsRounded()) {
+  if (LocationBarView::IsRounded()) {
     // The rounded popup is always offset the same amount from the omnibox.
     gfx::Rect content_rect = location_bar_view_->GetBoundsInScreen();
     content_rect.Inset(
@@ -495,7 +518,7 @@ int OmniboxPopupContentsView::CalculatePopupHeight() {
   // amount of space between the text and the popup border as there is in the
   // interior between each row of text.
   int height = popup_height;
-  if (IsRounded()) {
+  if (LocationBarView::IsRounded()) {
     height += RoundedOmniboxResultsFrame::GetAlignmentInsets(location_bar_view_)
                   .height();
   } else {
@@ -507,7 +530,7 @@ int OmniboxPopupContentsView::CalculatePopupHeight() {
 
 void OmniboxPopupContentsView::LayoutChildren() {
   gfx::Rect contents_rect = GetContentsBounds();
-  if (!IsRounded()) {
+  if (!LocationBarView::IsRounded()) {
     contents_rect.Inset(gfx::Insets(kPopupVerticalPadding, 0));
     contents_rect.Inset(start_margin_, g_top_shadow.Get().height(), end_margin_,
                         0);
@@ -601,8 +624,8 @@ void OmniboxPopupContentsView::PaintChildren(
       paint_info.paint_recording_scale_y()));
   {
     ui::PaintRecorder recorder(paint_info.context(), size());
-    SkColor background_color = result_view_at(0)->GetColor(
-        OmniboxResultView::NORMAL, OmniboxResultView::BACKGROUND);
+    SkColor background_color =
+        GetOmniboxColor(OmniboxPart::RESULTS_BACKGROUND, GetTint());
     recorder.canvas()->DrawColor(background_color);
   }
   View::PaintChildren(paint_info);

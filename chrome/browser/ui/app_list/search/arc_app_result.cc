@@ -26,8 +26,8 @@ ArcAppResult::ArcAppResult(Profile* profile,
   std::string id = kArcAppPrefix;
   id += app_id;
   set_id(id);
-  icon_loader_.reset(
-      new ArcAppIconLoader(profile, GetPreferredIconDimension(this), this));
+  icon_loader_.reset(new ArcAppIconLoader(
+      profile, GetPreferredIconDimension(display_type()), this));
   icon_loader_->FetchImage(app_id);
 }
 
@@ -45,7 +45,7 @@ void ArcAppResult::ExecuteLaunchCommand(int event_flags) {
 
 void ArcAppResult::Open(int event_flags) {
   // Record the search metric if the result is not a suggested app.
-  if (display_type() != DISPLAY_RECOMMENDATION)
+  if (display_type() != ash::SearchResultDisplayType::kRecommendation)
     RecordHistogram(APP_SEARCH_RESULT);
 
   if (!arc::LaunchApp(profile(), app_id(), event_flags,
@@ -58,14 +58,13 @@ void ArcAppResult::Open(int event_flags) {
   controller()->DismissView();
 }
 
-std::unique_ptr<SearchResult> ArcAppResult::Duplicate() const {
-  std::unique_ptr<SearchResult> copy =
-      std::make_unique<ArcAppResult>(profile(), app_id(), controller(),
-                                     display_type() == DISPLAY_RECOMMENDATION);
+std::unique_ptr<ChromeSearchResult> ArcAppResult::Duplicate() const {
+  std::unique_ptr<ArcAppResult> copy = std::make_unique<ArcAppResult>(
+      profile(), app_id(), controller(),
+      display_type() == ash::SearchResultDisplayType::kRecommendation);
   copy->set_title(title());
   copy->set_title_tags(title_tags());
   copy->set_relevance(relevance());
-
   return copy;
 }
 

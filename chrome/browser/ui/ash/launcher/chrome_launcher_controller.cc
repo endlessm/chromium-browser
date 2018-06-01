@@ -4,6 +4,10 @@
 
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 
+#include <algorithm>
+#include <set>
+#include <utility>
+
 #include "ash/multi_profile_uma.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/remote_shelf_item_delegate.h"
@@ -11,8 +15,6 @@
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/public/cpp/shelf_prefs.h"
 #include "ash/public/interfaces/constants.mojom.h"
-#include "ash/resources/grit/ash_resources.h"
-#include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "base/strings/pattern.h"
@@ -26,11 +28,12 @@
 #include "chrome/browser/prefs/pref_service_syncable_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/app_list/app_list_service_impl.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service_factory.h"
+#include "chrome/browser/ui/app_list/app_sync_ui_state.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_icon_loader.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
-#include "chrome/browser/ui/ash/app_list/app_list_service_ash.h"
-#include "chrome/browser/ui/ash/app_sync_ui_state.h"
+#include "chrome/browser/ui/app_list/crostini/crostini_util.h"
 #include "chrome/browser/ui/ash/ash_util.h"
 #include "chrome/browser/ui/ash/chrome_launcher_prefs.h"
 #include "chrome/browser/ui/ash/launcher/app_shortcut_launcher_item_controller.h"
@@ -41,6 +44,7 @@
 #include "chrome/browser/ui/ash/launcher/browser_shortcut_launcher_item_controller.h"
 #include "chrome/browser/ui/ash/launcher/browser_status_monitor.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_util.h"
+#include "chrome/browser/ui/ash/launcher/crostini_app_window_shelf_controller.h"
 #include "chrome/browser/ui/ash/launcher/launcher_arc_app_updater.h"
 #include "chrome/browser/ui/ash/launcher/launcher_controller_helper.h"
 #include "chrome/browser/ui/ash/launcher/launcher_extension_app_updater.h"
@@ -69,12 +73,9 @@
 #include "content/public/common/service_manager_connection.h"
 #include "extensions/common/extension.h"
 #include "services/service_manager/public/cpp/connector.h"
-#include "ui/app_list/presenter/app_list_presenter_impl.h"
 #include "ui/aura/window.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "ui/display/display.h"
-#include "ui/display/screen.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/keyboard/keyboard_util.h"
 #include "ui/resources/grit/ui_resources.h"
@@ -83,13 +84,6 @@ using extension_misc::kChromeAppId;
 using extension_misc::kGmailAppId;
 
 namespace {
-
-int64_t GetDisplayIDForShelf(ash::Shelf* shelf) {
-  display::Display display =
-      display::Screen::GetScreen()->GetDisplayNearestWindow(shelf->GetWindow());
-  DCHECK(display.is_valid());
-  return display.id();
-}
 
 // Calls ItemSelected with |source|, default arguments, and no callback.
 void SelectItemWithSource(ash::ShelfItemDelegate* delegate,
@@ -254,6 +248,10 @@ ChromeLauncherController::ChromeLauncherController(Profile* profile,
   app_window_controllers_.push_back(std::move(extension_app_window_controller));
   app_window_controllers_.push_back(
       std::make_unique<ArcAppWindowLauncherController>(this));
+  if (IsExperimentalCrostiniUIAvailable()) {
+    app_window_controllers_.push_back(
+        std::make_unique<CrostiniAppWindowShelfController>(this));
+  }
 }
 
 ChromeLauncherController::~ChromeLauncherController() {
@@ -514,10 +512,8 @@ ash::ShelfAction ChromeLauncherController::ActivateWindowOrMinimizeIfActive(
     return ash::SHELF_ACTION_WINDOW_ACTIVATED;
   }
 
-  const app_list::AppListPresenterImpl* app_list_presenter =
-      AppListServiceAsh::GetInstance()->GetAppListPresenter();
   if (window->IsActive() && allow_minimize &&
-      (!app_list_presenter || !app_list_presenter->IsVisible())) {
+      !AppListServiceImpl::GetInstance()->GetTargetVisibility()) {
     window->Minimize();
     return ash::SHELF_ACTION_WINDOW_MINIMIZED;
   }
@@ -662,37 +658,6 @@ ChromeLauncherController::GetBrowserShortcutLauncherItemController() {
   ash::mojom::ShelfItemDelegate* delegate = model_->GetShelfItemDelegate(id);
   DCHECK(delegate) << "There should be always be a browser shortcut item.";
   return static_cast<BrowserShortcutLauncherItemController*>(delegate);
-}
-
-bool ChromeLauncherController::ShelfBoundsChangesProbablyWithUser(
-    ash::Shelf* shelf,
-    const AccountId& account_id) const {
-  Profile* other_profile = multi_user_util::GetProfileFromAccountId(account_id);
-  if (!other_profile || other_profile == profile())
-    return false;
-
-  // Note: The Auto hide state from preferences is not the same as the actual
-  // visibility of the shelf. Depending on all the various states (full screen,
-  // no window on desktop, multi user, ..) the shelf could be shown - or not.
-  PrefService* prefs = profile()->GetPrefs();
-  PrefService* other_prefs = other_profile->GetPrefs();
-  // If ash prefs have not been registered with Chrome yet, Chrome cannot know
-  // whether the shelf bounds will change; err on the side of false positives.
-  if (!ash::AreShelfPrefsAvailable(prefs) ||
-      !ash::AreShelfPrefsAvailable(other_prefs)) {
-    return true;
-  }
-  const int64_t display = GetDisplayIDForShelf(shelf);
-  const bool currently_shown =
-      ash::SHELF_AUTO_HIDE_BEHAVIOR_NEVER ==
-      ash::GetShelfAutoHideBehaviorPref(prefs, display);
-  const bool other_shown =
-      ash::SHELF_AUTO_HIDE_BEHAVIOR_NEVER ==
-      ash::GetShelfAutoHideBehaviorPref(other_prefs, display);
-
-  return currently_shown != other_shown ||
-         ash::GetShelfAlignmentPref(prefs, display) !=
-             ash::GetShelfAlignmentPref(other_prefs, display);
 }
 
 void ChromeLauncherController::OnUserProfileReadyToSwitch(Profile* profile) {

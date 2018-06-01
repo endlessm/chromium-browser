@@ -12,6 +12,7 @@ package org.appspot.apprtc;
 
 import android.media.AudioFormat;
 import android.os.Environment;
+import javax.annotation.Nullable;
 import android.util.Log;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -19,21 +20,25 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.concurrent.ExecutorService;
+import org.webrtc.audio.JavaAudioDeviceModule;
+import org.webrtc.audio.JavaAudioDeviceModule.SamplesReadyCallback;
 import org.webrtc.voiceengine.WebRtcAudioRecord;
-import org.webrtc.voiceengine.WebRtcAudioRecord.AudioSamples;
 import org.webrtc.voiceengine.WebRtcAudioRecord.WebRtcAudioRecordSamplesReadyCallback;
 
 /**
- * Implements the WebRtcAudioRecordSamplesReadyCallback interface and writes
+ * Implements the AudioRecordSamplesReadyCallback interface and writes
  * recorded raw audio samples to an output file.
  */
-public class RecordedAudioToFileController implements WebRtcAudioRecordSamplesReadyCallback {
+public class RecordedAudioToFileController
+    implements SamplesReadyCallback, WebRtcAudioRecordSamplesReadyCallback {
   private static final String TAG = "RecordedAudioToFile";
   private static final long MAX_FILE_SIZE_IN_BYTES = 58348800L;
 
   private final Object lock = new Object();
   private final ExecutorService executor;
+  @Nullable
   private OutputStream rawAudioFileOutputStream = null;
+  private boolean isRunning;
   private long fileSizeInBytes = 0;
 
   public RecordedAudioToFileController(ExecutorService executor) {
@@ -51,8 +56,9 @@ public class RecordedAudioToFileController implements WebRtcAudioRecordSamplesRe
       Log.e(TAG, "Writing to external media is not possible");
       return false;
     }
-    // Register this class as receiver of recorded audio samples for storage.
-    WebRtcAudioRecord.setOnAudioSamplesReady(this);
+    synchronized (lock) {
+      isRunning = true;
+    }
     return true;
   }
 
@@ -62,9 +68,8 @@ public class RecordedAudioToFileController implements WebRtcAudioRecordSamplesRe
    */
   public void stop() {
     Log.d(TAG, "stop");
-    // De-register this class as receiver of recorded audio samples for storage.
-    WebRtcAudioRecord.setOnAudioSamplesReady(null);
     synchronized (lock) {
+      isRunning = false;
       if (rawAudioFileOutputStream != null) {
         try {
           rawAudioFileOutputStream.close();
@@ -104,15 +109,26 @@ public class RecordedAudioToFileController implements WebRtcAudioRecordSamplesRe
 
   // Called when new audio samples are ready.
   @Override
-  public void onWebRtcAudioRecordSamplesReady(AudioSamples samples) {
+  public void onWebRtcAudioRecordSamplesReady(WebRtcAudioRecord.AudioSamples samples) {
+    onWebRtcAudioRecordSamplesReady(new JavaAudioDeviceModule.AudioSamples(samples.getAudioFormat(),
+        samples.getChannelCount(), samples.getSampleRate(), samples.getData()));
+  }
+
+  // Called when new audio samples are ready.
+  @Override
+  public void onWebRtcAudioRecordSamplesReady(JavaAudioDeviceModule.AudioSamples samples) {
     // The native audio layer on Android should use 16-bit PCM format.
     if (samples.getAudioFormat() != AudioFormat.ENCODING_PCM_16BIT) {
       Log.e(TAG, "Invalid audio format");
       return;
     }
-    // Open a new file for the first callback only since it allows us to add
-    // audio parameters to the file name.
     synchronized (lock) {
+      // Abort early if stop() has been called.
+      if (!isRunning) {
+        return;
+      }
+      // Open a new file for the first callback only since it allows us to add audio parameters to
+      // the file name.
       if (rawAudioFileOutputStream == null) {
         openRawAudioOutputFile(samples.getSampleRate(), samples.getChannelCount());
         fileSizeInBytes = 0;

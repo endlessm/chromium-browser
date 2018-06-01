@@ -8,7 +8,6 @@
 #include <memory>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
 #include "chrome/browser/favicon/favicon_utils.h"
@@ -40,6 +39,7 @@ ChromeWebViewGuestDelegate::~ChromeWebViewGuestDelegate() {
 bool ChromeWebViewGuestDelegate::HandleContextMenu(
     const content::ContextMenuParams& params) {
   if ((params.source_type == ui::MENU_SOURCE_LONG_PRESS ||
+       params.source_type == ui::MENU_SOURCE_LONG_TAP ||
        params.source_type == ui::MENU_SOURCE_TOUCH) &&
       !params.selection_text.empty() &&
       (guest_web_contents()->GetRenderWidgetHostView() &&

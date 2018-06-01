@@ -18,7 +18,6 @@
 #include "ash/wm/mru_window_tracker.h"
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/browser_process.h"
@@ -27,6 +26,7 @@
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/accessibility/magnification_manager.h"
 #include "chrome/browser/chromeos/arc/fileapi/arc_content_file_system_url_util.h"
+#include "chrome/browser/chromeos/arc/intent_helper/arc_external_protocol_dialog.h"
 #include "chrome/browser/chromeos/ash_config.h"
 #include "chrome/browser/chromeos/display/display_configuration_observer.h"
 #include "chrome/browser/chromeos/display/display_prefs.h"
@@ -55,10 +55,12 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/theme_resources.h"
 #include "chromeos/chromeos_switches.h"
+#include "components/arc/intent_helper/page_transition_util.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/common/service_manager_connection.h"
 #include "content/public/common/url_constants.h"
 #include "services/ui/public/cpp/input_devices/input_device_controller_client.h"
@@ -102,16 +104,6 @@ class AccessibilityDelegateImpl : public ash::AccessibilityDelegate {
   bool IsMagnifierEnabled() const override {
     DCHECK(chromeos::MagnificationManager::Get());
     return chromeos::MagnificationManager::Get()->IsMagnifierEnabled();
-  }
-
-  void SetTapDraggingEnabled(bool enabled) override {
-    DCHECK(AccessibilityManager::Get());
-    return AccessibilityManager::Get()->EnableTapDragging(enabled);
-  }
-
-  bool IsTapDraggingEnabled() const override {
-    DCHECK(AccessibilityManager::Get());
-    return AccessibilityManager::Get()->IsTapDraggingEnabled();
   }
 
   bool ShouldShowAccessibilityMenu() const override {
@@ -158,18 +150,6 @@ bool ChromeShellDelegate::CanShowWindowForUser(aura::Window* window) const {
   return ::CanShowWindowForUser(window, base::Bind(&GetActiveBrowserContext));
 }
 
-bool ChromeShellDelegate::IsForceMaximizeOnFirstRun() const {
-  const user_manager::User* const user =
-      user_manager::UserManager::Get()->GetActiveUser();
-  if (user) {
-    return chromeos::ProfileHelper::Get()
-        ->GetProfileByUser(user)
-        ->GetPrefs()
-        ->GetBoolean(prefs::kForceMaximizeOnFirstRun);
-  }
-  return false;
-}
-
 void ChromeShellDelegate::PreInit() {
   // TODO: port to mash. http://crbug.com/678949.
   if (chromeos::GetAshConfig() == ash::Config::MASH)
@@ -179,6 +159,8 @@ void ChromeShellDelegate::PreInit() {
       chromeos::switches::kFirstExecAfterBoot);
   display_prefs_ = std::make_unique<chromeos::DisplayPrefs>(
       g_browser_process->local_state());
+  // TODO(stevenjb): Move this to ash::Shell which will call
+  // LoadDisplayPreferences asynchronously when it receives local state.
   display_prefs_->LoadDisplayPreferences(first_run_after_boot);
   // Object owns itself, and deletes itself when Observer::OnShutdown is called:
   new policy::DisplayRotationDefaultHandler();
@@ -214,10 +196,14 @@ void ChromeShellDelegate::OpenUrlFromArc(const GURL& url) {
 
   chrome::ScopedTabbedBrowserDisplayer displayer(
       ProfileManager::GetActiveUserProfile());
-  chrome::AddSelectedTabWithURL(
+  content::WebContents* tab = chrome::AddSelectedTabWithURL(
       displayer.browser(), url_to_open,
       ui::PageTransitionFromInt(ui::PAGE_TRANSITION_LINK |
                                 ui::PAGE_TRANSITION_FROM_API));
+
+  // Adding a flag to remember this tab was originated on the ARC context.
+  tab->SetUserData(&arc::ArcWebContentsData::kArcTransitionFlag,
+                   std::make_unique<arc::ArcWebContentsData>());
 
   // Since the ScopedTabbedBrowserDisplayer does not guarantee that the
   // browser will be shown on the active desktop, we ensure the visibility.

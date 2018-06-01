@@ -48,8 +48,6 @@ namespace {
 SkColor kGreyTextColor = SkColorSetRGB(0x64, 0x64, 0x64);
 
 SkColor const kWarningColor = gfx::kGoogleRed700;
-SkColor const kLightShadingColor = SkColorSetARGB(7, 0, 0, 0);
-SkColor const kSubtleBorderColor = SkColorSetARGB(10, 0, 0, 0);
 
 }  // namespace
 
@@ -198,9 +196,6 @@ views::View* CardUnmaskPromptViews::CreateFootnoteView() {
       storage_row_->SetLayoutManager(std::make_unique<views::BoxLayout>(
           views::BoxLayout::kHorizontal,
           provider->GetInsetsMetric(views::INSETS_DIALOG_SUBSECTION)));
-  storage_row_->SetBorder(
-      views::CreateSolidSidedBorder(1, 0, 0, 0, kSubtleBorderColor));
-  storage_row_->SetBackground(views::CreateSolidBackground(kLightShadingColor));
 
   storage_checkbox_ = new views::Checkbox(l10n_util::GetStringUTF16(
       IDS_AUTOFILL_CARD_UNMASK_PROMPT_STORAGE_CHECKBOX));
@@ -382,9 +377,13 @@ void CardUnmaskPromptViews::InitIfNecessary() {
   // Add the month and year comboboxes if the expiration date is needed.
   month_input_ = new views::Combobox(&month_combobox_model_);
   month_input_->set_listener(this);
+  month_input_->SetAccessibleName(
+      l10n_util::GetStringUTF16(IDS_AUTOFILL_CARD_UNMASK_EXPIRATION_MONTH));
   input_row_->AddChildView(month_input_);
   year_input_ = new views::Combobox(&year_combobox_model_);
   year_input_->set_listener(this);
+  year_input_->SetAccessibleName(
+      l10n_util::GetStringUTF16(IDS_AUTOFILL_CARD_UNMASK_EXPIRATION_YEAR));
   input_row_->AddChildView(year_input_);
   if (!controller_->ShouldRequestExpirationDate()) {
     month_input_->SetVisible(false);

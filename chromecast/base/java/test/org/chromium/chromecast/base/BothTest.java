@@ -4,11 +4,18 @@
 
 package org.chromium.chromecast.base;
 
+import static org.hamcrest.Matchers.contains;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.BlockJUnit4ClassRunner;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Tests for Both.
@@ -51,5 +58,25 @@ public class BothTest {
         Both<Integer, String> x = Both.both(2, "two");
         Function<Both<Integer, String>, String> getSecond = Both::getSecond;
         assertEquals(getSecond.apply(x), "two");
+    }
+
+    @Test
+    public void testAdaptBiFunction() {
+        String result = Both.adapt((String a, String b) -> a + b).apply(Both.both("a", "b"));
+        assertEquals(result, "ab");
+    }
+
+    @Test
+    public void testAdaptBiConsumer() {
+        List<String> result = new ArrayList<>();
+        Both.adapt((String a, String b) -> { result.add(a + b); }).accept(Both.both("A", "B"));
+        assertThat(result, contains("AB"));
+    }
+
+    @Test
+    public void testAdaptBiPredicate() {
+        Predicate<Both<String, String>> p = Both.adapt(String::equals);
+        assertTrue(p.test(Both.both("a", "a")));
+        assertFalse(p.test(Both.both("a", "b")));
     }
 }

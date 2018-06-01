@@ -4,7 +4,6 @@
 
 #include "cc/test/layer_tree_pixel_resource_test.h"
 
-#include "base/memory/ptr_util.h"
 #include "cc/layers/layer.h"
 #include "cc/raster/bitmap_raster_buffer_provider.h"
 #include "cc/raster/gpu_raster_buffer_provider.h"
@@ -44,15 +43,15 @@ LayerTreeHostPixelResourceTest::CreateRasterBufferProvider(
   DCHECK(task_runner);
   DCHECK(initialized_);
 
+  LayerTreeFrameSink* layer_tree_frame_sink =
+      host_impl->layer_tree_frame_sink();
   viz::ContextProvider* compositor_context_provider =
-      host_impl->layer_tree_frame_sink()->context_provider();
+      layer_tree_frame_sink->context_provider();
   viz::RasterContextProvider* worker_context_provider =
-      host_impl->layer_tree_frame_sink()->worker_context_provider();
+      layer_tree_frame_sink->worker_context_provider();
   LayerTreeResourceProvider* resource_provider = host_impl->resource_provider();
-  viz::SharedBitmapManager* shared_bitmap_manager =
-      host_impl->layer_tree_frame_sink()->shared_bitmap_manager();
   gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager =
-      host_impl->layer_tree_frame_sink()->gpu_memory_buffer_manager();
+      layer_tree_frame_sink->gpu_memory_buffer_manager();
   int max_bytes_per_copy_operation = 1024 * 1024;
   int max_staging_buffer_usage_in_bytes = 32 * 1024 * 1024;
 
@@ -62,7 +61,7 @@ LayerTreeHostPixelResourceTest::CreateRasterBufferProvider(
       EXPECT_EQ(PIXEL_TEST_SOFTWARE, test_type_);
 
       return std::make_unique<BitmapRasterBufferProvider>(
-          resource_provider, shared_bitmap_manager);
+          host_impl->layer_tree_frame_sink());
     case GPU:
       EXPECT_TRUE(compositor_context_provider);
       EXPECT_TRUE(worker_context_provider);
@@ -70,8 +69,8 @@ LayerTreeHostPixelResourceTest::CreateRasterBufferProvider(
 
       return std::make_unique<GpuRasterBufferProvider>(
           compositor_context_provider, worker_context_provider,
-          resource_provider, false, false, 0,
-          viz::PlatformColor::BestTextureFormat(), false);
+          resource_provider, false, 0, viz::PlatformColor::BestTextureFormat(),
+          gfx::Size(), true, false);
     case ZERO_COPY:
       EXPECT_TRUE(compositor_context_provider);
       EXPECT_TRUE(gpu_memory_buffer_manager);

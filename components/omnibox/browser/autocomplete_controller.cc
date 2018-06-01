@@ -4,6 +4,8 @@
 
 #include "components/omnibox/browser/autocomplete_controller.h"
 
+#include <inttypes.h>
+
 #include <cstddef>
 #include <memory>
 #include <numeric>
@@ -507,9 +509,9 @@ void AutocompleteController::UpdateResult(
 
   // Need to validate before invoking CopyOldMatches as the old matches are not
   // valid against the current input.
-#ifndef NDEBUG
+#if DCHECK_IS_ON()
   result_.Validate();
-#endif
+#endif  // DCHECK_IS_ON()
 
   if (!done_) {
     // This conditional needs to match the conditional in Start that invokes
@@ -760,8 +762,9 @@ bool AutocompleteController::OnMemoryDump(
   res += input_.EstimateMemoryUsage();
   res += result_.EstimateMemoryUsage();
 
-  auto* dump = process_memory_dump->GetOrCreateAllocatorDump(
-      "omnibox/autocomplete_controller");
+  auto* dump = process_memory_dump->CreateAllocatorDump(
+      base::StringPrintf("omnibox/autocomplete_controller/0x%" PRIXPTR,
+                         reinterpret_cast<uintptr_t>(this)));
   dump->AddScalar(base::trace_event::MemoryAllocatorDump::kNameSize,
                   base::trace_event::MemoryAllocatorDump::kUnitsBytes, res);
   return true;

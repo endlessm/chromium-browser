@@ -23,7 +23,6 @@
 #include "ui/display/manager/display_layout_store.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/manager/display_manager_utilities.h"
-#include "ui/display/manager/display_pref_util.h"
 #include "ui/display/manager/json_converter.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/gfx/geometry/insets.h"
@@ -34,23 +33,32 @@ namespace chromeos {
 
 namespace {
 
-const char kInsetsTopKey[] = "insets_top";
-const char kInsetsLeftKey[] = "insets_left";
-const char kInsetsBottomKey[] = "insets_bottom";
-const char kInsetsRightKey[] = "insets_right";
+constexpr char kInsetsTopKey[] = "insets_top";
+constexpr char kInsetsLeftKey[] = "insets_left";
+constexpr char kInsetsBottomKey[] = "insets_bottom";
+constexpr char kInsetsRightKey[] = "insets_right";
 
-const char kTouchCalibrationWidth[] = "touch_calibration_width";
-const char kTouchCalibrationHeight[] = "touch_calibration_height";
-const char kTouchCalibrationPointPairs[] = "touch_calibration_point_pairs";
+constexpr char kTouchCalibrationWidth[] = "touch_calibration_width";
+constexpr char kTouchCalibrationHeight[] = "touch_calibration_height";
+constexpr char kTouchCalibrationPointPairs[] = "touch_calibration_point_pairs";
 
 constexpr char kTouchAssociationTimestamp[] = "touch_association_timestamp";
 constexpr char kTouchAssociationCalibrationData[] =
     "touch_association_calibration_data";
 
+constexpr char kTouchDeviceIdentifier[] = "touch_device_identifer";
+constexpr char kPortAssociationDisplayId[] = "port_association_display_id";
+
 constexpr char kMirroringSourceId[] = "mirroring_source_id";
 constexpr char kMirroringDestinationIds[] = "mirroring_destination_ids";
 
 constexpr char kDisplayZoom[] = "display_zoom";
+
+constexpr char kDisplayPowerAllOn[] = "all_on";
+constexpr char kDisplayPowerInternalOffExternalOn[] =
+    "internal_off_external_on";
+constexpr char kDisplayPowerInternalOnExternalOff[] =
+    "internal_on_external_off";
 
 // This kind of boilerplates should be done by base::JSONValueConverter but it
 // doesn't support classes like gfx::Insets for now.
@@ -339,8 +347,45 @@ void LoadDisplayTouchAssociations(PrefService* local_state) {
       touch_associations.at(fallback_identifier).emplace(id, info);
     }
   }
+
+  // Retrieve port association information.
+  properties = local_state->GetDictionary(prefs::kDisplayTouchPortAssociations);
+
+  display::TouchDeviceManager::PortAssociationMap port_associations;
+  for (const auto& item : properties->DictItems()) {
+    // Retrieve the secondary id that identifies the port.
+    uint32_t secondary_id_raw;
+    if (!base::StringToUint(item.first, &secondary_id_raw))
+      continue;
+
+    if (!item.second.is_dict())
+      continue;
+
+    // Retrieve the touch device identifier that identifies the touch device.
+    auto* value = item.second.FindKey(kTouchDeviceIdentifier);
+    if (!value->is_string())
+      continue;
+    uint32_t identifier_raw;
+    if (!base::StringToUint(value->GetString(), &identifier_raw))
+      continue;
+
+    // Retrieve the display that the touch device identified by |identifier_raw|
+    // was associated with.
+    value = item.second.FindKey(kPortAssociationDisplayId);
+    if (!value->is_string())
+      continue;
+    int64_t display_id;
+    if (!base::StringToInt64(value->GetString(), &display_id))
+      continue;
+
+    port_associations.emplace(
+        std::piecewise_construct,
+        std::forward_as_tuple(identifier_raw, secondary_id_raw),
+        std::forward_as_tuple(display_id));
+  }
+
   GetDisplayManager()->touch_device_manager()->RegisterTouchAssociations(
-      touch_associations);
+      touch_associations, port_associations);
 }
 
 // Loads mirror info for each external display, the info will later be used to
@@ -504,49 +549,54 @@ void StoreCurrentDisplayProperties(PrefService* local_state) {
     }
 
     // Store the display zoom as a percentage.
-    int display_zoom_percentage =
-        display_manager->GetZoomFactorForDisplay(id) * 100;
+    int display_zoom_percentage = std::round(info.zoom_factor() * 100.f);
+
     property_value->SetInteger(kDisplayZoom, display_zoom_percentage);
 
     pref_data->Set(base::Int64ToString(id), std::move(property_value));
   }
 }
 
-typedef std::map<chromeos::DisplayPowerState, std::string>
-    DisplayPowerStateToStringMap;
-
-const DisplayPowerStateToStringMap* GetDisplayPowerStateToStringMap() {
-  // Don't save or retore ALL_OFF state. http://crbug.com/318456.
-  static const DisplayPowerStateToStringMap* map = display::CreateToStringMap(
-      chromeos::DISPLAY_POWER_ALL_ON, "all_on",
-      chromeos::DISPLAY_POWER_INTERNAL_OFF_EXTERNAL_ON,
-      "internal_off_external_on",
-      chromeos::DISPLAY_POWER_INTERNAL_ON_EXTERNAL_OFF,
-      "internal_on_external_off");
-  return map;
-}
-
-bool GetDisplayPowerStateFromString(const base::StringPiece& state,
-                                    chromeos::DisplayPowerState* field) {
-  if (display::ReverseFind(GetDisplayPowerStateToStringMap(), state, field))
-    return true;
-  LOG(ERROR) << "Invalid display power state value:" << state;
-  return false;
+bool GetDisplayPowerStateFromString(const std::string& state_string,
+                                    chromeos::DisplayPowerState* power_state) {
+  if (state_string == kDisplayPowerAllOn) {
+    *power_state = chromeos::DISPLAY_POWER_ALL_ON;
+  } else if (state_string == kDisplayPowerInternalOffExternalOn) {
+    *power_state = chromeos::DISPLAY_POWER_INTERNAL_OFF_EXTERNAL_ON;
+  } else if (state_string == kDisplayPowerInternalOnExternalOff) {
+    *power_state = chromeos::DISPLAY_POWER_INTERNAL_ON_EXTERNAL_OFF;
+  } else {
+    // Don't restore ALL_OFF state. http://crbug.com/318456.
+    return false;
+  }
+  return true;
 }
 
 void StoreDisplayPowerState(PrefService* local_state,
                             DisplayPowerState power_state) {
-  const DisplayPowerStateToStringMap* map = GetDisplayPowerStateToStringMap();
-  DisplayPowerStateToStringMap::const_iterator iter = map->find(power_state);
-  if (iter != map->end()) {
-    local_state->SetString(prefs::kDisplayPowerState, iter->second);
+  const char* state_string = nullptr;
+  switch (power_state) {
+    case chromeos::DISPLAY_POWER_ALL_ON:
+      state_string = kDisplayPowerAllOn;
+      break;
+    case chromeos::DISPLAY_POWER_INTERNAL_OFF_EXTERNAL_ON:
+      state_string = kDisplayPowerInternalOffExternalOn;
+      break;
+    case chromeos::DISPLAY_POWER_INTERNAL_ON_EXTERNAL_OFF:
+      state_string = kDisplayPowerInternalOnExternalOff;
+      break;
+    case chromeos::DISPLAY_POWER_ALL_OFF:
+      // Don't store ALL_OFF state. http://crbug.com/318456.
+      break;
   }
+  if (state_string)
+    local_state->SetString(prefs::kDisplayPowerState, state_string);
 }
 
 void StoreCurrentDisplayPowerState(PrefService* local_state) {
   StoreDisplayPowerState(
       local_state,
-      ash::Shell::Get()->display_configurator()->requested_power_state());
+      ash::Shell::Get()->display_configurator()->GetRequestedPowerState());
 }
 
 void StoreDisplayRotationPrefs(PrefService* local_state,
@@ -620,6 +670,29 @@ void StoreDisplayTouchAssociations(PrefService* local_state) {
     pref_data->SetKey(association.first.ToString(),
                       association_info_map_value.Clone());
   }
+
+  // Store the port mappings. What display a touch device connected to a
+  // particular port is associated with.
+  DictionaryPrefUpdate update_port(local_state,
+                                   prefs::kDisplayTouchPortAssociations);
+  pref_data = update_port.Get();
+  const display::TouchDeviceManager::PortAssociationMap& port_associations =
+      touch_device_manager->port_associations();
+
+  // For each port identified by the secondary id of TouchDeviceIdentifier,
+  // we store the touch device and the display associated with it.
+  for (const auto& association : port_associations) {
+    std::unique_ptr<base::DictionaryValue> association_info_value(
+        new base::DictionaryValue());
+    association_info_value->SetKey(kTouchDeviceIdentifier,
+                                   base::Value(association.first.ToString()));
+    association_info_value->SetKey(
+        kPortAssociationDisplayId,
+        base::Value(base::Int64ToString(association.second)));
+
+    pref_data->SetKey(association.first.SecondaryIdToString(),
+                      association_info_value->Clone());
+  }
 }
 
 // Stores mirror info for each external display.
@@ -672,11 +745,10 @@ void DisplayPrefs::RegisterLocalStatePrefs(PrefRegistrySimple* registry) {
   // Per-display preference.
   registry->RegisterDictionaryPref(prefs::kSecondaryDisplays);
   registry->RegisterDictionaryPref(prefs::kDisplayProperties);
-  DisplayPowerStateToStringMap::const_iterator iter =
-      GetDisplayPowerStateToStringMap()->find(chromeos::DISPLAY_POWER_ALL_ON);
-  registry->RegisterStringPref(prefs::kDisplayPowerState, iter->second);
+  registry->RegisterStringPref(prefs::kDisplayPowerState, kDisplayPowerAllOn);
   registry->RegisterDictionaryPref(prefs::kDisplayRotationLock);
   registry->RegisterDictionaryPref(prefs::kDisplayTouchAssociations);
+  registry->RegisterDictionaryPref(prefs::kDisplayTouchPortAssociations);
   registry->RegisterListPref(prefs::kExternalDisplayMirrorInfo);
   registry->RegisterDictionaryPref(prefs::kDisplayMixedMirrorModeParams);
 }

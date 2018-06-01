@@ -46,8 +46,16 @@ class DummyLifecycleUnit : public LifecycleUnitBase {
   }
   base::string16 GetTitle() const override { return base::string16(); }
   std::string GetIconURL() const override { return std::string(); }
+  base::ProcessHandle GetProcessHandle() const override {
+    return base::ProcessHandle();
+  }
   SortKey GetSortKey() const override { return SortKey(last_focused_time_); }
+  content::Visibility GetVisibility() const override {
+    return content::Visibility::VISIBLE;
+  }
+  bool Freeze() override { return false; }
   int GetEstimatedMemoryFreedOnDiscardKB() const override { return 0; }
+  bool CanPurge() const override { return false; }
   bool CanDiscard(DiscardReason reason) const override { return false; }
   bool Discard(DiscardReason discard_reason) override { return false; }
 

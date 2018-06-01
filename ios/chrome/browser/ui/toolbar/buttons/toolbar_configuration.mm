@@ -5,6 +5,7 @@
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
 
 #import "base/logging.h"
+#import "ios/chrome/browser/ui/content_suggestions/ntp_home_constant.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_constants.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
@@ -34,20 +35,10 @@
   }
 }
 
-- (UIColor*)blurEffectBackgroundColor {
-  switch (self.style) {
-    case NORMAL:
-      return [UIColor colorWithWhite:kBlurBackgroundGrayscaleComponent
-                               alpha:kBlurBackgroundAlpha];
-    case INCOGNITO:
-      return nil;
-  }
-}
-
 - (UIColor*)NTPBackgroundColor {
   switch (self.style) {
     case NORMAL:
-      return [UIColor whiteColor];
+      return ntp_home::kNTPBackgroundColor();
     case INCOGNITO:
       return [UIColor colorWithWhite:kNTPBackgroundColorBrightnessIncognito
                                alpha:1.0];
@@ -56,8 +47,13 @@
 
 - (UIColor*)backgroundColor {
   if (IsUIRefreshPhase1Enabled()) {
-    NOTREACHED();
-    return nil;
+    switch (self.style) {
+      case NORMAL:
+        return
+            [UIColor colorWithWhite:kBlurBackgroundGrayscaleComponent alpha:1];
+      case INCOGNITO:
+        return UIColorFromRGB(kIncognitoToolbarBackgroundColor);
+    }
   } else {
     switch (self.style) {
       case NORMAL:

@@ -39,6 +39,7 @@
 #include "chrome/browser/chromeos/arc/voice_interaction/arc_voice_interaction_framework_service.h"
 #include "chrome/browser/chromeos/arc/wallpaper/arc_wallpaper_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/app_list/arc/arc_usb_host_permission_manager.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/arc_session.h"
@@ -59,6 +60,7 @@
 #include "components/arc/timer/arc_timer_bridge.h"
 #include "components/arc/usb/usb_host_bridge.h"
 #include "components/arc/volume_mounter/arc_volume_mounter_bridge.h"
+#include "components/arc/wake_lock/arc_wake_lock_bridge.h"
 #include "components/prefs/pref_member.h"
 #include "ui/arc/notification/arc_notification_manager.h"
 
@@ -154,7 +156,10 @@ void ArcServiceLauncher::OnPrimaryUserProfilePrepared(Profile* profile) {
   ArcMetricsService::GetForBrowserContext(profile);
   ArcMidisBridge::GetForBrowserContext(profile);
   ArcNetHostImpl::GetForBrowserContext(profile);
-  ArcNotificationManager::GetForBrowserContext(profile);
+  // TODO(https://crbug.com/816441): Remove the callback workaround.
+  ArcNotificationManager::GetForBrowserContext(profile)
+      ->set_get_app_id_callback(
+          ArcAppListPrefs::Get(profile)->GetAppIdByPackageNameCallback());
   ArcObbMounterBridge::GetForBrowserContext(profile);
   ArcOemCryptoBridge::GetForBrowserContext(profile);
   ArcPolicyBridge::GetForBrowserContext(profile);
@@ -169,10 +174,12 @@ void ArcServiceLauncher::OnPrimaryUserProfilePrepared(Profile* profile) {
   ArcTracingBridge::GetForBrowserContext(profile);
   ArcTtsService::GetForBrowserContext(profile);
   ArcUsbHostBridge::GetForBrowserContext(profile);
+  ArcUsbHostPermissionManager::GetForBrowserContext(profile);
   ArcUserSessionService::GetForBrowserContext(profile);
   ArcVoiceInteractionArcHomeService::GetForBrowserContext(profile);
   ArcVoiceInteractionFrameworkService::GetForBrowserContext(profile);
   ArcVolumeMounterBridge::GetForBrowserContext(profile);
+  ArcWakeLockBridge::GetForBrowserContext(profile);
   ArcWallpaperService::GetForBrowserContext(profile);
   GpuArcVideoServiceHost::GetForBrowserContext(profile);
 

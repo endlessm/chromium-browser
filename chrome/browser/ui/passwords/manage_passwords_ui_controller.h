@@ -108,7 +108,6 @@ class ManagePasswordsUIController
   const autofill::PasswordForm& GetPendingPassword() const override;
   password_manager::metrics_util::CredentialSourceType GetCredentialSource()
       const override;
-  bool IsPasswordOverridden() const override;
   const std::vector<std::unique_ptr<autofill::PasswordForm>>& GetCurrentForms()
       const override;
   const password_manager::InteractionsStats* GetCurrentInteractionStats()
@@ -128,7 +127,8 @@ class ManagePasswordsUIController
   void NavigateToSmartLockHelpPage() override;
   void NavigateToPasswordManagerAccountDashboard() override;
   void NavigateToPasswordManagerSettingsPage() override;
-  void EnableSync(const AccountInfo& account) override;
+  void EnableSync(const AccountInfo& account,
+                  bool is_default_promo_account) override;
   void OnDialogHidden() override;
   bool AuthenticateUser() override;
   bool ArePasswordsRevealedWhenBubbleIsOpened() const override;

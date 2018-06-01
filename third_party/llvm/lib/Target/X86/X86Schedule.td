@@ -46,6 +46,11 @@ def  WriteIMulH : SchedWrite;       // Integer multiplication, high part.
 defm WriteIDiv : X86SchedWritePair; // Integer division.
 def  WriteLEA  : SchedWrite;        // LEA instructions can't fold loads.
 
+defm WriteBitScan : X86SchedWritePair; // Bit scan forward/reverse.
+defm WritePOPCNT : X86SchedWritePair; // Bit population count.
+defm WriteLZCNT : X86SchedWritePair; // Leading zero count.
+defm WriteTZCNT : X86SchedWritePair; // Trailing zero count.
+
 // Integer shifts and rotates.
 defm WriteShift : X86SchedWritePair;
 
@@ -63,6 +68,9 @@ def WriteZero : SchedWrite;
 defm WriteJump : X86SchedWritePair;
 
 // Floating point. This covers both scalar and vector operations.
+def  WriteFLoad  : SchedWrite;
+def  WriteFStore : SchedWrite;
+def  WriteFMove  : SchedWrite;
 defm WriteFAdd   : X86SchedWritePair; // Floating point add/sub/compare.
 defm WriteFMul   : X86SchedWritePair; // Floating point multiplication.
 defm WriteFDiv   : X86SchedWritePair; // Floating point division.
@@ -82,6 +90,9 @@ defm WriteFHAdd  : X86SchedWritePair;
 defm WritePHAdd : X86SchedWritePair;
 
 // Vector integer operations.
+def  WriteVecLoad  : SchedWrite;
+def  WriteVecStore : SchedWrite;
+def  WriteVecMove  : SchedWrite;
 defm WriteVecALU   : X86SchedWritePair; // Vector integer ALU op, no logicals.
 defm WriteVecShift : X86SchedWritePair; // Vector integer shifts.
 defm WriteVecIMul  : X86SchedWritePair; // Vector integer multiply.
@@ -94,10 +105,18 @@ defm WriteMPSAD : X86SchedWritePair; // Vector MPSAD.
 // These are often used on both floating point and integer vectors.
 defm WriteVecLogic : X86SchedWritePair; // Vector and/or/xor.
 
+// MOVMSK operations.
+def WriteFMOVMSK : SchedWrite;
+def WriteVecMOVMSK : SchedWrite;
+def WriteMMXMOVMSK : SchedWrite;
+
 // Conversion between integer and float.
 defm WriteCvtF2I : X86SchedWritePair; // Float -> Integer.
 defm WriteCvtI2F : X86SchedWritePair; // Integer -> Float.
 defm WriteCvtF2F : X86SchedWritePair; // Float -> Float size conversion.
+
+// CRC32 instruction.
+defm WriteCRC32 : X86SchedWritePair;
 
 // Strings instructions.
 // Packed Compare Implicit Length Strings, Return Mask
@@ -140,19 +159,23 @@ def IIC_ALU_MEM     : InstrItinClass;
 def IIC_ALU_NONMEM  : InstrItinClass;
 def IIC_LEA         : InstrItinClass;
 def IIC_LEA_16      : InstrItinClass;
-def IIC_MUL8        : InstrItinClass;
+def IIC_MUL8_MEM    : InstrItinClass;
+def IIC_MUL8_REG    : InstrItinClass;
 def IIC_MUL16_MEM   : InstrItinClass;
 def IIC_MUL16_REG   : InstrItinClass;
 def IIC_MUL32_MEM   : InstrItinClass;
 def IIC_MUL32_REG   : InstrItinClass;
-def IIC_MUL64       : InstrItinClass;
+def IIC_MUL64_MEM   : InstrItinClass;
+def IIC_MUL64_REG   : InstrItinClass;
 // imul by al, ax, eax, tax
-def IIC_IMUL8       : InstrItinClass;
+def IIC_IMUL8_MEM   : InstrItinClass;
+def IIC_IMUL8_REG   : InstrItinClass;
 def IIC_IMUL16_MEM  : InstrItinClass;
 def IIC_IMUL16_REG  : InstrItinClass;
 def IIC_IMUL32_MEM  : InstrItinClass;
 def IIC_IMUL32_REG  : InstrItinClass;
-def IIC_IMUL64      : InstrItinClass;
+def IIC_IMUL64_MEM  : InstrItinClass;
+def IIC_IMUL64_REG  : InstrItinClass;
 // imul reg by reg|mem
 def IIC_IMUL16_RM   : InstrItinClass;
 def IIC_IMUL16_RR   : InstrItinClass;
@@ -170,14 +193,21 @@ def IIC_IMUL64_RRI  : InstrItinClass;
 // div
 def IIC_DIV8_MEM    : InstrItinClass;
 def IIC_DIV8_REG    : InstrItinClass;
-def IIC_DIV16       : InstrItinClass;
-def IIC_DIV32       : InstrItinClass;
-def IIC_DIV64       : InstrItinClass;
+def IIC_DIV16_MEM   : InstrItinClass;
+def IIC_DIV16_REG   : InstrItinClass;
+def IIC_DIV32_MEM   : InstrItinClass;
+def IIC_DIV32_REG   : InstrItinClass;
+def IIC_DIV64_MEM   : InstrItinClass;
+def IIC_DIV64_REG   : InstrItinClass;
 // idiv
-def IIC_IDIV8       : InstrItinClass;
-def IIC_IDIV16      : InstrItinClass;
-def IIC_IDIV32      : InstrItinClass;
-def IIC_IDIV64      : InstrItinClass;
+def IIC_IDIV8_MEM   : InstrItinClass;
+def IIC_IDIV8_REG   : InstrItinClass;
+def IIC_IDIV16_MEM  : InstrItinClass;
+def IIC_IDIV16_REG  : InstrItinClass;
+def IIC_IDIV32_MEM  : InstrItinClass;
+def IIC_IDIV32_REG  : InstrItinClass;
+def IIC_IDIV64_MEM  : InstrItinClass;
+def IIC_IDIV64_REG  : InstrItinClass;
 // neg/not/inc/dec
 def IIC_UNARY_REG   : InstrItinClass;
 def IIC_UNARY_MEM   : InstrItinClass;
@@ -236,8 +266,6 @@ def IIC_RET_IMM : InstrItinClass;
 def IIC_MOVSX : InstrItinClass;
 def IIC_MOVSX_R16_R8 : InstrItinClass;
 def IIC_MOVSX_R16_M8 : InstrItinClass;
-def IIC_MOVSX_R16_R16 : InstrItinClass;
-def IIC_MOVSX_R32_R32 : InstrItinClass;
 //zero extension movs
 def IIC_MOVZX : InstrItinClass;
 def IIC_MOVZX_R16_R8 : InstrItinClass;

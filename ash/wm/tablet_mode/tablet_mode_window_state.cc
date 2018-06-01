@@ -86,7 +86,6 @@ gfx::Rect GetBoundsInMaximizedMode(wm::WindowState* state_object) {
     return screen_util::GetDisplayBoundsInParent(state_object->window());
 
   if (state_object->GetStateType() == mojom::WindowStateType::LEFT_SNAPPED) {
-    DCHECK(CanSnap(state_object));
     return Shell::Get()
         ->split_view_controller()
         ->GetSnappedWindowBoundsInParent(state_object->window(),
@@ -94,7 +93,6 @@ gfx::Rect GetBoundsInMaximizedMode(wm::WindowState* state_object) {
   }
 
   if (state_object->GetStateType() == mojom::WindowStateType::RIGHT_SNAPPED) {
-    DCHECK(CanSnap(state_object));
     return Shell::Get()
         ->split_view_controller()
         ->GetSnappedWindowBoundsInParent(state_object->window(),
@@ -343,6 +341,14 @@ void TabletModeWindowState::UpdateWindow(wm::WindowState* window_state,
     UpdateBounds(window_state, animated);
   }
 
+  if ((window_state->window()->layer()->GetTargetVisibility() ||
+       old_state_type == mojom::WindowStateType::MINIMIZED) &&
+      !window_state->window()->layer()->visible()) {
+    // The layer may be hidden if the window was previously minimized. Make
+    // sure it's visible.
+    window_state->window()->Show();
+  }
+
   window_state->NotifyPostStateTypeChange(old_state_type);
 
   if (old_state_type == mojom::WindowStateType::PINNED ||
@@ -351,14 +357,6 @@ void TabletModeWindowState::UpdateWindow(wm::WindowState* window_state,
       target_state == mojom::WindowStateType::TRUSTED_PINNED) {
     Shell::Get()->screen_pinning_controller()->SetPinnedWindow(
         window_state->window());
-  }
-
-  if ((window_state->window()->layer()->GetTargetVisibility() ||
-       old_state_type == mojom::WindowStateType::MINIMIZED) &&
-      !window_state->window()->layer()->visible()) {
-    // The layer may be hidden if the window was previously minimized. Make
-    // sure it's visible.
-    window_state->window()->Show();
   }
 }
 
@@ -381,13 +379,17 @@ void TabletModeWindowState::UpdateBounds(wm::WindowState* window_state,
                                          bool animated) {
   if (defer_bounds_updates_)
     return;
+
+  // Do not update minimized windows bounds until it was unminimized.
+  if (current_state_type_ == mojom::WindowStateType::MINIMIZED)
+    return;
+
   gfx::Rect bounds_in_parent = GetBoundsInMaximizedMode(window_state);
   // If we have a target bounds rectangle, we center it and set it
   // accordingly.
   if (!bounds_in_parent.IsEmpty() &&
       bounds_in_parent != window_state->window()->bounds()) {
-    if (current_state_type_ == mojom::WindowStateType::MINIMIZED ||
-        !window_state->window()->IsVisible() || !animated) {
+    if (!window_state->window()->IsVisible() || !animated) {
       window_state->SetBoundsDirect(bounds_in_parent);
     } else {
       // If we animate (to) tablet mode, we want to use the cross fade to

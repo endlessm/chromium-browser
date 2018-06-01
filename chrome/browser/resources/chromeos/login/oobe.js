@@ -57,6 +57,11 @@ cr.define('cr.ui.Oobe', function() {
       login.ActiveDirectoryPasswordChangeScreen.register(/* lazyInit= */ true);
       login.VoiceInteractionValuePropScreen.register();
       login.WaitForContainerReadyScreen.register();
+      login.DemoSetupScreen.register();
+
+      cr.ui.Bubble.decorate($('bubble-persistent'));
+      $('bubble-persistent').persistent = true;
+      $('bubble-persistent').hideOnKeyPress = false;
 
       cr.ui.Bubble.decorate($('bubble'));
       login.HeaderBar.decorate($('login-header-bar'));

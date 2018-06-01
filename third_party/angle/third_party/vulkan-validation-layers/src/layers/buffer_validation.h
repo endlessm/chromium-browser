@@ -85,8 +85,8 @@ bool FindLayouts(layer_data *device_data, VkImage image, std::vector<VkImageLayo
 bool FindLayout(const std::unordered_map<ImageSubresourcePair, IMAGE_LAYOUT_NODE> &imageLayoutMap, ImageSubresourcePair imgpair,
                 VkImageLayout &layout, const VkImageAspectFlags aspectMask);
 
-bool FindLayout(const std::unordered_map<ImageSubresourcePair, IMAGE_LAYOUT_NODE> &imageLayoutMap, ImageSubresourcePair imgpair,
-                VkImageLayout &layout);
+bool FindLayout(layer_data *device_data, const std::unordered_map<ImageSubresourcePair, IMAGE_LAYOUT_NODE> &imageLayoutMap,
+                ImageSubresourcePair imgpair, VkImageLayout &layout);
 
 void SetGlobalLayout(layer_data *device_data, ImageSubresourcePair imgpair, const VkImageLayout &layout);
 
@@ -97,8 +97,7 @@ void SetLayout(layer_data *device_data, GLOBAL_CB_NODE *pCB, ImageSubresourcePai
 void SetLayout(std::unordered_map<ImageSubresourcePair, IMAGE_LAYOUT_NODE> &imageLayoutMap, ImageSubresourcePair imgpair,
                VkImageLayout layout);
 
-void SetImageViewLayout(layer_data *device_data, GLOBAL_CB_NODE *pCB, VkImageView imageView,
-                        const VkImageLayout &layout);
+void SetImageViewLayout(layer_data *device_data, GLOBAL_CB_NODE *pCB, VkImageView imageView, const VkImageLayout &layout);
 
 bool VerifyFramebufferAndRenderPassLayouts(layer_data *dev_data, GLOBAL_CB_NODE *pCB, const VkRenderPassBeginInfo *pRenderPassBegin,
                                            const FRAMEBUFFER_STATE *framebuffer_state);

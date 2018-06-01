@@ -9,9 +9,13 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
+#include "base/scoped_observer.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "components/infobars/core/infobar_manager.h"
 #include "content/public/test/javascript_test_observer.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+
+class InfoBarService;
 
 class PPAPITestMessageHandler : public content::TestMessageHandler {
  public:
@@ -53,7 +57,7 @@ class PPAPITestBase : public InProcessBrowserTest {
       const std::string& test_case);
 
  protected:
-  class InfoBarObserver : public content::NotificationObserver {
+  class InfoBarObserver : public infobars::InfoBarManager::Observer {
    public:
     explicit InfoBarObserver(PPAPITestBase* test_base);
     ~InfoBarObserver();
@@ -61,17 +65,20 @@ class PPAPITestBase : public InProcessBrowserTest {
     void ExpectInfoBarAndAccept(bool should_accept);
 
    private:
-    // content::NotificationObserver:
-    void Observe(int type,
-                 const content::NotificationSource& source,
-                 const content::NotificationDetails& details) override;
+    // infobars::InfoBarManager::Observer:
+    void OnInfoBarAdded(infobars::InfoBar* infobar) override;
+    void OnManagerShuttingDown(infobars::InfoBarManager* manager) override;
+
+    InfoBarService* GetInfoBarService();
 
     void VerifyInfoBarState();
 
-    content::NotificationRegistrar registrar_;
     PPAPITestBase* test_base_;
     bool expecting_infobar_;
     bool should_accept_;
+
+    ScopedObserver<infobars::InfoBarManager, infobars::InfoBarManager::Observer>
+        infobar_observer_;
   };
 
   // Runs the test for a tab given the tab that's already navigated to the

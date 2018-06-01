@@ -6,11 +6,11 @@
 #import <UIKit/UIKit.h>
 #import <XCTest/XCTest.h>
 
-#include "base/ios/ios_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
+#import "ios/chrome/test/app/histogram_test_util.h"
 #import "ios/chrome/test/app/settings_test_util.h"
 #import "ios/chrome/test/app/tab_test_util.h"
 #import "ios/chrome/test/app/web_view_interaction_test_util.h"
@@ -32,8 +32,11 @@
 #endif
 
 using chrome_test_util::ButtonWithAccessibilityLabelId;
+using chrome_test_util::ContextMenuCopyButton;
 using chrome_test_util::OmniboxText;
 using chrome_test_util::OpenLinkInNewTabButton;
+using chrome_test_util::SystemSelectionCallout;
+using chrome_test_util::SystemSelectionCalloutCopyButton;
 
 namespace {
 const char kServerFilesDir[] = "ios/testing/data/http_server_files/";
@@ -44,11 +47,14 @@ const char kUrlInitialPage[] = "/scenarioContextMenuOpenInNewTab";
 const char kUrlDestinationPage[] = "/destination";
 const char kChromiumImageID[] = "chromium_image";
 const char kDestinationLinkID[] = "link";
+const char kDestinationPageMessageID[] = "message";
 
 // HTML content of the destination page that sets the page title.
 const char kDestinationHtml[] =
-    "<html><body><script>document.title='new doc'</script>You made it!"
+    "<html><body><script>document.title='new doc'</script>"
+    "<span id=\"message\">You made it!</span>"
     "</body></html>";
+const char kDestinationPageText[] = "You made it!";
 
 // Matcher for the open image button in the context menu.
 id<GREYMatcher> OpenImageButton() {
@@ -280,6 +286,27 @@ void SelectTabAtIndexInCurrentMode(NSUInteger index) {
       assertWithMatcher:grey_notNil()];
 }
 
+// Tests that the element fetch duration is logged once with the
+// kContextMenuElementPostMessage feature disabled.
+- (void)testContextMenuElementFetchDurationMetric {
+  base::test::ScopedFeatureList scopedFeatureList;
+  scopedFeatureList.InitAndDisableFeature(
+      web::features::kContextMenuElementPostMessage);
+  chrome_test_util::HistogramTester histogramTester;
+
+  const GURL pageURL = self.testServer->GetURL(kLogoPagePath);
+  [ChromeEarlGrey loadURL:pageURL];
+  [ChromeEarlGrey waitForMainTabCount:1];
+
+  LongPressElement(kChromiumImageID);
+  TapOnContextMenuButton(OpenImageButton());
+
+  histogramTester.ExpectTotalCount("ContextMenu.DOMElementFetchDuration", 1,
+                                   ^(NSString* error) {
+                                     GREYFail(error);
+                                   });
+}
+
 // Tests that selecting "Open Image" from the context menu properly opens the
 // image in the current tab. (With the kContextMenuElementPostMessage feature
 // enabled.)
@@ -403,6 +430,51 @@ void SelectTabAtIndexInCurrentMode(NSUInteger index) {
   // Verify url.
   [[EarlGrey selectElementWithMatcher:OmniboxText(imageURL.GetContent())]
       assertWithMatcher:grey_notNil()];
+}
+
+// Tests that the element fetch duration is logged once with the
+// kContextMenuElementPostMessage feature enabled.
+- (void)testContextMenuElementFetchDurationMetricPostMessage {
+  base::test::ScopedFeatureList scopedFeatureList;
+  scopedFeatureList.InitAndEnableFeature(
+      web::features::kContextMenuElementPostMessage);
+  chrome_test_util::HistogramTester histogramTester;
+
+  const GURL pageURL = self.testServer->GetURL(kLogoPagePath);
+  [ChromeEarlGrey loadURL:pageURL];
+  [ChromeEarlGrey waitForMainTabCount:1];
+
+  LongPressElement(kChromiumImageID);
+  TapOnContextMenuButton(OpenImageButton());
+
+  histogramTester.ExpectTotalCount("ContextMenu.DOMElementFetchDuration", 1,
+                                   ^(NSString* error) {
+                                     GREYFail(error);
+                                   });
+}
+
+// Tests that the system selected text callout is displayed instead of the
+// context menu when user long presses on plain text.
+- (void)testContextMenuSelectedTextCalloutPostMessage {
+  base::test::ScopedFeatureList scopedFeatureList;
+  scopedFeatureList.InitAndEnableFeature(
+      web::features::kContextMenuElementPostMessage);
+
+  // Load the destination page directly because it has a plain text message on
+  // it.
+  const GURL destinationURL = self.testServer->GetURL(kUrlDestinationPage);
+  [ChromeEarlGrey loadURL:destinationURL];
+  [ChromeEarlGrey waitForWebViewContainingText:kDestinationPageText];
+
+  LongPressElement(kDestinationPageMessageID);
+
+  // Verify that context menu is not shown.
+  [[EarlGrey selectElementWithMatcher:ContextMenuCopyButton()]
+      assertWithMatcher:grey_nil()];
+
+  // Verify that system text selection callout is displayed.
+  [[[EarlGrey selectElementWithMatcher:SystemSelectionCalloutCopyButton()]
+      inRoot:SystemSelectionCallout()] assertWithMatcher:grey_notNil()];
 }
 
 @end

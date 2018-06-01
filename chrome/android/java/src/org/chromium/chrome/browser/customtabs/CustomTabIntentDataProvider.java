@@ -50,6 +50,7 @@ public class CustomTabIntentDataProvider extends BrowserSessionDataProvider {
             CUSTOM_TABS_UI_TYPE_DEFAULT, CUSTOM_TABS_UI_TYPE_MEDIA_VIEWER,
             CUSTOM_TABS_UI_TYPE_PAYMENT_REQUEST, CUSTOM_TABS_UI_TYPE_INFO_PAGE,
             CUSTOM_TABS_UI_TYPE_READER_MODE, CUSTOM_TABS_UI_TYPE_MINIMAL_UI_WEBAPP,
+            CUSTOM_TABS_UI_TYPE_OFFLINE_PAGE,
     })
     public @interface CustomTabsUiType {}
     public static final int CUSTOM_TABS_UI_TYPE_DEFAULT = 0;
@@ -58,6 +59,7 @@ public class CustomTabIntentDataProvider extends BrowserSessionDataProvider {
     public static final int CUSTOM_TABS_UI_TYPE_INFO_PAGE = 3;
     public static final int CUSTOM_TABS_UI_TYPE_READER_MODE = 4;
     public static final int CUSTOM_TABS_UI_TYPE_MINIMAL_UI_WEBAPP = 5;
+    public static final int CUSTOM_TABS_UI_TYPE_OFFLINE_PAGE = 6;
 
     /**
      * Extra that indicates whether or not the Custom Tab is being launched by an Intent fired by
@@ -251,19 +253,23 @@ public class CustomTabIntentDataProvider extends BrowserSessionDataProvider {
      * {@link #mBottombarButtons} and {@link #mToolbarButtons}.
      */
     private void retrieveCustomButtons(Intent intent, Context context) {
-        mCustomButtonParams = CustomButtonParams.fromIntent(context, intent, isTrustedIntent());
-        if (mCustomButtonParams != null) {
-            for (CustomButtonParams params : mCustomButtonParams) {
-                if (!params.showOnToolbar()) {
-                    mBottombarButtons.add(params);
-                } else if (mToolbarButtons.size() < MAX_CUSTOM_TOOLBAR_ITEMS) {
-                    mToolbarButtons.add(params);
-                } else {
-                    Log.w(TAG, "Only %d items are allowed in the toolbar",
-                            MAX_CUSTOM_TOOLBAR_ITEMS);
-                }
+        assert mCustomButtonParams == null;
+        mCustomButtonParams = CustomButtonParams.fromIntent(context, intent);
+        for (CustomButtonParams params : mCustomButtonParams) {
+            if (!params.showOnToolbar()) {
+                mBottombarButtons.add(params);
+            } else if (mToolbarButtons.size() < getMaxCustomToolbarItems()) {
+                mToolbarButtons.add(params);
+            } else {
+                Log.w(TAG, "Only %d items are allowed in the toolbar", getMaxCustomToolbarItems());
             }
         }
+    }
+
+    private int getMaxCustomToolbarItems() {
+        if (!isTrustedIntent()) return 1;
+
+        return MAX_CUSTOM_TOOLBAR_ITEMS;
     }
 
     /**

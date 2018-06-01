@@ -37,23 +37,20 @@
 
 using chrome_test_util::AccountsSyncButton;
 using chrome_test_util::ButtonWithAccessibilityLabelId;
+using chrome_test_util::ClearBrowsingDataCollectionView;
+using chrome_test_util::ClearBrowsingHistoryButton;
 using chrome_test_util::GetIncognitoTabCount;
 using chrome_test_util::IsIncognitoMode;
 using chrome_test_util::IsSyncInitialized;
-using chrome_test_util::NavigationBarDoneButton;
 using chrome_test_util::SecondarySignInButton;
 using chrome_test_util::SettingsAccountButton;
-using chrome_test_util::SettingsAccountButton;
+using chrome_test_util::SettingsDoneButton;
 using chrome_test_util::SettingsMenuPrivacyButton;
-using chrome_test_util::ClearBrowsingHistoryButton;
-using chrome_test_util::NavigationBarDoneButton;
 using chrome_test_util::SignOutAccountsButton;
 using chrome_test_util::SyncSwitchCell;
 using chrome_test_util::TabletTabSwitcherCloseButton;
 using chrome_test_util::TabletTabSwitcherOpenTabsPanelButton;
 using chrome_test_util::TurnSyncSwitchOn;
-using chrome_test_util::ClearBrowsingDataCollectionView;
-using chrome_test_util::NavigationBarDoneButton;
 
 namespace metrics {
 
@@ -145,7 +142,7 @@ void ClearBrowsingData() {
   // settings screen is visible to match the state at the start of the method.
   [[EarlGrey selectElementWithMatcher:ClearBrowsingDataCollectionView()]
       performAction:grey_scrollToContentEdge(kGREYContentEdgeTop)];
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:SettingsDoneButton()]
       performAction:grey_tap()];
 }
 
@@ -198,7 +195,7 @@ void SignIn() {
   [ChromeEarlGreyUI tapSettingsMenuButton:SecondarySignInButton()];
   [ChromeEarlGreyUI signInToIdentityByEmail:identity.userEmail];
   [ChromeEarlGreyUI confirmSigninConfirmationDialog];
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:SettingsDoneButton()]
       performAction:grey_tap()];
 
   [SigninEarlGreyUtils assertSignedInWithIdentity:identity];
@@ -213,7 +210,7 @@ void SignInWithPromo() {
                                           kSigninPromoPrimaryButtonId)]
       performAction:grey_tap()];
   [ChromeEarlGreyUI confirmSigninConfirmationDialog];
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:SettingsDoneButton()]
       performAction:grey_tap()];
 
   [SigninEarlGreyUtils
@@ -230,7 +227,7 @@ void SignOut() {
                  ButtonWithAccessibilityLabelId(
                      IDS_IOS_DISCONNECT_DIALOG_CONTINUE_BUTTON_MOBILE)]
       performAction:grey_tap()];
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:SettingsDoneButton()]
       performAction:grey_tap()];
 
   [SigninEarlGreyUtils assertSignedOut];
@@ -417,7 +414,7 @@ void SignOut() {
   GREYAssert(original_client_id != metrics::UkmEGTestHelper::client_id(),
              @"Client ID was not reset.");
 
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:SettingsDoneButton()]
       performAction:grey_tap()];
 }
 
@@ -426,14 +423,6 @@ void SignOut() {
 // Make sure that UKM is disabled when a secondary passphrase is used.
 - (void)testSecondaryPassphrase {
   uint64_t original_client_id = metrics::UkmEGTestHelper::client_id();
-
-  // This test hangs for a while when typing, and eventually causes the suite to
-  // timeout on iOS 11 iPad. crbug.com/811376
-  if (IsIPadIdiom()) {
-    if (@available(iOS 11, *)) {
-      EARL_GREY_TEST_DISABLED(@"Disabled on iOS 11 iPad");
-    }
-  }
 
   [ChromeEarlGreyUI openSettingsMenu];
   // Open accounts settings, then sync settings.
@@ -454,20 +443,17 @@ void SignOut() {
       performAction:grey_tap()];
   // Type and confirm passphrase, then submit.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityValue(@"Passphrase")]
-      performAction:grey_typeText(@"mypassphrase")];
+      performAction:grey_replaceText(@"mypassphrase")];
   [[EarlGrey
       selectElementWithMatcher:grey_accessibilityValue(@"Confirm passphrase")]
-      performAction:grey_typeText(@"mypassphrase")];
-  [[EarlGrey selectElementWithMatcher:ButtonWithAccessibilityLabelId(
-                                          IDS_IOS_SYNC_DECRYPT_BUTTON)]
-      performAction:grey_tap()];
+      performAction:grey_replaceText(@"mypassphrase")];
 
   AssertUKMEnabled(false);
   // Client ID should have been reset.
   GREYAssert(original_client_id != metrics::UkmEGTestHelper::client_id(),
              @"Client ID was not reset.");
 
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:SettingsDoneButton()]
       performAction:grey_tap()];
 
   // Reset sync back to original state.

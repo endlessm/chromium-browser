@@ -77,11 +77,11 @@ int TestWebContents::DownloadImage(const GURL& url,
                                    bool is_favicon,
                                    uint32_t max_bitmap_size,
                                    bool bypass_cache,
-                                   const ImageDownloadCallback& callback) {
+                                   ImageDownloadCallback callback) {
   static int g_next_image_download_id = 0;
   ++g_next_image_download_id;
   pending_image_downloads_[url].emplace_back(g_next_image_download_id,
-                                             callback);
+                                             std::move(callback));
   return g_next_image_download_id;
 }
 
@@ -161,8 +161,12 @@ void TestWebContents::TestDidNavigateWithSequenceNumber(
   rfh->SendNavigateWithParams(&params, was_within_same_document);
 }
 
-const std::string& TestWebContents::GetSaveFrameHeaders() {
+const std::string& TestWebContents::GetSaveFrameHeaders() const {
   return save_frame_headers_;
+}
+
+const base::string16& TestWebContents::GetSuggestedFileName() const {
+  return suggested_filename_;
 }
 
 bool TestWebContents::HasPendingDownloadImage(const GURL& url) {
@@ -177,14 +181,47 @@ bool TestWebContents::TestDidDownloadImage(
   if (!HasPendingDownloadImage(url))
     return false;
   int id = pending_image_downloads_[url].front().first;
-  ImageDownloadCallback callback = pending_image_downloads_[url].front().second;
+  ImageDownloadCallback callback =
+      std::move(pending_image_downloads_[url].front().second);
   pending_image_downloads_[url].pop_front();
-  callback.Run(id, http_status_code, url, bitmaps, original_bitmap_sizes);
+  std::move(callback).Run(id, http_status_code, url, bitmaps,
+                          original_bitmap_sizes);
   return true;
 }
 
 void TestWebContents::SetLastCommittedURL(const GURL& url) {
   last_committed_url_ = url;
+}
+
+void TestWebContents::SetMainFrameMimeType(const std::string& mime_type) {
+  WebContentsImpl::SetMainFrameMimeType(mime_type);
+}
+
+void TestWebContents::SetWasRecentlyAudible(bool audible) {
+  audio_stream_monitor()->set_was_recently_audible_for_testing(audible);
+}
+
+void TestWebContents::SetIsCurrentlyAudible(bool audible) {
+  audio_stream_monitor()->set_is_currently_audible_for_testing(audible);
+}
+
+void TestWebContents::TestDidReceiveInputEvent(
+    blink::WebInputEvent::Type type) {
+  // Use the first RenderWidgetHost from the frame tree to make sure that the
+  // interaction doesn't get ignored.
+  DCHECK(frame_tree_.Nodes().begin() != frame_tree_.Nodes().end());
+  RenderWidgetHostImpl* render_widget_host = (*frame_tree_.Nodes().begin())
+                                                 ->current_frame_host()
+                                                 ->GetRenderWidgetHost();
+  DidReceiveInputEvent(render_widget_host, type);
+}
+
+void TestWebContents::TestDidFailLoadWithError(
+    const GURL& url,
+    int error_code,
+    const base::string16& error_description) {
+  FrameHostMsg_DidFailLoadWithError msg(0, url, error_code, error_description);
+  frame_tree_.root()->current_frame_host()->OnMessageReceived(msg);
 }
 
 bool TestWebContents::CrossProcessNavigationPending() {
@@ -320,14 +357,6 @@ void TestWebContents::TestDidFinishLoad(const GURL& url) {
   frame_tree_.root()->current_frame_host()->OnMessageReceived(msg);
 }
 
-void TestWebContents::TestDidFailLoadWithError(
-    const GURL& url,
-    int error_code,
-    const base::string16& error_description) {
-  FrameHostMsg_DidFailLoadWithError msg(0, url, error_code, error_description);
-  frame_tree_.root()->current_frame_host()->OnMessageReceived(msg);
-}
-
 void TestWebContents::SetNavigationData(
     NavigationHandle* navigation_handle,
     std::unique_ptr<NavigationData> navigation_data) {
@@ -375,32 +404,13 @@ void TestWebContents::ShowCreatedFullscreenWidget(int process_id,
                                                   int route_id) {
 }
 
-void TestWebContents::SaveFrameWithHeaders(const GURL& url,
-                                           const Referrer& referrer,
-                                           const std::string& headers) {
+void TestWebContents::SaveFrameWithHeaders(
+    const GURL& url,
+    const Referrer& referrer,
+    const std::string& headers,
+    const base::string16& suggested_filename) {
   save_frame_headers_ = headers;
-}
-
-void TestWebContents::SetMainFrameMimeType(const std::string& mime_type) {
-  WebContentsImpl::SetMainFrameMimeType(mime_type);
-}
-
-void TestWebContents::SetWasRecentlyAudible(bool audible) {
-  audio_stream_monitor()->set_was_recently_audible_for_testing(audible);
-}
-
-void TestWebContents::SetIsCurrentlyAudible(bool audible) {
-  audio_stream_monitor()->set_is_currently_audible_for_testing(audible);
-}
-
-void TestWebContents::TestOnUserInteraction(blink::WebInputEvent::Type type) {
-  // Use the first RenderWidgetHost from the frame tree to make sure that the
-  // interaction doesn't get ignored.
-  DCHECK(frame_tree_.Nodes().begin() != frame_tree_.Nodes().end());
-  RenderWidgetHostImpl* render_widget_host = (*frame_tree_.Nodes().begin())
-                                                 ->current_frame_host()
-                                                 ->GetRenderWidgetHost();
-  OnUserInteraction(render_widget_host, type);
+  suggested_filename_ = suggested_filename;
 }
 
 }  // namespace content

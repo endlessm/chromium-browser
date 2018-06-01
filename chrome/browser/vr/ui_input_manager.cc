@@ -16,7 +16,7 @@
 #include "chrome/browser/vr/ui_scene.h"
 // TODO(tiborg): Remove include once we use a generic type to pass scroll/fling
 // gestures.
-#include "third_party/WebKit/public/platform/WebGestureEvent.h"
+#include "third_party/blink/public/platform/web_gesture_event.h"
 
 namespace vr {
 
@@ -57,16 +57,10 @@ bool IsScrollEvent(const GestureList& list) {
   return false;
 }
 
-void HitTestElements(UiElement* root_element,
+void HitTestElements(UiScene* scene,
                      ReticleModel* reticle_model,
                      HitTestRequest* request) {
-  std::vector<const UiElement*> elements;
-  for (auto& element : *root_element) {
-    if (element.IsVisible()) {
-      elements.push_back(&element);
-    }
-  }
-
+  std::vector<const UiElement*> elements = scene->GetVisibleElements();
   std::vector<const UiElement*> sorted =
       UiRenderer::GetElementsInDrawOrder(elements);
 
@@ -84,6 +78,7 @@ void HitTestElements(UiElement* root_element,
     reticle_model->target_element_id = element->id();
     reticle_model->target_local_point = result.local_hit_point;
     reticle_model->target_point = result.hit_point;
+    reticle_model->cursor_type = element->cursor_type();
     break;
   }
 }
@@ -373,7 +368,7 @@ void UiInputManager::GetVisualTargetElement(
   request.ray_origin = ray_origin;
   request.ray_target = reticle_model->target_point;
   request.max_distance_to_plane = distance_limit;
-  HitTestElements(&scene_->root_element(), reticle_model, &request);
+  HitTestElements(scene_, reticle_model, &request);
 }
 
 void UiInputManager::UpdateQuiescenceState(

@@ -34,21 +34,6 @@ class WindowSizer {
   class StateProvider;
   class TargetDisplayProvider;
 
-  // WindowSizer owns |state_provider| and |target_display_provider|,
-  // and will use the platforms's display::Screen.
-  WindowSizer(std::unique_ptr<StateProvider> state_provider,
-              std::unique_ptr<TargetDisplayProvider> target_display_provider,
-              const Browser* browser);
-
-  // WindowSizer owns |state_provider| and |target_display_provider|,
-  // and will use the supplied |screen|. Used only for testing.
-  WindowSizer(std::unique_ptr<StateProvider> state_provider,
-              std::unique_ptr<TargetDisplayProvider> target_display_provider,
-              display::Screen* screen,
-              const Browser* browser);
-
-  virtual ~WindowSizer();
-
   // An interface implemented by an object that can retrieve state from either a
   // persistent store or an existing window.
   class StateProvider {
@@ -82,6 +67,18 @@ class WindowSizer {
     virtual display::Display GetTargetDisplay(
         const display::Screen* screen,
         const gfx::Rect& bounds) const = 0;
+  };
+
+  class DefaultTargetDisplayProvider : public TargetDisplayProvider {
+   public:
+    DefaultTargetDisplayProvider();
+    ~DefaultTargetDisplayProvider() override;
+
+    display::Display GetTargetDisplay(const display::Screen* screen,
+                                      const gfx::Rect& bounds) const override;
+
+   private:
+    DISALLOW_COPY_AND_ASSIGN(DefaultTargetDisplayProvider);
   };
 
   // Determines the position and size for a window as it is created as well
@@ -128,7 +125,25 @@ class WindowSizer {
   static const int kMaximumWindowWidth = 1100;
 #endif
 
+ protected:
+  const StateProvider* state_provider() const { return state_provider_.get(); }
+
  private:
+  friend class WindowSizerTestUtil;
+
+  // WindowSizer will use the platforms's display::Screen.
+  WindowSizer(std::unique_ptr<StateProvider> state_provider,
+              std::unique_ptr<TargetDisplayProvider> target_display_provider,
+              const Browser* browser);
+
+  // As above, but uses the supplied |screen|. Used only for testing.
+  WindowSizer(std::unique_ptr<StateProvider> state_provider,
+              std::unique_ptr<TargetDisplayProvider> target_display_provider,
+              display::Screen* screen,
+              const Browser* browser);
+
+  virtual ~WindowSizer();
+
   // The edge of the screen to check for out-of-bounds.
   enum Edge { TOP, LEFT, BOTTOM, RIGHT };
 

@@ -73,7 +73,8 @@ class ShelfWidget::DelegateView : public views::WidgetDelegate,
     default_last_focusable_child_ = default_last_focusable_child;
   }
 
-  // views::WidgetDelegateView:
+  // views::WidgetDelegate:
+  void DeleteDelegate() override { delete this; }
   views::Widget* GetWidget() override { return View::GetWidget(); }
   const views::Widget* GetWidget() const override { return View::GetWidget(); }
 
@@ -106,6 +107,8 @@ ShelfWidget::DelegateView::DelegateView(ShelfWidget* shelf_widget)
       focus_cycler_(nullptr),
       opaque_background_(ui::LAYER_SOLID_COLOR) {
   DCHECK(shelf_widget_);
+  set_owned_by_client();  // Deleted by DeleteDelegate().
+
   SetLayoutManager(std::make_unique<views::FillLayout>());
   set_allow_deactivate_on_esc(true);
   opaque_background_.SetBounds(GetLocalBounds());
@@ -209,16 +212,34 @@ ShelfWidget::ShelfWidget(aura::Window* shelf_container, Shelf* shelf)
   // Calls back into |this| and depends on |shelf_view_|.
   background_animator_.AddObserver(this);
   background_animator_.AddObserver(delegate_view_);
-
-  // Sets initial session state to make sure the UI is properly shown.
-  OnSessionStateChanged(Shell::Get()->session_controller()->GetSessionState());
 }
 
 ShelfWidget::~ShelfWidget() {
   // Must call Shutdown() before destruction.
   DCHECK(!status_area_widget_);
+}
+
+void ShelfWidget::Initialize() {
+  // Sets initial session state to make sure the UI is properly shown.
+  OnSessionStateChanged(Shell::Get()->session_controller()->GetSessionState());
+}
+
+void ShelfWidget::Shutdown() {
+  // Shutting down the status area widget may cause some widgets (e.g. bubbles)
+  // to close, so uninstall the ShelfLayoutManager event filters first. Don't
+  // reset the pointer until later because other widgets (e.g. app list) may
+  // access it later in shutdown.
+  shelf_layout_manager_->PrepareForShutdown();
+
+  background_animator_.RemoveObserver(status_area_widget_.get());
+  Shell::Get()->focus_cycler()->RemoveWidget(status_area_widget_.get());
+  status_area_widget_.reset();
+
+  // Don't need to update the shelf background during shutdown.
   background_animator_.RemoveObserver(delegate_view_);
   background_animator_.RemoveObserver(this);
+
+  // Don't need to observe focus/activation during shutdown.
   Shell::Get()->focus_cycler()->RemoveWidget(this);
   SetFocusCycler(nullptr);
   RemoveObserver(this);
@@ -290,23 +311,6 @@ FocusCycler* ShelfWidget::GetFocusCycler() {
   return delegate_view_->focus_cycler();
 }
 
-void ShelfWidget::Shutdown() {
-  // Shutting down the status area widget may cause some widgets (e.g. bubbles)
-  // to close, so uninstall the ShelfLayoutManager event filters first. Don't
-  // reset the pointer until later because other widgets (e.g. app list) may
-  // access it later in shutdown.
-  if (shelf_layout_manager_)
-    shelf_layout_manager_->PrepareForShutdown();
-
-  if (status_area_widget_) {
-    background_animator_.RemoveObserver(status_area_widget_.get());
-    Shell::Get()->focus_cycler()->RemoveWidget(status_area_widget_.get());
-    status_area_widget_.reset();
-  }
-
-  CloseNow();
-}
-
 void ShelfWidget::UpdateIconPositionForPanel(aura::Window* panel) {
   ShelfID id = ShelfID::Deserialize(panel->GetProperty(kShelfIDKey));
   if (id.IsNull())
@@ -334,6 +338,10 @@ gfx::Rect ShelfWidget::GetScreenBoundsOfItemIconForWindow(
 
 AppListButton* ShelfWidget::GetAppListButton() const {
   return shelf_view_->GetAppListButton();
+}
+
+BackButton* ShelfWidget::GetBackButton() const {
+  return shelf_view_->GetBackButton();
 }
 
 app_list::ApplicationDragAndDropHost*

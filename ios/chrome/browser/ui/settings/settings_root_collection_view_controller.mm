@@ -4,7 +4,6 @@
 
 #import "ios/chrome/browser/ui/settings/settings_root_collection_view_controller.h"
 
-#include "base/ios/ios_util.h"
 #include "base/logging.h"
 #import "base/mac/foundation_util.h"
 
@@ -125,52 +124,6 @@ const CGFloat kActivityIndicatorDimensionIPhone = 56;
   DCHECK(self.dispatcher);
   OpenUrlCommand* command = [[OpenUrlCommand alloc] initWithURLFromChrome:URL];
   [self.dispatcher closeSettingsUIAndOpenURL:command];
-}
-
-#pragma mark - Status bar
-
-- (UIViewController*)childViewControllerForStatusBarHidden {
-  if (!base::ios::IsRunningOnIOS10OrLater()) {
-    // TODO(crbug.com/620361): Remove the entire method override when iOS 9 is
-    // dropped.
-    return nil;
-  } else {
-    return [super childViewControllerForStatusBarHidden];
-  }
-}
-
-- (BOOL)prefersStatusBarHidden {
-  if (!base::ios::IsRunningOnIOS10OrLater()) {
-    // TODO(crbug.com/620361): Remove the entire method override when iOS 9 is
-    // dropped.
-    return NO;
-  } else {
-    return [super prefersStatusBarHidden];
-  }
-}
-
-- (UIViewController*)childViewControllerForStatusBarStyle {
-  if (!base::ios::IsRunningOnIOS10OrLater()) {
-    // TODO(crbug.com/620361): Remove the entire method override when iOS 9 is
-    // dropped.
-    return nil;
-  } else {
-    return [super childViewControllerForStatusBarStyle];
-  }
-}
-
-- (UIStatusBarStyle)preferredStatusBarStyle {
-  if (!base::ios::IsRunningOnIOS10OrLater()) {
-    // TODO(crbug.com/620361): Remove the entire method override when iOS 9 is
-    // dropped.
-    if (IsIPadIdiom() && !IsCompactWidth()) {
-      return UIStatusBarStyleLightContent;
-    } else {
-      return UIStatusBarStyleDefault;
-    }
-  } else {
-    return [super preferredStatusBarStyle];
-  }
 }
 
 #pragma mark - Subclassing

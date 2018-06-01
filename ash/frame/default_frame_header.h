@@ -8,11 +8,13 @@
 #include <memory>
 
 #include "ash/ash_export.h"
+#include "ash/frame/caption_buttons/frame_caption_button.h"
 #include "ash/frame/frame_header.h"
 #include "ash/public/interfaces/window_style.mojom.h"
 #include "base/compiler_specific.h"  // override
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/strings/string16.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/animation/animation_delegate.h"
 
@@ -51,6 +53,7 @@ class ASH_EXPORT DefaultFrameHeader : public FrameHeader,
   void SetHeaderHeightForPainting(int height) override;
   void SchedulePaintForTitle() override;
   void SetPaintAsActive(bool paint_as_active) override;
+  void OnShowStateChanged(ui::WindowShowState show_state) override;
 
   void set_left_header_view(views::View* left_header_view) {
     left_header_view_ = left_header_view;
@@ -59,21 +62,26 @@ class ASH_EXPORT DefaultFrameHeader : public FrameHeader,
   void set_back_button(FrameCaptionButton* back_button) {
     back_button_ = back_button;
   }
+  FrameCaptionButton* back_button() { return back_button_; }
+
+  void set_title(const base::string16& title) { title_ = title; }
 
   // Sets the active and inactive frame colors. Note the inactive frame color
   // will have some transparency added when the frame is drawn.
   void SetFrameColors(SkColor active_frame_color, SkColor inactive_frame_color);
+  void SetThemeColor(SkColor theme_color);
   SkColor GetActiveFrameColor() const;
   SkColor GetInactiveFrameColor() const;
+  SkColor GetCurrentFrameColor() const;
 
   // Gets the color of the title text.
   SkColor GetTitleColor() const;
 
-  // Whether light caption images should be used. This is the case when the
-  // background of the frame is dark.
-  bool ShouldUseLightImages() const;
-
  protected:
+  // Updates the frame colors and ensures buttons are up to date.
+  void SetFrameColorsImpl(SkColor active_frame_color,
+                          SkColor inactive_frame_color);
+
   // Paints the title bar, primarily the title string.
   virtual void PaintTitleBar(gfx::Canvas* canvas);
 
@@ -85,7 +93,7 @@ class ASH_EXPORT DefaultFrameHeader : public FrameHeader,
  private:
   FRIEND_TEST_ALL_PREFIXES(DefaultFrameHeaderTest, BackButtonAlignment);
   FRIEND_TEST_ALL_PREFIXES(DefaultFrameHeaderTest, TitleIconAlignment);
-  FRIEND_TEST_ALL_PREFIXES(DefaultFrameHeaderTest, LightIcons);
+  FRIEND_TEST_ALL_PREFIXES(DefaultFrameHeaderTest, FrameColors);
 
   // gfx::AnimationDelegate override:
   void AnimationProgressed(const gfx::Animation* animation) override;
@@ -116,9 +124,12 @@ class ASH_EXPORT DefaultFrameHeader : public FrameHeader,
   views::View* view_;
   FrameCaptionButton* back_button_;  // May be nullptr.
   views::View* left_header_view_;    // May be nullptr.
+  FrameCaptionButton::ColorMode button_color_mode_ =
+      FrameCaptionButton::ColorMode::kDefault;
   SkColor active_frame_color_;
   SkColor inactive_frame_color_;
   FrameCaptionButtonContainerView* caption_button_container_;
+  base::string16 title_;
 
   // The height of the header to paint.
   int painted_height_;

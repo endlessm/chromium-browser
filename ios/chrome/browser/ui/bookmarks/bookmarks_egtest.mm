@@ -49,6 +49,7 @@
 using chrome_test_util::BookmarksMenuButton;
 using chrome_test_util::ButtonWithAccessibilityLabel;
 using chrome_test_util::ButtonWithAccessibilityLabelId;
+using chrome_test_util::ContextMenuCopyButton;
 using chrome_test_util::PrimarySignInButton;
 using chrome_test_util::SecondarySignInButton;
 
@@ -567,12 +568,10 @@ id<GREYMatcher> CloseToolsMenuButton() {
     EARL_GREY_TEST_SKIPPED(@"Test not applicable for iPad");
   }
 
-// TODO(crbug.com/768339): This test is faling on devices with iOS > 9 because
+// TODO(crbug.com/768339): This test is faling on devices because
 // grey_swipeFastInDirectionWithStartPoint does not work.
 #if !TARGET_IPHONE_SIMULATOR
-  if (@available(iOS 10.0, *)) {
-    EARL_GREY_TEST_DISABLED(@"Test disabled on iOS 10+ devices.");
-  }
+  EARL_GREY_TEST_DISABLED(@"Test disabled on devices.");
 #endif
 
   [BookmarksTestCase setupStandardBookmarks];
@@ -1113,8 +1112,7 @@ id<GREYMatcher> CloseToolsMenuButton() {
       performAction:grey_tap()];
 
   // Select Copy URL.
-  [[EarlGrey selectElementWithMatcher:ButtonWithAccessibilityLabelId(
-                                          IDS_IOS_CONTENT_CONTEXT_COPY)]
+  [[EarlGrey selectElementWithMatcher:ContextMenuCopyButton()]
       performAction:grey_tap()];
 
   // Verify general pasteboard has the URL copied.
@@ -3353,8 +3351,7 @@ id<GREYMatcher> CloseToolsMenuButton() {
                      IDS_IOS_CONTENT_CONTEXT_OPENLINKNEWINCOGNITOTAB)]
       assertWithMatcher:grey_sufficientlyVisible()];
 
-  [[EarlGrey selectElementWithMatcher:ButtonWithAccessibilityLabelId(
-                                          IDS_IOS_CONTENT_CONTEXT_COPY)]
+  [[EarlGrey selectElementWithMatcher:ContextMenuCopyButton()]
       assertWithMatcher:grey_sufficientlyVisible()];
 }
 

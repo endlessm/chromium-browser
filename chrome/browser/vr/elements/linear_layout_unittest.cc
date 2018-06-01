@@ -26,7 +26,7 @@ class TestElement : public UiElement {
 
 }  // namespace
 
-TEST(LinearLayout, HorizontalLayout) {
+TEST(LinearLayout, HorizontalVerticalLayout) {
   LinearLayout layout(LinearLayout::kRight);
   layout.set_margin(10);
   auto element = std::make_unique<UiElement>();
@@ -62,6 +62,72 @@ TEST(LinearLayout, HorizontalLayout) {
 
   rect_a->set_requires_layout(false);
   layout.LayOutChildren();
+
+  EXPECT_FLOAT_EQ(20.0f, layout.size().width());
+}
+
+TEST(LinearLayout, Alignment) {
+  LinearLayout layout(LinearLayout::kRight);
+  layout.set_margin(10);
+  auto element = std::make_unique<UiElement>();
+  UiElement* rect_a = element.get();
+  rect_a->SetSize(1, 1);
+  layout.AddChild(std::move(element));
+  element = std::make_unique<UiElement>();
+  UiElement* rect_b = element.get();
+
+  rect_b->SetSize(10, 10);
+  rect_b->SetScale(2.0f, 2.0f, 0.0f);
+  layout.AddChild(std::move(element));
+
+  gfx::Point3F position_a;
+  rect_a->set_y_anchoring(TOP);
+  layout.LayOutChildren();
+  rect_a->LocalTransform().TransformPoint(&position_a);
+  EXPECT_FLOAT_EQ(9.5f, position_a.y());
+  position_a = gfx::Point3F();
+  rect_a->set_y_anchoring(BOTTOM);
+  layout.LayOutChildren();
+  rect_a->LocalTransform().TransformPoint(&position_a);
+  EXPECT_FLOAT_EQ(-9.5f, position_a.y());
+
+  layout.set_direction(LinearLayout::kLeft);
+  position_a = gfx::Point3F();
+  rect_a->set_y_anchoring(TOP);
+  layout.LayOutChildren();
+  rect_a->LocalTransform().TransformPoint(&position_a);
+  EXPECT_FLOAT_EQ(9.5f, position_a.y());
+  position_a = gfx::Point3F();
+  rect_a->set_y_anchoring(BOTTOM);
+  layout.LayOutChildren();
+  rect_a->LocalTransform().TransformPoint(&position_a);
+  EXPECT_FLOAT_EQ(-9.5f, position_a.y());
+
+  layout.set_direction(LinearLayout::kDown);
+  position_a = gfx::Point3F();
+  rect_a->set_x_anchoring(LEFT);
+  rect_a->set_y_anchoring(NONE);
+  layout.LayOutChildren();
+  rect_a->LocalTransform().TransformPoint(&position_a);
+  EXPECT_FLOAT_EQ(-9.5f, position_a.x());
+  position_a = gfx::Point3F();
+  rect_a->set_x_anchoring(RIGHT);
+  layout.LayOutChildren();
+  rect_a->LocalTransform().TransformPoint(&position_a);
+  EXPECT_FLOAT_EQ(9.5f, position_a.x());
+
+  layout.set_direction(LinearLayout::kUp);
+  position_a = gfx::Point3F();
+  rect_a->set_x_anchoring(LEFT);
+  rect_a->set_y_anchoring(NONE);
+  layout.LayOutChildren();
+  rect_a->LocalTransform().TransformPoint(&position_a);
+  EXPECT_FLOAT_EQ(-9.5f, position_a.x());
+  position_a = gfx::Point3F();
+  rect_a->set_x_anchoring(RIGHT);
+  layout.LayOutChildren();
+  rect_a->LocalTransform().TransformPoint(&position_a);
+  EXPECT_FLOAT_EQ(9.5f, position_a.x());
 }
 
 TEST(LinearLayout, Orientations) {
@@ -138,6 +204,42 @@ TEST(LinearLayout, NestedLayouts) {
   EXPECT_FLOAT_EQ(p_rect_b->y(), 0);
   EXPECT_FLOAT_EQ(p_rect_c->x(), 0);
   EXPECT_FLOAT_EQ(p_rect_c->y(), -10);
+}
+
+TEST(LinearLayout, SpecifiedMajorExtent) {
+  auto layout = std::make_unique<LinearLayout>(LinearLayout::kRight);
+  for (int i = 0; i < 3; i++) {
+    auto element = std::make_unique<UiElement>();
+    element->SetSize(1.f, 1.f);
+    layout->AddChild(std::move(element));
+  }
+
+  LinearLayout* p_layout = layout.get();
+  UiElement* p_resizable_child = layout->children()[1].get();
+
+  auto scene = std::make_unique<UiScene>();
+  scene->AddUiElement(kRoot, std::move(layout));
+  scene->OnBeginFrame(MicrosecondsToTicks(0), kStartHeadPose);
+  EXPECT_FLOAT_EQ(p_layout->size().width(), 3.f);
+
+  // Element grows to fit.
+  p_layout->set_layout_length(3.5f);
+  p_resizable_child->set_resizable_by_layout(true);
+  scene->OnBeginFrame(MicrosecondsToTicks(1), kStartHeadPose);
+  EXPECT_FLOAT_EQ(p_layout->size().width(), 3.5f);
+  EXPECT_FLOAT_EQ(p_resizable_child->size().width(), 1.5f);
+
+  // Element shrinks to fit.
+  p_layout->set_layout_length(2.5f);
+  scene->OnBeginFrame(MicrosecondsToTicks(0), kStartHeadPose);
+  EXPECT_FLOAT_EQ(p_layout->size().width(), 2.5f);
+  EXPECT_FLOAT_EQ(p_resizable_child->size().width(), 0.5f);
+
+  // Element shrinks to 0 if there's no size for it.
+  p_layout->set_layout_length(1.5f);
+  scene->OnBeginFrame(MicrosecondsToTicks(0), kStartHeadPose);
+  EXPECT_FLOAT_EQ(p_layout->size().width(), 2.0f);
+  EXPECT_FLOAT_EQ(p_resizable_child->size().width(), 0.f);
 }
 
 }  // namespace vr

@@ -21,8 +21,15 @@ namespace chrome_browser_data_usage {
 namespace {
 
 // Convenience typedefs for clarity.
-typedef base::OnceCallback<int32_t(void)> TabIdGetter;
-typedef base::OnceCallback<void(int32_t)> TabIdCallback;
+typedef base::OnceCallback<SessionID(void)> TabIdGetter;
+typedef base::OnceCallback<void(SessionID)> TabIdCallback;
+
+// Temporary workaround because base::PostTaskAndReplyWithResult() does not
+// support types without a default constructor.
+// TODO(crbug.com/823798): Revert once a default constructor is reintroduced.
+SessionID::id_type WrapTabIdGetter(TabIdGetter tab_id_getter) {
+  return std::move(tab_id_getter).Run().id();
+}
 
 }  // namespace
 
@@ -44,7 +51,7 @@ class TabIdProvider::CallbackRunner {
 
   // Runs all the callbacks in the order that they were added. This method must
   // not be called more than once.
-  void RunAll(int32_t tab_info) {
+  void RunAll(SessionID::id_type tab_info_value) {
     DCHECK(thread_checker_.CalledOnValidThread());
     DCHECK(!is_done_);
     is_done_ = true;
@@ -52,6 +59,7 @@ class TabIdProvider::CallbackRunner {
     std::vector<TabIdCallback> running_callbacks;
     running_callbacks.swap(callbacks_);
 
+    SessionID tab_info = SessionID::FromSerializedValue(tab_info_value);
     for (auto& callback : running_callbacks)
       std::move(callback).Run(tab_info);
   }
@@ -73,7 +81,7 @@ class TabIdProvider::CallbackRunner {
 TabIdProvider::TabIdProvider(base::TaskRunner* task_runner,
                              const base::Location& from_here,
                              TabIdGetter tab_id_getter)
-    : is_tab_info_ready_(false), tab_info_(-1), weak_ptr_factory_(this) {
+    : weak_ptr_factory_(this) {
   std::unique_ptr<CallbackRunner> callback_runner(new CallbackRunner());
   weak_callback_runner_ = callback_runner->GetWeakPtr();
   callback_runner->AddCallback(
@@ -84,7 +92,8 @@ TabIdProvider::TabIdProvider(base::TaskRunner* task_runner,
   // -1 to OnTabIdReady, so that case doesn't need to be explicitly handled
   // here.
   base::PostTaskAndReplyWithResult(
-      task_runner, from_here, std::move(tab_id_getter),
+      task_runner, from_here,
+      base::BindOnce(&WrapTabIdGetter, std::move(tab_id_getter)),
       base::BindOnce(&CallbackRunner::RunAll,
                      base::Owned(callback_runner.release())));
 }
@@ -93,8 +102,8 @@ TabIdProvider::~TabIdProvider() {}
 
 void TabIdProvider::ProvideTabId(TabIdCallback callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  if (is_tab_info_ready_) {
-    std::move(callback).Run(tab_info_);
+  if (tab_info_.has_value()) {
+    std::move(callback).Run(*tab_info_);
     return;
   }
   if (weak_callback_runner_) {
@@ -102,9 +111,9 @@ void TabIdProvider::ProvideTabId(TabIdCallback callback) {
     return;
   }
   // If no cached tab ID is available and |weak_callback_runner_| has been
-  // destroyed, pass a tab ID of -1 to the callback indicating that no tab was
-  // found.
-  std::move(callback).Run(-1);
+  // destroyed, pass an invalid tab ID to the callback indicating that no tab
+  // was found.
+  std::move(callback).Run(SessionID::InvalidValue());
 }
 
 base::WeakPtr<TabIdProvider> TabIdProvider::GetWeakPtr() {
@@ -116,12 +125,11 @@ base::WeakPtr<TabIdProvider> TabIdProvider::GetWeakPtr() {
 const void* const TabIdProvider::kTabIdProviderUserDataKey =
     "TabIdProviderUserDataKey";
 
-void TabIdProvider::OnTabIdReady(int32_t tab_info) {
+void TabIdProvider::OnTabIdReady(SessionID tab_info) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK(!is_tab_info_ready_);
+  DCHECK(!tab_info_.has_value());
 
   tab_info_ = tab_info;
-  is_tab_info_ready_ = true;
 }
 
 }  // namespace chrome_browser_data_usage

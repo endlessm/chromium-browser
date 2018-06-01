@@ -57,7 +57,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -922,6 +922,18 @@ IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest, TapGestureWithCtrlKey) {
   ASSERT_EQ(2, browser()->tab_strip_model()->count());
   // Check that we create the background tab.
   ASSERT_EQ(0, browser()->tab_strip_model()->active_index());
+}
+
+IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest, MultiplePopupsViaPostMessage) {
+  ui_test_utils::NavigateToURL(
+      browser(),
+      embedded_test_server()->GetURL("/popup_blocker/post-message-popup.html"));
+  content::WebContents* opener =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  int popups = 0;
+  EXPECT_TRUE(content::ExecuteScriptAndExtractInt(
+      opener, "openPopupsAndReport();", &popups));
+  EXPECT_EQ(1, popups);
 }
 
 // Test that popup blocker can show blocked contents in new foreground tab.

@@ -23,12 +23,6 @@ class ASH_EXPORT SystemTrayController : public mojom::SystemTray {
   SystemTrayController();
   ~SystemTrayController() override;
 
-  base::HourClockType hour_clock_type() const { return hour_clock_type_; }
-  const std::string& enterprise_display_domain() const {
-    return enterprise_display_domain_;
-  }
-  bool active_directory_managed() const { return active_directory_managed_; }
-
   // Wrappers around the mojom::SystemTrayClient interface.
   void ShowSettings();
   void ShowBluetoothSettings();
@@ -55,6 +49,7 @@ class ASH_EXPORT SystemTrayController : public mojom::SystemTray {
   void ShowThirdPartyVpnCreate(const std::string& extension_id);
   void ShowArcVpnCreate(const std::string& app_id);
   void ShowNetworkSettings(const std::string& network_id);
+  void ShowMultiDeviceSetup();
   void RequestRestartForUpdate();
 
   // Binds the mojom::SystemTray interface to this object.
@@ -79,16 +74,6 @@ class ASH_EXPORT SystemTrayController : public mojom::SystemTray {
 
   // Bindings for users of the mojo interface.
   mojo::BindingSet<mojom::SystemTray> bindings_;
-
-  // The type of clock hour display: 12 or 24 hour.
-  base::HourClockType hour_clock_type_;
-
-  // The domain name of the organization that manages the device. Empty if the
-  // device is not enterprise enrolled or if it uses Active Directory.
-  std::string enterprise_display_domain_;
-
-  // Whether this is an Active Directory managed enterprise device.
-  bool active_directory_managed_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(SystemTrayController);
 };

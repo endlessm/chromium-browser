@@ -7,13 +7,11 @@
 #include <memory>
 #include <string>
 
-#include "base/ios/ios_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
-#include "ios/chrome/test/app/navigation_test_util.h"
 #import "ios/chrome/test/app/web_view_interaction_test_util.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
@@ -389,8 +387,8 @@ id<GREYMatcher> TabWithTitle(const std::string& tab_title) {
 // modifies history.
 - (void)testBrowsingUserJavaScriptNavigation {
   // TODO(crbug.com/703855): Keyboard entry inside the omnibox fails only on
-  // iPad running iOS 10.
-  if (IsIPadIdiom() && base::ios::IsRunningOnIOS10OrLater())
+  // iPad.
+  if (IsIPadIdiom())
     return;
 
   // Create map of canned responses and set up the test HTML server.
@@ -425,8 +423,8 @@ id<GREYMatcher> TabWithTitle(const std::string& tab_title) {
 // Tests that evaluating non-navigation user JavaScript doesn't affect history.
 - (void)testBrowsingUserJavaScriptWithoutNavigation {
   // TODO(crbug.com/703855): Keyboard entry inside the omnibox fails only on
-  // iPad running iOS 10.
-  if (IsIPadIdiom() && base::ios::IsRunningOnIOS10OrLater())
+  // iPad.
+  if (IsIPadIdiom())
     return;
 
   // Create map of canned responses and set up the test HTML server.

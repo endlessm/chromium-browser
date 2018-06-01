@@ -7,16 +7,7 @@
 
 #import <Foundation/Foundation.h>
 
-typedef NS_ENUM(NSInteger, DownloadManagerState) {
-  // Download has not started yet.
-  kDownloadManagerStateNotStarted = 0,
-  // Download is actively progressing.
-  kDownloadManagerStateInProgress,
-  // Download is completely finished without errors.
-  kDownloadManagerStateSuceeded,
-  // Download has failed with an error.
-  kDownloadManagerStateFailed,
-};
+#import "ios/chrome/browser/ui/download/download_manager_state.h"
 
 // Consumer for the download manager mediator.
 @protocol DownloadManagerConsumer
@@ -27,8 +18,11 @@ typedef NS_ENUM(NSInteger, DownloadManagerState) {
 // Sets the received size of the file being downloaded in bytes.
 - (void)setCountOfBytesReceived:(int64_t)value;
 
-// Sets the expected size of the file being downloaded in bytes.
+// Sets the expected size of the file being downloaded in bytes. -1 if unknown.
 - (void)setCountOfBytesExpectedToReceive:(int64_t)value;
+
+// Sets the download progress. 1.0 if the download is complete.
+- (void)setProgress:(float)progress;
 
 // Sets the state of the download task. Default is
 // kDownloadManagerStateNotStarted.

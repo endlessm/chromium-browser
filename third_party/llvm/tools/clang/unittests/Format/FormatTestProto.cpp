@@ -158,9 +158,8 @@ TEST_F(FormatTestProto, MessageFieldAttributes) {
                "    key: 'a'  //\n"
                "  }\n"
                "];");
-  verifyFormat("optional string test = 1 [default =\n"
-               "                              \"test\"\n"
-               "                              \"test\"];");
+  verifyFormat("optional string test = 1 [default = \"test\"\n"
+               "                                    \"test\"];");
   verifyFormat("optional Aaaaaaaa aaaaaaaa = 12 [\n"
                "  (aaa) = aaaa,\n"
                "  (bbbbbbbbbbbbbbbbbbbbbbbbbb) = {\n"
@@ -475,6 +474,18 @@ TEST_F(FormatTestProto, FormatsRepeatedListInitializersInOptions) {
                "    ]\n"
                "  }\n"
                "  key: value\n"
+               "};");
+}
+
+TEST_F(FormatTestProto, AcceptsOperatorAsKeyInOptions) {
+  verifyFormat("option (MyProto.options) = {\n"
+               "  bbbbbbbbb: <\n"
+               "    ccccccccccccccccccccccc: <\n"
+               "      operator: 1\n"
+               "      operator: 2\n"
+               "      operator { key: value }\n"
+               "    >\n"
+               "  >\n"
                "};");
 }
 

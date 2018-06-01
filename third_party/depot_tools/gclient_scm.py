@@ -340,6 +340,32 @@ class GitWrapper(SCMWrapper):
               self.Print('FAILED to break lock: %s: %s' % (to_break, ex))
               raise
 
+  def apply_patch_ref(self, patch_repo, patch_ref, options, file_list):
+    base_rev = self._Capture(['rev-parse', 'HEAD'])
+    self.Print('===Applying patch ref===')
+    self.Print('Repo is %r @ %r, ref is %r, root is %r' % (
+        patch_repo, patch_ref, base_rev, self.checkout_path))
+    self._Capture(['reset', '--hard'])
+    self._Capture(['fetch', patch_repo, patch_ref])
+    if file_list is not None:
+      file_list.extend(self._GetDiffFilenames('FETCH_HEAD'))
+    self._Capture(['checkout', 'FETCH_HEAD'])
+
+    if options.rebase_patch_ref:
+      try:
+        # TODO(ehmaldonado): Look into cherry-picking to avoid an expensive
+        # checkout + rebase.
+        self._Capture(['rebase', base_rev])
+      except subprocess2.CalledProcessError as e:
+        self._Capture(['rebase', '--abort'])
+        self.Print('Failed to apply %r @ %r to %r at %r' % (
+                patch_repo, patch_ref, base_rev, self.checkout_path))
+        self.Print('git returned non-zero exit status %s:\n%s' % (
+            e.returncode, e.stderr))
+        raise
+    if options.reset_patch_ref:
+      self._Capture(['reset', '--soft', base_rev])
+
   def update(self, options, args, file_list):
     """Runs git to update or transparently checkout the working copy.
 
@@ -1215,24 +1241,10 @@ class GitWrapper(SCMWrapper):
 class CipdPackage(object):
   """A representation of a single CIPD package."""
 
-  def __init__(self, name, version, authority_for_root, authority_for_subdir):
-    self._authority_for_root = authority_for_root
+  def __init__(self, name, version, authority_for_subdir):
     self._authority_for_subdir = authority_for_subdir
     self._name = name
     self._version = version
-
-  @property
-  def authority_for_root(self):
-    """Whether this package has authority to act on behalf of its root.
-
-    Some operations should only be performed once per cipd root. A package
-    that has authority for its cipd root is the only package that should
-    perform such operations.
-
-    Returns:
-      bool; whether this package has root authority.
-    """
-    return self._authority_for_root
 
   @property
   def authority_for_subdir(self):
@@ -1284,7 +1296,6 @@ class CipdRoot(object):
     with self._mutator_lock:
       cipd_package = CipdPackage(
           package, version,
-          not self._packages_by_subdir,
           not self._packages_by_subdir[subdir])
       self._all_packages.add(cipd_package)
       self._packages_by_subdir[subdir].append(cipd_package)
@@ -1301,7 +1312,7 @@ class CipdRoot(object):
     packages.
     """
     with self._mutator_lock:
-      cipd_cache_dir = os.path.join(self._cipd_root, '.cipd')
+      cipd_cache_dir = os.path.join(self.root_dir, '.cipd')
       try:
         gclient_utils.rmtree(os.path.join(cipd_cache_dir))
       except OSError:
@@ -1335,6 +1346,13 @@ class CipdRoot(object):
             '-ensure-file', ensure_file,
         ]
         gclient_utils.CheckCallAndFilterAndHeader(cmd)
+
+  def run(self, command):
+    if command == 'update':
+      self.ensure()
+    elif command == 'revert':
+      self.clobber()
+      self.ensure()
 
   def created_package(self, package):
     """Checks whether this root created the given package.
@@ -1385,10 +1403,12 @@ class CipdWrapper(SCMWrapper):
     return True
 
   def revert(self, options, args, file_list):
-    """Deletes .cipd and reruns ensure."""
-    if self._package.authority_for_root:
-      self._root.clobber()
-      self._root.ensure()
+    """Does nothing.
+
+    CIPD packages should be reverted at the root by running
+    `CipdRoot.run('revert')`.
+    """
+    pass
 
   def diff(self, options, args, file_list):
     """CIPD has no notion of diffing."""
@@ -1422,6 +1442,9 @@ class CipdWrapper(SCMWrapper):
     pass
 
   def update(self, options, args, file_list):
-    """Runs ensure."""
-    if self._package.authority_for_root:
-      self._root.ensure()
+    """Does nothing.
+
+    CIPD packages should be updated at the root by running
+    `CipdRoot.run('update')`.
+    """
+    pass

@@ -5,6 +5,7 @@
 #include "ash/system/status_area_widget.h"
 
 #include "ash/public/cpp/ash_features.h"
+#include "ash/public/cpp/config.h"
 #include "ash/session/session_controller.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
@@ -50,14 +51,16 @@ void StatusAreaWidget::Initialize() {
   status_area_widget_delegate_->AddChildView(system_tray_.get());
 
   if (features::IsSystemTrayUnifiedEnabled()) {
-    system_tray_unified_ = std::make_unique<UnifiedSystemTray>(shelf_);
-    status_area_widget_delegate_->AddChildView(system_tray_unified_.get());
+    unified_system_tray_ = std::make_unique<UnifiedSystemTray>(shelf_);
+    status_area_widget_delegate_->AddChildView(unified_system_tray_.get());
   }
 
   // Must happen after the widget is initialized so the native window exists.
-  web_notification_tray_ = std::make_unique<WebNotificationTray>(
-      shelf_, GetNativeWindow(), system_tray_.get());
-  status_area_widget_delegate_->AddChildView(web_notification_tray_.get());
+  if (!features::IsSystemTrayUnifiedEnabled()) {
+    web_notification_tray_ =
+        std::make_unique<WebNotificationTray>(shelf_, GetNativeWindow());
+    status_area_widget_delegate_->AddChildView(web_notification_tray_.get());
+  }
 
   palette_tray_ = std::make_unique<PaletteTray>(shelf_);
   status_area_widget_delegate_->AddChildView(palette_tray_.get());
@@ -71,16 +74,25 @@ void StatusAreaWidget::Initialize() {
   logout_button_tray_ = std::make_unique<LogoutButtonTray>(shelf_);
   status_area_widget_delegate_->AddChildView(logout_button_tray_.get());
 
-  flag_warning_tray_ = std::make_unique<FlagWarningTray>(shelf_);
-  status_area_widget_delegate_->AddChildView(flag_warning_tray_.get());
+  if (Shell::GetAshConfig() == ash::Config::MASH) {
+    // Flag warning tray is not currently used in non-MASH environments, because
+    // mus will roll out via experiment/Finch trial and showing the tray would
+    // reveal the experiment state to users.
+    flag_warning_tray_ = std::make_unique<FlagWarningTray>(shelf_);
+    status_area_widget_delegate_->AddChildView(flag_warning_tray_.get());
+  }
 
   // The layout depends on the number of children, so build it once after
   // adding all of them.
   status_area_widget_delegate_->UpdateLayout();
 
   // Initialize after all trays have been created.
-  system_tray_->InitializeTrayItems(web_notification_tray_.get());
-  web_notification_tray_->Initialize();
+  if (web_notification_tray_) {
+    system_tray_->InitializeTrayItems(web_notification_tray_.get());
+    web_notification_tray_->Initialize();
+  } else {
+    system_tray_->InitializeTrayItems(nullptr);
+  }
   palette_tray_->Initialize();
   virtual_keyboard_tray_->Initialize();
   ime_menu_tray_->Initialize();
@@ -99,7 +111,7 @@ StatusAreaWidget::~StatusAreaWidget() {
   web_notification_tray_.reset();
   // Must be destroyed after |web_notification_tray_|.
   system_tray_.reset();
-  system_tray_unified_.reset();
+  unified_system_tray_.reset();
   ime_menu_tray_.reset();
   virtual_keyboard_tray_.reset();
   palette_tray_.reset();
@@ -113,13 +125,15 @@ StatusAreaWidget::~StatusAreaWidget() {
 
 void StatusAreaWidget::UpdateAfterShelfAlignmentChange() {
   system_tray_->UpdateAfterShelfAlignmentChange();
-  web_notification_tray_->UpdateAfterShelfAlignmentChange();
+  if (web_notification_tray_)
+    web_notification_tray_->UpdateAfterShelfAlignmentChange();
   logout_button_tray_->UpdateAfterShelfAlignmentChange();
   virtual_keyboard_tray_->UpdateAfterShelfAlignmentChange();
   ime_menu_tray_->UpdateAfterShelfAlignmentChange();
   palette_tray_->UpdateAfterShelfAlignmentChange();
   overview_button_tray_->UpdateAfterShelfAlignmentChange();
-  flag_warning_tray_->UpdateAfterShelfAlignmentChange();
+  if (flag_warning_tray_)
+    flag_warning_tray_->UpdateAfterShelfAlignmentChange();
   status_area_widget_delegate_->UpdateLayout();
 }
 
@@ -164,33 +178,39 @@ bool StatusAreaWidget::ShouldShowShelf() const {
 
 bool StatusAreaWidget::IsMessageBubbleShown() const {
   return system_tray_->IsSystemBubbleVisible() ||
-         web_notification_tray_->IsMessageCenterVisible();
+         (web_notification_tray_ &&
+          web_notification_tray_->IsMessageCenterVisible());
 }
 
 void StatusAreaWidget::SchedulePaint() {
   status_area_widget_delegate_->SchedulePaint();
-  web_notification_tray_->SchedulePaint();
+  if (web_notification_tray_)
+    web_notification_tray_->SchedulePaint();
   system_tray_->SchedulePaint();
   virtual_keyboard_tray_->SchedulePaint();
   logout_button_tray_->SchedulePaint();
   ime_menu_tray_->SchedulePaint();
   palette_tray_->SchedulePaint();
   overview_button_tray_->SchedulePaint();
-  flag_warning_tray_->SchedulePaint();
+  if (flag_warning_tray_)
+    flag_warning_tray_->SchedulePaint();
 }
 
 const ui::NativeTheme* StatusAreaWidget::GetNativeTheme() const {
   return ui::NativeThemeDarkAura::instance();
 }
 
-void StatusAreaWidget::OnNativeWidgetActivationChanged(bool active) {
-  Widget::OnNativeWidgetActivationChanged(active);
+bool StatusAreaWidget::OnNativeWidgetActivationChanged(bool active) {
+  if (!Widget::OnNativeWidgetActivationChanged(active))
+    return false;
   if (active)
     status_area_widget_delegate_->SetPaneFocusAndFocusDefault();
+  return true;
 }
 
 void StatusAreaWidget::UpdateShelfItemBackground(SkColor color) {
-  web_notification_tray_->UpdateShelfItemBackground(color);
+  if (web_notification_tray_)
+    web_notification_tray_->UpdateShelfItemBackground(color);
   system_tray_->UpdateShelfItemBackground(color);
   virtual_keyboard_tray_->UpdateShelfItemBackground(color);
   ime_menu_tray_->UpdateShelfItemBackground(color);

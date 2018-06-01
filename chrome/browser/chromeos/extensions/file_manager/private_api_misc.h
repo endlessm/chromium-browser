@@ -95,7 +95,7 @@ class FileManagerPrivateInternalZipSelectionFunction
  protected:
   ~FileManagerPrivateInternalZipSelectionFunction() override;
 
-  // AsyncExtensionFunction overrides.
+  // ChromeAsyncExtensionFunction overrides.
   bool RunAsync() override;
 
   // Receives the result from ZipFileCreator.
@@ -129,6 +129,8 @@ class FileManagerPrivateRequestWebStoreAccessTokenFunction
 
  protected:
   ~FileManagerPrivateRequestWebStoreAccessTokenFunction() override;
+
+  // ChromeAsyncExtensionFunction overrides.
   bool RunAsync() override;
 
  private:
@@ -163,6 +165,19 @@ class FileManagerPrivateOpenInspectorFunction
   ResponseAction Run() override;
 };
 
+// Implements the chrome.fileManagerPrivate.openSettingsSubpage method.
+class FileManagerPrivateOpenSettingsSubpageFunction
+    : public UIThreadExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("fileManagerPrivate.openSettingsSubpage",
+                             FILEMANAGERPRIVATE_OPENSETTINGSSUBPAGE);
+
+ protected:
+  ~FileManagerPrivateOpenSettingsSubpageFunction() override {}
+
+  ResponseAction Run() override;
+};
+
 // Implements the chrome.fileManagerPrivate.getMimeType method.
 class FileManagerPrivateInternalGetMimeTypeFunction
     : public LoggedAsyncExtensionFunction {
@@ -175,7 +190,7 @@ class FileManagerPrivateInternalGetMimeTypeFunction
  protected:
   ~FileManagerPrivateInternalGetMimeTypeFunction() override;
 
-  // AsyncExtensionFunction overrides.
+  // ChromeAsyncExtensionFunction overrides.
   bool RunAsync() override;
 
   void OnGetMimeType(const std::string& mimeType);

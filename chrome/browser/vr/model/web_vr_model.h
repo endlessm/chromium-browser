@@ -31,11 +31,11 @@ enum WebVrState {
 
 struct WebVrModel {
   WebVrState state = kWebVrNoTimeoutPending;
-
-  // TODO(ymalik): We should be able to remove this by keeping a history of UI
-  // modes.
-  bool show_exit_toast = false;
-  bool has_produced_frames() const { return state == kWebVrPresenting; }
+  bool has_received_permissions = false;
+  bool showing_hosted_ui = false;
+  bool presenting_web_vr() const {
+    return state == kWebVrPresenting && !showing_hosted_ui;
+  }
   bool awaiting_min_splash_screen_duration() const {
     return state == kWebVrAwaitingMinSplashScreenDuration;
   }

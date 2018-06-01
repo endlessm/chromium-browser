@@ -14,6 +14,7 @@
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "components/arc/common/protected_buffer_manager.mojom.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/gpu_service_registry.h"
 #include "mojo/edk/embedder/embedder.h"
 #include "mojo/edk/embedder/outgoing_broker_client_invitation.h"
@@ -41,6 +42,14 @@ class ArcOemCryptoBridgeFactory
   ArcOemCryptoBridgeFactory() = default;
   ~ArcOemCryptoBridgeFactory() override = default;
 };
+
+mojom::ProtectedBufferManagerPtr GetGpuBufferManagerOnIOThread() {
+  // Get the Mojo interface from the GPU for dealing with secure buffers and
+  // pass that to the daemon as well in our Connect call.
+  mojom::ProtectedBufferManagerPtr gpu_buffer_manager;
+  content::BindInterfaceInGpuProcess(mojo::MakeRequest(&gpu_buffer_manager));
+  return gpu_buffer_manager;
+}
 
 }  // namespace
 
@@ -120,23 +129,32 @@ void ArcOemCryptoBridge::Connect(mojom::OemCryptoServiceRequest request) {
       mojo::InterfacePtrInfo<arc_oemcrypto::mojom::OemCryptoHostDaemon>(
           std::move(server_pipe), 0u));
   DVLOG(1) << "Bound remote OemCryptoHostDaemon interface to pipe";
-  oemcrypto_host_daemon_ptr_.set_connection_error_handler(base::Bind(
+  oemcrypto_host_daemon_ptr_.set_connection_error_handler(base::BindOnce(
       &mojo::InterfacePtr<arc_oemcrypto::mojom::OemCryptoHostDaemon>::reset,
       base::Unretained(&oemcrypto_host_daemon_ptr_)));
   chromeos::DBusThreadManager::Get()
       ->GetArcOemCryptoClient()
       ->BootstrapMojoConnection(
           std::move(fd),
-          base::Bind(&ArcOemCryptoBridge::OnBootstrapMojoConnection,
-                     weak_factory_.GetWeakPtr(), base::Passed(&request)));
+          base::BindOnce(&ArcOemCryptoBridge::OnBootstrapMojoConnection,
+                         weak_factory_.GetWeakPtr(), std::move(request)));
 }
 
 void ArcOemCryptoBridge::ConnectToDaemon(
     mojom::OemCryptoServiceRequest request) {
-  // Get the Mojo interface from the GPU for dealing with secure buffers and
-  // pass that to the daemon as well in our Connect call.
-  mojom::ProtectedBufferManagerPtr gpu_buffer_manager;
-  content::BindInterfaceInGpuProcess(mojo::MakeRequest(&gpu_buffer_manager));
+  // We need to get the GPU interface on the IO thread, then after that is
+  // done it will run the Mojo call on our thread.
+  base::PostTaskAndReplyWithResult(
+      content::BrowserThread::GetTaskRunnerForThread(content::BrowserThread::IO)
+          .get(),
+      FROM_HERE, base::BindOnce(&GetGpuBufferManagerOnIOThread),
+      base::BindOnce(&ArcOemCryptoBridge::FinishConnectingToDaemon,
+                     weak_factory_.GetWeakPtr(), std::move(request)));
+}
+
+void ArcOemCryptoBridge::FinishConnectingToDaemon(
+    mojom::OemCryptoServiceRequest request,
+    mojom::ProtectedBufferManagerPtr gpu_buffer_manager) {
   oemcrypto_host_daemon_ptr_->Connect(std::move(request),
                                       std::move(gpu_buffer_manager));
 }

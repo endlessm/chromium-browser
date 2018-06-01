@@ -31,9 +31,9 @@ import org.chromium.content.browser.test.ContentJUnit4ClassRunner;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.DOMUtils;
-import org.chromium.content_public.browser.ContentViewCore;
 import org.chromium.content_public.browser.ImeAdapter;
 import org.chromium.content_public.browser.SelectionClient;
+import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_shell_apk.ContentShellActivityTestRule;
 
 import java.util.concurrent.Callable;
@@ -60,7 +60,7 @@ public class ContentViewCoreSelectionTest {
             + "<input id=\"disabled_text\" type=\"text\" disabled value=\"Sample Text\" />"
             + "<div id=\"rich_div\" contentEditable=\"true\" >Rich Editor</div>"
             + "</form></body></html>");
-    private ContentViewCore mContentViewCore;
+    private ContentViewCoreImpl mContentViewCore;
     private SelectionPopupControllerImpl mSelectionPopupController;
 
     private static class TestSelectionClient implements SelectionClient {
@@ -72,9 +72,6 @@ public class ContentViewCoreSelectionTest {
 
         @Override
         public void onSelectionEvent(int eventType, float posXPix, float poxYPix) {}
-
-        @Override
-        public void showUnhandledTapUIIfNeeded(int x, int y) {}
 
         @Override
         public void selectWordAroundCaretAck(boolean didSelect, int startAdjust, int endAdjust) {}
@@ -111,7 +108,7 @@ public class ContentViewCoreSelectionTest {
 
         mContentViewCore = mActivityTestRule.getContentViewCore();
         mSelectionPopupController =
-                SelectionPopupControllerImpl.fromWebContents(mContentViewCore.getWebContents());
+                SelectionPopupControllerImpl.fromWebContents(mActivityTestRule.getWebContents());
         waitForSelectActionBarVisible(false);
         waitForPastePopupStatus(false);
     }
@@ -144,7 +141,7 @@ public class ContentViewCoreSelectionTest {
         waitForSelectActionBarVisible(true);
         Assert.assertTrue(mSelectionPopupController.hasSelection());
 
-        mContentViewCore.preserveSelectionOnNextLossOfFocus();
+        mSelectionPopupController.setPreserveSelectionOnNextLossOfFocus(true);
         requestFocusOnUiThread(false);
         waitForSelectActionBarVisible(false);
         Assert.assertTrue(mSelectionPopupController.hasSelection());
@@ -639,7 +636,7 @@ public class ContentViewCoreSelectionTest {
     private CharSequence getTextBeforeCursor(final int length, final int flags) {
         final ChromiumBaseInputConnection connection =
                 (ChromiumBaseInputConnection) ImeAdapter
-                        .fromWebContents(mContentViewCore.getWebContents())
+                        .fromWebContents(mActivityTestRule.getWebContents())
                         .getInputConnectionForTest();
         return ImeTestUtils.runBlockingOnHandlerNoException(
                 connection.getHandler(), new Callable<CharSequence>() {
@@ -864,21 +861,21 @@ public class ContentViewCoreSelectionTest {
     }
 
     private void setVisibileOnUiThread(final boolean show) {
-        final ContentViewCore contentViewCore = mContentViewCore;
+        final WebContents webContents = mActivityTestRule.getWebContents();
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
                 if (show) {
-                    contentViewCore.onShow();
+                    webContents.onShow();
                 } else {
-                    contentViewCore.onHide();
+                    webContents.onHide();
                 }
             }
         });
     }
 
     private void setAttachedOnUiThread(final boolean attached) {
-        final ContentViewCore contentViewCore = mContentViewCore;
+        final ContentViewCoreImpl contentViewCore = mContentViewCore;
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
@@ -892,11 +889,11 @@ public class ContentViewCoreSelectionTest {
     }
 
     private void requestFocusOnUiThread(final boolean gainFocus) {
-        final ContentViewCore contentViewCore = mContentViewCore;
+        final ContentViewCoreImpl contentViewCore = mContentViewCore;
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                contentViewCore.onFocusChanged(gainFocus, true);
+                contentViewCore.onViewFocusChanged(gainFocus);
             }
         });
     }

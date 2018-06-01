@@ -10,6 +10,7 @@
 #include "base/observer_list.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "build/build_config.h"
+#include "chrome/browser/resource_coordinator/lifecycle_unit_observer.h"
 #include "chrome/browser/resource_coordinator/tab_lifecycle_observer.h"
 #include "chrome/browser/resource_coordinator/tab_lifecycle_unit_external.h"
 #include "chrome/browser/resource_coordinator/tab_lifecycle_unit_source.h"
@@ -46,6 +47,19 @@ class MockTabLifecycleObserver : public TabLifecycleObserver {
 };
 
 }  // namespace
+
+class MockLifecycleUnitObserver : public LifecycleUnitObserver {
+ public:
+  MockLifecycleUnitObserver() = default;
+
+  MOCK_METHOD1(OnLifecycleUnitStateChanged, void(LifecycleUnit*));
+  MOCK_METHOD1(OnLifecycleUnitDestroyed, void(LifecycleUnit*));
+  MOCK_METHOD2(OnLifecycleUnitVisibilityChanged,
+               void(LifecycleUnit*, content::Visibility));
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(MockLifecycleUnitObserver);
+};
 
 class TabLifecycleUnitTest : public ChromeRenderViewHostTestHarness {
  protected:
@@ -100,7 +114,6 @@ TEST_F(TabLifecycleUnitTest, AsTabLifecycleUnitExternal) {
 TEST_F(TabLifecycleUnitTest, CanDiscardByDefault) {
   TabLifecycleUnit tab_lifecycle_unit(&observers_, web_contents_.get(),
                                       tab_strip_model_.get());
-  test_clock_.Advance(kTabFocusedProtectionTime);
 
   EXPECT_TRUE(tab_lifecycle_unit.CanDiscard(DiscardReason::kExternal));
   EXPECT_TRUE(tab_lifecycle_unit.CanDiscard(DiscardReason::kProactive));
@@ -111,15 +124,10 @@ TEST_F(TabLifecycleUnitTest, SetFocused) {
   TabLifecycleUnit tab_lifecycle_unit(&observers_, web_contents_.get(),
                                       tab_strip_model_.get());
   EXPECT_EQ(NowTicks(), tab_lifecycle_unit.GetSortKey().last_focused_time);
-  EXPECT_FALSE(tab_lifecycle_unit.CanDiscard(DiscardReason::kExternal));
-  EXPECT_FALSE(tab_lifecycle_unit.CanDiscard(DiscardReason::kProactive));
-#if defined(OS_CHROMEOS)
+  EXPECT_TRUE(tab_lifecycle_unit.CanDiscard(DiscardReason::kExternal));
+  EXPECT_TRUE(tab_lifecycle_unit.CanDiscard(DiscardReason::kProactive));
   EXPECT_TRUE(tab_lifecycle_unit.CanDiscard(DiscardReason::kUrgent));
-#else
-  EXPECT_FALSE(tab_lifecycle_unit.CanDiscard(DiscardReason::kUrgent));
-#endif
 
-  test_clock_.Advance(kTabFocusedProtectionTime);
   tab_lifecycle_unit.SetFocused(true);
   tab_strip_model_->ActivateTabAt(0, false);
   web_contents_->WasShown();
@@ -129,21 +137,11 @@ TEST_F(TabLifecycleUnitTest, SetFocused) {
   EXPECT_FALSE(tab_lifecycle_unit.CanDiscard(DiscardReason::kProactive));
   EXPECT_FALSE(tab_lifecycle_unit.CanDiscard(DiscardReason::kUrgent));
 
-  test_clock_.Advance(kTabFocusedProtectionTime);
   tab_lifecycle_unit.SetFocused(false);
   tab_strip_model_->ActivateTabAt(1, false);
   web_contents_->WasHidden();
   EXPECT_EQ(test_clock_.NowTicks(),
             tab_lifecycle_unit.GetSortKey().last_focused_time);
-  EXPECT_FALSE(tab_lifecycle_unit.CanDiscard(DiscardReason::kExternal));
-  EXPECT_FALSE(tab_lifecycle_unit.CanDiscard(DiscardReason::kProactive));
-#if defined(OS_CHROMEOS)
-  EXPECT_TRUE(tab_lifecycle_unit.CanDiscard(DiscardReason::kUrgent));
-#else
-  EXPECT_FALSE(tab_lifecycle_unit.CanDiscard(DiscardReason::kUrgent));
-#endif
-
-  test_clock_.Advance(kTabFocusedProtectionTime);
   EXPECT_TRUE(tab_lifecycle_unit.CanDiscard(DiscardReason::kExternal));
   EXPECT_TRUE(tab_lifecycle_unit.CanDiscard(DiscardReason::kProactive));
   EXPECT_TRUE(tab_lifecycle_unit.CanDiscard(DiscardReason::kUrgent));
@@ -152,7 +150,6 @@ TEST_F(TabLifecycleUnitTest, SetFocused) {
 TEST_F(TabLifecycleUnitTest, AutoDiscardable) {
   TabLifecycleUnit tab_lifecycle_unit(&observers_, web_contents_.get(),
                                       tab_strip_model_.get());
-  test_clock_.Advance(kTabFocusedProtectionTime);
 
   EXPECT_TRUE(tab_lifecycle_unit.IsAutoDiscardable());
   EXPECT_TRUE(tab_lifecycle_unit.CanDiscard(DiscardReason::kExternal));
@@ -181,7 +178,7 @@ TEST_F(TabLifecycleUnitTest, AutoDiscardable) {
 TEST_F(TabLifecycleUnitTest, CannotDiscardCrashed) {
   TabLifecycleUnit tab_lifecycle_unit(&observers_, web_contents_.get(),
                                       tab_strip_model_.get());
-  test_clock_.Advance(kTabFocusedProtectionTime);
+
   web_contents_->SetIsCrashed(base::TERMINATION_STATUS_PROCESS_CRASHED, 0);
 
   EXPECT_FALSE(tab_lifecycle_unit.CanDiscard(DiscardReason::kExternal));
@@ -193,7 +190,6 @@ TEST_F(TabLifecycleUnitTest, CannotDiscardCrashed) {
 TEST_F(TabLifecycleUnitTest, CannotDiscardActive) {
   TabLifecycleUnit tab_lifecycle_unit(&observers_, web_contents_.get(),
                                       tab_strip_model_.get());
-  test_clock_.Advance(kTabFocusedProtectionTime);
 
   tab_strip_model_->ActivateTabAt(0, false);
   EXPECT_FALSE(tab_lifecycle_unit.CanDiscard(DiscardReason::kExternal));
@@ -205,7 +201,7 @@ TEST_F(TabLifecycleUnitTest, CannotDiscardActive) {
 TEST_F(TabLifecycleUnitTest, CannotDiscardInvalidURL) {
   TabLifecycleUnit tab_lifecycle_unit(&observers_, web_contents_.get(),
                                       tab_strip_model_.get());
-  test_clock_.Advance(kTabFocusedProtectionTime);
+
   content::WebContentsTester::For(web_contents_.get())
       ->SetLastCommittedURL(GURL("invalid :)"));
 
@@ -217,7 +213,6 @@ TEST_F(TabLifecycleUnitTest, CannotDiscardInvalidURL) {
 TEST_F(TabLifecycleUnitTest, CannotDiscardEmptyURL) {
   TabLifecycleUnit tab_lifecycle_unit(&observers_, web_contents_.get(),
                                       tab_strip_model_.get());
-  test_clock_.Advance(kTabFocusedProtectionTime);
 
   content::WebContentsTester::For(web_contents_.get())
       ->SetLastCommittedURL(GURL());
@@ -229,7 +224,6 @@ TEST_F(TabLifecycleUnitTest, CannotDiscardEmptyURL) {
 TEST_F(TabLifecycleUnitTest, CannotDiscardVideoCapture) {
   TabLifecycleUnit tab_lifecycle_unit(&observers_, web_contents_.get(),
                                       tab_strip_model_.get());
-  test_clock_.Advance(kTabFocusedProtectionTime);
 
   content::MediaStreamDevices video_devices(1);
   video_devices[0] =
@@ -257,7 +251,6 @@ TEST_F(TabLifecycleUnitTest, CannotDiscardVideoCapture) {
 TEST_F(TabLifecycleUnitTest, CannotDiscardRecentlyAudible) {
   TabLifecycleUnit tab_lifecycle_unit(&observers_, web_contents_.get(),
                                       tab_strip_model_.get());
-  test_clock_.Advance(kTabFocusedProtectionTime);
 
   // Cannot discard when the "recently audible" bit is set.
   tab_lifecycle_unit.SetRecentlyAudible(true);
@@ -297,7 +290,7 @@ TEST_F(TabLifecycleUnitTest, CannotDiscardRecentlyAudible) {
 TEST_F(TabLifecycleUnitTest, CanDiscardNeverAudibleTab) {
   TabLifecycleUnit tab_lifecycle_unit(&observers_, web_contents_.get(),
                                       tab_strip_model_.get());
-  test_clock_.Advance(kTabFocusedProtectionTime);
+
   tab_lifecycle_unit.SetRecentlyAudible(false);
   // Since the tab was never audible, it should be possible to discard it,
   // even if there was a recent call to SetRecentlyAudible(false).
@@ -309,13 +302,43 @@ TEST_F(TabLifecycleUnitTest, CanDiscardNeverAudibleTab) {
 TEST_F(TabLifecycleUnitTest, CannotDiscardPDF) {
   TabLifecycleUnit tab_lifecycle_unit(&observers_, web_contents_.get(),
                                       tab_strip_model_.get());
-  test_clock_.Advance(kTabFocusedProtectionTime);
 
   content::WebContentsTester::For(web_contents_.get())
       ->SetMainFrameMimeType("application/pdf");
   EXPECT_FALSE(tab_lifecycle_unit.CanDiscard(DiscardReason::kExternal));
   EXPECT_FALSE(tab_lifecycle_unit.CanDiscard(DiscardReason::kProactive));
   EXPECT_FALSE(tab_lifecycle_unit.CanDiscard(DiscardReason::kUrgent));
+}
+
+TEST_F(TabLifecycleUnitTest, NotifiedOfWebContentsVisibilityChanges) {
+  TabLifecycleUnit tab_lifecycle_unit(&observers_, web_contents_.get(),
+                                      tab_strip_model_.get());
+
+  testing::StrictMock<MockLifecycleUnitObserver> observer;
+  tab_lifecycle_unit.AddObserver(&observer);
+
+  EXPECT_CALL(observer, OnLifecycleUnitVisibilityChanged(
+                            &tab_lifecycle_unit, content::Visibility::VISIBLE));
+  web_contents_->WasShown();
+  testing::Mock::VerifyAndClear(&observer);
+
+  EXPECT_CALL(observer, OnLifecycleUnitVisibilityChanged(
+                            &tab_lifecycle_unit, content::Visibility::HIDDEN));
+  web_contents_->WasHidden();
+  testing::Mock::VerifyAndClear(&observer);
+
+  EXPECT_CALL(observer, OnLifecycleUnitVisibilityChanged(
+                            &tab_lifecycle_unit, content::Visibility::VISIBLE));
+  web_contents_->WasShown();
+  testing::Mock::VerifyAndClear(&observer);
+
+  EXPECT_CALL(observer,
+              OnLifecycleUnitVisibilityChanged(&tab_lifecycle_unit,
+                                               content::Visibility::OCCLUDED));
+  web_contents_->WasOccluded();
+  testing::Mock::VerifyAndClear(&observer);
+
+  tab_lifecycle_unit.RemoveObserver(&observer);
 }
 
 }  // namespace resource_coordinator

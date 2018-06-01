@@ -18,6 +18,7 @@
 #include "base/files/file_util.h"
 #include "base/i18n/time_formatting.h"
 #include "base/macros.h"
+#include "base/message_loop/message_loop.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -152,18 +153,22 @@ class ScreenshotGrabberNotificationDelegate
         screenshot_path_(screenshot_path) {}
 
   // message_center::NotificationDelegate:
-  void Click() override {
-    if (!success_)
+  void Click(const base::Optional<int>& button_index,
+             const base::Optional<base::string16>& reply) override {
+    if (!button_index) {
+      // TODO(estade): this conditional can be a DCHECK after
+      // NotificationDelegate::Click() is not called for notifications that are
+      // not set clickable.
+      if (success_) {
+        platform_util::ShowItemInFolder(profile_, screenshot_path_);
+        NotificationDisplayService::GetForProfile(profile_)->Close(
+            NotificationHandler::Type::TRANSIENT, kNotificationId);
+      }
       return;
-    platform_util::ShowItemInFolder(profile_, screenshot_path_);
-    NotificationDisplayService::GetForProfile(profile_)->Close(
-        NotificationHandler::Type::TRANSIENT, kNotificationId);
-  }
-
-  void ButtonClick(int button_index) override {
+    }
     DCHECK(success_);
 
-    switch (button_index) {
+    switch (*button_index) {
       case BUTTON_COPY_TO_CLIPBOARD: {
         // To avoid keeping the screenshot image in memory, re-read the
         // screenshot file and copy it to the clipboard.
@@ -188,7 +193,7 @@ class ScreenshotGrabberNotificationDelegate
         break;
       }
       default:
-        NOTREACHED() << "Unhandled button index " << button_index;
+        NOTREACHED() << "Unhandled button index " << *button_index;
     }
   }
 
@@ -692,7 +697,6 @@ void ChromeScreenshotGrabber::OnReadScreenshotFileForPreviewCompleted(
                                                     screenshot_path),
           ash::kNotificationImageIcon,
           message_center::SystemNotificationWarningLevel::NORMAL);
-  notification->set_clickable(success);
 
   NotificationDisplayService::GetForProfile(GetProfile())
       ->Display(NotificationHandler::Type::TRANSIENT, *notification);

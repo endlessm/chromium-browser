@@ -13,6 +13,7 @@
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/animation/ink_drop_highlight.h"
+#include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/animation/ink_drop_ripple.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
@@ -66,9 +67,10 @@ void SetTooltipAndAccessibleName(views::Button* parent,
 
 HoverButton::HoverButton(views::ButtonListener* button_listener,
                          const base::string16& text)
-    : views::LabelButton(button_listener, text),
+    : views::MenuButton(text, this, false),
       title_(nullptr),
-      subtitle_(nullptr) {
+      subtitle_(nullptr),
+      listener_(button_listener) {
   SetFocusBehavior(FocusBehavior::ALWAYS);
   SetFocusPainter(nullptr);
 
@@ -76,11 +78,7 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
       DISTANCE_CONTROL_LIST_VERTICAL);
   SetBorder(CreateBorderWithVerticalSpacing(vert_spacing));
 
-  // Turn on highlighting when the button is focused only - hovering the button
-  // will request focus.
   SetInkDropMode(views::InkDropHostView::InkDropMode::ON);
-  GetInkDrop()->SetShowHighlightOnFocus(true);
-  GetInkDrop()->SetShowHighlightOnHover(false);
   // Don't show the ripple on non-MD.
   if (!ui::MaterialDesignController::IsSecondaryUiMaterial())
     set_ink_drop_visible_opacity(0);
@@ -97,7 +95,7 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
                          std::unique_ptr<views::View> icon_view,
                          const base::string16& title,
                          const base::string16& subtitle,
-                         bool show_submenu_arrow)
+                         std::unique_ptr<views::View> secondary_icon_view)
     : HoverButton(button_listener, base::string16()) {
   label()->SetHandlesTooltips(false);
   ChromeLayoutProvider* layout_provider = ChromeLayoutProvider::Get();
@@ -150,7 +148,7 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
 
   // Make sure hovering over the icon also hovers the |HoverButton|.
   icon_view->set_can_process_events_within_subtree(false);
-  // Don't cover |icon_view| when the ink drops are being painted. |LabelButton|
+  // Don't cover |icon_view| when the ink drops are being painted. |MenuButton|
   // already does this with its own image.
   icon_view->SetPaintToLayer();
   icon_view->layer()->SetFillsBoundsOpaquely(false);
@@ -176,6 +174,19 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
   title_wrapper->set_can_process_events_within_subtree(false);
   grid_layout->AddView(title_wrapper);
 
+  if (secondary_icon_view) {
+    columns->AddColumn(views::GridLayout::CENTER, views::GridLayout::CENTER,
+                       kFixed, views::GridLayout::USE_PREF, 0, 0);
+    // Make sure hovering over |secondary_icon_view| also hovers the
+    // |HoverButton|.
+    secondary_icon_view->set_can_process_events_within_subtree(false);
+    // |secondary_icon_view| needs a layer otherwise it's obscured by the layer
+    // used in drawing ink drops.
+    secondary_icon_view->SetPaintToLayer();
+    secondary_icon_view->layer()->SetFillsBoundsOpaquely(false);
+    grid_layout->AddView(secondary_icon_view.release(), 1, num_labels);
+  }
+
   if (!subtitle.empty()) {
     grid_layout->StartRow(0, kColumnSetId, row_height);
     subtitle_ = new views::Label(subtitle, views::style::CONTEXT_BUTTON,
@@ -186,23 +197,6 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
     grid_layout->AddView(subtitle_);
   }
 
-  if (show_submenu_arrow) {
-    constexpr int kSubmenuArrowSize = 12;
-    columns->AddColumn(views::GridLayout::CENTER, views::GridLayout::CENTER,
-                       kFixed, views::GridLayout::USE_PREF, 0, 0);
-    views::ImageView* arrow = new views::ImageView();
-    arrow->SetImage(gfx::CreateVectorIcon(
-        kUserMenuRightArrowIcon, kSubmenuArrowSize, gfx::kChromeIconGrey));
-    // Make sure hovering over |arrow| also hovers the |HoverButton|.
-    arrow->set_can_process_events_within_subtree(false);
-    // |arrow| needs a layer otherwise it's obscured by the layer used in
-    // drawing ink drops.
-    arrow->SetPaintToLayer();
-    arrow->layer()->SetFillsBoundsOpaquely(false);
-    // Make sure that the arrow is flipped in RTL mode.
-    arrow->EnableCanvasFlippingForRTLUI(true);
-    grid_layout->AddView(arrow, 1, num_labels);
-  }
   SetTooltipAndAccessibleName(this, title_, subtitle_, GetLocalBounds(),
                               taken_width_, auto_compute_tooltip_);
 
@@ -211,16 +205,41 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
 
 HoverButton::~HoverButton() {}
 
+bool HoverButton::OnKeyPressed(const ui::KeyEvent& event) {
+  // Unlike MenuButton, HoverButton should not be activated when the up or down
+  // arrow key is pressed.
+  if (event.key_code() == ui::VKEY_UP || event.key_code() == ui::VKEY_DOWN)
+    return false;
+  return MenuButton::OnKeyPressed(event);
+}
+
 void HoverButton::SetBorder(std::unique_ptr<views::Border> b) {
-  LabelButton::SetBorder(std::move(b));
+  MenuButton::SetBorder(std::move(b));
   // Make sure the minimum size is correct according to the layout (if any).
   if (GetLayoutManager())
     SetMinSize(GetLayoutManager()->GetPreferredSize(this));
 }
 
+void HoverButton::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  Button::GetAccessibleNodeData(node_data);
+}
+
+bool HoverButton::IsTriggerableEventType(const ui::Event& event) {
+  // Override MenuButton::IsTriggerableEventType so the HoverButton only
+  // triggers on mouse-button release, like normal buttons.
+  if (event.IsMouseEvent()) {
+    // The button listener must only be notified when the mouse was released.
+    // The event type must be explicitly checked here, since
+    // Button::IsTriggerableEvent() returns true on the mouse-down event.
+    return Button::IsTriggerableEvent(event) &&
+           event.type() == ui::ET_MOUSE_RELEASED;
+  }
+
+  return MenuButton::IsTriggerableEventType(event);
+}
+
 void HoverButton::SetSubtitleElideBehavior(gfx::ElideBehavior elide_behavior) {
-  DCHECK(subtitle_);
-  if (!subtitle_->text().empty())
+  if (subtitle_ && !subtitle_->text().empty())
     subtitle_->SetElideBehavior(elide_behavior);
 }
 
@@ -248,7 +267,7 @@ views::Button::KeyClickAction HoverButton::GetKeyClickActionForEvent(
     // |PlatformStyle::kReturnClicksFocusedControl|.
     return CLICK_ON_KEY_PRESS;
   }
-  return LabelButton::GetKeyClickActionForEvent(event);
+  return MenuButton::GetKeyClickActionForEvent(event);
 }
 
 void HoverButton::SetHighlightingView(views::View* highlighting_view) {
@@ -256,11 +275,11 @@ void HoverButton::SetHighlightingView(views::View* highlighting_view) {
 }
 
 void HoverButton::StateChanged(ButtonState old_state) {
-  LabelButton::StateChanged(old_state);
+  MenuButton::StateChanged(old_state);
 
   // |HoverButtons| are designed for use in a list, so ensure only one button
   // can have a hover background at any time by requesting focus on hover.
-  if (state() == STATE_HOVERED || state() == STATE_PRESSED) {
+  if (state() == STATE_HOVERED && old_state != STATE_PRESSED) {
     RequestFocus();
   } else if (state() == STATE_NORMAL && HasFocus()) {
     GetFocusManager()->SetFocusedView(nullptr);
@@ -268,12 +287,23 @@ void HoverButton::StateChanged(ButtonState old_state) {
 }
 
 bool HoverButton::ShouldUseFloodFillInkDrop() const {
-  return views::LabelButton::ShouldUseFloodFillInkDrop() || title_ != nullptr;
+  return views::MenuButton::ShouldUseFloodFillInkDrop() || title_ != nullptr;
 }
 
 SkColor HoverButton::GetInkDropBaseColor() const {
   return views::style::GetColor(*this, views::style::CONTEXT_BUTTON,
                                 STYLE_SECONDARY);
+}
+
+std::unique_ptr<views::InkDrop> HoverButton::CreateInkDrop() {
+  std::unique_ptr<views::InkDrop> ink_drop = LabelButton::CreateInkDrop();
+  // Turn on highlighting when the button is focused only - hovering the button
+  // will request focus.
+  // Note that the setup done in Button::CreateInkDrop() needs to be repeated
+  // here to configure flood-fill ink drops from LabelButton.
+  ink_drop->SetShowHighlightOnFocus(true);
+  ink_drop->SetShowHighlightOnHover(false);
+  return ink_drop;
 }
 
 std::unique_ptr<views::InkDropHighlight> HoverButton::CreateInkDropHighlight()
@@ -291,7 +321,7 @@ std::unique_ptr<views::InkDropHighlight> HoverButton::CreateInkDropHighlight()
 }
 
 void HoverButton::Layout() {
-  LabelButton::Layout();
+  MenuButton::Layout();
 
   // Vertically center |title_| manually since it doesn't have a LayoutManager.
   if (title_) {
@@ -347,5 +377,13 @@ void HoverButton::SetTitleTextStyle(views::style::TextStyle text_style,
 }
 
 void HoverButton::SetSubtitleColor(SkColor color) {
-  subtitle_->SetEnabledColor(color);
+  if (subtitle_)
+    subtitle_->SetEnabledColor(color);
+}
+
+void HoverButton::OnMenuButtonClicked(MenuButton* source,
+                                      const gfx::Point& point,
+                                      const ui::Event* event) {
+  if (listener_)
+    listener_->ButtonPressed(source, *event);
 }

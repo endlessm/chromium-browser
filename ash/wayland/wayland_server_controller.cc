@@ -19,7 +19,7 @@
 namespace ash {
 
 class WaylandServerController::WaylandWatcher
-    : public base::MessagePumpLibevent::Watcher {
+    : public base::MessagePumpLibevent::FdWatcher {
  public:
   explicit WaylandWatcher(exo::wayland::Server* server)
       : controller_(FROM_HERE), server_(server) {
@@ -29,7 +29,7 @@ class WaylandServerController::WaylandWatcher
         base::MessagePumpLibevent::WATCH_READ, &controller_, this);
   }
 
-  // base::MessagePumpLibevent::Watcher:
+  // base::MessagePumpLibevent::FdWatcher:
   void OnFileCanReadWithoutBlocking(int fd) override {
     server_->Dispatch(base::TimeDelta());
     server_->Flush();
@@ -37,7 +37,7 @@ class WaylandServerController::WaylandWatcher
   void OnFileCanWriteWithoutBlocking(int fd) override { NOTREACHED(); }
 
  private:
-  base::MessagePumpLibevent::FileDescriptorWatcher controller_;
+  base::MessagePumpLibevent::FdWatchController controller_;
   exo::wayland::Server* const server_;
 
   DISALLOW_COPY_AND_ASSIGN(WaylandWatcher);
@@ -45,13 +45,16 @@ class WaylandServerController::WaylandWatcher
 
 // static
 std::unique_ptr<WaylandServerController>
-WaylandServerController::CreateIfNecessary() {
+WaylandServerController::CreateIfNecessary(
+    exo::NotificationSurfaceManager* notification_surface_manager,
+    std::unique_ptr<exo::FileHelper> file_helper) {
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kAshEnableWaylandServer)) {
     return nullptr;
   }
 
-  return base::WrapUnique(new WaylandServerController());
+  return base::WrapUnique(new WaylandServerController(
+      notification_surface_manager, std::move(file_helper)));
 }
 
 WaylandServerController::~WaylandServerController() {
@@ -62,14 +65,13 @@ WaylandServerController::~WaylandServerController() {
   wm_helper_.reset();
 }
 
-WaylandServerController::WaylandServerController() {
+WaylandServerController::WaylandServerController(
+    exo::NotificationSurfaceManager* notification_surface_manager,
+    std::unique_ptr<exo::FileHelper> file_helper) {
   wm_helper_ = std::make_unique<exo::WMHelper>();
   exo::WMHelper::SetInstance(wm_helper_.get());
-  // TODO(penghuang): wire up notification surface manager.
-  // http://crbug.com/768439
-  // TODO(hirono): wire up the file helper. http://crbug.com/768395
-  display_ = std::make_unique<exo::Display>(
-      nullptr /* notification_surface_manager */, nullptr /* file_helper */);
+  display_ = std::make_unique<exo::Display>(notification_surface_manager,
+                                            std::move(file_helper));
   wayland_server_ = exo::wayland::Server::Create(display_.get());
   // Wayland server creation can fail if XDG_RUNTIME_DIR is not set correctly.
   if (wayland_server_)

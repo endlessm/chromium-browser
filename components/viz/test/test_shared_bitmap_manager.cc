@@ -6,8 +6,9 @@
 
 #include <stdint.h>
 
-#include "base/memory/ptr_util.h"
 #include "base/memory/shared_memory.h"
+#include "components/viz/common/resources/resource_format_utils.h"
+#include "mojo/public/cpp/system/platform_handle.h"
 
 namespace viz {
 
@@ -27,8 +28,8 @@ class OwnedSharedBitmap : public SharedBitmap {
   ~OwnedSharedBitmap() override = default;
 
   // SharedBitmap:
-  base::SharedMemoryHandle GetSharedMemoryHandle() const override {
-    return shared_memory_->handle();
+  base::UnguessableToken GetCrossProcessGUID() const override {
+    return shared_memory_->mapped_id();
   }
 
  private:
@@ -37,13 +38,19 @@ class OwnedSharedBitmap : public SharedBitmap {
 
 class UnownedSharedBitmap : public SharedBitmap {
  public:
-  UnownedSharedBitmap(uint8_t* pixels, const SharedBitmapId& id)
-      : SharedBitmap(pixels, id, g_next_sequence_number++) {}
+  UnownedSharedBitmap(uint8_t* pixels,
+                      const SharedBitmapId& id,
+                      const base::UnguessableToken& tracing_id)
+      : SharedBitmap(pixels, id, g_next_sequence_number++),
+        tracing_id_(tracing_id) {}
 
   // SharedBitmap:
-  base::SharedMemoryHandle GetSharedMemoryHandle() const override {
-    return base::SharedMemoryHandle();
+  base::UnguessableToken GetCrossProcessGUID() const override {
+    return tracing_id_;
   }
+
+ private:
+  base::UnguessableToken tracing_id_;
 };
 
 }  // namespace
@@ -53,10 +60,14 @@ TestSharedBitmapManager::TestSharedBitmapManager() = default;
 TestSharedBitmapManager::~TestSharedBitmapManager() = default;
 
 std::unique_ptr<SharedBitmap> TestSharedBitmapManager::AllocateSharedBitmap(
-    const gfx::Size& size) {
+    const gfx::Size& size,
+    ResourceFormat resource_format) {
+  DCHECK(IsBitmapFormatSupported(resource_format));
   base::AutoLock lock(lock_);
   std::unique_ptr<base::SharedMemory> memory(new base::SharedMemory);
-  memory->CreateAndMapAnonymous(size.GetArea() * 4);
+  DCHECK_EQ(0, BitsPerPixel(resource_format) % 8);
+  size_t memory_size = size.GetArea() * BitsPerPixel(resource_format) / 8;
+  memory->CreateAndMapAnonymous(memory_size);
   SharedBitmapId id = SharedBitmap::GenerateId();
   bitmap_map_[id] = memory.get();
   return std::make_unique<OwnedSharedBitmap>(std::move(memory), id);
@@ -64,12 +75,14 @@ std::unique_ptr<SharedBitmap> TestSharedBitmapManager::AllocateSharedBitmap(
 
 std::unique_ptr<SharedBitmap> TestSharedBitmapManager::GetSharedBitmapFromId(
     const gfx::Size&,
+    ResourceFormat,
     const SharedBitmapId& id) {
   base::AutoLock lock(lock_);
   if (bitmap_map_.find(id) == bitmap_map_.end())
     return nullptr;
   uint8_t* pixels = static_cast<uint8_t*>(bitmap_map_[id]->memory());
-  return std::make_unique<UnownedSharedBitmap>(pixels, id);
+  const base::UnguessableToken& tracing_id = bitmap_map_[id]->mapped_id();
+  return std::make_unique<UnownedSharedBitmap>(pixels, id, tracing_id);
 }
 
 bool TestSharedBitmapManager::ChildAllocatedSharedBitmap(
@@ -78,7 +91,21 @@ bool TestSharedBitmapManager::ChildAllocatedSharedBitmap(
   // TestSharedBitmapManager is both the client and service side. So the
   // notification here should be about a bitmap that was previously allocated
   // with AllocateSharedBitmap().
-  DCHECK(bitmap_map_.find(id) != bitmap_map_.end());
+  if (bitmap_map_.find(id) == bitmap_map_.end()) {
+    base::SharedMemoryHandle memory_handle;
+    size_t buffer_size;
+    MojoResult result = mojo::UnwrapSharedMemoryHandle(
+        std::move(buffer), &memory_handle, &buffer_size, nullptr);
+    DCHECK_EQ(result, MOJO_RESULT_OK);
+    auto memory = std::make_unique<base::SharedMemory>(memory_handle, false);
+    bool mapped = memory->Map(buffer_size);
+    DCHECK(mapped);
+    memory->Close();
+
+    bitmap_map_.emplace(id, memory.get());
+    owned_map_.emplace(id, std::move(memory));
+  }
+
   // The same bitmap id should not be notified more than once.
   DCHECK_EQ(notified_set_.count(id), 0u);
   notified_set_.insert(id);
@@ -87,10 +114,9 @@ bool TestSharedBitmapManager::ChildAllocatedSharedBitmap(
 
 void TestSharedBitmapManager::ChildDeletedSharedBitmap(
     const SharedBitmapId& id) {
-  // The bitmap id should previously have been given to
-  // ChildAllocatedSharedBitmap().
-  DCHECK_EQ(notified_set_.count(id), 1u);
   notified_set_.erase(id);
+  bitmap_map_.erase(id);
+  owned_map_.erase(id);
 }
 
 }  // namespace viz

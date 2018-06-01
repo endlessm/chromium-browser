@@ -16,13 +16,13 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "build/build_config.h"
-#include "third_party/WebKit/public/platform/WebDragData.h"
-#include "third_party/WebKit/public/platform/WebDragOperation.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
-#include "third_party/WebKit/public/platform/WebInputEventResult.h"
-#include "third_party/WebKit/public/platform/WebMouseWheelEvent.h"
-#include "third_party/WebKit/public/platform/WebPoint.h"
-#include "third_party/WebKit/public/platform/WebTouchPoint.h"
+#include "third_party/blink/public/platform/web_drag_data.h"
+#include "third_party/blink/public/platform/web_drag_operation.h"
+#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/platform/web_input_event_result.h"
+#include "third_party/blink/public/platform/web_mouse_wheel_event.h"
+#include "third_party/blink/public/platform/web_point.h"
+#include "third_party/blink/public/platform/web_touch_point.h"
 
 namespace blink {
 class WebFrameWidget;
@@ -137,7 +137,7 @@ class EventSender {
                          float velocity_y,
                          gin::Arguments* args);
   bool IsFlinging();
-  void GestureScrollFirstPoint(int x, int y);
+  void GestureScrollFirstPoint(float x, float y);
 
   void TouchStart(gin::Arguments* args);
   void TouchMove(gin::Arguments* args);
@@ -281,7 +281,7 @@ class EventSender {
   blink::WebDragData current_drag_data_;
 
   // Location of the touch point that initiated a gesture.
-  blink::WebPoint current_gesture_location_;
+  blink::WebFloatPoint current_gesture_location_;
 
   // Mouse-like pointer properties.
   struct PointerState {

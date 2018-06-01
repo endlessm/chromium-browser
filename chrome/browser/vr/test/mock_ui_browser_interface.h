@@ -18,8 +18,12 @@ class MockUiBrowserInterface : public UiBrowserInterface {
 
   MOCK_METHOD0(ExitPresent, void());
   MOCK_METHOD0(ExitFullscreen, void());
-  MOCK_METHOD1(Navigate, void(GURL gurl));
+  MOCK_METHOD2(Navigate, void(GURL gurl, NavigationMethod method));
   MOCK_METHOD0(NavigateBack, void());
+  MOCK_METHOD0(NavigateForward, void());
+  MOCK_METHOD0(ReloadTab, void());
+  MOCK_METHOD1(OpenNewTab, void(bool));
+  MOCK_METHOD0(CloseAllIncognitoTabs, void());
   MOCK_METHOD0(ExitCct, void());
   MOCK_METHOD0(CloseHostedDialog, void());
   MOCK_METHOD1(OnUnsupportedMode, void(UiUnsupportedMode mode));
@@ -29,6 +33,7 @@ class MockUiBrowserInterface : public UiBrowserInterface {
   MOCK_METHOD1(SetVoiceSearchActive, void(bool active));
   MOCK_METHOD1(StartAutocomplete, void(const AutocompleteRequest& request));
   MOCK_METHOD0(StopAutocomplete, void());
+  MOCK_METHOD0(ShowPageInfo, void());
   MOCK_METHOD0(LoadAssets, void());
 
  private:

@@ -90,8 +90,8 @@
 // callback.
 #include "chromecast/browser/cast_display_configurator.h"
 #include "chromecast/graphics/cast_screen.h"
+#include "components/viz/service/display/overlay_strategy_underlay_cast.h"  // nogncheck
 #include "ui/display/screen.h"
-#include "ui/ozone/platform/cast/overlay_manager_cast.h"  // nogncheck
 #endif
 
 #if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
@@ -100,8 +100,13 @@
 #include "chromecast/browser/extensions/cast_prefs.h"
 #include "chromecast/common/cast_extensions_client.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"  // nogncheck
+#include "extensions/browser/browser_context_keyed_service_factories.h"  // nogncheck
 #include "extensions/browser/extension_prefs.h"  // nogncheck
 #endif
+
+#if !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
+#include "device/bluetooth/cast/bluetooth_adapter_cast.h"
+#endif  // !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
 
 namespace {
 
@@ -254,6 +259,8 @@ const DefaultCommandLineSwitch kDefaultSwitches[] = {
     // Enable autoplay without requiring any user gesture.
     {switches::kAutoplayPolicy,
      switches::autoplay::kNoUserGestureRequiredPolicy},
+    // Disable pinch zoom gesture.
+    {switches::kDisablePinch, ""},
 };
 
 void AddDefaultCommandLineSwitches(base::CommandLine* command_line) {
@@ -466,6 +473,13 @@ int CastBrowserMainParts::PreCreateThreads() {
 void CastBrowserMainParts::PreMainMessageLoopRun() {
 #if !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
   memory_pressure_monitor_.reset(new CastMemoryPressureMonitor());
+
+  // base::Unretained() is safe because the browser client will outlive any
+  // component in the browser; this factory method will not be called after
+  // the browser starts to tear down.
+  device::BluetoothAdapterCast::SetFactory(base::BindRepeating(
+      &CastContentBrowserClient::CreateBluetoothAdapter,
+      base::Unretained(cast_browser_process_->browser_client())));
 #endif  // !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
 
   cast_browser_process_->SetNetLog(net_log_.get());
@@ -504,9 +518,9 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
       display::Screen::GetScreen()->GetPrimaryDisplay().GetSizeInPixel();
   video_plane_controller_.reset(new media::VideoPlaneController(
       Size(display_size.width(), display_size.height()), GetMediaTaskRunner()));
-  ui::OverlayManagerCast::SetOverlayCompositedCallback(
-      base::Bind(&media::VideoPlaneController::SetGeometry,
-                 base::Unretained(video_plane_controller_.get())));
+  viz::OverlayStrategyUnderlayCast::SetOverlayCompositedCallback(
+      base::BindRepeating(&media::VideoPlaneController::SetGeometryGfx,
+                          base::Unretained(video_plane_controller_.get())));
 #endif
 
   window_manager_ = CastWindowManager::Create(
@@ -538,6 +552,8 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
       std::make_unique<extensions::CastExtensionsBrowserClient>(
           cast_browser_process_->browser_context(), user_pref_service_.get());
   extensions::ExtensionsBrowserClient::Set(extensions_browser_client_.get());
+
+  extensions::EnsureBrowserContextKeyedServiceFactoriesBuilt();
 
   extensions::CastExtensionSystem* extension_system =
       static_cast<extensions::CastExtensionSystem*>(

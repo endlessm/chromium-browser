@@ -86,17 +86,8 @@ void StubNotificationDisplayService::SimulateClick(
     DCHECK(!handler);
 
     auto* delegate = iter->notification.delegate();
-    if (!delegate)
-      return;
-
-    if (reply.has_value()) {
-      DCHECK(action_index.has_value());
-      delegate->ButtonClickWithReply(action_index.value(), reply.value());
-    } else if (action_index.has_value()) {
-      delegate->ButtonClick(action_index.value());
-    } else {
-      delegate->Click();
-    }
+    if (delegate)
+      delegate->Click(action_index, reply);
     return;
   }
 
@@ -190,10 +181,12 @@ void StubNotificationDisplayService::Display(
                      true /* silent */);
 
   NotificationHandler* handler = GetNotificationHandler(notification_type);
-  if (notification_type == NotificationHandler::Type::TRANSIENT)
-    DCHECK(!handler);
-  else
+  if (notification_type == NotificationHandler::Type::TRANSIENT) {
+    CHECK(!handler);
+    CHECK(notification.delegate());
+  } else {
     handler->OnShow(profile_, notification.id());
+  }
 
   notifications_.emplace_back(notification_type, notification,
                               std::move(metadata));
@@ -210,14 +203,15 @@ void StubNotificationDisplayService::Close(
 }
 
 void StubNotificationDisplayService::GetDisplayed(
-    const DisplayedNotificationsCallback& callback) {
+    DisplayedNotificationsCallback callback) {
   std::unique_ptr<std::set<std::string>> notifications =
       std::make_unique<std::set<std::string>>();
 
   for (const auto& notification_data : notifications_)
     notifications->insert(notification_data.notification.id());
 
-  callback.Run(std::move(notifications), true /* supports_synchronization */);
+  std::move(callback).Run(std::move(notifications),
+                          true /* supports_synchronization */);
 }
 
 void StubNotificationDisplayService::ProcessNotificationOperation(

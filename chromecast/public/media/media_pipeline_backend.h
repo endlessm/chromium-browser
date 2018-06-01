@@ -6,6 +6,7 @@
 #define CHROMECAST_PUBLIC_MEDIA_MEDIA_PIPELINE_BACKEND_H_
 
 #include <stdint.h>
+
 #include <string>
 
 #include "cast_key_status.h"
@@ -151,6 +152,11 @@ class MediaPipelineBackend {
     // necessary to prevent underrun for the given |config|; ie, if the
     // rendering delay falls below this value, then underrun may occur.
     static int64_t GetMinimumBufferedTime(const AudioConfig& config)
+        __attribute__((__weak__));
+
+    // Returns true if the audio decoder requires that encrypted buffers be
+    // decrypted before being passed to PushBuffer().
+    CHROMECAST_EXPORT static bool RequiresDecryption()
         __attribute__((__weak__));
 
    protected:

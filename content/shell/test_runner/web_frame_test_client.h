@@ -9,7 +9,7 @@
 #include <string>
 
 #include "base/macros.h"
-#include "third_party/WebKit/public/web/WebFrameClient.h"
+#include "third_party/blink/public/web/web_frame_client.h"
 
 namespace test_runner {
 
@@ -50,8 +50,7 @@ class WebFrameTestClient : public blink::WebFrameClient {
                               const blink::WebString& source_name,
                               unsigned source_line,
                               const blink::WebString& stack_trace) override;
-  void DownloadURL(const blink::WebURLRequest& request,
-                   const blink::WebString& suggested_name) override;
+  void DownloadURL(const blink::WebURLRequest& request) override;
   void LoadErrorPage(int reason) override;
   void DidStartProvisionalLoad(blink::WebDocumentLoader* loader,
                                blink::WebURLRequest& request) override;
@@ -84,6 +83,7 @@ class WebFrameTestClient : public blink::WebFrameClient {
       const blink::WebString& sink_id,
       const blink::WebSecurityOrigin& security_origin,
       blink::WebSetSinkIdCallbacks* web_callbacks) override;
+  blink::WebSpeechRecognizer* SpeechRecognizer() override;
   void DidClearWindowObject() override;
   bool RunFileChooser(const blink::WebFileChooserParams& params,
                       blink::WebFileChooserCompletion* completion) override;

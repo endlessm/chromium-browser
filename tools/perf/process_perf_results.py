@@ -1,27 +1,65 @@
-#!/usr/bin/env python
+#!/usr/bin/env vpython
 # Copyright 2018 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 import argparse
 import json
+import os
 import shutil
 import sys
 import tempfile
+import uuid
 
 from core import oauth_api
+from core import path_util
 from core import upload_results_to_perf_dashboard
 from core import results_merger
 from os import listdir
-from os.path import isfile, join
+from os.path import isfile, join, basename
+
+path_util.AddAndroidPylibToPath()
+
+try:
+  from pylib.utils import logdog_helper
+except ImportError:
+  pass
 
 
 RESULTS_URL = 'https://chromeperf.appspot.com'
 
+# Until we are migrated to LUCI, we will be utilizing a hard
+# coded master name based on what is passed in in the build properties.
+# See crbug.com/801289 for more details.
+MACHINE_GROUP_JSON_FILE = os.path.join(
+      path_util.GetChromiumSrcDir(), 'tools', 'perf', 'core',
+      'perf_dashboard_machine_group_mapping.json')
+
+def _GetMachineGroup(build_properties):
+  machine_group = None
+  if build_properties.get('perf_dashboard_machine_group', False):
+    # Once luci migration is complete this will exist as a property
+    # in the build properties
+    machine_group =  build_properties['perf_dashboard_machine_group']
+  else:
+    mastername_mapping = {}
+    with open(MACHINE_GROUP_JSON_FILE) as fp:
+      mastername_mapping = json.load(fp)
+      legacy_mastername = build_properties['mastername']
+      if mastername_mapping.get(legacy_mastername):
+        machine_group = mastername_mapping[legacy_mastername]
+  if not machine_group:
+    raise ValueError(
+        'Must set perf_dashboard_machine_group or have a valid '
+        'mapping in '
+        'src/tools/perf/core/perf_dashboard_machine_group_mapping.json'
+        'See bit.ly/perf-dashboard-machine-group for more details')
+  return machine_group
+
+
 def _upload_perf_results(json_to_upload, name, configuration_name,
-    build_properties, oauth_file, tmp_dir):
+    build_properties, oauth_file, tmp_dir, output_json_file):
   """Upload the contents of result JSON(s) to the perf dashboard."""
-  build_properties = json.loads(build_properties)
   args = [
       '--tmp-dir', tmp_dir,
       '--buildername', build_properties['buildername'],
@@ -30,15 +68,18 @@ def _upload_perf_results(json_to_upload, name, configuration_name,
       '--configuration-name', configuration_name,
       '--results-file', json_to_upload,
       '--results-url', RESULTS_URL,
+      '--git-revision', build_properties['git_revision'],
       '--got-revision-cp', build_properties['got_revision_cp'],
       '--got-v8-revision', build_properties['got_v8_revision'],
       '--got-webrtc-revision', build_properties['got_webrtc_revision'],
       '--oauth-token-file', oauth_file,
+      '--output-json-file', output_json_file,
+      '--perf-dashboard-machine-group', _GetMachineGroup(build_properties)
   ]
   if _is_histogram(json_to_upload):
     args.append('--send-as-histograms')
 
-  upload_results_to_perf_dashboard.main(args)
+  return upload_results_to_perf_dashboard.main(args)
 
 
 def _is_histogram(json_file):
@@ -48,15 +89,21 @@ def _is_histogram(json_file):
   return False
 
 
-def _merge_json_output(output_json, jsons_to_merge):
+def _merge_json_output(output_json, jsons_to_merge, perf_results_link,
+    perf_results_file_name):
   """Merges the contents of one or more results JSONs.
 
   Args:
     output_json: A path to a JSON file to which the merged results should be
       written.
     jsons_to_merge: A list of JSON files that should be merged.
+    perf_results_link: A link for the logdog mapping of benchmarks to logs.
   """
   merged_results = results_merger.merge_test_results(jsons_to_merge)
+
+  merged_results['links'] = {
+    perf_results_file_name: perf_results_link
+  }
 
   with open(output_json, 'w') as f:
     json.dump(merged_results, f)
@@ -90,26 +137,108 @@ def _process_perf_results(output_json, configuration_name,
       for f in listdir(join(task_output_dir, directory))
     ]
 
+  # We need to keep track of disabled benchmarks so we don't try to
+  # upload the results.
   test_results_list = []
   tmpfile_dir = tempfile.mkdtemp('resultscache')
-  try:
-    for directory in benchmark_directory_list:
-      if '.reference' in directory:
-        # We don't need to upload reference build data to the
-        # flakiness dashboard since we don't monitor the ref build
-        continue
-      with open(join(directory, 'test_results.json')) as json_data:
-        test_results_list.append(json.load(json_data))
-    _merge_json_output(output_json, test_results_list)
+  upload_failure = False
 
+  build_properties = json.loads(build_properties)
+  if not configuration_name:
+    # we are deprecating perf-id crbug.com/817823
+    configuration_name = build_properties['buildername']
+
+  try:
+    logdog_dict = {}
     with oauth_api.with_access_token(service_account_file) as oauth_file:
       for directory in benchmark_directory_list:
-        _upload_perf_results(join(directory, 'perf_results.json'),
-            directory, configuration_name, build_properties,
-            oauth_file, tmpfile_dir)
+        # Obtain the test name we are running
+        benchmark_name = basename(directory).replace(" benchmark", "")
+        is_ref = '.reference' in benchmark_name
+        disabled = False
+        with open(join(directory, 'test_results.json')) as json_data:
+          json_results = json.load(json_data)
+          if not json_results:
+            # Output is null meaning the test didn't produce any results.
+            # Want to output an error and continue loading the rest of the
+            # test results.
+            print 'No results produced for %s, skipping upload' % directory
+            continue
+          if json_results.get('version') == 3:
+            # Non-telemetry tests don't have written json results but
+            # if they are executing then they are enabled and will generate
+            # chartjson results.
+            if not bool(json_results.get('tests')):
+              disabled = True
+          if not is_ref:
+            # We don't need to upload reference build data to the
+            # flakiness dashboard since we don't monitor the ref build
+            test_results_list.append(json_results)
+        if disabled:
+          # We don't upload disabled benchmarks
+          print 'Benchmark %s disabled' % benchmark_name
+          continue
+
+        print 'Uploading perf results from %s benchmark' % benchmark_name
+
+        upload_fail = _upload_and_write_perf_data_to_logfile(
+            benchmark_name, directory, configuration_name, build_properties,
+            oauth_file, tmpfile_dir, logdog_dict, is_ref)
+        upload_failure = upload_failure or upload_fail
+
+      logdog_label = 'Results Dashboard'
+      logdog_file_name = 'Results_Dashboard_' + str(uuid.uuid4())
+      if upload_failure:
+        logdog_label += ' Upload Failure'
+      _merge_json_output(output_json, test_results_list,
+          logdog_helper.text(logdog_file_name,
+              json.dumps(logdog_dict, sort_keys=True,
+                  indent=4, separators=(',', ':'))),
+          logdog_label)
   finally:
     shutil.rmtree(tmpfile_dir)
-  return 0
+  return upload_failure
+
+
+def _upload_and_write_perf_data_to_logfile(benchmark_name, directory,
+    configuration_name, build_properties, oauth_file,
+    tmpfile_dir, logdog_dict, is_ref):
+  # logdog file to write perf results to
+  output_json_file = logdog_helper.open_text(benchmark_name)
+
+  # upload results and write perf results to logdog file
+  upload_failure = _upload_perf_results(
+    join(directory, 'perf_results.json'),
+    benchmark_name, configuration_name, build_properties,
+    oauth_file, tmpfile_dir, output_json_file)
+
+  output_json_file.close()
+
+  base_benchmark_name = benchmark_name.replace('.reference', '')
+
+  if base_benchmark_name not in logdog_dict:
+    logdog_dict[base_benchmark_name] = {}
+
+  # add links for the perf results and the dashboard url to
+  # the logs section of buildbot
+  if is_ref:
+    logdog_dict[base_benchmark_name]['perf_results_ref'] = \
+        output_json_file.get_viewer_url()
+  else:
+    if upload_failure:
+      logdog_dict[base_benchmark_name]['dashboard_url'] = \
+          'upload failed'
+    else:
+      logdog_dict[base_benchmark_name]['dashboard_url'] = \
+          upload_results_to_perf_dashboard.GetDashboardUrl(
+              benchmark_name,
+              configuration_name, RESULTS_URL,
+              build_properties['got_revision_cp'],
+              _GetMachineGroup(build_properties))
+    logdog_dict[base_benchmark_name]['perf_results'] = \
+        output_json_file.get_viewer_url()
+
+  return upload_failure
 
 
 def main():

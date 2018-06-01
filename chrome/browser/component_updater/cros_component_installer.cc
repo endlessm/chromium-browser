@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/files/file_util.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task_scheduler/post_task.h"
@@ -33,7 +34,7 @@ const ComponentConfig kConfigs[] = {
      "1913a5e0a6cad30b6f03e176177e0d7ed62c5d6700a9c66da556d7c3f5d6a47e"},
     {"cros-termina", "1.1",
      "e9d960f84f628e1f42d05de4046bb5b3154b6f1f65c08412c6af57a29aecaffb"},
-    {"rtanalytics-light", "2.0",
+    {"rtanalytics-light", "3.0",
      "69f09d33c439c2ab55bbbe24b47ab55cb3f6c0bd1f1ef46eefea3216ec925038"},
     {"rtanalytics-full", "1.0",
      "c93c3e1013c52100a20038b405ac854d69fa889f6dc4fa6f188267051e05e444"},
@@ -84,6 +85,13 @@ std::vector<ComponentConfig> GetInstalled() {
       configs.push_back(config);
   }
   return configs;
+}
+
+// Report Error code.
+CrOSComponentManager::Error ReportError(CrOSComponentManager::Error error) {
+  UMA_HISTOGRAM_ENUMERATION("ComponentUpdater.ChromeOS.InstallResult", error,
+                            CrOSComponentManager::Error::ERROR_MAX);
+  return error;
 }
 
 }  // namespace
@@ -202,8 +210,9 @@ void CrOSComponentManager::Load(const std::string& name,
     LoadInternal(name, std::move(load_callback));
   } else {
     // A compatible component is installed, do not load it.
-    base::PostTask(FROM_HERE, base::BindOnce(std::move(load_callback),
-                                             Error::NONE, base::FilePath()));
+    base::PostTask(FROM_HERE,
+                   base::BindOnce(std::move(load_callback),
+                                  ReportError(Error::NONE), base::FilePath()));
   }
 }
 
@@ -259,7 +268,8 @@ void CrOSComponentManager::Install(ComponentUpdateService* cus,
   if (!config) {
     base::PostTask(FROM_HERE,
                    base::BindOnce(std::move(load_callback),
-                                  Error::UNKNOWN_COMPONENT, base::FilePath()));
+                                  ReportError(Error::UNKNOWN_COMPONENT),
+                                  base::FilePath()));
     return;
   }
   Register(
@@ -283,14 +293,16 @@ void CrOSComponentManager::FinishInstall(const std::string& name,
                                          LoadCallback load_callback,
                                          update_client::Error error) {
   if (error != update_client::Error::NONE) {
-    base::PostTask(FROM_HERE,
-                   base::BindOnce(std::move(load_callback),
-                                  Error::INSTALL_FAILURE, base::FilePath()));
+    base::PostTask(
+        FROM_HERE,
+        base::BindOnce(std::move(load_callback),
+                       ReportError(Error::INSTALL_FAILURE), base::FilePath()));
   } else if (mount_policy == MountPolicy::kMount) {
     LoadInternal(name, std::move(load_callback));
   } else {
-    base::PostTask(FROM_HERE, base::BindOnce(std::move(load_callback),
-                                             Error::NONE, base::FilePath()));
+    base::PostTask(FROM_HERE,
+                   base::BindOnce(std::move(load_callback),
+                                  ReportError(Error::NONE), base::FilePath()));
   }
 }
 
@@ -305,23 +317,31 @@ void CrOSComponentManager::LoadInternal(const std::string& name,
         ->LoadComponentAtPath(
             name, path,
             base::BindOnce(&CrOSComponentManager::FinishLoad,
-                           base::Unretained(this), std::move(load_callback)));
+                           base::Unretained(this), std::move(load_callback),
+                           base::TimeTicks::Now()));
   } else {
-    base::PostTask(FROM_HERE, base::BindOnce(std::move(load_callback),
-                                             Error::COMPATIBILITY_CHECK_FAILED,
-                                             base::FilePath()));
+    base::PostTask(
+        FROM_HERE,
+        base::BindOnce(std::move(load_callback),
+                       ReportError(Error::COMPATIBILITY_CHECK_FAILED),
+                       base::FilePath()));
   }
 }
 
 void CrOSComponentManager::FinishLoad(LoadCallback load_callback,
+                                      const base::TimeTicks start_time,
                                       base::Optional<base::FilePath> result) {
+  // Report component image mount time.
+  UMA_HISTOGRAM_LONG_TIMES("ComponentUpdater.ChromeOS.MountTime",
+                           base::TimeTicks::Now() - start_time);
   if (!result.has_value()) {
+    base::PostTask(FROM_HERE, base::BindOnce(std::move(load_callback),
+                                             ReportError(Error::MOUNT_FAILURE),
+                                             base::FilePath()));
+  } else {
     base::PostTask(FROM_HERE,
                    base::BindOnce(std::move(load_callback),
-                                  Error::MOUNT_FAILURE, base::FilePath()));
-  } else {
-    base::PostTask(FROM_HERE, base::BindOnce(std::move(load_callback),
-                                             Error::NONE, result.value()));
+                                  ReportError(Error::NONE), result.value()));
   }
 }
 

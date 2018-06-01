@@ -21,10 +21,12 @@
 #include "components/google/core/browser/google_util.h"
 #include "components/safe_browsing/common/safebrowsing_switches.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_item_utils.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/url_util.h"
 #include "net/cert/x509_util.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 using content::BrowserThread;
 namespace safe_browsing {
@@ -63,13 +65,13 @@ DownloadProtectionService::DownloadProtectionService(
     SafeBrowsingService* sb_service)
     : sb_service_(sb_service),
       navigation_observer_manager_(nullptr),
-      request_context_getter_(sb_service ? sb_service->url_request_context()
-                                         : nullptr),
+      url_loader_factory_(sb_service ? sb_service->GetURLLoaderFactory()
+                                     : nullptr),
       enabled_(false),
       binary_feature_extractor_(new BinaryFeatureExtractor()),
       download_request_timeout_ms_(kDownloadRequestTimeoutMs),
       feedback_service_(new DownloadFeedbackService(
-          request_context_getter_.get(),
+          url_loader_factory_,
           base::CreateSequencedTaskRunnerWithTraits(
               {base::MayBlock(), base::TaskPriority::BACKGROUND})
               .get())),
@@ -373,10 +375,10 @@ DownloadProtectionService::IdentifyReferrerChain(
   content::WebContents* web_contents =
       content::DownloadItemUtils::GetWebContents(
           const_cast<download::DownloadItem*>(&item));
-  int download_tab_id = SessionTabHelper::IdForTab(web_contents);
+  SessionID download_tab_id = SessionTabHelper::IdForTab(web_contents);
   UMA_HISTOGRAM_BOOLEAN(
       "SafeBrowsing.ReferrerHasInvalidTabID.DownloadAttribution",
-      download_tab_id == -1);
+      !download_tab_id.is_valid());
   // We look for the referrer chain that leads to the download url first.
   SafeBrowsingNavigationObserverManager::AttributionResult result =
       navigation_observer_manager_->IdentifyReferrerChainByEventURL(
@@ -421,14 +423,15 @@ DownloadProtectionService::IdentifyReferrerChain(
 void DownloadProtectionService::AddReferrerChainToPPAPIClientDownloadRequest(
     const GURL& initiating_frame_url,
     const GURL& initiating_main_frame_url,
-    int tab_id,
+    SessionID tab_id,
     bool has_user_gesture,
     ClientDownloadRequest* out_request) {
   if (!navigation_observer_manager_)
     return;
 
   UMA_HISTOGRAM_BOOLEAN(
-      "SafeBrowsing.ReferrerHasInvalidTabID.DownloadAttribution", tab_id == -1);
+      "SafeBrowsing.ReferrerHasInvalidTabID.DownloadAttribution",
+      !tab_id.is_valid());
   SafeBrowsingNavigationObserverManager::AttributionResult result =
       navigation_observer_manager_->IdentifyReferrerChainByHostingPage(
           initiating_frame_url, initiating_main_frame_url, tab_id,

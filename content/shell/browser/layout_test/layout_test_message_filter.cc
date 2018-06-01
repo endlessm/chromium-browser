@@ -35,15 +35,23 @@ LayoutTestMessageFilter::LayoutTestMessageFilter(
     int render_process_id,
     storage::DatabaseTracker* database_tracker,
     storage::QuotaManager* quota_manager,
-    net::URLRequestContextGetter* request_context_getter)
+    net::URLRequestContextGetter* request_context_getter,
+    network::mojom::NetworkContext* network_context)
     : BrowserMessageFilter(LayoutTestMsgStart),
       render_process_id_(render_process_id),
       database_tracker_(database_tracker),
       quota_manager_(quota_manager),
       request_context_getter_(request_context_getter) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  if (network_context)
+    network_context->GetCookieManager(mojo::MakeRequest(&cookie_manager_));
 }
 
 LayoutTestMessageFilter::~LayoutTestMessageFilter() {
+}
+
+void LayoutTestMessageFilter::OnDestruct() const {
+  BrowserThread::DeleteOnUIThread::Destruct(this);
 }
 
 base::TaskRunner* LayoutTestMessageFilter::OverrideTaskRunnerForMessage(
@@ -57,7 +65,9 @@ base::TaskRunner* LayoutTestMessageFilter::OverrideTaskRunnerForMessage(
     case LayoutTestHostMsg_ResetPermissions::ID:
     case LayoutTestHostMsg_LayoutTestRuntimeFlagsChanged::ID:
     case LayoutTestHostMsg_TestFinishedInSecondaryRenderer::ID:
+    case LayoutTestHostMsg_InitiateCaptureDump::ID:
     case LayoutTestHostMsg_InspectSecondaryWindow::ID:
+    case LayoutTestHostMsg_DeleteAllCookiesForNetworkService::ID:
       return BrowserThread::GetTaskRunnerForThread(BrowserThread::UI).get();
   }
   return nullptr;
@@ -79,12 +89,16 @@ bool LayoutTestMessageFilter::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(LayoutTestHostMsg_BlockThirdPartyCookies,
                         OnBlockThirdPartyCookies)
     IPC_MESSAGE_HANDLER(LayoutTestHostMsg_DeleteAllCookies, OnDeleteAllCookies)
+    IPC_MESSAGE_HANDLER(LayoutTestHostMsg_DeleteAllCookiesForNetworkService,
+                        OnDeleteAllCookiesForNetworkService)
     IPC_MESSAGE_HANDLER(LayoutTestHostMsg_SetPermission, OnSetPermission)
     IPC_MESSAGE_HANDLER(LayoutTestHostMsg_ResetPermissions, OnResetPermissions)
     IPC_MESSAGE_HANDLER(LayoutTestHostMsg_LayoutTestRuntimeFlagsChanged,
                         OnLayoutTestRuntimeFlagsChanged)
     IPC_MESSAGE_HANDLER(LayoutTestHostMsg_TestFinishedInSecondaryRenderer,
                         OnTestFinishedInSecondaryRenderer)
+    IPC_MESSAGE_HANDLER(LayoutTestHostMsg_InitiateCaptureDump,
+                        OnInitiateCaptureDump);
     IPC_MESSAGE_HANDLER(LayoutTestHostMsg_InspectSecondaryWindow,
                         OnInspectSecondaryWindow)
     IPC_MESSAGE_UNHANDLED(handled = false)
@@ -159,10 +173,19 @@ void LayoutTestMessageFilter::OnBlockThirdPartyCookies(bool block) {
 }
 
 void LayoutTestMessageFilter::OnDeleteAllCookies() {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   net::URLRequestContext* context =
       request_context_getter_->GetURLRequestContext();
   if (context)
     context->cookie_store()->DeleteAllAsync(net::CookieStore::DeleteCallback());
+}
+
+void LayoutTestMessageFilter::OnDeleteAllCookiesForNetworkService() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  if (cookie_manager_) {
+    cookie_manager_->DeleteCookies(network::mojom::CookieDeletionFilter::New(),
+                                   base::BindOnce([](uint32_t) {}));
+  }
 }
 
 void LayoutTestMessageFilter::OnSetPermission(
@@ -226,6 +249,15 @@ void LayoutTestMessageFilter::OnTestFinishedInSecondaryRenderer() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (BlinkTestController::Get())
     BlinkTestController::Get()->OnTestFinishedInSecondaryRenderer();
+}
+
+void LayoutTestMessageFilter::OnInitiateCaptureDump(
+    bool capture_navigation_history) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  if (BlinkTestController::Get()) {
+    BlinkTestController::Get()->OnInitiateCaptureDump(
+        capture_navigation_history);
+  }
 }
 
 void LayoutTestMessageFilter::OnInspectSecondaryWindow() {

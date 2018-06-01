@@ -86,9 +86,7 @@ class DialogWaiter : public aura::EnvObserver,
   views::Widget* WaitForDialog() {
     if (dialog_created_)
       return dialog_;
-    base::MessageLoopForUI* loop = base::MessageLoopForUI::current();
-    base::MessageLoopForUI::ScopedNestableTaskAllower allow_nested(loop);
-    base::RunLoop run_loop;
+    base::RunLoop run_loop(base::RunLoop::Type::kNestableTasksAllowed);
     quit_closure_ = run_loop.QuitClosure();
     run_loop.Run();
     return dialog_;
@@ -140,9 +138,7 @@ class DialogCloseWaiter : public views::WidgetObserver {
   void WaitForDialogClose() {
     if (dialog_closed_)
       return;
-    base::MessageLoopForUI* loop = base::MessageLoopForUI::current();
-    base::MessageLoopForUI::ScopedNestableTaskAllower allow_nested(loop);
-    base::RunLoop run_loop;
+    base::RunLoop run_loop(base::RunLoop::Type::kNestableTasksAllowed);
     quit_closure_ = run_loop.QuitClosure();
     run_loop.Run();
   }
@@ -177,9 +173,7 @@ class TabKeyWaiter : public ui::EventHandler {
   void WaitForTab() {
     if (received_tab_)
       return;
-    base::MessageLoopForUI* loop = base::MessageLoopForUI::current();
-    base::MessageLoopForUI::ScopedNestableTaskAllower allow_nested(loop);
-    base::RunLoop run_loop;
+    base::RunLoop run_loop(base::RunLoop::Type::kNestableTasksAllowed);
     quit_closure_ = run_loop.QuitClosure();
     run_loop.Run();
   }
@@ -205,10 +199,10 @@ class TabKeyWaiter : public ui::EventHandler {
 void MoveMouseAndPress(const gfx::Point& screen_pos,
                        ui_controls::MouseButton button,
                        int state,
-                       const base::Closure& closure) {
+                       base::OnceClosure closure) {
   ASSERT_TRUE(ui_controls::SendMouseMove(screen_pos.x(), screen_pos.y()));
-  ASSERT_TRUE(
-      ui_controls::SendMouseEventsNotifyWhenDone(button, state, closure));
+  ASSERT_TRUE(ui_controls::SendMouseEventsNotifyWhenDone(button, state,
+                                                         std::move(closure)));
 }
 
 // PageNavigator implementation that records the URL.
@@ -335,11 +329,7 @@ class BookmarkBarViewEventTestBase : public ViewEventTestBase {
     profile_.reset();
 
     // Run the message loop to ensure we delete allTasks and fully shut down.
-    base::MessageLoopForUI* loop = base::MessageLoopForUI::current();
-    base::MessageLoopForUI::ScopedNestableTaskAllower allow_nested(loop);
-    base::RunLoop run_loop;
-    loop->task_runner()->PostTask(FROM_HERE, run_loop.QuitClosure());
-    run_loop.Run();
+    base::RunLoop().RunUntilIdle();
 
     ViewEventTestBase::TearDown();
     BookmarkBarView::DisableAnimationsForTesting(false);
@@ -530,8 +520,9 @@ class BookmarkBarViewTest2 : public BookmarkBarViewEventTestBase {
   }
 };
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS) || defined(OS_WIN)
 // TODO(erg): linux_aura bringup: http://crbug.com/163931
+// Disable this test on Win10:    http://crbug.com/828063
 #define MAYBE_HideOnDesktopClick DISABLED_HideOnDesktopClick
 #else
 #define MAYBE_HideOnDesktopClick HideOnDesktopClick
@@ -856,11 +847,12 @@ class BookmarkBarViewTest7 : public BookmarkBarViewEventTestBase {
     // and drop checking state.
     ASSERT_TRUE(ui_controls::SendMouseMoveNotifyWhenDone(
         loc.x() + 10, loc.y(),
-        base::Bind(&BookmarkBarViewTest7::Step3A, this)));
+        base::BindOnce(&BookmarkBarViewTest7::Step3A, this)));
 #else
     // Start a drag.
     ASSERT_TRUE(ui_controls::SendMouseMoveNotifyWhenDone(
-        loc.x() + 10, loc.y(), base::Bind(&BookmarkBarViewTest7::Step4, this)));
+        loc.x() + 10, loc.y(),
+        base::BindOnce(&BookmarkBarViewTest7::Step4, this)));
 
     // See comment above this method as to why we do this.
     ScheduleMouseMoveInBackground(loc.x(), loc.y());
@@ -874,7 +866,7 @@ class BookmarkBarViewTest7 : public BookmarkBarViewEventTestBase {
     views::View::ConvertPointToScreen(other_button, &loc);
 
     ASSERT_TRUE(ui_controls::SendMouseMoveNotifyWhenDone(
-        loc.x(), loc.y(), base::Bind(&BookmarkBarViewTest7::Step4, this)));
+        loc.x(), loc.y(), base::BindOnce(&BookmarkBarViewTest7::Step4, this)));
   }
 
   void Step4() {
@@ -956,10 +948,11 @@ class BookmarkBarViewTest8 : public BookmarkBarViewEventTestBase {
     // and drop checking state.
     ASSERT_TRUE(ui_controls::SendMouseMoveNotifyWhenDone(
         loc.x() + 10, loc.y(),
-        base::Bind(&BookmarkBarViewTest8::Step3A, this)));
+        base::BindOnce(&BookmarkBarViewTest8::Step3A, this)));
 #else
     ASSERT_TRUE(ui_controls::SendMouseMoveNotifyWhenDone(
-        loc.x() + 10, loc.y(), base::Bind(&BookmarkBarViewTest8::Step4, this)));
+        loc.x() + 10, loc.y(),
+        base::BindOnce(&BookmarkBarViewTest8::Step4, this)));
     // See comment above this method as to why we do this.
     ScheduleMouseMoveInBackground(loc.x(), loc.y());
 #endif
@@ -972,7 +965,8 @@ class BookmarkBarViewTest8 : public BookmarkBarViewEventTestBase {
     views::View::ConvertPointToScreen(other_button, &loc);
 
     ASSERT_TRUE(ui_controls::SendMouseMoveNotifyWhenDone(
-        loc.x() + 10, loc.y(), base::Bind(&BookmarkBarViewTest8::Step4, this)));
+        loc.x() + 10, loc.y(),
+        base::BindOnce(&BookmarkBarViewTest8::Step4, this)));
   }
 
   void Step4() {
@@ -985,7 +979,7 @@ class BookmarkBarViewTest8 : public BookmarkBarViewEventTestBase {
     gfx::Point loc(button->width() / 2, button->height() / 2);
     views::View::ConvertPointToScreen(button, &loc);
     ASSERT_TRUE(ui_controls::SendMouseMoveNotifyWhenDone(
-        loc.x(), loc.y(), base::Bind(&BookmarkBarViewTest8::Step5, this)));
+        loc.x(), loc.y(), base::BindOnce(&BookmarkBarViewTest8::Step5, this)));
   }
 
   void Step5() {
@@ -1367,7 +1361,7 @@ class BookmarkBarViewTest12 : public BookmarkBarViewEventTestBase {
     // And press enter so that the cancel button is selected.
     ASSERT_TRUE(ui_controls::SendKeyPressNotifyWhenDone(
         window_->GetNativeWindow(), ui::VKEY_RETURN, false, false, false, false,
-        base::Closure()));
+        base::OnceClosure()));
     waiter.WaitForDialogClose();
     Done();
   }
@@ -1696,7 +1690,8 @@ class BookmarkBarViewTest17 : public BookmarkBarViewEventTestBase {
   BookmarkContextMenuNotificationObserver observer_;
 };
 
-VIEW_TEST(BookmarkBarViewTest17, ContextMenus3)
+// Flaky. See http://crbug.com/820435.
+VIEW_TEST(BookmarkBarViewTest17, DISABLED_ContextMenus3)
 
 // Verifies sibling menus works. Clicks on the 'other bookmarks' folder, then
 // moves the mouse over the first item on the bookmark bar and makes sure the

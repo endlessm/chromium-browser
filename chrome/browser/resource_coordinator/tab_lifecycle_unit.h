@@ -12,6 +12,7 @@
 #include "chrome/browser/resource_coordinator/tab_lifecycle_unit_external.h"
 #include "chrome/browser/resource_coordinator/tab_lifecycle_unit_source.h"
 #include "chrome/browser/resource_coordinator/time.h"
+#include "content/public/browser/visibility.h"
 #include "content/public/browser/web_contents_observer.h"
 
 class TabStripModel;
@@ -28,10 +29,6 @@ class TabLifecycleObserver;
 // Time during which a tab cannot be discarded after having played audio.
 static constexpr base::TimeDelta kTabAudioProtectionTime =
     base::TimeDelta::FromMinutes(1);
-
-// Time during which a tab cannot be discarded after having been focused.
-static constexpr base::TimeDelta kTabFocusedProtectionTime =
-    base::TimeDelta::FromMinutes(10);
 
 // Represents a tab.
 class TabLifecycleUnitSource::TabLifecycleUnit
@@ -50,8 +47,8 @@ class TabLifecycleUnitSource::TabLifecycleUnit
   ~TabLifecycleUnit() override;
 
   // Sets the TabStripModel associated with this tab. The source that created
-  // this TabLifecycleUnit is responsible for calling this when the tab moves to
-  // a different TabStripModel.
+  // this TabLifecycleUnit is responsible for calling this when the tab is
+  // removed from a TabStripModel or inserted into a new TabStripModel.
   void SetTabStripModel(TabStripModel* tab_strip_model);
 
   // Sets the WebContents associated with this tab. The source that created this
@@ -73,8 +70,12 @@ class TabLifecycleUnitSource::TabLifecycleUnit
   TabLifecycleUnitExternal* AsTabLifecycleUnitExternal() override;
   base::string16 GetTitle() const override;
   std::string GetIconURL() const override;
+  base::ProcessHandle GetProcessHandle() const override;
   SortKey GetSortKey() const override;
+  content::Visibility GetVisibility() const override;
+  bool Freeze() override;
   int GetEstimatedMemoryFreedOnDiscardKB() const override;
+  bool CanPurge() const override;
   bool CanDiscard(DiscardReason reason) const override;
   bool Discard(DiscardReason discard_reason) override;
 
@@ -83,6 +84,7 @@ class TabLifecycleUnitSource::TabLifecycleUnit
   bool IsMediaTab() const override;
   bool IsAutoDiscardable() const override;
   void SetAutoDiscardable(bool auto_discardable) override;
+  bool FreezeTab() override;
   bool DiscardTab() override;
   bool IsDiscarded() const override;
   int GetDiscardCount() const override;
@@ -96,6 +98,7 @@ class TabLifecycleUnitSource::TabLifecycleUnit
 
   // content::WebContentsObserver:
   void DidStartLoading() override;
+  void OnVisibilityChanged(content::Visibility visibility) override;
 
   // List of observers to notify when the discarded state or the auto-
   // discardable state of this tab changes.

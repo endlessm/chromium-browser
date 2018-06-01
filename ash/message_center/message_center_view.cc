@@ -10,6 +10,7 @@
 #include "ash/message_center/message_center_button_bar.h"
 #include "ash/message_center/message_center_style.h"
 #include "ash/message_center/notifier_settings_view.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller.h"
@@ -32,7 +33,6 @@
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/message_center_types.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
-#include "ui/message_center/ui_controller.h"
 #include "ui/message_center/views/message_view.h"
 #include "ui/message_center/views/message_view_factory.h"
 #include "ui/message_center/views/notification_control_buttons_view.h"
@@ -184,14 +184,12 @@ class ScrollShadowView : public views::View {
 
 MessageCenterView::MessageCenterView(
     MessageCenter* message_center,
-    message_center::UiController* ui_controller,
     int max_height,
     bool initially_settings_visible)
     : message_center_(message_center),
-      ui_controller_(ui_controller),
       settings_visible_(initially_settings_visible),
       is_locked_(Shell::Get()->session_controller()->IsScreenLocked()) {
-  if (is_locked_)
+  if (is_locked_ && !features::IsLockScreenNotificationsEnabled())
     mode_ = Mode::LOCKED;
   else if (initially_settings_visible)
     mode_ = Mode::SETTINGS;
@@ -580,7 +578,7 @@ void MessageCenterView::AddNotificationAt(const Notification& notification,
 void MessageCenterView::Update(bool animate) {
   bool no_message_views = (message_list_view_->GetNotificationCount() == 0);
 
-  if (is_locked_)
+  if (is_locked_ && !features::IsLockScreenNotificationsEnabled())
     SetVisibilityMode(Mode::LOCKED, animate);
   else if (settings_visible_)
     SetVisibilityMode(Mode::SETTINGS, animate);
@@ -588,16 +586,6 @@ void MessageCenterView::Update(bool animate) {
     SetVisibilityMode(Mode::NO_NOTIFICATIONS, animate);
   else
     SetVisibilityMode(Mode::NOTIFICATIONS, animate);
-
-  if (no_message_views) {
-    scroller_->SetFocusBehavior(FocusBehavior::NEVER);
-  } else {
-#if defined(OS_MACOSX)
-    scroller_->SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
-#else
-    scroller_->SetFocusBehavior(FocusBehavior::ALWAYS);
-#endif
-  }
 
   UpdateButtonBarStatus();
 
@@ -684,8 +672,7 @@ void MessageCenterView::UpdateButtonBarStatus() {
   button_bar_->SetBackArrowVisible(mode_ == Mode::SETTINGS);
   button_bar_->SetIsLocked(is_locked_);
 
-  if (!is_locked_)
-    EnableCloseAllIfAppropriate();
+  EnableCloseAllIfAppropriate();
 }
 
 void MessageCenterView::EnableCloseAllIfAppropriate() {

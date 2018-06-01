@@ -117,9 +117,9 @@ class ArcBluetoothBridgeTest : public testing::Test {
   int32_t ReserveAdvertisementHandle() {
     constexpr int kSentinelHandle = -2;
     last_adv_handle_ = kSentinelHandle;
-    arc_bluetooth_bridge_->ReserveAdvertisementHandle(
-        base::Bind(&ArcBluetoothBridgeTest::ReserveAdvertisementHandleCallback,
-                   base::Unretained(this)));
+    arc_bluetooth_bridge_->ReserveAdvertisementHandle(base::BindOnce(
+        &ArcBluetoothBridgeTest::ReserveAdvertisementHandleCallback,
+        base::Unretained(this)));
 
     base::RunLoop().RunUntilIdle();
     // Make sure the callback was called.
@@ -127,14 +127,27 @@ class ArcBluetoothBridgeTest : public testing::Test {
     return last_adv_handle_;
   }
 
-  mojom::BluetoothGattStatus BroadcastAdvertisement(
+  mojom::BluetoothGattStatus EnableAdvertisement(
       int adv_handle,
       std::unique_ptr<device::BluetoothAdvertisement::Data> data) {
     last_status_ = mojom::BluetoothGattStatus::GATT_REQUEST_NOT_SUPPORTED;
-    arc_bluetooth_bridge_->BroadcastAdvertisement(
+    arc_bluetooth_bridge_->EnableAdvertisement(
         adv_handle, std::move(data),
-        base::Bind(&ArcBluetoothBridgeTest::StatusSetterCallback,
-                   base::Unretained(this)));
+        base::BindOnce(&ArcBluetoothBridgeTest::StatusSetterCallback,
+                       base::Unretained(this)));
+
+    base::RunLoop().RunUntilIdle();
+    EXPECT_NE(mojom::BluetoothGattStatus::GATT_REQUEST_NOT_SUPPORTED,
+              last_status_);
+    return last_status_;
+  }
+
+  mojom::BluetoothGattStatus DisableAdvertisement(int adv_handle) {
+    last_status_ = mojom::BluetoothGattStatus::GATT_REQUEST_NOT_SUPPORTED;
+    arc_bluetooth_bridge_->DisableAdvertisement(
+        adv_handle,
+        base::BindOnce(&ArcBluetoothBridgeTest::StatusSetterCallback,
+                       base::Unretained(this)));
 
     base::RunLoop().RunUntilIdle();
     EXPECT_NE(mojom::BluetoothGattStatus::GATT_REQUEST_NOT_SUPPORTED,
@@ -145,8 +158,9 @@ class ArcBluetoothBridgeTest : public testing::Test {
   mojom::BluetoothGattStatus ReleaseAdvertisementHandle(int adv_handle) {
     last_status_ = mojom::BluetoothGattStatus::GATT_REQUEST_NOT_SUPPORTED;
     arc_bluetooth_bridge_->ReleaseAdvertisementHandle(
-        adv_handle, base::Bind(&ArcBluetoothBridgeTest::StatusSetterCallback,
-                               base::Unretained(this)));
+        adv_handle,
+        base::BindOnce(&ArcBluetoothBridgeTest::StatusSetterCallback,
+                       base::Unretained(this)));
 
     base::RunLoop().RunUntilIdle();
     EXPECT_NE(mojom::BluetoothGattStatus::GATT_REQUEST_NOT_SUPPORTED,
@@ -330,9 +344,13 @@ TEST_F(ArcBluetoothBridgeTest, SingleAdvertisement) {
   auto adv_data = std::make_unique<device::BluetoothAdvertisement::Data>(
       device::BluetoothAdvertisement::ADVERTISEMENT_TYPE_BROADCAST);
   mojom::BluetoothGattStatus status =
-      BroadcastAdvertisement(handle, std::move(adv_data));
+      EnableAdvertisement(handle, std::move(adv_data));
   EXPECT_EQ(mojom::BluetoothGattStatus::GATT_SUCCESS, status);
   EXPECT_EQ(1, NumActiveAdvertisements());
+
+  status = DisableAdvertisement(handle);
+  EXPECT_EQ(mojom::BluetoothGattStatus::GATT_SUCCESS, status);
+  EXPECT_EQ(0, NumActiveAdvertisements());
 
   status = ReleaseAdvertisementHandle(handle);
   EXPECT_EQ(mojom::BluetoothGattStatus::GATT_SUCCESS, status);

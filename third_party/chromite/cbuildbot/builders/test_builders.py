@@ -7,7 +7,6 @@
 
 from __future__ import print_function
 
-import functools
 
 from chromite.lib import cros_logging as logging
 from chromite.lib import parallel
@@ -106,20 +105,14 @@ class SignerTestsBuilder(generic_builders.PreCqBuilder):
     self._RunStage(test_stages.CrosSigningTestStage)
 
 
-class AutotestTestsBuilder(generic_builders.PreCqBuilder):
-  """Builder that runs autotest unit tests."""
-  def RunTestStages(self):
-    """Run after sync/reexec."""
-    self._RunStage(test_stages.AutotestTestStage)
-
-
 class ChromiteTestsBuilder(generic_builders.PreCqBuilder):
   """Builder that runs chromite unit tests, including network."""
   def RunTestStages(self):
     """Run something after sync/reexec."""
     self._RunStage(build_stages.InitSDKStage)
     self._RunStage(test_stages.ChromiteTestStage)
-    self._RunStage(test_stages.CidbIntegrationTestStage)
+    # TODO(crbug.com/820305): Enable after the flake issue is fixed.
+    # self._RunStage(test_stages.CidbIntegrationTestStage)
 
 
 class VMInformationalBuilder(simple_builders.SimpleBuilder):
@@ -146,11 +139,6 @@ class VMInformationalBuilder(simple_builders.SimpleBuilder):
 
     parallel_stages = [
         lambda: self._RunDebugSymbolStages(self._run, board),
-    ] + [
-        functools.partial(
-            functools.partial(self._RunStage, vm_test_stages.VMTestStage,
-                              board, ssh_port=9228+index, vm_tests=[config],
-                              test_basename=config.test_suite)
-        ) for index, config in enumerate(self._run.config.vm_tests)
+        lambda: self._RunStage(vm_test_stages.VMTestStage, board)
     ]
     parallel.RunParallelSteps(parallel_stages)

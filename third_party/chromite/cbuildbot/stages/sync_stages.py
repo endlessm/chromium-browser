@@ -11,6 +11,7 @@ import collections
 import contextlib
 import datetime
 import itertools
+import json
 import os
 import pprint
 import re
@@ -1406,29 +1407,17 @@ class PreCQLauncherStage(SyncStage):
     return cq_config_parser.CanSubmitChangeInPreCQ()
 
   def GetConfigBuildbucketIdMap(self, output):
-    """Get a config:buildbucket_id map.
+    """Convert tryjob json output into a config:buildbucket_id map.
 
     Config is the config-name of a pre-cq triggered by the pre-cq-launcher.
     buildbucket_id is the request id of the pre-cq build.
     """
-    config_buildbucket_id_map = {}
-    for line in output.splitlines():
-      config = None
-      buildbucket_id = None
-      match_config = re.search(r'\[config:(\S*)\]', line)
-      if match_config:
-        config = match_config.group(1)
+    # List of dicts containing 'build_config', 'buildbucket_id', 'url'
+    tryjob_output = json.loads(output)
+    return {t['build_config']: t['buildbucket_id'] for t in tryjob_output}
 
-      match_id = re.search(r'\[buildbucket_id:(\S*)\]', line)
-      if match_id:
-        buildbucket_id = match_id.group(1)
-
-      if config is not None and buildbucket_id is not None:
-        config_buildbucket_id_map[config] = buildbucket_id
-
-    return config_buildbucket_id_map
-
-  def _LaunchTrybots(self, pool, configs, plan=None, sanity_check_build=False):
+  def _LaunchTrybots(self, pool, configs, plan=None,
+                     sanity_check_build=False, swarming=True):
     """Launch tryjobs on the configs with patches if provided.
 
     Args:
@@ -1437,6 +1426,7 @@ class PreCQLauncherStage(SyncStage):
       plan: A list of patches to test in the pre-cq tryjob, default to None.
       sanity_check_build: Boolean indicating whether to run the tryjobs as
         sanity-check-build.
+      swarming: Boolean indicating jobs should running as swarming builds.
 
     Returns:
       A dict mapping from build_config (string) to the buildbucket_id (string)
@@ -1456,11 +1446,14 @@ class PreCQLauncherStage(SyncStage):
 
         return {}
 
-    cmd = ['cros', 'tryjob', '--yes',
+    cmd = ['cros', 'tryjob', '--yes', '--json',
            '--timeout', str(self.INFLIGHT_TIMEOUT * 60)] + configs
 
     if sanity_check_build:
       cmd += ['--sanity-check-build']
+
+    if swarming:
+      cmd += ['--swarming']
 
     if plan is not None:
       for patch in plan:
@@ -1474,7 +1467,7 @@ class PreCQLauncherStage(SyncStage):
       result = cros_build_lib.RunCommand(
           cmd, cwd=self._build_root, capture_output=True)
       if result and result.output:
-        logging.info('cbuildbot output: %s' % result.output)
+        logging.info('output: %s' % result.output)
         config_buildbucket_id_map = self.GetConfigBuildbucketIdMap(
             result.output)
 
@@ -2033,8 +2026,7 @@ class PreCQLauncherStage(SyncStage):
         build_dicts = db.GetBuildStatuses(build_ids)
         lines = []
         for b in build_dicts:
-          url = tree_status.ConstructDashboardURL(
-              b['waterfall'], b['builder_name'], b['build_number'])
+          url = tree_status.ConstructLegolandBuildURL(b['buildbucket_id'])
           lines.append('(%s) : %s ' % (b['build_config'], url))
 
         # Send notifications.

@@ -29,8 +29,8 @@
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/mojom/ukm_interface.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
-#include "third_party/WebKit/public/platform/WebMouseEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/platform/web_mouse_event.h"
 
 using blink::WebInputEvent;
 using content::WebContentsTester;
@@ -308,6 +308,10 @@ TEST_F(TabMetricsTest, InputEvents) {
   content::WebContents* test_contents_2 =
       tab_activity_simulator_.AddWebContentsAndNavigate(tab_strip_model,
                                                         GURL(kTestUrls[1]));
+
+  // RunUntilIdle is needed because the widget input handler is initialized
+  // asynchronously via mojo (see SetupWidgetInputHandler).
+  base::RunLoop().RunUntilIdle();
   tab_strip_model->ActivateTabAt(0, false);
 
   UkmMetricMap expected_metrics_1(kBasicMetricValues);

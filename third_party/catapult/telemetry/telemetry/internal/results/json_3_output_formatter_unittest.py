@@ -256,6 +256,7 @@ class Json3OutputFormatterTest(unittest.TestCase):
         3,
         improvement_direction=improvement_direction.DOWN)
     results.AddValue(v0)
+    results.current_page_run.SetDuration(5.0123)
     results.DidRunPage(test_page)
     results.PrintSummary()
     results.CloseOutputFormatters()
@@ -270,13 +271,10 @@ class Json3OutputFormatterTest(unittest.TestCase):
     self.assertEquals(json_test_results['path_delimiter'], '/')
     self.assertAlmostEqual(json_test_results['seconds_since_epoch'],
                            time.time(), delta=1)
-    self.assertEquals(json_test_results['tests'], {
-        'test_benchmark': {
-            'Foo': {
-                'actual': 'PASS',
-                'expected': 'PASS',
-                'is_unexpected': False
-            }
-        }
-    })
+    testBenchmarkFoo = json_test_results['tests']['test_benchmark']['Foo']
+    self.assertEquals(testBenchmarkFoo['actual'], 'PASS')
+    self.assertEquals(testBenchmarkFoo['expected'], 'PASS')
+    self.assertFalse(testBenchmarkFoo['is_unexpected'])
+    self.assertEquals(testBenchmarkFoo['time'], 5.0123)
+    self.assertEquals(testBenchmarkFoo['times'][0], 5.0123)
     self.assertEquals(json_test_results['version'], 3)

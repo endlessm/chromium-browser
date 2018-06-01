@@ -8,7 +8,6 @@
 #import <WebKit/WebKit.h>
 #import <XCTest/XCTest.h>
 
-#include "base/ios/ios_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/strings/grit/components_strings.h"
 #include "ios/chrome/browser/ui/ui_util.h"
@@ -36,7 +35,7 @@
 - (void)testJavaScriptInOmnibox {
   // TODO(crbug.com/703855): Keyboard entry inside the omnibox fails only on
   // iPad running iOS 10.
-  if (IsIPadIdiom() && base::ios::IsRunningOnIOS10OrLater())
+  if (IsIPadIdiom())
     return;
 
   // Preps the http server with two URLs serving content.

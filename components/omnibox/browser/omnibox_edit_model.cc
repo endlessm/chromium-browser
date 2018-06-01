@@ -46,7 +46,7 @@
 #include "url/url_util.h"
 
 #if defined(OS_WIN)
-#include "ui/base/win/osk_display_manager.h"
+#include "ui/base/ime/win/osk_display_manager.h"
 #endif
 
 using bookmarks::BookmarkModel;
@@ -644,8 +644,9 @@ void OmniboxEditModel::OpenMatch(AutocompleteMatch match,
       input_.type(),
       popup_open,
       dropdown_ignored ? 0 : index,
+      disposition,
       !pasted_text.empty(),
-      -1,  // don't yet know tab ID; set later if appropriate
+      SessionID::InvalidValue(), // don't know tab ID; set later if appropriate
       ClassifyPage(),
       elapsed_time_since_user_first_modified_omnibox,
       match.allowed_to_be_default_match ? match.inline_autocompletion.length() :
@@ -664,7 +665,7 @@ void OmniboxEditModel::OpenMatch(AutocompleteMatch match,
     // If we know the destination is being opened in the current tab,
     // we can easily get the tab ID.  (If it's being opened in a new
     // tab, we don't know the tab ID yet.)
-    log.tab_id = client_->GetSessionID().id();
+    log.tab_id = client_->GetSessionID();
   }
   autocomplete_controller()->AddProvidersInfo(&log.providers_info);
   client_->OnURLOpenedFromOmnibox(&log);
@@ -1426,6 +1427,8 @@ bool OmniboxEditModel::IsSpaceCharForAcceptingKeyword(wchar_t c) {
 OmniboxEventProto::PageClassification OmniboxEditModel::ClassifyPage() const {
   if (!client_->CurrentPageExists())
     return OmniboxEventProto::OTHER;
+  if (focus_source_ == SEARCH_BUTTON)
+    return OmniboxEventProto::SEARCH_BUTTON_AS_STARTING_FOCUS;
   if (client_->IsInstantNTP()) {
     // Note that we treat OMNIBOX as the source if focus_source_ is INVALID,
     // i.e., if input isn't actually in progress.

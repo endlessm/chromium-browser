@@ -13,7 +13,6 @@ import android.view.ViewGroup;
 import org.chromium.content_public.browser.ContentViewCore;
 import org.chromium.content_public.browser.ContentViewCore.InternalAccessDelegate;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.ui.base.ViewAndroidDelegate;
 import org.chromium.ui.base.WindowAndroid;
 
 /**
@@ -24,11 +23,6 @@ public class TestContentViewCore implements ContentViewCore {
     public TestContentViewCore(Context context, String productVersion) {}
 
     @Override
-    public Context getContext() {
-        return null;
-    }
-
-    @Override
     public ViewGroup getContainerView() {
         return null;
     }
@@ -37,16 +31,6 @@ public class TestContentViewCore implements ContentViewCore {
     public WebContents getWebContents() {
         return null;
     }
-
-    @Override
-    public WindowAndroid getWindowAndroid() {
-        return null;
-    }
-
-    @Override
-    public void initialize(ViewAndroidDelegate viewDelegate,
-            InternalAccessDelegate internalDispatcher, WebContents webContents,
-            WindowAndroid windowAndroid) {}
 
     @Override
     public void updateWindowAndroid(WindowAndroid windowAndroid) {}
@@ -62,35 +46,6 @@ public class TestContentViewCore implements ContentViewCore {
 
     @Override
     public boolean isAlive() {
-        return false;
-    }
-
-    @Override
-    public int getViewportWidthPix() {
-        return 0;
-    }
-
-    @Override
-    public int getViewportHeightPix() {
-        return 0;
-    }
-
-    @Override
-    public boolean isScrollInProgress() {
-        return false;
-    }
-
-    @Override
-    public void sendDoubleTapForTest(long timeMs, int x, int y) {}
-
-    @Override
-    public void onShow() {}
-
-    @Override
-    public void onHide() {}
-
-    @Override
-    public boolean isAttachedToWindow() {
         return false;
     }
 
@@ -125,16 +80,16 @@ public class TestContentViewCore implements ContentViewCore {
     public void scrollTo(float xPix, float yPix) {}
 
     @Override
-    public void updateTextSelectionUI(boolean focused) {}
-
-    @Override
     public void onPause() {}
 
     @Override
     public void onResume() {}
 
     @Override
-    public void onFocusChanged(boolean gainFocus, boolean hideKeyboardOnBlur) {}
+    public void onViewFocusChanged(boolean gainFocus) {}
+
+    @Override
+    public void setHideKeyboardOnBlur(boolean hideKeyboardOnBlur) {}
 
     @Override
     public void scrollBy(float dxPix, float dyPix) {}
@@ -170,29 +125,13 @@ public class TestContentViewCore implements ContentViewCore {
     }
 
     @Override
-    public boolean awakenScrollBars(int startDelay, boolean invalidate) {
-        return false;
-    }
-
-    @Override
     public void updateMultiTouchZoomSupport(boolean supportsMultiTouchZoom) {}
 
     @Override
     public void updateDoubleTapSupport(boolean supportsDoubleTap) {}
 
     @Override
-    public void selectPopupMenuItems(int[] indices) {}
-
-    @Override
-    public void preserveSelectionOnNextLossOfFocus() {}
-
-    @Override
     public boolean isSelectPopupVisibleForTest() {
-        return false;
-    }
-
-    @Override
-    public boolean getIsMobileOptimizedHint() {
         return false;
     }
 

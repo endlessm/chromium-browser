@@ -23,25 +23,37 @@ constexpr base::TimeDelta kOtherFadeInOutMs =
 // The delay before the other highlight starts fading in or out.
 constexpr base::TimeDelta kOtherFadeOutDelayMs =
     base::TimeDelta::FromMilliseconds(117);
+// The animation speed for any animation on the indicator labels.
+constexpr base::TimeDelta kLabelAnimationMs =
+    base::TimeDelta::FromMilliseconds(83);
+// The delay before the indicator labels start animating.
+constexpr base::TimeDelta kLabelAnimationDelayMs =
+    base::TimeDelta::FromMilliseconds(167);
+// The time duration for the window transformation animations.
+constexpr base::TimeDelta kWindowTransformMs =
+    base::TimeDelta::FromMilliseconds(300);
 
 constexpr float kHighlightOpacity = 0.3f;
-constexpr float kPhantomHighlightOpacity = 0.18f;
+constexpr float kPreviewAreaHighlightOpacity = 0.18f;
 
 // Gets the duration, tween type and delay before animation based on |type|.
-void GetAnimationValuesForType(SplitviewAnimationType type,
-                               base::TimeDelta* out_duration,
-                               gfx::Tween::Type* out_tween_type,
-                               base::TimeDelta* out_delay) {
+void GetAnimationValuesForType(
+    SplitviewAnimationType type,
+    base::TimeDelta* out_duration,
+    gfx::Tween::Type* out_tween_type,
+    ui::LayerAnimator::PreemptionStrategy* out_preemption_strategy,
+    base::TimeDelta* out_delay) {
+  *out_preemption_strategy = ui::LayerAnimator::IMMEDIATELY_SET_NEW_TARGET;
   switch (type) {
     case SPLITVIEW_ANIMATION_HIGHLIGHT_FADE_IN:
     case SPLITVIEW_ANIMATION_HIGHLIGHT_FADE_OUT:
-    case SPLITVIEW_ANIMATION_PHANTOM_FADE_IN:
-    case SPLITVIEW_ANIMATION_PHANTOM_FADE_OUT:
+    case SPLITVIEW_ANIMATION_PREVIEW_AREA_FADE_IN:
+    case SPLITVIEW_ANIMATION_PREVIEW_AREA_FADE_OUT:
     case SPLITVIEW_ANIMATION_SELECTOR_ITEM_FADE_IN:
     case SPLITVIEW_ANIMATION_SELECTOR_ITEM_FADE_OUT:
-    case SPLITVIEW_ANIMATION_TEXT_FADE_IN:
-    case SPLITVIEW_ANIMATION_TEXT_FADE_OUT:
-    case SPLITVIEW_ANIMATION_PHANTOM_SLIDE_IN_OUT:
+    case SPLITVIEW_ANIMATION_TEXT_FADE_IN_WITH_HIGHLIGHT:
+    case SPLITVIEW_ANIMATION_TEXT_FADE_OUT_WITH_HIGHLIGHT:
+    case SPLITVIEW_ANIMATION_PREVIEW_AREA_SLIDE_IN_OUT:
       *out_duration = kHighlightsFadeInOutMs;
       *out_tween_type = gfx::Tween::FAST_OUT_SLOW_IN;
       return;
@@ -50,11 +62,26 @@ void GetAnimationValuesForType(SplitviewAnimationType type,
       *out_duration = kOtherFadeInOutMs;
       *out_tween_type = gfx::Tween::LINEAR_OUT_SLOW_IN;
       return;
+    case SPLITVIEW_ANIMATION_TEXT_FADE_IN:
+    case SPLITVIEW_ANIMATION_TEXT_FADE_OUT:
+    case SPLITVIEW_ANIMATION_TEXT_SLIDE_IN:
+    case SPLITVIEW_ANIMATION_TEXT_SLIDE_OUT:
+      if (type == SPLITVIEW_ANIMATION_TEXT_SLIDE_IN)
+        *out_delay = kLabelAnimationDelayMs;
+      *out_duration = kLabelAnimationMs;
+      *out_tween_type = gfx::Tween::LINEAR_OUT_SLOW_IN;
+      return;
     case SPLITVIEW_ANIMATION_OTHER_HIGHLIGHT_FADE_OUT:
     case SPLITVIEW_ANIMATION_OTHER_HIGHLIGHT_SLIDE_OUT:
       *out_delay = kOtherFadeOutDelayMs;
       *out_duration = kOtherFadeInOutMs;
       *out_tween_type = gfx::Tween::LINEAR_OUT_SLOW_IN;
+      return;
+    case SPLITVIEW_ANIMATION_RESTORE_OVERVIEW_WINDOW:
+      *out_duration = kWindowTransformMs;
+      *out_tween_type = gfx::Tween::EASE_OUT;
+      *out_preemption_strategy =
+          ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET;
       return;
   }
 
@@ -62,19 +89,23 @@ void GetAnimationValuesForType(SplitviewAnimationType type,
 }
 
 // Helper function to apply animation values to |settings|.
-void ApplyAnimationSettings(ui::ScopedLayerAnimationSettings* settings,
-                            ui::LayerAnimator* animator,
-                            base::TimeDelta duration,
-                            gfx::Tween::Type tween,
-                            base::TimeDelta delay) {
+void ApplyAnimationSettings(
+    ui::ScopedLayerAnimationSettings* settings,
+    ui::LayerAnimator* animator,
+    base::TimeDelta duration,
+    gfx::Tween::Type tween,
+    ui::LayerAnimator::PreemptionStrategy preemption_strategy,
+    base::TimeDelta delay) {
   DCHECK_EQ(settings->GetAnimator(), animator);
   settings->SetTransitionDuration(duration);
   settings->SetTweenType(tween);
+  settings->SetPreemptionStrategy(preemption_strategy);
   if (!delay.is_zero()) {
     settings->SetPreemptionStrategy(
         ui::LayerAnimator::REPLACE_QUEUED_ANIMATIONS);
-    animator->SchedulePauseForProperties(delay,
-                                         ui::LayerAnimationElement::OPACITY);
+    animator->SchedulePauseForProperties(
+        delay, ui::LayerAnimationElement::OPACITY |
+                   ui::LayerAnimationElement::TRANSFORM);
   }
 }
 
@@ -88,18 +119,20 @@ void DoSplitviewOpacityAnimation(ui::Layer* layer,
     case SPLITVIEW_ANIMATION_OTHER_HIGHLIGHT_FADE_OUT:
     case SPLITVIEW_ANIMATION_SELECTOR_ITEM_FADE_OUT:
     case SPLITVIEW_ANIMATION_TEXT_FADE_OUT:
+    case SPLITVIEW_ANIMATION_TEXT_FADE_OUT_WITH_HIGHLIGHT:
       target_opacity = 0.f;
       break;
     case SPLITVIEW_ANIMATION_HIGHLIGHT_FADE_IN:
     case SPLITVIEW_ANIMATION_OTHER_HIGHLIGHT_FADE_IN:
-    case SPLITVIEW_ANIMATION_PHANTOM_FADE_IN:
-      target_opacity = kPhantomHighlightOpacity;
+    case SPLITVIEW_ANIMATION_PREVIEW_AREA_FADE_IN:
+      target_opacity = kPreviewAreaHighlightOpacity;
       break;
-    case SPLITVIEW_ANIMATION_PHANTOM_FADE_OUT:
+    case SPLITVIEW_ANIMATION_PREVIEW_AREA_FADE_OUT:
       target_opacity = kHighlightOpacity;
       break;
     case SPLITVIEW_ANIMATION_SELECTOR_ITEM_FADE_IN:
     case SPLITVIEW_ANIMATION_TEXT_FADE_IN:
+    case SPLITVIEW_ANIMATION_TEXT_FADE_IN_WITH_HIGHLIGHT:
       target_opacity = 1.f;
       break;
     default:
@@ -112,12 +145,15 @@ void DoSplitviewOpacityAnimation(ui::Layer* layer,
 
   base::TimeDelta duration;
   gfx::Tween::Type tween;
+  ui::LayerAnimator::PreemptionStrategy preemption_strategy;
   base::TimeDelta delay;
-  GetAnimationValuesForType(type, &duration, &tween, &delay);
+  GetAnimationValuesForType(type, &duration, &tween, &preemption_strategy,
+                            &delay);
 
   ui::LayerAnimator* animator = layer->GetAnimator();
   ui::ScopedLayerAnimationSettings settings(animator);
-  ApplyAnimationSettings(&settings, animator, duration, tween, delay);
+  ApplyAnimationSettings(&settings, animator, duration, tween,
+                         preemption_strategy, delay);
   layer->SetOpacity(target_opacity);
 }
 
@@ -129,9 +165,12 @@ void DoSplitviewTransformAnimation(ui::Layer* layer,
     return;
 
   switch (type) {
-    case SPLITVIEW_ANIMATION_PHANTOM_SLIDE_IN_OUT:
     case SPLITVIEW_ANIMATION_OTHER_HIGHLIGHT_SLIDE_IN:
     case SPLITVIEW_ANIMATION_OTHER_HIGHLIGHT_SLIDE_OUT:
+    case SPLITVIEW_ANIMATION_PREVIEW_AREA_SLIDE_IN_OUT:
+    case SPLITVIEW_ANIMATION_RESTORE_OVERVIEW_WINDOW:
+    case SPLITVIEW_ANIMATION_TEXT_SLIDE_IN:
+    case SPLITVIEW_ANIMATION_TEXT_SLIDE_OUT:
       break;
     default:
       NOTREACHED() << "Not a valid split view transform type.";
@@ -140,12 +179,15 @@ void DoSplitviewTransformAnimation(ui::Layer* layer,
 
   base::TimeDelta duration;
   gfx::Tween::Type tween;
+  ui::LayerAnimator::PreemptionStrategy preemption_strategy;
   base::TimeDelta delay;
-  GetAnimationValuesForType(type, &duration, &tween, &delay);
+  GetAnimationValuesForType(type, &duration, &tween, &preemption_strategy,
+                            &delay);
 
   ui::LayerAnimator* animator = layer->GetAnimator();
   ui::ScopedLayerAnimationSettings settings(animator);
-  ApplyAnimationSettings(&settings, animator, duration, tween, delay);
+  ApplyAnimationSettings(&settings, animator, duration, tween,
+                         preemption_strategy, delay);
   if (observer)
     settings.AddObserver(observer);
   layer->SetTransform(target_transform);

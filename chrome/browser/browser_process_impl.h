@@ -26,10 +26,10 @@
 #include "components/keep_alive_registry/keep_alive_state_observer.h"
 #include "components/nacl/common/buildflags.h"
 #include "components/prefs/pref_change_registrar.h"
-#include "extensions/features/features.h"
-#include "media/media_features.h"
-#include "ppapi/features/features.h"
-#include "printing/features/features.h"
+#include "extensions/buildflags/buildflags.h"
+#include "media/media_buildflags.h"
+#include "ppapi/buildflags/buildflags.h"
+#include "printing/buildflags/buildflags.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 
 class ChromeChildProcessWatcher;
@@ -42,6 +42,10 @@ class PrefRegistrySimple;
 
 #if BUILDFLAG(ENABLE_PLUGINS)
 class PluginsResourceService;
+#endif
+
+#if BUILDFLAG(ENABLE_WEBRTC)
+class WebRtcEventLogManager;
 #endif
 
 namespace base {
@@ -65,6 +69,10 @@ namespace policy {
 class ChromeBrowserPolicyConnector;
 class PolicyService;
 }  // namespace policy
+
+namespace resource_coordinator {
+class TabLifecycleUnitSource;
+}
 
 // Real implementation of BrowserProcess that creates and returns the services.
 class BrowserProcessImpl : public BrowserProcess,
@@ -344,6 +352,12 @@ class BrowserProcessImpl : public BrowserProcess,
 #if BUILDFLAG(ENABLE_WEBRTC)
   // Lazily initialized.
   std::unique_ptr<WebRtcLogUploader> webrtc_log_uploader_;
+
+  // WebRtcEventLogManager is a singleton which is instaniated before anything
+  // that needs it, and lives until ~BrowserProcessImpl(). This allows it to
+  // safely post base::Unretained(this) references to an internally owned task
+  // queue, since after ~BrowserProcessImpl(), those tasks would no longer run.
+  std::unique_ptr<WebRtcEventLogManager> webrtc_event_log_manager_;
 #endif
 
   std::unique_ptr<network_time::NetworkTimeTracker> network_time_tracker_;
@@ -358,6 +372,8 @@ class BrowserProcessImpl : public BrowserProcess,
   // Any change to this #ifdef must be reflected as well in
   // chrome/browser/resource_coordinator/tab_manager_browsertest.cc
   std::unique_ptr<resource_coordinator::TabManager> tab_manager_;
+  std::unique_ptr<resource_coordinator::TabLifecycleUnitSource>
+      tab_lifecycle_unit_source_;
 #endif
 
   shell_integration::DefaultWebClientState cached_default_web_client_state_ =

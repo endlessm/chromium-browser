@@ -24,7 +24,7 @@
 #include "components/variations/variations_associated_data.h"
 #include "ios/chrome/browser/browsing_data/browsing_data_features.h"
 #include "ios/chrome/browser/chrome_switches.h"
-#import "ios/chrome/browser/ui/ntp/recent_tabs/recent_tabs_feature.h"
+#include "ios/chrome/browser/ui/ui_feature_flags.h"
 #include "ios/chrome/browser/ui/user_feedback_features.h"
 #include "ios/web/public/web_view_creation_util.h"
 
@@ -117,6 +117,10 @@ bool IsNewFeedbackKitEnabled() {
   return base::FeatureList::IsEnabled(kFeedbackKitV2);
 }
 
+bool IsNewFeedbackKitEnabledWithSSOService() {
+  return base::FeatureList::IsEnabled(kFeedbackKitV2WithSSOService);
+}
+
 bool IsThirdPartyKeyboardWorkaroundEnabled() {
   // Check if the experimental flag is forced on or off.
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
@@ -132,7 +136,11 @@ bool IsThirdPartyKeyboardWorkaroundEnabled() {
 }
 
 bool IsRecentTabsUIRebootEnabled() {
-  return base::FeatureList::IsEnabled(kRecentTabsUIReboot);
+  return base::FeatureList::IsEnabled(kUIRefreshPhase1);
+}
+
+bool IsCollectionsUIRebootEnabled() {
+  return base::FeatureList::IsEnabled(kCollectionsUIReboot);
 }
 
 }  // namespace experimental_flags

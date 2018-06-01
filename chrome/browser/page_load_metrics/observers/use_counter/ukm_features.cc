@@ -14,7 +14,6 @@ bool IsAllowedUkmFeature(blink::mojom::WebFeature feature) {
       const base::flat_set<WebFeature>, opt_in_features,
       ({
           WebFeature::kNavigatorVibrate, WebFeature::kNavigatorVibrateSubFrame,
-          WebFeature::kVibrateWithoutUserGesture,
           WebFeature::kTouchEventPreventedNoTouchAction,
           WebFeature::kTouchEventPreventedForcedDocumentPassiveNoTouchAction,
           // kDataUriHasOctothorpe may not be recorded correctly for iframes.
@@ -25,6 +24,9 @@ bool IsAllowedUkmFeature(blink::mojom::WebFeature feature) {
           WebFeature::kMixedContentAudio, WebFeature::kMixedContentImage,
           WebFeature::kMixedContentVideo, WebFeature::kMixedContentPlugin,
           WebFeature::kOpenerNavigationWithoutGesture,
+          WebFeature::kUsbRequestDevice, WebFeature::kXMLHttpRequestSynchronous,
+          WebFeature::kPaymentHandler,
+          WebFeature::kPaymentRequestShowWithoutGesture,
       }));
   return opt_in_features.count(feature);
 }

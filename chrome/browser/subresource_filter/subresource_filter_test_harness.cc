@@ -6,7 +6,6 @@
 #include <utility>
 
 #include "base/feature_list.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -90,8 +89,7 @@ void SubresourceFilterTestHarness::SetUp() {
           base::ThreadTaskRunnerHandle::Get());
   auto ruleset_service = std::make_unique<subresource_filter::RulesetService>(
       &pref_service_, base::ThreadTaskRunnerHandle::Get(),
-      base::ThreadTaskRunnerHandle::Get(), content_service.get(),
-      ruleset_service_dir_.GetPath());
+      content_service.get(), ruleset_service_dir_.GetPath());
   content_service->set_ruleset_service(std::move(ruleset_service));
   TestingBrowserProcess::GetGlobal()->SetRulesetService(
       std::move(content_service));

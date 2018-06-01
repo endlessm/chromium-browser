@@ -14,20 +14,31 @@
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_constants.h"
 #import "ios/chrome/browser/ui/toolbar/toolbar_snapshot_providing.h"
+#import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
+#import "ios/chrome/browser/ui/util/named_guide_util.h"
+#import "ui/gfx/ios/NSString+CrStringDrawing.h"
 #import "ui/gfx/ios/uikit_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
+namespace {
+
+// Left margin for search icon.
+const CGFloat kSearchIconLeftMargin = 9;
+
+}  // namespace
+
 @interface ContentSuggestionsHeaderView ()<ToolbarSnapshotProviding>
 
-// Layout constraints for fake omnibox background image.
+// Layout constraints for fake omnibox background image and blur.
 @property(nonatomic, strong) NSLayoutConstraint* backgroundHeightConstraint;
 @property(nonatomic, strong) NSLayoutConstraint* backgroundLeadingConstraint;
 @property(nonatomic, strong) NSLayoutConstraint* backgroundTrailingConstraint;
+@property(nonatomic, strong) NSLayoutConstraint* blurTopConstraint;
 
 @end
 
@@ -36,6 +47,7 @@
 @synthesize backgroundHeightConstraint = _backgroundHeightConstraint;
 @synthesize backgroundLeadingConstraint = _backgroundLeadingConstraint;
 @synthesize backgroundTrailingConstraint = _backgroundTrailingConstraint;
+@synthesize blurTopConstraint = _blurTopConstraint;
 @synthesize toolBarView = _toolBarView;
 
 #pragma mark - Public
@@ -48,6 +60,11 @@
   return self;
 }
 
+- (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
+  [super traitCollectionDidChange:previousTraitCollection];
+  self.toolBarView.hidden = IsRegularXRegularSizeClass(self);
+}
+
 #pragma mark - NTPHeaderViewAdapter
 
 - (void)addToolbarView:(UIView*)toolbarView {
@@ -56,11 +73,14 @@
   [self addSubview:self.toolBarView];
   // TODO(crbug.com/808431) This logic is duplicated in various places and
   // should be refactored away for content suggestions.
-  AddNamedGuide(kOmniboxGuide, self);
-  AddNamedGuide(kBackButtonGuide, self);
-  AddNamedGuide(kForwardButtonGuide, self);
-  AddNamedGuide(kToolsMenuGuide, self);
-  AddNamedGuide(kTabSwitcherGuide, self);
+  NSArray<GuideName*>* guideNames = @[
+    kOmniboxGuide,
+    kBackButtonGuide,
+    kForwardButtonGuide,
+    kToolsMenuGuide,
+    kTabSwitcherGuide,
+  ];
+  AddNamedGuidesToView(guideNames, self);
   [NSLayoutConstraint activateConstraints:@[
     [self.toolBarView.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
     [self.toolBarView.topAnchor constraintEqualToAnchor:self.topAnchor],
@@ -70,28 +90,45 @@
 }
 
 - (void)addViewsToSearchField:(UIView*)searchField {
-  UIBlurEffect* blurEffect = [[ToolbarButtonFactory alloc] initWithStyle:NORMAL]
-                                 .toolbarConfiguration.blurEffect;
+  ToolbarButtonFactory* buttonFactory =
+      [[ToolbarButtonFactory alloc] initWithStyle:NORMAL];
+  UIBlurEffect* blurEffect = buttonFactory.toolbarConfiguration.blurEffect;
   UIVisualEffectView* blur =
       [[UIVisualEffectView alloc] initWithEffect:blurEffect];
   blur.layer.cornerRadius = kAdaptiveLocationBarCornerRadius;
   [searchField insertSubview:blur atIndex:0];
   blur.translatesAutoresizingMaskIntoConstraints = NO;
-  AddSameConstraints(blur, searchField);
+  self.blurTopConstraint =
+      [blur.topAnchor constraintEqualToAnchor:searchField.topAnchor];
+  [NSLayoutConstraint activateConstraints:@[
+    [blur.leadingAnchor constraintEqualToAnchor:searchField.leadingAnchor],
+    [blur.trailingAnchor constraintEqualToAnchor:searchField.trailingAnchor],
+    self.blurTopConstraint,
+    [blur.bottomAnchor constraintEqualToAnchor:searchField.bottomAnchor]
+  ]];
+
+  UIVisualEffect* vibrancy = [buttonFactory.toolbarConfiguration
+      vibrancyEffectForBlurEffect:blurEffect];
+  UIVisualEffectView* vibrancyView =
+      [[UIVisualEffectView alloc] initWithEffect:vibrancy];
+  [searchField insertSubview:vibrancyView atIndex:1];
+  vibrancyView.translatesAutoresizingMaskIntoConstraints = NO;
+  AddSameConstraints(vibrancyView, searchField);
 
   UIView* backgroundContainer = [[UIView alloc] init];
   backgroundContainer.userInteractionEnabled = NO;
   backgroundContainer.backgroundColor =
-      [UIColor colorWithWhite:0 alpha:kAdaptiveLocationBarBackgroundAlpha];
+      UIColorFromRGB(content_suggestions::kSearchFieldBackgroundColor);
   backgroundContainer.layer.cornerRadius = kAdaptiveLocationBarCornerRadius;
-  [searchField addSubview:backgroundContainer];
+  [vibrancyView.contentView addSubview:backgroundContainer];
+
   backgroundContainer.translatesAutoresizingMaskIntoConstraints = NO;
   self.backgroundLeadingConstraint = [backgroundContainer.leadingAnchor
       constraintEqualToAnchor:searchField.leadingAnchor];
   self.backgroundTrailingConstraint = [backgroundContainer.trailingAnchor
       constraintEqualToAnchor:searchField.trailingAnchor];
-  self.backgroundHeightConstraint =
-      [backgroundContainer.heightAnchor constraintEqualToConstant:0];
+  self.backgroundHeightConstraint = [backgroundContainer.heightAnchor
+      constraintEqualToConstant:content_suggestions::kSearchFieldHeight];
   [NSLayoutConstraint activateConstraints:@[
     [backgroundContainer.centerYAnchor
         constraintEqualToAnchor:searchField.centerYAnchor],
@@ -100,13 +137,24 @@
     self.backgroundHeightConstraint,
   ]];
 
-  // TODO(crbug.com/805644) Update fake omnibox theme.
+  UIImage* search_icon = [UIImage imageNamed:@"ntp_search_icon"];
+  UIImageView* search_view = [[UIImageView alloc] initWithImage:search_icon];
+  [vibrancyView.contentView addSubview:search_view];
+  search_view.translatesAutoresizingMaskIntoConstraints = NO;
+  [NSLayoutConstraint activateConstraints:@[
+    [search_view.centerYAnchor
+        constraintEqualToAnchor:backgroundContainer.centerYAnchor],
+    [search_view.leadingAnchor
+        constraintEqualToAnchor:backgroundContainer.leadingAnchor
+                       constant:kSearchIconLeftMargin],
+  ]];
 }
 
-- (CGFloat)searchFieldProgressForOffset:(CGFloat)offset {
+- (CGFloat)searchFieldProgressForOffset:(CGFloat)offset
+                         safeAreaInsets:(UIEdgeInsets)safeAreaInsets {
   // The scroll offset at which point searchField's frame should stop growing.
-  CGFloat maxScaleOffset =
-      self.frame.size.height - ntp_header::kMinHeaderHeight;
+  CGFloat maxScaleOffset = self.frame.size.height -
+                           ntp_header::kMinHeaderHeight - safeAreaInsets.top;
   // The scroll offset at which point searchField's frame should start
   // growing.
   CGFloat startScaleOffset = maxScaleOffset - ntp_header::kAnimationDistance;
@@ -121,6 +169,8 @@
 - (void)updateSearchFieldWidth:(NSLayoutConstraint*)widthConstraint
                         height:(NSLayoutConstraint*)heightConstraint
                      topMargin:(NSLayoutConstraint*)topMarginConstraint
+                     hintLabel:(UILabel*)hintLabel
+                hintLabelWidth:(NSLayoutConstraint*)hintLabelWidthConstraint
             subviewConstraints:(NSArray*)constraints
                      forOffset:(CGFloat)offset
                    screenWidth:(CGFloat)screenWidth
@@ -130,22 +180,31 @@
   if (screenWidth == 0 || contentWidth == 0)
     return;
 
-  CGFloat percent = [self searchFieldProgressForOffset:offset];
-
-  if (self.cr_widthSizeClass == REGULAR && self.cr_heightSizeClass == REGULAR) {
-    self.alpha = 1 - percent;
-    return;
-  }
-
   CGFloat searchFieldNormalWidth =
       content_suggestions::searchFieldWidth(contentWidth);
+
+  CGFloat percent =
+      [self searchFieldProgressForOffset:offset safeAreaInsets:safeAreaInsets];
+  if (IsRegularXRegularSizeClass(self)) {
+    self.alpha = 1 - percent;
+    widthConstraint.constant = searchFieldNormalWidth;
+    hintLabelWidthConstraint.active = NO;
+    self.blurTopConstraint.constant = 0;
+    return;
+  } else {
+    hintLabelWidthConstraint.active = YES;
+    self.alpha = 1;
+  }
+
+  // Grow the blur to cover the safeArea top.
+  self.blurTopConstraint.constant = -safeAreaInsets.top * percent;
 
   // Calculate the amount to grow the width and height of searchField so that
   // its frame covers the entire toolbar area.
   CGFloat maxXInset =
       ui::AlignValueToUpperPixel((searchFieldNormalWidth - screenWidth) / 2);
   CGFloat maxHeightDiff =
-      ntp_header::kToolbarHeight - content_suggestions::kSearchFieldHeight;
+      ntp_header::ToolbarHeight() - content_suggestions::kSearchFieldHeight;
 
   widthConstraint.constant = searchFieldNormalWidth - 2 * maxXInset * percent;
   topMarginConstraint.constant = -content_suggestions::searchFieldTopMargin() -
@@ -157,21 +216,28 @@
   // it's where the focused adapative toolbar focuses.
   self.backgroundLeadingConstraint.constant =
       (safeAreaInsets.left + kExpandedLocationBarHorizontalMargin) * percent;
-  // TODO(crbug.com/805636) Placeholder for specifications. For now using hard
-  // coded size of cancel button of 64pt.
-  CGFloat kCancelButtonWidth = 64;
   self.backgroundTrailingConstraint.constant =
-      -(safeAreaInsets.right + kExpandedLocationBarHorizontalMargin +
-        kCancelButtonWidth) *
-      percent;
-  // TODO(crbug.com/805636) Placeholder for specifications. For now using hard
-  // coded height of location bar, which is 42 or
-  // kToolbarHeight - 2 * kLocationBarVerticalMargin
-  CGFloat kLocationBarHeight = 42;
+      -(safeAreaInsets.right + kExpandedLocationBarHorizontalMargin) * percent;
+  // TODO(crbug.com/805645) This should take into account the actual location
+  // bar height in the toolbar. Update this once that's been updated for the
+  // refresh and remove |kLocationBarHeight|.
+  CGFloat kLocationBarHeight = 38;
   CGFloat minHeightDiff =
       kLocationBarHeight - content_suggestions::kSearchFieldHeight;
   self.backgroundHeightConstraint.constant =
       content_suggestions::kSearchFieldHeight + minHeightDiff * percent;
+
+  // TODO(crbug.com/805645) This should take into account the actual label width
+  // of the toolbar location omnibox box hint text. Update this once that's been
+  // updated for the refresh and remove |kHintShrinkWidth|.
+  CGFloat kHintShrinkWidth = 30;
+  CGFloat hintWidth =
+      [hintLabel.text
+          cr_boundingSizeWithSize:CGSizeMake(widthConstraint.constant, INFINITY)
+                             font:hintLabel.font]
+          .width;
+  hintLabelWidthConstraint.constant = hintWidth - kHintShrinkWidth * percent;
+  hintLabelWidthConstraint.active = YES;
 
   // Adjust the position of the search field's subviews by adjusting their
   // constraint constant value.

@@ -9,7 +9,6 @@
 #include <memory>
 #include <utility>
 
-#include "base/ios/ios_util.h"
 #include "base/mac/foundation_util.h"
 #include "base/path_service.h"
 #include "base/scoped_observer.h"
@@ -161,15 +160,7 @@ class CRWWebControllerTest : public WebTestWithWebController {
   // Creates WebView mock.
   UIView* CreateMockWebView() {
     id result = [OCMockObject mockForClass:[WKWebView class]];
-
-    if (@available(iOS 10, *)) {
-      [[result stub] serverTrust];
-    }
-#if !defined(__IPHONE_10_0) || __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_10_0
-    else {
-      [[result stub] certificateChain];
-    }
-#endif
+    [[result stub] serverTrust];
 
     mock_wk_list_ = [[CRWFakeBackForwardList alloc] init];
     OCMStub([result backForwardList]).andReturn(mock_wk_list_);
@@ -676,6 +667,22 @@ TEST_F(CRWWebControllerDownloadTest, IFrameCreationWithNSHTTPURLResponse) {
   EXPECT_TRUE(ui::PageTransitionTypeIncludingQualifiersIs(
       task->GetTransitionType(),
       ui::PageTransition::PAGE_TRANSITION_AUTO_SUBFRAME));
+}
+
+// Tests that webView:decidePolicyForNavigationResponse:decisionHandler: does
+// not create the DownloadTask for unsupported data:// URLs.
+TEST_F(CRWWebControllerDownloadTest, DataUrlResponse) {
+  // Simulate download response.
+  NSURLResponse* response =
+      [[NSHTTPURLResponse alloc] initWithURL:[NSURL URLWithString:@"data:data"]
+                                  statusCode:200
+                                 HTTPVersion:nil
+                                headerFields:nil];
+  ASSERT_TRUE(CallDecidePolicyForNavigationResponseWithResponse(
+      response, /*for_main_frame=*/YES));
+
+  // Verify that download task was not created.
+  EXPECT_TRUE(delegate_.alive_download_tasks().empty());
 }
 
 // Tests |currentURLWithTrustLevel:| method.

@@ -1,7 +1,7 @@
 " Vim syntax file
 " Language:   llvm
 " Maintainer: The LLVM team, http://llvm.org/
-" Version:      $Revision: 325599 $
+" Version:      $Revision: 328211 $
 
 if version < 600
   syntax clear
@@ -75,6 +75,8 @@ syn keyword llvmKeyword
       \ distinct
       \ dllexport
       \ dllimport
+      \ dso_local
+      \ dso_preemptable
       \ except
       \ external
       \ externally_initialized
@@ -135,7 +137,7 @@ syn keyword llvmKeyword
       \ seq_cst
       \ sideeffect
       \ signext
-      \ singlethread
+      \ syncscope
       \ source_filename
       \ speculatable
       \ spir_func

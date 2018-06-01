@@ -17,6 +17,7 @@
 #include "chromeos/dbus/arc_oemcrypto_client.h"
 #include "chromeos/dbus/auth_policy_client.h"
 #include "chromeos/dbus/biod/biod_client.h"
+#include "chromeos/dbus/concierge_client.h"
 #include "chromeos/dbus/cras_audio_client.h"
 #include "chromeos/dbus/cros_disks_client.h"
 #include "chromeos/dbus/cryptohome_client.h"
@@ -137,6 +138,10 @@ BiodClient* DBusThreadManager::GetBiodClient() {
   return clients_common_->biod_client_.get();
 }
 
+ConciergeClient* DBusThreadManager::GetConciergeClient() {
+  return clients_browser_ ? clients_browser_->concierge_client_.get() : nullptr;
+}
+
 CrasAudioClient* DBusThreadManager::GetCrasAudioClient() {
   return clients_common_->cras_audio_client_.get();
 }
@@ -247,7 +252,7 @@ UpdateEngineClient* DBusThreadManager::GetUpdateEngineClient() {
 }
 
 UpstartClient* DBusThreadManager::GetUpstartClient() {
-  return clients_browser_ ? clients_browser_->upstart_client_.get() : nullptr;
+  return clients_common_ ? clients_common_->upstart_client_.get() : nullptr;
 }
 
 VirtualFileProviderClient* DBusThreadManager::GetVirtualFileProviderClient() {
@@ -346,6 +351,12 @@ void DBusThreadManagerSetter::SetAuthPolicyClient(
 void DBusThreadManagerSetter::SetBiodClient(
     std::unique_ptr<BiodClient> client) {
   DBusThreadManager::Get()->clients_common_->biod_client_ = std::move(client);
+}
+
+void DBusThreadManagerSetter::SetConciergeClient(
+    std::unique_ptr<ConciergeClient> client) {
+  DBusThreadManager::Get()->clients_browser_->concierge_client_ =
+      std::move(client);
 }
 
 void DBusThreadManagerSetter::SetCrasAudioClient(
@@ -471,7 +482,7 @@ void DBusThreadManagerSetter::SetUpdateEngineClient(
 
 void DBusThreadManagerSetter::SetUpstartClient(
     std::unique_ptr<UpstartClient> client) {
-  DBusThreadManager::Get()->clients_browser_->upstart_client_ =
+  DBusThreadManager::Get()->clients_common_->upstart_client_ =
       std::move(client);
 }
 

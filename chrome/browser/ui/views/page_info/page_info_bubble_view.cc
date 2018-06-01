@@ -75,6 +75,10 @@
 #include "chrome/browser/ui/views/location_bar/location_icon_view.h"
 #endif
 
+#if defined(SAFE_BROWSING_DB_LOCAL)
+#include "chrome/browser/safe_browsing/chrome_password_protection_service.h"
+#endif
+
 using bubble_anchor_util::GetPageInfoAnchorRect;
 using bubble_anchor_util::GetPageInfoAnchorView;
 using views::GridLayout;
@@ -523,28 +527,25 @@ PageInfoBubbleView::~PageInfoBubbleView() {}
 
 // static
 views::BubbleDialogDelegateView* PageInfoBubbleView::CreatePageInfoBubble(
-    Browser* browser,
+    views::View* anchor_view,
+    const gfx::Rect& anchor_rect,
+    gfx::NativeWindow parent_window,
+    Profile* profile,
     content::WebContents* web_contents,
     const GURL& url,
-    const security_state::SecurityInfo& security_info,
-    bubble_anchor_util::Anchor anchor) {
-  views::View* anchor_view = GetPageInfoAnchorView(browser, anchor);
-  gfx::Rect anchor_rect =
-      anchor_view ? gfx::Rect() : GetPageInfoAnchorRect(browser);
-  gfx::NativeView parent_window =
-      platform_util::GetViewForWindow(browser->window()->GetNativeWindow());
+    const security_state::SecurityInfo& security_info) {
+  gfx::NativeView parent_view = platform_util::GetViewForWindow(parent_window);
 
   if (url.SchemeIs(content::kChromeUIScheme) ||
       url.SchemeIs(content::kChromeDevToolsScheme) ||
       url.SchemeIs(extensions::kExtensionScheme) ||
       url.SchemeIs(content::kViewSourceScheme)) {
-    return new InternalPageInfoBubbleView(anchor_view, anchor_rect,
-                                          parent_window, web_contents, url);
+    return new InternalPageInfoBubbleView(anchor_view, anchor_rect, parent_view,
+                                          web_contents, url);
   }
 
-  return new PageInfoBubbleView(anchor_view, anchor_rect, parent_window,
-                                browser->profile(), web_contents, url,
-                                security_info);
+  return new PageInfoBubbleView(anchor_view, anchor_rect, parent_view, profile,
+                                web_contents, url, security_info);
 }
 
 PageInfoBubbleView::PageInfoBubbleView(
@@ -872,7 +873,7 @@ void PageInfoBubbleView::SetPermissionInfo(
 
 void PageInfoBubbleView::SetIdentityInfo(const IdentityInfo& identity_info) {
   std::unique_ptr<PageInfoUI::SecurityDescription> security_description =
-      identity_info.GetSecurityDescription();
+      GetSecurityDescription(identity_info);
 
   // Set the bubble title, update the title label text, then apply color.
   set_window_title(security_description->summary);
@@ -947,6 +948,25 @@ void PageInfoBubbleView::SetIdentityInfo(const IdentityInfo& identity_info) {
   Layout();
   SizeToContents();
 }
+
+#if defined(SAFE_BROWSING_DB_LOCAL)
+std::unique_ptr<PageInfoUI::SecurityDescription>
+PageInfoBubbleView::CreateSecurityDescriptionForPasswordReuse() const {
+  std::unique_ptr<PageInfoUI::SecurityDescription> security_description(
+      new PageInfoUI::SecurityDescription());
+  security_description->summary_style = SecuritySummaryColor::RED;
+  security_description->summary =
+      safe_browsing::PasswordProtectionService::ShouldShowSofterWarning()
+          ? l10n_util::GetStringUTF16(
+                IDS_PAGE_INFO_CHANGE_PASSWORD_SUMMARY_SOFTER)
+          : l10n_util::GetStringUTF16(IDS_PAGE_INFO_CHANGE_PASSWORD_SUMMARY);
+  security_description->details =
+      safe_browsing::ChromePasswordProtectionService::
+          GetPasswordProtectionService(profile_)
+              ->GetWarningDetailText();
+  return security_description;
+}
+#endif
 
 views::View* PageInfoBubbleView::CreateSiteSettingsView() {
   views::View* site_settings_view = new views::View();
@@ -1034,12 +1054,18 @@ void ShowPageInfoDialogImpl(Browser* browser,
                                            security_info, anchor);
   }
 #endif
+  views::View* anchor_view = GetPageInfoAnchorView(browser, anchor);
+  gfx::Rect anchor_rect =
+      anchor_view ? gfx::Rect() : GetPageInfoAnchorRect(browser);
+  gfx::NativeWindow parent_window = browser->window()->GetNativeWindow();
   views::BubbleDialogDelegateView* bubble =
       PageInfoBubbleView::CreatePageInfoBubble(
-          browser, web_contents, virtual_url, security_info, anchor);
+          anchor_view, anchor_rect, parent_window, browser->profile(),
+          web_contents, virtual_url, security_info);
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser);
-  bubble->GetWidget()->AddObserver(
-      browser_view->GetLocationBarView()->location_icon_view());
+  auto* location_bar = browser_view->GetLocationBarView();
+  if (location_bar)
+    location_bar->location_icon_view()->OnBubbleCreated(bubble->GetWidget());
   bubble->GetWidget()->Show();
 }
 #endif

@@ -6,7 +6,7 @@ package org.chromium.chromecast.shell;
 
 import android.app.Fragment;
 import android.content.Context;
-import android.net.Uri;
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -16,7 +16,6 @@ import android.widget.Toast;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
-import org.chromium.content_public.browser.WebContents;
 
 /**
  * Fragment for displaying a WebContents in CastShell.
@@ -37,6 +36,10 @@ public class CastWebContentsFragment extends Fragment {
     private CastWebContentsSurfaceHelper mSurfaceHelper;
 
     private View mFragmentRootView;
+
+    private String mAppId;
+
+    private int mInitialVisiblityPriority;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -76,25 +79,27 @@ public class CastWebContentsFragment extends Fragment {
     public void onStart() {
         Log.d(TAG, "onStart");
         super.onStart();
+
         if (mSurfaceHelper != null) {
+            sendIntentSync(
+                    CastWebContentsIntentUtils.onVisibilityChange(mSurfaceHelper.getInstanceId(),
+                            CastWebContentsIntentUtils.VISIBITY_TYPE_FULL_SCREEN));
             return;
         }
+
         mSurfaceHelper = new CastWebContentsSurfaceHelper(getActivity(), /* hostActivity */
                     (FrameLayout) getView().findViewById(R.id.web_contents_container),
                     true /* showInFragment */);
         Bundle bundle = getArguments();
-        bundle.setClassLoader(WebContents.class.getClassLoader());
-        String uriString = bundle.getString(CastWebContentsComponent.INTENT_EXTRA_URI);
-        if (uriString == null) {
-            return;
-        }
-        Uri uri = Uri.parse(uriString);
-        WebContents webContents = (WebContents) bundle.getParcelable(
-                CastWebContentsComponent.ACTION_EXTRA_WEB_CONTENTS);
+        CastWebContentsSurfaceHelper.StartParams params =
+                CastWebContentsSurfaceHelper.StartParams.fromBundle(bundle);
+        if (params == null) return;
 
-        boolean touchInputEnabled =
-                bundle.getBoolean(CastWebContentsComponent.ACTION_EXTRA_TOUCH_INPUT_ENABLED, false);
-        mSurfaceHelper.onNewWebContents(uri, webContents, touchInputEnabled);
+        mAppId = CastWebContentsIntentUtils.getAppId(bundle);
+        mInitialVisiblityPriority = CastWebContentsIntentUtils.getVisibilityPriority(bundle);
+        mSurfaceHelper.onNewStartParams(params);
+        sendIntentSync(CastWebContentsIntentUtils.onVisibilityChange(mSurfaceHelper.getInstanceId(),
+                CastWebContentsIntentUtils.VISIBITY_TYPE_FULL_SCREEN));
     }
 
     @Override
@@ -118,6 +123,8 @@ public class CastWebContentsFragment extends Fragment {
     @Override
     public void onStop() {
         Log.d(TAG, "onStop");
+        sendIntentSync(CastWebContentsIntentUtils.onVisibilityChange(
+                mSurfaceHelper.getInstanceId(), CastWebContentsIntentUtils.VISIBITY_TYPE_HIDDEN));
         super.onStop();
     }
 
@@ -128,5 +135,9 @@ public class CastWebContentsFragment extends Fragment {
             mSurfaceHelper.onDestroy();
         }
         super.onDestroy();
+    }
+
+    private void sendIntentSync(Intent in) {
+        CastWebContentsIntentUtils.getLocalBroadcastManager().sendBroadcastSync(in);
     }
 }

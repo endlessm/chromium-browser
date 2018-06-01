@@ -9,13 +9,9 @@
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "printing/features/features.h"
+#include "printing/buildflags/buildflags.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/events/event_constants.h"
-
-#if defined(OS_CHROMEOS)
-#include "ash/accelerators/accelerator_table.h"
-#endif
 
 namespace {
 
@@ -156,8 +152,6 @@ const AcceleratorMapping kAcceleratorMap[] = {
     // handled via WM_APPCOMMAND.
     {ui::VKEY_BROWSER_SEARCH, ui::EF_NONE, IDC_FOCUS_SEARCH},
     {ui::VKEY_M, ui::EF_SHIFT_DOWN | kPlatformModifier, IDC_SHOW_AVATAR_MENU},
-  // For each entry until the end of the !OS_CHROMEOS block, and an entry into
-  // kChromeCmdId2AshActionId below if Ash has a corresponding accelerator.
 #if !defined(OS_MACOSX)
     {ui::VKEY_Q, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN, IDC_EXIT},
 #endif  // !OS_MACOSX
@@ -270,29 +264,6 @@ const int kRepeatableCommandIds[] = {
 };
 const size_t kRepeatableCommandIdsLength = arraysize(kRepeatableCommandIds);
 
-#if defined(OS_CHROMEOS)
-// Below we map Chrome command ids to Ash action ids for commands that have
-// an shortcut that is handled by Ash (instead of Chrome). Adding entries
-// here will show shortcut text on menus. See comment above.
-struct ChromeCmdId2AshActionId {
-  const int chrome_cmd_id;
-  const ash::AcceleratorAction ash_action_id;
-};
-const ChromeCmdId2AshActionId kChromeCmdId2AshActionId[] = {
-#if defined(GOOGLE_CHROME_BUILD)
-  { IDC_FEEDBACK,             ash::OPEN_FEEDBACK_PAGE },
-#endif
-  { IDC_EXIT,                 ash::EXIT },
-  { IDC_NEW_INCOGNITO_WINDOW, ash::NEW_INCOGNITO_WINDOW },
-  { IDC_NEW_TAB,              ash::NEW_TAB },
-  { IDC_NEW_WINDOW,           ash::NEW_WINDOW },
-  { IDC_RESTORE_TAB,          ash::RESTORE_TAB },
-  { IDC_TASK_MANAGER,         ash::SHOW_TASK_MANAGER },
-};
-const size_t kChromeCmdId2AshActionIdLength =
-    arraysize(kChromeCmdId2AshActionId);
-#endif  // defined(OS_CHROMEOS)
-
 } // namespace
 
 std::vector<AcceleratorMapping> GetAcceleratorList() {
@@ -300,25 +271,6 @@ std::vector<AcceleratorMapping> GetAcceleratorList() {
       std::vector<AcceleratorMapping>, accelerators,
       (std::begin(kAcceleratorMap), std::end(kAcceleratorMap)));
   return accelerators;
-}
-
-bool GetAshAcceleratorForCommandId(int command_id,
-                                   ui::Accelerator* accelerator) {
-#if defined(OS_CHROMEOS)
-  for (size_t i = 0; i < kChromeCmdId2AshActionIdLength; ++i) {
-    if (command_id == kChromeCmdId2AshActionId[i].chrome_cmd_id) {
-      for (size_t j = 0; j < ash::kAcceleratorDataLength; ++j) {
-        if (kChromeCmdId2AshActionId[i].ash_action_id ==
-            ash::kAcceleratorData[j].action) {
-          *accelerator = ui::Accelerator(ash::kAcceleratorData[j].keycode,
-                                         ash::kAcceleratorData[j].modifiers);
-          return true;
-        }
-      }
-    }
-  }
-#endif  // defined(OS_CHROMEOS)
-  return false;
 }
 
 bool GetStandardAcceleratorForCommandId(int command_id,

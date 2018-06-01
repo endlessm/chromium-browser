@@ -5,12 +5,10 @@
 #include "content/public/test/test_browser_thread_bundle.h"
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_task_environment.h"
 #include "content/browser/after_startup_task_utils.h"
-#include "content/browser/browser_thread_impl.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_browser_thread.h"
 #include "content/public/test/test_utils.h"
@@ -38,8 +36,6 @@ TestBrowserThreadBundle::~TestBrowserThreadBundle() {
   // See http://crbug.com/247525 for discussion.
   base::RunLoop().RunUntilIdle();
   io_thread_->Stop();
-  base::RunLoop().RunUntilIdle();
-  process_launcher_thread_->Stop();
   base::RunLoop().RunUntilIdle();
   ui_thread_->Stop();
   base::RunLoop().RunUntilIdle();
@@ -101,9 +97,8 @@ void TestBrowserThreadBundle::Init() {
                 ? base::test::ScopedTaskEnvironment::MainThreadType::IO
                 : base::test::ScopedTaskEnvironment::MainThreadType::UI);
   }
-  CHECK(base::MessageLoop::current()->IsType(options_ & IO_MAINLOOP
-                                                 ? base::MessageLoop::TYPE_IO
-                                                 : base::MessageLoop::TYPE_UI));
+  CHECK(options_ & IO_MAINLOOP ? base::MessageLoopForIO::IsCurrent()
+                               : base::MessageLoopForUI::IsCurrent());
 
   // Set the current thread as the UI thread.
   ui_thread_ = std::make_unique<TestBrowserThread>(
@@ -115,9 +110,6 @@ void TestBrowserThreadBundle::Init() {
 
 void TestBrowserThreadBundle::CreateBrowserThreads() {
   CHECK(!threads_created_);
-
-  process_launcher_thread_ = std::make_unique<TestBrowserThread>(
-      BrowserThread::PROCESS_LAUNCHER, base::MessageLoop::current());
 
   if (options_ & REAL_IO_THREAD) {
     io_thread_ = std::make_unique<TestBrowserThread>(BrowserThread::IO);
@@ -132,6 +124,30 @@ void TestBrowserThreadBundle::CreateBrowserThreads() {
   // Consider startup complete such that after-startup-tasks always run in
   // the scope of the test they were posted from (http://crbug.com/732018).
   SetBrowserStartupIsCompleteForTesting();
+}
+
+void TestBrowserThreadBundle::RunUntilIdle() {
+  scoped_task_environment_->RunUntilIdle();
+}
+
+void TestBrowserThreadBundle::RunIOThreadUntilIdle() {
+  // Use a RunLoop to run until idle if already on BrowserThread::IO (which is
+  // the main thread unless using Options::REAL_IO_THREAD).
+  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::IO));
+
+  base::WaitableEvent io_thread_idle(
+      base::WaitableEvent::ResetPolicy::MANUAL,
+      base::WaitableEvent::InitialState::NOT_SIGNALED);
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
+      base::BindOnce(
+          [](base::WaitableEvent* io_thread_idle) {
+            base::RunLoop(base::RunLoop::Type::kNestableTasksAllowed)
+                .RunUntilIdle();
+            io_thread_idle->Signal();
+          },
+          Unretained(&io_thread_idle)));
+  io_thread_idle.Wait();
 }
 
 }  // namespace content

@@ -39,15 +39,12 @@ class VM(object):
   SSH_PORT = 9222
   IMAGE_FORMAT = 'raw'
 
-  def __init__(self, argv):
+  def __init__(self, opts):
     """Initialize VM.
 
     Args:
-      argv: command line args.
+      opts: command line options.
     """
-    opts = self._ParseArgs(argv)
-    opts.Freeze()
-
     self.qemu_path = opts.qemu_path
     self.qemu_bios_path = opts.qemu_bios_path
     self.qemu_m = opts.qemu_m
@@ -70,16 +67,14 @@ class VM(object):
     self.stop = opts.stop
     self.cmd = opts.args[1:] if opts.cmd else None
 
-    self.vm_dir = os.path.join(osutils.GetGlobalTempDir(),
-                               'cros_vm_%d' % self.ssh_port)
-    if os.path.exists(self.vm_dir):
-      # For security, ensure that vm_dir is not a symlink, and is owned by us or
-      # by root.
-      assert not os.path.islink(self.vm_dir), \
-          'VM state dir is misconfigured; please recreate: %s' % self.vm_dir
-      st_uid = os.stat(self.vm_dir).st_uid
-      assert st_uid == 0 or st_uid == os.getuid(), \
-          'VM state dir is misconfigured; please recreate: %s' % self.vm_dir
+    self.cache_dir = os.path.abspath(opts.cache_dir)
+    assert os.path.isdir(self.cache_dir), "Cache directory doesn't exist"
+
+    self.vm_dir = opts.vm_dir
+    if not self.vm_dir:
+      self.vm_dir = os.path.join(osutils.GetGlobalTempDir(),
+                                 'cros_vm_%d' % self.ssh_port)
+    self._CreateVMDir()
 
     self.pidfile = os.path.join(self.vm_dir, 'kvm.pid')
     self.kvm_monitor = os.path.join(self.vm_dir, 'kvm.monitor')
@@ -89,6 +84,7 @@ class VM(object):
 
     self.remote = remote_access.RemoteDevice(remote_access.LOCALHOST,
                                              port=self.ssh_port)
+    self.device_addr = 'ssh://%s:%d' % (remote_access.LOCALHOST, self.ssh_port)
 
     # TODO(achuith): support nographics, snapshot, mem_path, usb_passthrough,
     # moblab, etc.
@@ -100,29 +96,64 @@ class VM(object):
     else:
       return cros_build_lib.RunCommand(*args, **kwargs)
 
-  def _CleanupFiles(self, recreate):
-    """Cleanup vm_dir.
+  def _CreateVMDir(self):
+    """Safely create vm_dir."""
+    if not osutils.SafeMakedirs(self.vm_dir, sudo=self.use_sudo):
+      # For security, ensure that vm_dir is not a symlink, and is owned by us or
+      # by root.
+      error_str = ('VM state dir is misconfigured; please recreate: %s'
+                   % self.vm_dir)
+      assert os.path.isdir(self.vm_dir), error_str
+      assert not os.path.islink(self.vm_dir), error_str
+      st_uid = os.stat(self.vm_dir).st_uid
+      assert st_uid == 0 or st_uid == os.getuid(), error_str
+
+  def _RmVMDir(self):
+    """Cleanup vm_dir."""
+    osutils.RmDir(self.vm_dir, ignore_missing=True, sudo=self.use_sudo)
+
+  def _GetCachePath(self, cache_name):
+    """Return path to cache.
 
     Args:
-      recreate: recreate vm_dir.
-    """
-    osutils.RmDir(self.vm_dir, ignore_missing=True, sudo=self.use_sudo)
-    if recreate:
-      osutils.SafeMakedirs(self.vm_dir)
+      cache_name: Name of cache.
 
-  def _GetCachePath(self, key):
+    Returns:
+      File path of cache.
+    """
+    return os.path.join(self.cache_dir,
+                        cros_chrome_sdk.COMMAND_NAME,
+                        cache_name)
+
+  @cros_build_lib.MemoizedSingleCall
+  def _SDKVersion(self):
+    """Determine SDK version.
+
+    Check the environment if we're in the SDK shell, and failing that, look at
+    the misc cache.
+
+    Returns:
+      SDK version.
+    """
+    sdk_version = os.environ.get(cros_chrome_sdk.SDKFetcher.SDK_VERSION_ENV)
+    if not sdk_version and self.board:
+      misc_cache = cache.DiskCache(self._GetCachePath(
+          cros_chrome_sdk.SDKFetcher.MISC_CACHE))
+      with misc_cache.Lookup((self.board, 'latest')) as ref:
+        if ref.Exists(lock=True):
+          sdk_version = osutils.ReadFile(ref.path).strip()
+    return sdk_version
+
+  def _CachePathForKey(self, key):
     """Get cache path for key.
 
     Args:
       key: cache key.
     """
-    tarball_cache = cache.TarballCache(os.path.join(
-        path_util.GetCacheDir(),
-        cros_chrome_sdk.COMMAND_NAME,
+    tarball_cache = cache.TarballCache(self._GetCachePath(
         cros_chrome_sdk.SDKFetcher.TARBALL_CACHE))
-    sdk_version = os.environ.get(cros_chrome_sdk.SDKFetcher.SDK_VERSION_ENV)
-    if sdk_version:
-      cache_key = (self.board, sdk_version, key)
+    if self.board and self._SDKVersion():
+      cache_key = (self.board, self._SDKVersion(), key)
       with tarball_cache.Lookup(cache_key) as ref:
         if ref.Exists():
           return ref.path
@@ -130,7 +161,11 @@ class VM(object):
 
   @cros_build_lib.MemoizedSingleCall
   def QemuVersion(self):
-    """Determine QEMU version."""
+    """Determine QEMU version.
+
+    Returns:
+      QEMU version.
+    """
     version_str = self._RunCommand([self.qemu_path, '--version'],
                                    capture_output=True).output
     # version string looks like one of these:
@@ -162,7 +197,7 @@ class VM(object):
 
     # Check SDK cache.
     if not self.qemu_path:
-      qemu_dir = self._GetCachePath(cros_chrome_sdk.SDKFetcher.QEMU_BIN_KEY)
+      qemu_dir = self._CachePathForKey(cros_chrome_sdk.SDKFetcher.QEMU_BIN_KEY)
       if qemu_dir:
         qemu_path = os.path.join(qemu_dir, qemu_exe_path)
         if os.path.isfile(qemu_path):
@@ -193,7 +228,7 @@ class VM(object):
 
   def _GetCacheVMImagePath(self):
     """Get path of a cached VM image."""
-    cache_path = self._GetCachePath(constants.VM_IMAGE_TAR)
+    cache_path = self._CachePathForKey(constants.VM_IMAGE_TAR)
     if cache_path:
       vm_image = os.path.join(cache_path, constants.VM_IMAGE_BIN)
       if os.path.isfile(vm_image):
@@ -236,7 +271,8 @@ class VM(object):
     self._SetQemuPath()
     self._SetVMImagePath()
 
-    self._CleanupFiles(recreate=True)
+    self._RmVMDir()
+    self._CreateVMDir()
     # Make sure we can read these files later on by creating them as ourselves.
     osutils.Touch(self.kvm_serial)
     for pipe in [self.kvm_pipe_in, self.kvm_pipe_out]:
@@ -324,8 +360,7 @@ class VM(object):
       logging.info('Killing %d.', pid)
       if not self.dry_run:
         self._RunCommand(['kill', '-9', str(pid)], error_code_ok=True)
-
-    self._CleanupFiles(recreate=False)
+    self._RmVMDir()
 
   def _WaitForProcs(self):
     """Wait for expected processes to launch."""
@@ -394,7 +429,7 @@ class VM(object):
                                     **kwargs)
 
   @staticmethod
-  def _ParseArgs(argv):
+  def GetParser():
     """Parse a list of args.
 
     Args:
@@ -408,11 +443,11 @@ class VM(object):
                         help='Start the VM.')
     parser.add_argument('--stop', action='store_true', default=False,
                         help='Stop the VM.')
-    parser.add_argument('--image-path', type='path',
+    parser.add_argument('--image-path', type=str,
                         help='Path to VM image to launch with --start.')
     parser.add_argument('--image-format', default=VM.IMAGE_FORMAT,
                         help='Format of the VM image (raw, qcow2, ...).')
-    parser.add_argument('--qemu-path', type='path',
+    parser.add_argument('--qemu-path', type=str,
                         help='Path of qemu binary to launch with --start.')
     parser.add_argument('--qemu-m', type=str, default='8G',
                         help='Memory argument that will be passed to qemu.')
@@ -424,7 +459,7 @@ class VM(object):
     parser.add_argument('--qemu-cpu', type=str,
                         default='SandyBridge,-invpcid,-tsc-deadline',
                         help='CPU argument that will be passed to qemu.')
-    parser.add_argument('--qemu-bios-path', type='path',
+    parser.add_argument('--qemu-bios-path', type=str,
                         help='Path of directory with qemu bios files.')
     parser.add_argument('--disable-kvm', dest='enable_kvm',
                         action='store_false', default=True,
@@ -436,14 +471,22 @@ class VM(object):
                         help='ssh port to communicate with VM.')
     sdk_board_env = os.environ.get(cros_chrome_sdk.SDKFetcher.SDK_BOARD_ENV)
     parser.add_argument('--board', default=sdk_board_env, help='Board to use.')
+    parser.add_argument('--cache-dir', type=str,
+                        default=path_util.GetCacheDir(),
+                        help='Cache directory to use.')
+    parser.add_argument('--vm-dir', type=str,
+                        help='Temp VM directory to use.')
     parser.add_argument('--dry-run', action='store_true', default=False,
                         help='dry run for debugging.')
     parser.add_argument('--cmd', action='store_true', default=False,
                         help='Run a command in the VM.')
     parser.add_argument('args', nargs=argparse.REMAINDER,
                         help='Command to run in the VM.')
-    return parser.parse_args(argv)
+    return parser
 
 def main(argv):
-  vm = VM(argv)
+  opts = VM.GetParser().parse_args(argv)
+  opts.Freeze()
+
+  vm = VM(opts)
   vm.Run()

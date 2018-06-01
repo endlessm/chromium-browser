@@ -77,7 +77,6 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
-#include "chrome/common/extensions/manifest_handlers/content_scripts_handler.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
@@ -122,6 +121,7 @@
 #include "extensions/common/file_util.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/manifest_handlers/background_info.h"
+#include "extensions/common/manifest_handlers/content_scripts_handler.h"
 #include "extensions/common/manifest_handlers/permissions_parser.h"
 #include "extensions/common/manifest_url_handlers.h"
 #include "extensions/common/permissions/permission_set.h"
@@ -135,7 +135,7 @@
 #include "net/cookies/cookie_store.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "storage/browser/database/database_tracker.h"
@@ -4475,6 +4475,15 @@ TEST_F(ExtensionServiceTest, ExternalExtensionRemainsDisabledIfIgnored) {
   EXPECT_TRUE(registry()->disabled_extensions().Contains(good_crx));
   EXPECT_EQ(extensions::disable_reason::DISABLE_EXTERNAL_EXTENSION,
             prefs->GetDisableReasons(good_crx));
+
+  // Then re-enabling the extension (or otherwise causing the alert to be
+  // updated again) should work. Regression test for https://crbug.com/736292.
+  {
+    extensions::TestExtensionRegistryObserver registry_observer(registry());
+    service()->EnableExtension(good_crx);
+    registry_observer.WaitForExtensionLoaded();
+    base::RunLoop().RunUntilIdle();
+  }
 }
 
 #if !defined(OS_CHROMEOS)
@@ -4892,16 +4901,15 @@ TEST_F(ExtensionServiceTest, ClearExtensionData) {
   ASSERT_TRUE(cookie_store);
   net::CookieOptions options;
   cookie_store->SetCookieWithOptionsAsync(
-       ext_url, "dummy=value", options,
-       base::Bind(&ExtensionCookieCallback::SetCookieCallback,
-                  base::Unretained(&callback)));
+      ext_url, "dummy=value", options,
+      base::BindOnce(&ExtensionCookieCallback::SetCookieCallback,
+                     base::Unretained(&callback)));
   content::RunAllTasksUntilIdle();
   EXPECT_TRUE(callback.result_);
 
   cookie_store->GetAllCookiesForURLAsync(
-      ext_url,
-      base::Bind(&ExtensionCookieCallback::GetAllCookiesCallback,
-                 base::Unretained(&callback)));
+      ext_url, base::BindOnce(&ExtensionCookieCallback::GetAllCookiesCallback,
+                              base::Unretained(&callback)));
   content::RunAllTasksUntilIdle();
   EXPECT_EQ(1U, callback.list_.size());
 
@@ -4947,9 +4955,8 @@ TEST_F(ExtensionServiceTest, ClearExtensionData) {
 
   // Check that the cookie is gone.
   cookie_store->GetAllCookiesForURLAsync(
-       ext_url,
-       base::Bind(&ExtensionCookieCallback::GetAllCookiesCallback,
-                  base::Unretained(&callback)));
+      ext_url, base::BindOnce(&ExtensionCookieCallback::GetAllCookiesCallback,
+                              base::Unretained(&callback)));
   content::RunAllTasksUntilIdle();
   EXPECT_EQ(0U, callback.list_.size());
 

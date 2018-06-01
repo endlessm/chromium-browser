@@ -30,6 +30,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.service.notification.StatusBarNotification;
+import android.support.v4.app.NotificationCompat;
 import android.text.TextUtils;
 import android.util.Pair;
 
@@ -500,6 +501,7 @@ public class DownloadNotificationService extends Service {
     @VisibleForTesting
     @TargetApi(Build.VERSION_CODES.N)
     void stopForegroundInternal(boolean killNotification) {
+        Log.w(TAG, "stopForegroundInternal killNotification: " + killNotification);
         if (!useForegroundService()) return;
         stopForeground(killNotification ? STOP_FOREGROUND_REMOVE : STOP_FOREGROUND_DETACH);
     }
@@ -510,6 +512,7 @@ public class DownloadNotificationService extends Service {
      */
     @VisibleForTesting
     void startForegroundInternal() {
+        Log.w(TAG, "startForegroundInternal");
         if (!useForegroundService()) return;
         Notification notification =
                 buildSummaryNotification(getApplicationContext(), mNotificationManager);
@@ -569,6 +572,7 @@ public class DownloadNotificationService extends Service {
      * @param id The {@link ContentId} of the download that has been started and should be tracked.
      */
     private void startTrackingInProgressDownload(ContentId id) {
+        Log.w(TAG, "startTrackingInProgressDownload");
         if (mDownloadsInProgress.size() == 0) startForegroundInternal();
         if (!mDownloadsInProgress.contains(id)) mDownloadsInProgress.add(id);
     }
@@ -585,6 +589,7 @@ public class DownloadNotificationService extends Service {
      *                            potentially bad state where we cannot dismiss the notification.
      */
     private void stopTrackingInProgressDownload(ContentId id, boolean allowStopForeground) {
+        Log.w(TAG, "stopTrackingInProgressDownload");
         mDownloadsInProgress.remove(id);
         if (allowStopForeground && mDownloadsInProgress.size() == 0) stopForegroundInternal(false);
     }
@@ -629,6 +634,7 @@ public class DownloadNotificationService extends Service {
      */
     @SuppressLint("NewApi") // useForegroundService guards StatusBarNotification.getNotification
     boolean hideSummaryNotificationIfNecessary(int notificationIdToIgnore) {
+        Log.w(TAG, "hideSummaryNotificationIfNecessary id: " + notificationIdToIgnore);
         if (mDownloadsInProgress.size() > 0) return false;
 
         if (useForegroundService()) {
@@ -778,7 +784,7 @@ public class DownloadNotificationService extends Service {
                                       : android.R.drawable.stat_sys_download;
         ChromeNotificationBuilder builder = buildNotification(resId, fileName, contentText);
         builder.setOngoing(true);
-        builder.setPriority(Notification.PRIORITY_HIGH);
+        builder.setPriorityBeforeO(NotificationCompat.PRIORITY_HIGH);
 
         // Avoid animations while the download isn't progressing.
         if (!isDownloadPending) {
@@ -1272,7 +1278,8 @@ public class DownloadNotificationService extends Service {
         String referrer = IntentUtils.safeGetStringExtra(intent, Intent.EXTRA_REFERRER);
         ContentId contentId = DownloadNotificationService.getContentIdFromIntent(intent);
         DownloadManagerService.openDownloadedContent(context, downloadFilename, isSupportedMimeType,
-                isOffTheRecord, contentId.id, id, originalUrl, referrer);
+                isOffTheRecord, contentId.id, id, originalUrl, referrer,
+                DownloadMetrics.NOTIFICATION);
     }
 
     /**

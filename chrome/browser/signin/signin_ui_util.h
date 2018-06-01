@@ -8,10 +8,12 @@
 #include <string>
 #include <vector>
 
+#include "base/callback_forward.h"
 #include "base/strings/string16.h"
 #include "build/buildflag.h"
+#include "chrome/browser/ui/webui/signin/dice_turn_sync_on_helper.h"
 #include "components/signin/core/browser/account_info.h"
-#include "components/signin/core/browser/signin_features.h"
+#include "components/signin/core/browser/signin_buildflags.h"
 #include "components/signin/core/browser/signin_metrics.h"
 
 class Profile;
@@ -42,9 +44,12 @@ void ShowSigninErrorLearnMorePage(Profile* profile);
 //   then it presents the Chrome sign-in page with |account.emil| prefilled.
 // * If token service has a valid refresh token for |account|, then it
 //   enables sync for |account|.
-void EnableSync(Browser* browser,
-                const AccountInfo& account,
-                signin_metrics::AccessPoint access_point);
+// |is_default_promo_account| is true if |account| corresponds to the default
+// account in the promo. It is ignored if |account| is empty.
+void EnableSyncFromPromo(Browser* browser,
+                         const AccountInfo& account,
+                         signin_metrics::AccessPoint access_point,
+                         bool is_default_promo_account);
 
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
 // Returns the display email string for the given account.  If the profile
@@ -64,6 +69,25 @@ std::vector<AccountInfo> GetAccountsForDicePromos(Profile* profile);
 // only supports the policy value that matches [^@]+@[a-zA-Z0-9\-.]+(\\E)?\$?$.
 // Also, the parser does not validate the policy value.
 std::string GetAllowedDomain(std::string signin_pattern);
+
+namespace internal {
+// Same as |EnableSyncFromPromo| but with a callback that creates a
+// DiceTurnSyncOnHelper so that it can be unit tested.
+void EnableSyncFromPromo(
+    Browser* browser,
+    const AccountInfo& account,
+    signin_metrics::AccessPoint access_point,
+    bool is_default_promo_account,
+    base::OnceCallback<
+        void(Profile* profile,
+             Browser* browser,
+             signin_metrics::AccessPoint signin_access_point,
+             signin_metrics::PromoAction signin_promo_action,
+             signin_metrics::Reason signin_reason,
+             const std::string& account_id,
+             DiceTurnSyncOnHelper::SigninAbortedMode signin_aborted_mode)>
+        create_dice_turn_sync_on_helper_callback);
+}  // namespace internal
 
 }  // namespace signin_ui_util
 

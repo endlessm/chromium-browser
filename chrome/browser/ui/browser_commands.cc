@@ -84,10 +84,10 @@
 #include "content/public/common/url_constants.h"
 #include "content/public/common/url_utils.h"
 #include "content/public/common/user_agent.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "net/base/escape.h"
-#include "printing/features/features.h"
-#include "rlz/features/features.h"
+#include "printing/buildflags/buildflags.h"
+#include "rlz/buildflags/buildflags.h"
 #include "ui/base/clipboard/clipboard_types.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
 #include "ui/events/keycodes/keyboard_codes.h"
@@ -186,7 +186,7 @@ bool GetBookmarkOverrideCommand(Profile* profile,
   DCHECK(command);
 
   ui::Accelerator bookmark_page_accelerator =
-      chrome::GetPrimaryChromeAcceleratorForCommandId(IDC_BOOKMARK_PAGE);
+      chrome::GetPrimaryChromeAcceleratorForBookmarkPage();
   if (bookmark_page_accelerator.key_code() == ui::VKEY_UNKNOWN)
     return false;
 
@@ -253,7 +253,7 @@ void ReloadInternal(Browser* browser,
   // Also notify RenderViewHostDelegate of the user gesture; this is
   // normally done in Browser::Navigate, but a reload bypasses Navigate.
   WebContents* new_tab = GetTabAndRevertIfNecessary(browser, disposition);
-  new_tab->UserGestureDone();
+  new_tab->NavigatedByUser();
   if (!new_tab->FocusLocationBarByDefault())
     new_tab->Focus();
 
@@ -873,7 +873,8 @@ void ManagePasswordsForPage(Browser* browser) {
 void SavePage(Browser* browser) {
   base::RecordAction(UserMetricsAction("SavePage"));
   WebContents* current_tab = browser->tab_strip_model()->GetActiveWebContents();
-  if (current_tab && current_tab->GetContentsMimeType() == "application/pdf")
+  DCHECK(current_tab);
+  if (current_tab->GetContentsMimeType() == "application/pdf")
     base::RecordAction(UserMetricsAction("PDF.SavePage"));
   current_tab->OnSavePage();
 }
@@ -1154,7 +1155,8 @@ void ToggleRequestTabletSite(Browser* browser) {
     entry->SetIsOverridingUserAgent(true);
     std::string product = version_info::GetProductNameAndVersionForUserAgent();
     current_tab->SetUserAgentOverride(content::BuildUserAgentFromOSAndProduct(
-        kOsOverrideForTabletSite, product));
+                                          kOsOverrideForTabletSite, product),
+                                      false);
   }
   controller.Reload(content::ReloadType::ORIGINAL_REQUEST_URL, true);
 }
@@ -1228,11 +1230,11 @@ bool CanCreateBookmarkApp(const Browser* browser) {
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
 #if defined(OS_CHROMEOS)
-void QueryAndDisplayArcApps(
-    const Browser* browser,
-    const std::vector<arc::ArcNavigationThrottle::AppInfo>& app_info,
-    IntentPickerResponse callback) {
-  browser->window()->ShowIntentPickerBubble(app_info, callback);
+void QueryAndDisplayArcApps(const Browser* browser,
+                            std::vector<chromeos::IntentPickerAppInfo> app_info,
+                            IntentPickerResponse callback) {
+  browser->window()->ShowIntentPickerBubble(std::move(app_info),
+                                            std::move(callback));
 }
 
 void SetIntentPickerViewVisibility(Browser* browser, bool visible) {

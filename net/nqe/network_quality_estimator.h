@@ -41,6 +41,7 @@
 
 namespace base {
 class TickClock;
+class TaskRunner;
 }  // namespace base
 
 namespace net {
@@ -216,6 +217,11 @@ class NET_EXPORT NetworkQualityEstimator
   typedef nqe::internal::Observation Observation;
   typedef nqe::internal::ObservationBuffer ObservationBuffer;
 
+  void set_get_network_id_task_runner(
+      scoped_refptr<base::TaskRunner> task_runner) {
+    get_network_id_task_runner_ = task_runner;
+  }
+
  protected:
   // Different experimental statistic algorithms that can be used for computing
   // the predictions.
@@ -267,7 +273,7 @@ class NET_EXPORT NetworkQualityEstimator
       const;
 
   // Overrides the tick clock used by |this| for testing.
-  void SetTickClockForTesting(base::TickClock* tick_clock);
+  void SetTickClockForTesting(const base::TickClock* tick_clock);
 
   // Returns the effective type of the current connection based on only the
   // observations received after |start_time|. |http_rtt|, |transport_rtt| and
@@ -509,6 +515,14 @@ class NET_EXPORT NetworkQualityEstimator
   // in the connection type.
   void GatherEstimatesForNextConnectionType();
 
+  // Invoked to continue GatherEstimatesForNextConnectionType work after getting
+  // network id. If |get_network_id_task_runner_| is set, the network id is
+  // fetched on a worker thread. Otherwise, GatherEstimatesForNextConnectionType
+  // calls this directly. This is a workaround for https://crbug.com/821607
+  // where net::GetWifiSSID() call gets stuck.
+  void ContinueGatherEstimatesForNextConnectionType(
+      const nqe::internal::NetworkID& network_id);
+
   // Updates the value of |cached_estimate_applied_| if |observation| is
   // computed from a cached estimate. |buffer| is the observation buffer to
   // which the cached estimate is being added to.
@@ -532,7 +546,7 @@ class NET_EXPORT NetworkQualityEstimator
   bool disable_offline_check_;
 
   // Tick clock used by the network quality estimator.
-  base::TickClock* tick_clock_;
+  const base::TickClock* tick_clock_;
 
   // Intervals after the main frame request arrives at which accuracy of network
   // quality prediction is recorded.
@@ -638,6 +652,9 @@ class NET_EXPORT NetworkQualityEstimator
 
   // Time when the last RTT observation from a socket watcher was received.
   base::TimeTicks last_socket_watcher_rtt_notification_;
+
+  // Optional task runner to get network id.
+  scoped_refptr<base::TaskRunner> get_network_id_task_runner_;
 
   base::WeakPtrFactory<NetworkQualityEstimator> weak_ptr_factory_;
 

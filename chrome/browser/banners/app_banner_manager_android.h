@@ -33,6 +33,12 @@ class AppBannerUiDelegateAndroid;
 // Otherwise, if no related applications were detected, or their manifest
 // entries were invalid, this class falls back to trying to verify if a web app
 // banner is suitable.
+//
+// The code path forks in PerformInstallableCheck(); for a native app, it will
+// eventually call to OnAppIconFetched(), while a web app calls through to
+// OnDidPerformInstallableCheck(). Each of these methods then calls
+// SendBannerPromptRequest(), which combines the forked code paths back
+// together.
 class AppBannerManagerAndroid
     : public AppBannerManager,
       public content::WebContentsUserData<AppBannerManagerAndroid> {
@@ -40,9 +46,16 @@ class AppBannerManagerAndroid
   explicit AppBannerManagerAndroid(content::WebContents* web_contents);
   ~AppBannerManagerAndroid() override;
 
+  using content::WebContentsUserData<AppBannerManagerAndroid>::FromWebContents;
+
   // Returns a reference to the Java-side AppBannerManager owned by this object.
-  const base::android::ScopedJavaGlobalRef<jobject>& GetJavaBannerManager()
-      const;
+  const base::android::ScopedJavaLocalRef<jobject> GetJavaBannerManager() const;
+
+  // Returns a reference to the Java-side AddToHomescreenDialog owned by
+  // |ui_delegate_|, or null if it does not exist.
+  base::android::ScopedJavaLocalRef<jobject> GetAddToHomescreenDialogForTesting(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& jobj);
 
   // Returns true if the banner pipeline is currently running.
   bool IsRunningForTesting(JNIEnv* env,
@@ -111,6 +124,9 @@ class AppBannerManagerAndroid
   InstallableStatusCode QueryNativeApp(const std::string& platform,
                                        const GURL& url,
                                        const std::string& id);
+
+  // Returns the appropriate app name based on whether we have a native/web app.
+  base::string16 GetAppName() const override;
 
   // Shows the ambient badge if the current page advertises a native app or is
   // a PWA.

@@ -17,6 +17,7 @@
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
+#include "base/no_destructor.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -27,10 +28,10 @@
 #include "chrome/browser/apps/app_load_service.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/download/download_stats.h"
+#include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/language/language_model_factory.h"
 #include "chrome/browser/media/router/media_router_dialog_controller.h"
 #include "chrome/browser/media/router/media_router_feature.h"
@@ -38,7 +39,6 @@
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings.h"
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings_factory.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
-#include "chrome/browser/picture_in_picture/picture_in_picture_window_controller.h"
 #include "chrome/browser/plugins/chrome_plugin_service_filter.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
@@ -91,7 +91,7 @@
 #include "components/spellcheck/browser/pref_names.h"
 #include "components/spellcheck/browser/spellcheck_host_metrics.h"
 #include "components/spellcheck/common/spellcheck_common.h"
-#include "components/spellcheck/spellcheck_build_features.h"
+#include "components/spellcheck/spellcheck_buildflags.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/translate/core/browser/translate_download_manager.h"
 #include "components/translate/core/browser/translate_manager.h"
@@ -104,7 +104,7 @@
 #include "content/public/browser/guest_mode.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_entry.h"
-#include "content/public/browser/notification_service.h"
+#include "content/public/browser/picture_in_picture_window_controller.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -114,18 +114,18 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/menu_item.h"
 #include "content/public/common/url_utils.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "media/base/media_switches.h"
 #include "net/base/escape.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
-#include "ppapi/features/features.h"
-#include "printing/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
+#include "printing/buildflags/buildflags.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
-#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
-#include "third_party/WebKit/public/public_features.h"
-#include "third_party/WebKit/public/web/WebContextMenuData.h"
-#include "third_party/WebKit/public/web/WebMediaPlayerAction.h"
-#include "third_party/WebKit/public/web/WebPluginAction.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/public_buildflags.h"
+#include "third_party/blink/public/web/web_context_menu_data.h"
+#include "third_party/blink/public/web/web_media_player_action.h"
+#include "third_party/blink/public/web/web_plugin_action.h"
 #include "third_party/metrics_proto/omnibox_input_type.pb.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
@@ -195,6 +195,12 @@ using extensions::MenuItem;
 using extensions::MenuManager;
 
 namespace {
+
+base::OnceCallback<void(RenderViewContextMenu*)>* GetMenuShownCallback() {
+  static base::NoDestructor<base::OnceCallback<void(RenderViewContextMenu*)>>
+      callback;
+  return callback.get();
+}
 
 // State of the profile that is activated via "Open Link as User".
 enum UmaEnumOpenLinkAsUser {
@@ -330,10 +336,11 @@ const struct UmaEnumCommandIdPair {
     {89, -1, IDC_CONTENT_CONTEXT_OPENLINKBOOKMARKAPP},
     {90, -1, IDC_CONTENT_CONTEXT_SHOWALLSAVEDPASSWORDS},
     {91, -1, IDC_CONTENT_CONTENT_PICTUREINPICTURE},
+    {92, -1, IDC_CONTENT_CONTEXT_EMOJI},
     // Add new items here and use |enum_id| from the next line.
     // Also, add new items to RenderViewContextMenuItem enum in
     // tools/metrics/histograms/enums.xml.
-    {92, -1, 0},  // Must be the last. Increment |enum_id| when new IDC
+    {93, -1, 0},  // Must be the last. Increment |enum_id| when new IDC
                   // was added.
 };
 
@@ -500,25 +507,6 @@ void OnProfileCreated(const GURL& link_url,
     nav_params.window_action = NavigateParams::SHOW_WINDOW;
     Navigate(&nav_params);
   }
-}
-
-// Returns a Bookmark App that has |url| in its scope.
-const extensions::Extension* GetBookmarkAppForURL(
-    BrowserContext* browser_context,
-    const GURL& target_url) {
-  const extensions::ExtensionSet& enabled_extensions =
-      extensions::ExtensionRegistry::Get(browser_context)->enabled_extensions();
-  for (const auto extension : enabled_extensions) {
-    if (!extension->from_bookmark())
-      continue;
-
-    const extensions::UrlHandlerInfo* handler =
-        extensions::UrlHandlers::FindMatchingUrlHandler(extension.get(),
-                                                        target_url);
-    if (handler)
-      return extension.get();
-  }
-  return nullptr;
 }
 
 }  // namespace
@@ -1137,26 +1125,26 @@ void RenderViewContextMenu::AppendOpenWithLinkItems() {
 }
 
 void RenderViewContextMenu::AppendOpenInBookmarkAppLinkItems() {
-  const Extension* bookmark_app =
-      GetBookmarkAppForURL(browser_context_, params_.link_url);
-  if (!bookmark_app)
+  const Extension* pwa = extensions::util::GetInstalledPwaForUrl(
+      browser_context_, params_.link_url);
+  if (!pwa)
     return;
 
   int open_in_app_string_id;
   if (GetBrowser()->app_name() ==
-      web_app::GenerateApplicationNameFromExtensionId(bookmark_app->id())) {
+      web_app::GenerateApplicationNameFromExtensionId(pwa->id())) {
     open_in_app_string_id = IDS_CONTENT_CONTEXT_OPENLINKBOOKMARKAPP_SAMEAPP;
   } else {
     open_in_app_string_id = IDS_CONTENT_CONTEXT_OPENLINKBOOKMARKAPP;
   }
 
-  menu_model_.AddItem(IDC_CONTENT_CONTEXT_OPENLINKBOOKMARKAPP,
-                      l10n_util::GetStringFUTF16(
-                          open_in_app_string_id,
-                          base::ASCIIToUTF16(bookmark_app->short_name())));
+  menu_model_.AddItem(
+      IDC_CONTENT_CONTEXT_OPENLINKBOOKMARKAPP,
+      l10n_util::GetStringFUTF16(open_in_app_string_id,
+                                 base::UTF8ToUTF16(pwa->short_name())));
 
   MenuManager* menu_manager = MenuManager::Get(browser_context_);
-  gfx::Image icon = menu_manager->GetIconForExtension(bookmark_app->id());
+  gfx::Image icon = menu_manager->GetIconForExtension(pwa->id());
   menu_model_.SetIcon(menu_model_.GetItemCount() - 1, icon);
 }
 
@@ -1741,9 +1729,11 @@ bool RenderViewContextMenu::IsCommandIdEnabled(int id) const {
       return IsRouteMediaEnabled();
 
     case IDC_CONTENT_CONTEXT_EXIT_FULLSCREEN:
-    // TODO(apacible): Update PIP conditions when finalized.
-    case IDC_CONTENT_CONTENT_PICTUREINPICTURE:
       return true;
+
+    case IDC_CONTENT_CONTENT_PICTUREINPICTURE:
+      return !!(params_.media_flags &
+                WebContextMenuData::kMediaCanPictureInPicture);
 
     default:
       NOTREACHED();
@@ -2044,6 +2034,12 @@ void RenderViewContextMenu::AddSpellCheckServiceItem(bool is_checked) {
   AddSpellCheckServiceItem(&menu_model_, is_checked);
 }
 
+// static
+void RenderViewContextMenu::RegisterMenuShownCallbackForTesting(
+    base::OnceCallback<void(RenderViewContextMenu*)> cb) {
+  *GetMenuShownCallback() = std::move(cb);
+}
+
 ProtocolHandlerRegistry::ProtocolHandlerList
     RenderViewContextMenu::GetHandlersForLinkUrl() {
   ProtocolHandlerRegistry::ProtocolHandlerList handlers =
@@ -2053,10 +2049,9 @@ ProtocolHandlerRegistry::ProtocolHandlerList
 }
 
 void RenderViewContextMenu::NotifyMenuShown() {
-  content::NotificationService::current()->Notify(
-      chrome::NOTIFICATION_RENDER_VIEW_CONTEXT_MENU_SHOWN,
-      content::Source<RenderViewContextMenu>(this),
-      content::NotificationService::NoDetails());
+  auto* cb = GetMenuShownCallback();
+  if (!cb->is_null())
+    std::move(*cb).Run(this);
 }
 
 base::string16 RenderViewContextMenu::PrintableSelectionText() {
@@ -2266,15 +2261,15 @@ bool RenderViewContextMenu::IsOpenLinkOTREnabled() const {
 }
 
 void RenderViewContextMenu::ExecOpenBookmarkApp() {
-  const extensions::Extension* bookmark_app =
-      GetBookmarkAppForURL(browser_context_, params_.link_url);
-  // |bookmark_app| could be null if it has been uninstalled since the user
+  const Extension* pwa = extensions::util::GetInstalledPwaForUrl(
+      browser_context_, params_.link_url);
+  // |pwa| could be null if it has been uninstalled since the user
   // opened the context menu.
-  if (!bookmark_app)
+  if (!pwa)
     return;
 
   AppLaunchParams launch_params(
-      GetProfile(), bookmark_app, extensions::LAUNCH_CONTAINER_WINDOW,
+      GetProfile(), pwa, extensions::LAUNCH_CONTAINER_WINDOW,
       WindowOpenDisposition::CURRENT_TAB, extensions::SOURCE_CONTEXT_MENU);
   launch_params.override_url = params_.link_url;
   OpenApplication(launch_params);
@@ -2415,7 +2410,8 @@ void RenderViewContextMenu::ExecSaveAs() {
       headers = data_reduction_proxy::chrome_proxy_pass_through_header();
     }
 
-    source_web_contents_->SaveFrameWithHeaders(url, referrer, headers);
+    source_web_contents_->SaveFrameWithHeaders(url, referrer, headers,
+                                               params_.suggested_filename);
   }
 }
 

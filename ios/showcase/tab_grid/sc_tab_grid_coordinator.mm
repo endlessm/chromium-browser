@@ -4,8 +4,9 @@
 
 #import "ios/showcase/tab_grid/sc_tab_grid_coordinator.h"
 
-#import "ios/chrome/browser/ui/tab_grid/grid_consumer.h"
-#import "ios/chrome/browser/ui/tab_grid/grid_item.h"
+#import "ios/chrome/browser/ui/tab_grid/grid/grid_commands.h"
+#import "ios/chrome/browser/ui/tab_grid/grid/grid_consumer.h"
+#import "ios/chrome/browser/ui/tab_grid/grid/grid_item.h"
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_view_controller.h"
 #import "ios/showcase/common/protocol_alerter.h"
 
@@ -24,34 +25,37 @@
 @synthesize alerter = _alerter;
 
 - (void)start {
-  self.alerter = [[ProtocolAlerter alloc]
-      initWithProtocols:@[ @protocol(GridViewControllerDelegate) ]];
+  self.alerter =
+      [[ProtocolAlerter alloc] initWithProtocols:@[ @protocol(GridCommands) ]];
   self.viewController = [[TabGridViewController alloc] init];
   self.alerter.baseViewController = self.viewController;
   self.viewController.incognitoTabsDelegate =
-      static_cast<id<GridViewControllerDelegate>>(self.alerter);
+      static_cast<id<GridCommands>>(self.alerter);
   self.viewController.regularTabsDelegate =
-      static_cast<id<GridViewControllerDelegate>>(self.alerter);
+      static_cast<id<GridCommands>>(self.alerter);
   self.viewController.title = @"Full TabGrid UI";
   self.baseViewController.delegate = self;
   self.baseViewController.hidesBarsOnSwipe = YES;
   [self.baseViewController pushViewController:self.viewController animated:YES];
 
-  NSMutableArray* items = [[NSMutableArray alloc] init];
+  NSMutableArray<GridItem*>* items = [[NSMutableArray alloc] init];
   for (int i = 0; i < 10; i++) {
-    GridItem* item = [[GridItem alloc] init];
+    GridItem* item = [[GridItem alloc]
+        initWithIdentifier:[NSString stringWithFormat:@"incogitem%d", i]];
     item.title = @"YouTube - Cat Videos";
     [items addObject:item];
   }
   [self.viewController.incognitoTabsConsumer populateItems:items
-                                             selectedIndex:0];
+                                            selectedItemID:items[0].identifier];
   items = [[NSMutableArray alloc] init];
   for (int i = 0; i < 10; i++) {
-    GridItem* item = [[GridItem alloc] init];
+    GridItem* item = [[GridItem alloc]
+        initWithIdentifier:[NSString stringWithFormat:@"item%d", i]];
     item.title = @"The New York Times - Breaking News";
     [items addObject:item];
   }
-  [self.viewController.regularTabsConsumer populateItems:items selectedIndex:0];
+  [self.viewController.regularTabsConsumer populateItems:items
+                                          selectedItemID:items[0].identifier];
 }
 
 #pragma mark - UINavigationControllerDelegate

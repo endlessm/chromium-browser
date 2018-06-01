@@ -55,9 +55,9 @@
 #include "net/http/http_util.h"
 #include "net/http/transport_security_persister.h"
 #include "net/nqe/network_quality_estimator.h"
-#include "net/proxy_resolution/proxy_config_service_fixed.h"
 #include "net/proxy_resolution/pac_file_fetcher_impl.h"
-#include "net/proxy_resolution/proxy_service.h"
+#include "net/proxy_resolution/proxy_config_service_fixed.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
 #include "net/ssl/channel_id_service.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/url_request/data_protocol_handler.h"
@@ -183,7 +183,7 @@ ChromeBrowserStateIOData::ChromeBrowserStateIOData(
 }
 
 ChromeBrowserStateIOData::~ChromeBrowserStateIOData() {
-  if (web::WebThread::IsMessageLoopValid(web::WebThread::IO))
+  if (web::WebThread::IsThreadInitialized(web::WebThread::IO))
     DCHECK_CURRENTLY_ON(web::WebThread::IO);
 
   // Pull the contents of the request context maps onto the stack for sanity
@@ -354,9 +354,9 @@ void ChromeBrowserStateIOData::Init(
   network_delegate->set_cookie_settings(profile_params_->cookie_settings.get());
   network_delegate->set_enable_do_not_track(&enable_do_not_track_);
 
-  // NOTE: Proxy service uses the default io thread network delegate, not the
-  // delegate just created.
-  proxy_resolution_service_ = ProxyServiceFactory::CreateProxyService(
+  // NOTE: The proxy resolution service uses the default io thread network
+  // delegate, not the delegate just created.
+  proxy_resolution_service_ = ProxyServiceFactory::CreateProxyResolutionService(
       io_thread->net_log(), nullptr,
       io_thread_globals->system_network_delegate.get(),
       std::move(profile_params_->proxy_config_service),
@@ -466,7 +466,7 @@ void ChromeBrowserStateIOData::ShutdownOnUIThread(
     chrome_http_user_agent_settings_->CleanupOnUIThread();
 
   if (!context_getters->empty()) {
-    if (web::WebThread::IsMessageLoopValid(web::WebThread::IO)) {
+    if (web::WebThread::IsThreadInitialized(web::WebThread::IO)) {
       web::WebThread::PostTask(web::WebThread::IO, FROM_HERE,
                                base::Bind(&NotifyContextGettersOfShutdownOnIO,
                                           base::Passed(&context_getters)));

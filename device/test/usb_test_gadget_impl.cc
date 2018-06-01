@@ -33,7 +33,7 @@
 #include "device/usb/usb_device_handle.h"
 #include "device/usb/usb_service.h"
 #include "net/base/escape.h"
-#include "net/proxy_resolution/proxy_service.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_fetcher_delegate.h"
@@ -243,8 +243,9 @@ class UsbGadgetFactory : public UsbService::Observer,
       // TODO(reillyg): This timer could be replaced by a way to use long-
       // polling to wait for claimed devices to become unclaimed.
       base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-          FROM_HERE, base::Bind(&UsbGadgetFactory::EnumerateDevices,
-                                weak_factory_.GetWeakPtr()),
+          FROM_HERE,
+          base::BindOnce(&UsbGadgetFactory::EnumerateDevices,
+                         weak_factory_.GetWeakPtr()),
           base::TimeDelta::FromMilliseconds(kReenumeratePeriod));
     }
   }
@@ -383,8 +384,9 @@ class UsbGadgetFactory : public UsbService::Observer,
 
     // Wait a bit and then try again to find an available device.
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-        FROM_HERE, base::Bind(&UsbGadgetFactory::EnumerateDevices,
-                              weak_factory_.GetWeakPtr()),
+        FROM_HERE,
+        base::BindOnce(&UsbGadgetFactory::EnumerateDevices,
+                       weak_factory_.GetWeakPtr()),
         base::TimeDelta::FromMilliseconds(kReenumeratePeriod));
   }
 

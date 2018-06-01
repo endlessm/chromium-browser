@@ -42,8 +42,8 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/common/page_zoom.h"
-#include "extensions/features/features.h"
-#include "printing/features/features.h"
+#include "extensions/buildflags/buildflags.h"
+#include "printing/buildflags/buildflags.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/base/window_open_disposition.h"
@@ -70,7 +70,6 @@ class BrowserLiveTabContext;
 class BrowserWindow;
 class FastUnloadController;
 class FindBarController;
-class PictureInPictureWindowController;
 class Profile;
 class ScopedKeepAlive;
 class StatusBubble;
@@ -83,6 +82,7 @@ class BrowserCommandController;
 }
 
 namespace content {
+class PictureInPictureWindowController;
 class SessionStorageNamespace;
 }
 
@@ -182,7 +182,7 @@ class Browser : public TabStripModelObserver,
     Profile* profile;
 
     // Specifies the browser is_trusted_source_ value.
-    bool trusted_source;
+    bool trusted_source = false;
 
     // The bounds of the window to open.
     gfx::Rect initial_bounds;
@@ -190,9 +190,9 @@ class Browser : public TabStripModelObserver,
     // The workspace the window should open in, if the platform supports it.
     std::string initial_workspace;
 
-    ui::WindowShowState initial_show_state;
+    ui::WindowShowState initial_show_state = ui::SHOW_STATE_DEFAULT;
 
-    bool is_session_restore;
+    bool is_session_restore = false;
 
     // Whether this browser was created by a user gesture. We track this
     // specifically for the multi-user case in chromeos where we can place
@@ -202,10 +202,11 @@ class Browser : public TabStripModelObserver,
 
     // Supply a custom BrowserWindow implementation, to be used instead of the
     // default. Intended for testing.
-    BrowserWindow* window;
+    BrowserWindow* window = nullptr;
 
    private:
     friend class Browser;
+    friend class WindowSizerAshTest;
 
     // The application name that is also the name of the window to the shell.
     // Do not set this value directly, use CreateForApp.
@@ -214,6 +215,10 @@ class Browser : public TabStripModelObserver,
     // 2) undocked devtool windows.
     // 3) popup windows spawned from v1 applications.
     std::string app_name;
+
+    // When set to true, skip initializing |window_| and everything that depends
+    // on it.
+    bool skip_window_init_for_testing = false;
   };
 
   // Constructors, Creation, Showing //////////////////////////////////////////
@@ -495,7 +500,9 @@ class Browser : public TabStripModelObserver,
                            bool is_audible) override;
   void OnDidBlockFramebust(content::WebContents* web_contents,
                            const GURL& url) override;
-  void UpdatePictureInPictureSurfaceId(viz::SurfaceId surface_id) override;
+  void UpdatePictureInPictureSurfaceId(const viz::SurfaceId& surface_id,
+                                       const gfx::Size& natural_size) override;
+  void ExitPictureInPicture() override;
 
   bool is_type_tabbed() const { return type_ == TYPE_TABBED; }
   bool is_type_popup() const { return type_ == TYPE_POPUP; }
@@ -668,11 +675,14 @@ class Browser : public TabStripModelObserver,
                           bool user_gesture,
                           bool last_unlocked_by_target) override;
   void LostMouseLock() override;
+  void RequestKeyboardLock(content::WebContents* web_contents,
+                           bool esc_key_locked) override;
+  void CancelKeyboardLockRequest(content::WebContents* web_contents) override;
   void RequestMediaAccessPermission(
       content::WebContents* web_contents,
       const content::MediaStreamRequest& request,
       const content::MediaResponseCallback& callback) override;
-  bool CheckMediaAccessPermission(content::WebContents* web_contents,
+  bool CheckMediaAccessPermission(content::RenderFrameHost* render_frame_host,
                                   const GURL& security_origin,
                                   content::MediaStreamType type) override;
   std::string GetDefaultMediaDeviceID(content::WebContents* web_contents,
@@ -989,7 +999,8 @@ class Browser : public TabStripModelObserver,
 
   std::unique_ptr<chrome::BrowserCommandController> command_controller_;
 
-  std::unique_ptr<PictureInPictureWindowController> pip_window_controller_;
+  std::unique_ptr<content::PictureInPictureWindowController>
+      pip_window_controller_;
 
   // True if the browser window has been shown at least once.
   bool window_has_shown_;

@@ -16,11 +16,21 @@
 
 Windows10CaptionButton::Windows10CaptionButton(
     GlassBrowserFrameView* frame_view,
-    ViewID button_type)
+    ViewID button_type,
+    const base::string16& accessible_name)
     : views::Button(frame_view),
       frame_view_(frame_view),
       button_type_(button_type) {
   set_animate_on_state_change(true);
+  SetAccessibleName(accessible_name);
+}
+
+int Windows10CaptionButton::GetBetweenButtonSpacing() const {
+  constexpr int kCaptionButtonVisualSpacing = 1;
+  // There's no next button after the minimize button, so we don't need to
+  // reserve any space.
+  return button_type_ == VIEW_ID_MINIMIZE_BUTTON ? 0
+                                                 : kCaptionButtonVisualSpacing;
 }
 
 gfx::Size Windows10CaptionButton::CalculatePreferredSize() const {
@@ -36,7 +46,7 @@ gfx::Size Windows10CaptionButton::CalculatePreferredSize() const {
     h -= kMaximizedBottomMargin;
   }
   constexpr int kButtonWidth = 45;
-  return gfx::Size(kButtonWidth, h);
+  return gfx::Size(kButtonWidth + GetBetweenButtonSpacing(), h);
 }
 
 namespace {
@@ -65,15 +75,17 @@ void Windows10CaptionButton::OnPaintBackground(gfx::Canvas* canvas) {
   const SkColor bg_color =
       theme_provider->GetColor(ThemeProperties::COLOR_BUTTON_BACKGROUND);
   const SkAlpha theme_alpha = SkColorGetA(bg_color);
+  gfx::Rect bounds = GetContentsBounds();
+  bounds.Inset(GetBetweenButtonSpacing(), 0, 0, 0);
+
   if (theme_alpha > 0) {
-    canvas->FillRect(GetContentsBounds(),
+    canvas->FillRect(bounds,
                      SkColorSetA(bg_color, ButtonBackgroundAlpha(theme_alpha)));
   }
   if (theme_provider->HasCustomImage(IDR_THEME_WINDOW_CONTROL_BACKGROUND)) {
-    const gfx::Rect bounds = GetContentsBounds();
     canvas->TileImageInt(
         *theme_provider->GetImageSkiaNamed(IDR_THEME_WINDOW_CONTROL_BACKGROUND),
-        0, 0, bounds.width(), bounds.height());
+        bounds.x(), bounds.y(), bounds.width(), bounds.height());
   }
 
   SkColor base_color;
@@ -103,7 +115,7 @@ void Windows10CaptionButton::OnPaintBackground(gfx::Canvas* canvas) {
   else
     alpha = gfx::Tween::IntValueBetween(hover_animation().GetCurrentValue(),
                                         SK_AlphaTRANSPARENT, hovered_alpha);
-  canvas->FillRect(GetContentsBounds(), SkColorSetA(base_color, alpha));
+  canvas->FillRect(bounds, SkColorSetA(base_color, alpha));
 }
 
 void Windows10CaptionButton::PaintButtonContents(gfx::Canvas* canvas) {
@@ -129,7 +141,8 @@ void Windows10CaptionButton::PaintSymbol(gfx::Canvas* canvas) {
   SkColor symbol_color = GetBaseColor();
   if (!frame_view_->ShouldPaintAsActive() && state() != STATE_HOVERED &&
       state() != STATE_PRESSED) {
-    symbol_color = SkColorSetA(symbol_color, 0x65);
+    symbol_color = SkColorSetA(
+        symbol_color, GlassBrowserFrameView::kInactiveTitlebarFeatureAlpha);
   } else if (button_type_ == VIEW_ID_CLOSE_BUTTON &&
              hover_animation().is_animating()) {
     symbol_color = gfx::Tween::ColorValueBetween(

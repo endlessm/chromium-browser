@@ -5,14 +5,16 @@
 #include "chrome/browser/media/router/discovery/mdns/cast_media_sink_service.h"
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/media/router/discovery/discovery_network_monitor.h"
+#include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/media_router/media_sink.h"
 #include "components/cast_channel/cast_socket_service.h"
+#include "components/prefs/pref_service.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/ip_address.h"
 
@@ -62,10 +64,6 @@ ErrorType CreateCastMediaSink(const DnsSdService& service,
   std::string friendly_name = service_data["fn"];
   if (friendly_name.empty())
     return ErrorType::MISSING_FRIENDLY_NAME;
-  std::string processed_uuid = MediaSinkInternal::ProcessDeviceUUID(unique_id);
-  std::string sink_id = base::StringPrintf("cast:<%s>", processed_uuid.c_str());
-  MediaSink sink(sink_id, friendly_name, SinkIconType::CAST,
-                 MediaRouteProviderId::CAST);
 
   CastSinkExtraData extra_data;
   extra_data.ip_endpoint =
@@ -76,6 +74,13 @@ ErrorType CreateCastMediaSink(const DnsSdService& service,
   unsigned capacities;
   if (base::StringToUint(service_data["ca"], &capacities))
     extra_data.capabilities = capacities;
+
+  std::string processed_uuid = MediaSinkInternal::ProcessDeviceUUID(unique_id);
+  std::string sink_id = base::StringPrintf("cast:<%s>", processed_uuid.c_str());
+  MediaSink sink(
+      sink_id, friendly_name,
+      CastMediaSinkServiceImpl::GetCastSinkIconType(extra_data.capabilities),
+      MediaRouteProviderId::CAST);
 
   cast_sink->set_sink(sink);
   cast_sink->set_cast_data(extra_data);
@@ -138,11 +143,26 @@ CastMediaSinkService::CreateImpl(
       cast_channel::CastSocketService::GetInstance();
   scoped_refptr<base::SequencedTaskRunner> task_runner =
       cast_socket_service->task_runner();
+
+  local_state_change_registrar_.Init(g_browser_process->local_state());
+  local_state_change_registrar_.Add(
+      prefs::kMediaRouterCastAllowAllIPs,
+      base::BindRepeating(&CastMediaSinkService::SetCastAllowAllIPs,
+                          base::Unretained(this)));
   return std::unique_ptr<CastMediaSinkServiceImpl, base::OnTaskRunnerDeleter>(
-      new CastMediaSinkServiceImpl(sinks_discovered_cb, observer,
-                                   cast_socket_service,
-                                   DiscoveryNetworkMonitor::GetInstance()),
+      new CastMediaSinkServiceImpl(
+          sinks_discovered_cb, observer, cast_socket_service,
+          DiscoveryNetworkMonitor::GetInstance(),
+          GetCastAllowAllIPsPref(g_browser_process->local_state())),
       base::OnTaskRunnerDeleter(task_runner));
+}
+
+void CastMediaSinkService::SetCastAllowAllIPs() {
+  impl_->task_runner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&CastMediaSinkServiceImpl::SetCastAllowAllIPs,
+                     base::Unretained(impl_.get()),
+                     GetCastAllowAllIPsPref(g_browser_process->local_state())));
 }
 
 void CastMediaSinkService::StartMdnsDiscovery() {

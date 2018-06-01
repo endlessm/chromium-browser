@@ -18,7 +18,6 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
@@ -209,6 +208,21 @@ class MockProfileSharedRenderProcessHostFactory
       content::SiteInstance* site_instance) const override;
 
  private:
+  class SharedMockRenderProcessHost : public content::MockRenderProcessHost {
+   public:
+    explicit SharedMockRenderProcessHost(
+        content::BrowserContext* browser_context)
+        : content::MockRenderProcessHost(browser_context) {}
+
+    // This test class lies that the process has not been used to allow
+    // testing of process sharing/reuse inherent in the unit tests that depend
+    // on the MockProfileSharedRenderProcessHostFactory.
+    bool HostHasNotBeenUsed() override { return true; }
+
+   private:
+    DISALLOW_COPY_AND_ASSIGN(SharedMockRenderProcessHost);
+  };
+
   mutable std::map<content::BrowserContext*,
                    std::unique_ptr<content::MockRenderProcessHost>>
       rph_map_;
@@ -426,7 +440,7 @@ MockProfileSharedRenderProcessHostFactory::CreateRenderProcessHost(
   if (existing != rph_map_.end())
     return existing->second.get();
   rph_map_[browser_context] =
-      std::make_unique<content::MockRenderProcessHost>(browser_context);
+      std::make_unique<SharedMockRenderProcessHost>(browser_context);
   return rph_map_[browser_context].get();
 }
 

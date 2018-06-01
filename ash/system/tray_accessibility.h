@@ -8,7 +8,7 @@
 #include <stdint.h>
 
 #include "ash/accessibility/accessibility_delegate.h"
-#include "ash/system/accessibility_observer.h"
+#include "ash/accessibility/accessibility_observer.h"
 #include "ash/system/tray/tray_details_view.h"
 #include "ash/system/tray/tray_image_item.h"
 #include "base/macros.h"
@@ -29,6 +29,8 @@ class View;
 namespace ash {
 class HoverHighlightView;
 class SystemTrayItem;
+class TrayAccessibilityLoginScreenTest;
+class TrayAccessibilityTest;
 
 namespace tray {
 
@@ -41,6 +43,8 @@ class AccessibilityDetailedView : public TrayDetailsView {
   void OnAccessibilityStatusChanged();
 
  private:
+  friend class ::ash::TrayAccessibilityLoginScreenTest;
+  friend class ::ash::TrayAccessibilityTest;
   friend class chromeos::TrayAccessibilityTest;
 
   // TrayDetailsView:
@@ -71,7 +75,6 @@ class AccessibilityDetailedView : public TrayDetailsView {
   HoverHighlightView* highlight_mouse_cursor_view_ = nullptr;
   HoverHighlightView* highlight_keyboard_focus_view_ = nullptr;
   HoverHighlightView* sticky_keys_view_ = nullptr;
-  HoverHighlightView* tap_dragging_view_ = nullptr;
   views::Button* help_view_ = nullptr;
   views::Button* settings_view_ = nullptr;
 
@@ -89,7 +92,6 @@ class AccessibilityDetailedView : public TrayDetailsView {
   bool highlight_mouse_cursor_enabled_ = false;
   bool highlight_keyboard_focus_enabled_ = false;
   bool sticky_keys_enabled_ = false;
-  bool tap_dragging_enabled_ = false;
 
   LoginStatus login_;
 
@@ -104,6 +106,8 @@ class TrayAccessibility : public TrayImageItem, public AccessibilityObserver {
   ~TrayAccessibility() override;
 
  private:
+  friend class TrayAccessibilityLoginScreenTest;
+  friend class TrayAccessibilityTest;
   friend class chromeos::TrayAccessibilityTest;
 
   void SetTrayIconVisible(bool visible);
@@ -118,8 +122,8 @@ class TrayAccessibility : public TrayImageItem, public AccessibilityObserver {
   void UpdateAfterLoginStatusChange(LoginStatus status) override;
 
   // Overridden from AccessibilityObserver.
-  void OnAccessibilityStatusChanged(
-      AccessibilityNotificationVisibility notify) override;
+  void OnAccessibilityStatusChanged() override;
+  void ShowAccessibilityNotification() override;
 
   views::View* default_;
   tray::AccessibilityDetailedView* detailed_menu_;

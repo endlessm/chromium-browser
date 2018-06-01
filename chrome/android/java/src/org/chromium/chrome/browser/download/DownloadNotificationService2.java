@@ -32,6 +32,7 @@ import org.chromium.chrome.browser.notifications.NotificationUmaTracker;
 import org.chromium.chrome.browser.notifications.channels.ChannelDefinitions;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.components.offline_items_collection.ContentId;
+import org.chromium.components.offline_items_collection.FailState;
 import org.chromium.components.offline_items_collection.LegacyHelpers;
 import org.chromium.components.offline_items_collection.OfflineItem.Progress;
 import org.chromium.components.offline_items_collection.PendingState;
@@ -223,12 +224,6 @@ public class DownloadNotificationService2 {
         Notification notification = DownloadNotificationFactory.buildNotification(
                 context, DownloadNotificationFactory.DownloadStatus.IN_PROGRESS, downloadUpdate);
 
-        // If called from DownloadBroadcastManager, only update notification, not tracking.
-        if (hasUserGesture) {
-            updateNotification(notificationId, notification);
-            return;
-        }
-
         updateNotification(notificationId, notification, id,
                 new DownloadSharedPreferenceEntry(id, notificationId, isOffTheRecord,
                         canDownloadWhileMetered, fileName, true, isTransient));
@@ -271,12 +266,6 @@ public class DownloadNotificationService2 {
                 mDownloadSharedPreferenceHelper.getDownloadSharedPreferenceEntry(id);
         if (entry == null) return;
 
-        // If called from DownloadBroadcastManager, only update notification, not tracking.
-        if (hasUserGesture) {
-            cancelNotification(entry.notificationId);
-            return;
-        }
-
         cancelNotification(entry.notificationId, id);
         mDownloadForegroundServiceManager.updateDownloadStatus(ContextUtils.getApplicationContext(),
                 DownloadForegroundServiceManager.DownloadStatus.CANCEL, entry.notificationId, null);
@@ -301,7 +290,8 @@ public class DownloadNotificationService2 {
         DownloadSharedPreferenceEntry entry =
                 mDownloadSharedPreferenceHelper.getDownloadSharedPreferenceEntry(id);
         if (!isResumable) {
-            notifyDownloadFailed(id, fileName, icon);
+            // TODO(cmsy): Use correct FailState.
+            notifyDownloadFailed(id, fileName, icon, FailState.CANNOT_DOWNLOAD);
             return;
         }
         // If download is already paused, do nothing.
@@ -328,12 +318,6 @@ public class DownloadNotificationService2 {
 
         Notification notification = DownloadNotificationFactory.buildNotification(
                 context, DownloadNotificationFactory.DownloadStatus.PAUSED, downloadUpdate);
-
-        // If called from DownloadBroadcastManager, only update notification, not tracking.
-        if (hasUserGesture) {
-            updateNotification(notificationId, notification);
-            return;
-        }
 
         updateNotification(notificationId, notification, id,
                 new DownloadSharedPreferenceEntry(id, notificationId, isOffTheRecord,
@@ -404,7 +388,8 @@ public class DownloadNotificationService2 {
      * @param icon     A {@link Bitmap} to be used as the large icon for display.
      */
     @VisibleForTesting
-    public void notifyDownloadFailed(ContentId id, String fileName, Bitmap icon) {
+    public void notifyDownloadFailed(
+            ContentId id, String fileName, Bitmap icon, @FailState int failState) {
         // If the download is not in history db, fileName could be empty. Get it from
         // SharedPreferences.
         if (TextUtils.isEmpty(fileName)) {
@@ -421,6 +406,7 @@ public class DownloadNotificationService2 {
                                                 .setContentId(id)
                                                 .setFileName(fileName)
                                                 .setIcon(icon)
+                                                .setFailState(failState)
                                                 .build();
         Notification notification = DownloadNotificationFactory.buildNotification(
                 context, DownloadNotificationFactory.DownloadStatus.FAILED, downloadUpdate);

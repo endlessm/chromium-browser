@@ -5,13 +5,14 @@ include_rules = [
   "-ash",
   "-chrome",
   "+ash/components/shortcut_viewer",
+  "+ash/public",
+  "+ash/shell.h",
   "+ash/wm/window_util.h",
   "+chrome/browser/ui/ash/ksv",
 ]
 
 specific_include_rules = {
   "keyboard_shortcut_viewer_metadata_unittest\.cc": [
-    "+ash/accelerators",
     "+chrome/browser/ui/views",
   ],
 }

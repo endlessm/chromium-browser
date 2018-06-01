@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -1181,8 +1182,7 @@ TEST_F(ProfileManagerTest, ActiveProfileDeleted) {
   local_state->SetString(prefs::kProfileLastUsed, profile_name1);
 
   // Delete the active profile.
-  profile_manager->ScheduleProfileForDeletion(dest_path1,
-                                              ProfileManager::CreateCallback());
+  profile_manager->ScheduleProfileForDeletion(dest_path1, base::DoNothing());
   content::RunAllTasksUntilIdle();
 
   EXPECT_EQ(dest_path2, profile_manager->GetLastUsedProfile()->GetPath());
@@ -1214,8 +1214,7 @@ TEST_F(ProfileManagerTest, LastProfileDeleted) {
   local_state->SetString(prefs::kProfileLastUsed, profile_name1);
 
   // Delete the active profile.
-  profile_manager->ScheduleProfileForDeletion(dest_path1,
-                                              ProfileManager::CreateCallback());
+  profile_manager->ScheduleProfileForDeletion(dest_path1, base::DoNothing());
   content::RunAllTasksUntilIdle();
 
   // A new profile should have been created
@@ -1268,8 +1267,7 @@ TEST_F(ProfileManagerTest, LastProfileDeletedWithGuestActiveProfile) {
   local_state->SetString(prefs::kProfileLastUsed, guest_profile_name);
 
   // Delete the other profile.
-  profile_manager->ScheduleProfileForDeletion(dest_path1,
-                                              ProfileManager::CreateCallback());
+  profile_manager->ScheduleProfileForDeletion(dest_path1, base::DoNothing());
   content::RunAllTasksUntilIdle();
 
   // A new profile should have been created.
@@ -1310,7 +1308,7 @@ TEST_F(ProfileManagerTest, ProfileDisplayNameResetsDefaultName) {
 
   // Deleting a profile means returning to the default name.
   profile_manager->ScheduleProfileForDeletion(profile2->GetPath(),
-                                              ProfileManager::CreateCallback());
+                                              base::DoNothing());
   content::RunAllTasksUntilIdle();
   EXPECT_EQ(default_profile_name,
             profiles::GetAvatarNameForProfile(profile1->GetPath()));
@@ -1355,7 +1353,7 @@ TEST_F(ProfileManagerTest, ProfileDisplayNamePreservesCustomName) {
 
   // Deleting a profile means returning to the original, custom name.
   profile_manager->ScheduleProfileForDeletion(profile2->GetPath(),
-                                              ProfileManager::CreateCallback());
+                                              base::DoNothing());
   content::RunAllTasksUntilIdle();
   EXPECT_EQ(custom_profile_name,
             profiles::GetAvatarNameForProfile(profile1->GetPath()));
@@ -1407,7 +1405,7 @@ TEST_F(ProfileManagerTest, ProfileDisplayNamePreservesSignedInName) {
 
   // Deleting a profile means returning to the original, actual profile name.
   profile_manager->ScheduleProfileForDeletion(profile2->GetPath(),
-                                              ProfileManager::CreateCallback());
+                                              base::DoNothing());
   content::RunAllTasksUntilIdle();
   EXPECT_EQ(gaia_given_name,
             profiles::GetAvatarNameForProfile(profile1->GetPath()));
@@ -1514,8 +1512,7 @@ TEST_F(ProfileManagerTest, ActiveProfileDeletedNeedsToLoadNextProfile) {
 
   // Delete the active profile. This should switch and load the unloaded
   // profile.
-  profile_manager->ScheduleProfileForDeletion(dest_path1,
-                                              ProfileManager::CreateCallback());
+  profile_manager->ScheduleProfileForDeletion(dest_path1, base::DoNothing());
 
   content::RunAllTasksUntilIdle();
 
@@ -1572,12 +1569,10 @@ TEST_F(ProfileManagerTest, ActiveProfileDeletedNextProfileDeletedToo) {
   // Try to break this flow by setting the active profile to Profile2 in the
   // middle (so after the first posted message), and trying to delete Profile2,
   // so that the ProfileManager has to look for a different profile to load.
-  profile_manager->ScheduleProfileForDeletion(dest_path1,
-                                              ProfileManager::CreateCallback());
+  profile_manager->ScheduleProfileForDeletion(dest_path1, base::DoNothing());
   local_state->SetString(prefs::kProfileLastUsed,
                          dest_path2.BaseName().MaybeAsASCII());
-  profile_manager->ScheduleProfileForDeletion(dest_path2,
-                                              ProfileManager::CreateCallback());
+  profile_manager->ScheduleProfileForDeletion(dest_path2, base::DoNothing());
   content::RunAllTasksUntilIdle();
 
   EXPECT_EQ(dest_path3, profile_manager->GetLastUsedProfile()->GetPath());

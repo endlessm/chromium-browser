@@ -25,8 +25,21 @@ import org.chromium.ui.base.WindowAndroid;
  * See https://crbug.com/598880.
  */
 public interface ContentViewCore {
-    public static ContentViewCore create(Context context, String productVersion) {
-        return new ContentViewCoreImpl(context, productVersion);
+    /**
+     * Create {@link ContentViewCore} object.
+     * @param context The context used to create this object.
+     * @param productVersion Product version for accessibility.
+     * @param viewDelegate Delegate to add/remove anchor views.
+     * @param internalDispatcher Handles dispatching all hidden or super methods to the
+     *                           containerView.
+     * @param webContents A WebContents instance to connect to.
+     * @param windowAndroid An instance of the WindowAndroid.
+     */
+    public static ContentViewCore create(Context context, String productVersion,
+            WebContents webContents, ViewAndroidDelegate viewDelegate,
+            InternalAccessDelegate internalDispatcher, WindowAndroid windowAndroid) {
+        return ContentViewCoreImpl.create(context, productVersion, webContents, viewDelegate,
+                internalDispatcher, windowAndroid);
     }
 
     public static ContentViewCore fromWebContents(WebContents webContents) {
@@ -67,17 +80,7 @@ public interface ContentViewCore {
          * @see View#onScrollChanged(int, int, int, int)
          */
         void onScrollChanged(int lPix, int tPix, int oldlPix, int oldtPix);
-
-        /**
-         * @see View#awakenScrollBars(int, boolean)
-         */
-        boolean super_awakenScrollBars(int startDelay, boolean invalidate);
     }
-
-    /**
-     * @return The context used for creating this ContentViewCore.
-     */
-    Context getContext();
 
     /**
      * @return The ViewGroup that all view actions of this ContentViewCore should interact with.
@@ -88,22 +91,6 @@ public interface ContentViewCore {
      * @return The WebContents currently being rendered.
      */
     WebContents getWebContents();
-
-    /**
-     * @return The WindowAndroid associated with this ContentViewCore.
-     */
-    WindowAndroid getWindowAndroid();
-
-    /**
-     * Initialize {@link ContentViewCore} object.
-     * @param viewDelegate Delegate to add/remove anchor views.
-     * @param internalDispatcher Handles dispatching all hidden or super methods to the
-     *                           containerView.
-     * @param webContents A WebContents instance to connect to.
-     * @param windowAndroid An instance of the WindowAndroid.
-     */
-    void initialize(ViewAndroidDelegate viewDelegate, InternalAccessDelegate internalDispatcher,
-            WebContents webContents, WindowAndroid windowAndroid);
 
     /**
      * Updates the native {@link ContentViewCore} with a new window. This moves the NativeView and
@@ -158,36 +145,6 @@ public interface ContentViewCore {
     boolean isAlive();
 
     /**
-     * @return Viewport width in physical pixels as set from onSizeChanged.
-     */
-    int getViewportWidthPix();
-
-    /**
-     * @return Viewport height in physical pixels as set from onSizeChanged.
-     */
-    int getViewportHeightPix();
-
-    /**
-     * @return Whether a scroll targeting web content is in progress.
-     */
-    boolean isScrollInProgress();
-
-    /**
-     * To be called when the ContentView is shown.
-     */
-    void onShow();
-
-    /**
-     * To be called when the ContentView is hidden.
-     */
-    void onHide();
-
-    /**
-     * Whether or not the associated ContentView is currently attached to a window.
-     */
-    boolean isAttachedToWindow();
-
-    /**
      * @see View#onAttachedToWindow()
      */
     void onAttachedToWindow();
@@ -228,16 +185,6 @@ public interface ContentViewCore {
     void scrollTo(float xPix, float yPix);
 
     /**
-     * Update the text selection UI depending on the focus of the page. This will hide the selection
-     * handles and selection popups if focus is lost.
-     * TODO(mdjones): This was added as a temporary measure to hide text UI while Reader Mode or
-     * Contextual Search are showing. This should be removed in favor of proper focusing of the
-     * panel's ContentViewCore (which is currently not being added to the view hierarchy).
-     * @param focused If the ContentViewCore currently has focus.
-     */
-    void updateTextSelectionUI(boolean focused);
-
-    /**
      * When the activity pauses, the content should lose focus.
      * TODO(mthiesse): See crbug.com/686232 for context. Desktop platforms use keyboard focus to
      * trigger blur/focus, and the equivalent to this on Android is Window focus. However, we don't
@@ -252,11 +199,16 @@ public interface ContentViewCore {
     void onResume();
 
     /**
-     * Called when keyboard/IME focus has changed.
+     * Called when view-level focus for the container view has changed.
      * @param gainFocus {@code true} if the focus is gained, otherwise {@code false}.
+     */
+    void onViewFocusChanged(boolean gainFocus);
+
+    /**
+     * Sets whether the keyboard should be hidden when losing input focus.
      * @param hideKeyboardOnBlur {@code true} if we should hide soft keyboard when losing focus.
      */
-    void onFocusChanged(boolean gainFocus, boolean hideKeyboardOnBlur);
+    void setHideKeyboardOnBlur(boolean hideKeyboardOnBlur);
 
     /**
      * @see View#scrollBy(int, int)
@@ -298,11 +250,6 @@ public interface ContentViewCore {
     int computeVerticalScrollExtent();
 
     /**
-     * @see View#awakenScrollBars(int, boolean)
-     */
-    boolean awakenScrollBars(int startDelay, boolean invalidate);
-
-    /**
      * Enable or disable multi-touch zoom support.
      * @param supportsMultiTouchZoom {@code true} if the feature is enabled.
      */
@@ -314,24 +261,6 @@ public interface ContentViewCore {
      */
     void updateDoubleTapSupport(boolean supportsDoubleTap);
 
-    /**
-     * Notifies that items were selected in the currently showing select popup.
-     * @param indices Array of indices of the selected items.
-     */
-    void selectPopupMenuItems(int[] indices);
-
-    /**
-     * Ensure the selection is preserved the next time the view loses focus.
-     */
-    void preserveSelectionOnNextLossOfFocus();
-
-    /**
-     * @return Whether the current page seems to be mobile-optimized. This hint is based upon
-     *         rendered frames and may return different values when called multiple times for the
-     *         same page (particularly during page load).
-     */
-    boolean getIsMobileOptimizedHint();
-
     // Test-only methods
 
     /**
@@ -340,9 +269,6 @@ public interface ContentViewCore {
      */
     @VisibleForTesting
     int getTopControlsShrinkBlinkHeightForTesting();
-
-    @VisibleForTesting
-    void sendDoubleTapForTest(long timeMs, int x, int y);
 
     /**
      * @return {@code true} if select popup is being shown.

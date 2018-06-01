@@ -11,7 +11,7 @@
 
 #include "base/strings/string16.h"
 #include "content/public/common/manifest.h"
-#include "third_party/WebKit/public/platform/modules/screen_orientation/WebScreenOrientationLockType.h"
+#include "third_party/blink/public/platform/modules/screen_orientation/web_screen_orientation_lock_type.h"
 #include "url/gurl.h"
 
 // Information needed to create a shortcut via ShortcutHelper.
@@ -94,7 +94,7 @@ struct ShortcutInfo {
   GURL best_primary_icon_url;
   GURL best_badge_icon_url;
   std::vector<std::string> icon_urls;
-  base::string16 share_target_url_template;
+  GURL share_target_url_template;
 };
 
 #endif  // CHROME_BROWSER_ANDROID_SHORTCUT_INFO_H_

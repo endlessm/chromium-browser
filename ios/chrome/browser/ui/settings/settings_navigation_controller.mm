@@ -4,7 +4,6 @@
 
 #import "ios/chrome/browser/ui/settings/settings_navigation_controller.h"
 
-#include "base/ios/ios_util.h"
 #include "base/mac/foundation_util.h"
 #include "components/strings/grit/components_strings.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
@@ -360,11 +359,13 @@ initWithRootViewController:(UIViewController*)rootViewController
 - (UIBarButtonItem*)doneButton {
   // Create a custom Done bar button item, as Material Navigation Bar does not
   // handle a system UIBarButtonSystemItemDone item.
-  return [[UIBarButtonItem alloc]
+  UIBarButtonItem* item = [[UIBarButtonItem alloc]
       initWithTitle:l10n_util::GetNSString(IDS_IOS_NAVIGATION_BAR_DONE_BUTTON)
               style:UIBarButtonItemStyleDone
              target:self
              action:@selector(closeSettings)];
+  item.accessibilityIdentifier = kSettingsDoneButtonId;
+  return item;
 }
 
 - (UIBarButtonItem*)closeButton {
@@ -522,27 +523,6 @@ initWithRootViewController:(UIViewController*)rootViewController
 
 - (ios::ChromeBrowserState*)mainBrowserState {
   return mainBrowserState_;
-}
-
-#pragma mark - Status bar
-
-- (BOOL)modalPresentationCapturesStatusBarAppearance {
-  if (!base::ios::IsRunningOnIOS10OrLater()) {
-    // TODO(crbug.com/620361): Remove the entire method override when iOS 9 is
-    // dropped.
-    return YES;
-  } else {
-    return [super modalPresentationCapturesStatusBarAppearance];
-  }
-}
-
-- (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
-  [super traitCollectionDidChange:previousTraitCollection];
-  if (!base::ios::IsRunningOnIOS10OrLater()) {
-    // TODO(crbug.com/620361): Remove the entire method override when iOS 9 is
-    // dropped.
-    [self setNeedsStatusBarAppearanceUpdate];
-  }
 }
 
 #pragma mark - AppBar Containment

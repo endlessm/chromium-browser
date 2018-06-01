@@ -9,9 +9,16 @@
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task_scheduler/lazy_task_runner.h"
+#include "build/build_config.h"
 
 namespace base {
 
+namespace internal {
+class ScopedSetSequenceLocalStorageMapForCurrentThread;
+class SequenceLocalStorageMap;
+}  // namespace internal
+
+class FileDescriptorWatcher;
 class MessageLoop;
 class TaskScheduler;
 class TestMockTimeTaskRunner;
@@ -69,7 +76,8 @@ class ScopedTaskEnvironment {
     MOCK_TIME,
     // The main thread pumps UI messages.
     UI,
-    // The main thread pumps asynchronous IO messages.
+    // The main thread pumps asynchronous IO messages and supports the
+    // FileDescriptorWatcher API on POSIX.
     IO,
   };
 
@@ -111,7 +119,8 @@ class ScopedTaskEnvironment {
 
   // Returns a TickClock whose time is updated by
   // FastForward(By|UntilNoTasksRemain).
-  std::unique_ptr<TickClock> GetMockTickClock();
+  const TickClock* GetMockTickClock();
+  std::unique_ptr<TickClock> DeprecatedGetMockTickClock();
 
  private:
   class TestTaskTracker;
@@ -124,6 +133,19 @@ class ScopedTaskEnvironment {
   // the backing implementation of each MainThreadType may change over time.
   const std::unique_ptr<MessageLoop> message_loop_;
   const scoped_refptr<TestMockTimeTaskRunner> mock_time_task_runner_;
+
+  // Non-null in MOCK_TIME, where an explicit SequenceLocalStorageMap needs to
+  // be provided. TODO(gab): This can be removed once mock time support is added
+  // to MessageLoop directly.
+  const std::unique_ptr<internal::SequenceLocalStorageMap> slsm_for_mock_time_;
+  const std::unique_ptr<
+      internal::ScopedSetSequenceLocalStorageMapForCurrentThread>
+      slsm_registration_for_mock_time_;
+
+#if defined(OS_POSIX)
+  // Enables the FileDescriptorWatcher API iff running a MainThreadType::IO.
+  const std::unique_ptr<FileDescriptorWatcher> file_descriptor_watcher_;
+#endif
 
   const TaskScheduler* task_scheduler_ = nullptr;
 

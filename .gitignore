@@ -104,7 +104,9 @@ vs-chromium-project.txt
 /chrome/browser/resources/software_rendering_list
 # Asset files downloaded by gclient runhooks.
 /chrome/browser/resources/vr/assets/google_chrome/*.png
+/chrome/browser/resources/vr/assets/google_chrome/*.wav
 /chrome/browser/spellchecker/internal
+/chrome/browser/ui/media_router/internal
 /chrome/browser_tests_run.xml
 /chrome/chrome_run.xml
 /chrome/chrome_user32_delay_imports.xml
@@ -117,9 +119,7 @@ vs-chromium-project.txt
 /chrome/installer/mini_installer.xml
 /chrome/installer/mini_installer/mini_installer.aps
 /chrome/installer/mini_installer/support
-/chrome/installer/mini_installer_syzygy.xml
 /chrome/installer/mini_installer_tests_run.xml
-/chrome/installer/zucchini/testdata/*.exe
 /chrome/installer_util_strings.xml
 /chrome/interactive_ui_tests_run.xml
 /chrome/setup.xml
@@ -169,6 +169,7 @@ vs-chromium-project.txt
 /components/search_engines/prepopulated_engines.xml
 /components/suggestions.xml
 /components/variations.xml
+/components/zucchini/testdata/*.exe
 /content/browser/service_worker/proto.xml
 /content/content_browsertests_run.xml
 /content/content_common_mojo_bindings.xml

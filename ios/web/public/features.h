@@ -16,14 +16,15 @@ extern const base::Feature kContextMenuElementPostMessage;
 // Used to enable the WKBackForwardList based navigation manager.
 extern const base::Feature kSlimNavigationManager;
 
-// Used to enable PassKit download on top of ios/web Download API.
-extern const base::Feature kNewPassKitDownload;
-
 // Used to enable new Download Manager UI and backend.
 extern const base::Feature kNewFileDownload;
 
 // Used to enable using WKHTTPSystemCookieStore in main context URL requests.
 extern const base::Feature kWKHTTPSystemCookieStore;
+
+// Used to crash the browser if unexpected URL change is detected.
+// https://crbug.com/841105.
+extern const base::Feature kCrashOnUnexpectedURLChange;
 
 }  // namespace features
 }  // namespace web

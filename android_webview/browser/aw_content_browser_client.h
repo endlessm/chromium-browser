@@ -166,9 +166,10 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
                                 bool has_user_gesture,
                                 bool is_redirect,
                                 bool is_main_frame,
-                                ui::PageTransition transition) override;
+                                ui::PageTransition transition,
+                                bool* ignore_navigation) override;
   bool ShouldCreateTaskScheduler() override;
-  content::ResourceDispatcherHostLoginDelegate* CreateLoginDelegate(
+  scoped_refptr<content::LoginDelegate> CreateLoginDelegate(
       net::AuthChallengeInfo* auth_info,
       content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
       bool is_main_frame,
@@ -176,6 +177,15 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
       bool first_auth_attempt,
       const base::Callback<void(const base::Optional<net::AuthCredentials>&)>&
           auth_required_callback) override;
+  bool HandleExternalProtocol(
+      const GURL& url,
+      content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
+      int child_id,
+      content::NavigationUIData* navigation_data,
+      bool is_main_frame,
+      ui::PageTransition page_transition,
+      bool has_user_gesture) override;
+  void RegisterOutOfProcessServices(OutOfProcessServiceMap* services) override;
 
   static void DisableCreatingTaskScheduler();
 

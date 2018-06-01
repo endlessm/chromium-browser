@@ -175,6 +175,8 @@ TEST_F('BackgroundTest', 'ForwardBackwardNavigation', function() {
         .expectSpeech('foxtraut', 'Heading 2')
         .expectBraille('foxtraut h2');
     mockFeedback.call(doCmd('nextLine'))
+        .expectSpeech('foxtraut');
+    mockFeedback.call(doCmd('nextLine'))
         .expectSpeech('end', 'of test')
         .expectBraille('endof test');
 
@@ -1414,7 +1416,8 @@ TEST_F('BackgroundTest', 'TableColumnHeaders', function() {
   });
 });
 
-TEST_F('BackgroundTest', 'ActiveDescendantUpdates', function() {
+// Flaky, see http://crbug.com/825429.
+TEST_F('BackgroundTest', 'DISABLED_ActiveDescendantUpdates', function() {
   var mockFeedback = this.createMockFeedback();
   this.runWithLoadedTree(function(root) {/*!
     <div aria-label="container" tabindex=0 role="group" id="active"
@@ -1516,6 +1519,92 @@ TEST_F('BackgroundTest', 'NavigationEscapesEdit', function() {
         .call(assertBeginning.bind(this, false))
         .call(assertEnd.bind(this, true))
 
+        .replay();
+  });
+});
+
+TEST_F('BackgroundTest', 'NavigationSyncsSelect', function() {
+  var mockFeedback = this.createMockFeedback();
+  this.runWithLoadedTree(function() {/*!
+    <select>
+      <option>apple</option>
+      <option>grape</option>
+    </select>
+  */}, function(root) {
+    var select = root.find({role: RoleType.POP_UP_BUTTON});
+    mockFeedback.call(select.doDefault.bind(select))
+        .expectSpeech('apple', 'Menu item', ' 1 of 2 ')
+        .call(doCmd('nextObject'))
+        .expectNextSpeechUtteranceIsNot('Selected')
+        .expectNextSpeechUtteranceIsNot('Unselected')
+        .expectSpeech('grape', 'Menu item')
+        .expectNextSpeechUtteranceIsNot('Selected')
+        .expectNextSpeechUtteranceIsNot('Unselected')
+        .expectSpeech(' 2 of 2 ')
+        .replay();
+  });
+});
+
+TEST_F('BackgroundTest', 'NavigationIgnoresLabels', function() {
+  var mockFeedback = this.createMockFeedback();
+  this.runWithLoadedTree(function() {/*!
+    <p>before</p>
+    <p id="label">label</p>
+    <a href="#next" id="lebal">lebal</a>
+    <p>after</p>
+    <button aria-labelledby="label"></button>
+  */}, function(root) {
+    mockFeedback.expectSpeech('before')
+        .call(doCmd('nextObject'))
+        .expectSpeech('lebal', 'Link')
+        .call(doCmd('nextObject'))
+        .expectSpeech('after')
+        .call(doCmd('previousObject'))
+        .expectSpeech('lebal', 'Link')
+        .call(doCmd('previousObject'))
+        .expectSpeech('before')
+        .call(doCmd('nextObject'))
+        .expectSpeech('lebal', 'Link')
+        .call(doCmd('nextObject'))
+        .expectSpeech('after')
+        .call(doCmd('nextObject'))
+        .expectSpeech('label', 'lebal', 'Button')
+        .call(doCmd('nextObject'))
+        .expectEarcon(cvox.Earcon.WRAP)
+        .call(doCmd('nextObject'))
+        .expectSpeech('before')
+        .replay();
+  });
+});
+
+TEST_F('BackgroundTest', 'NavigationIgnoresDescriptions', function() {
+  var mockFeedback = this.createMockFeedback();
+  this.runWithLoadedTree(function() {/*!
+    <p>before</p>
+    <p id="desc">label</p>
+    <a href="#next" id="csed">lebal</a>
+    <p>after</p>
+    <button aria-describedby="desc"></button>
+  */}, function(root) {
+    mockFeedback.expectSpeech('before')
+        .call(doCmd('nextObject'))
+        .expectSpeech('lebal', 'Link')
+        .call(doCmd('nextObject'))
+        .expectSpeech('after')
+        .call(doCmd('previousObject'))
+        .expectSpeech('lebal', 'Link')
+        .call(doCmd('previousObject'))
+        .expectSpeech('before')
+        .call(doCmd('nextObject'))
+        .expectSpeech('lebal', 'Link')
+        .call(doCmd('nextObject'))
+        .expectSpeech('after')
+        .call(doCmd('nextObject'))
+        .expectSpeech('label', 'lebal', 'Button')
+        .call(doCmd('nextObject'))
+        .expectEarcon(cvox.Earcon.WRAP)
+        .call(doCmd('nextObject'))
+        .expectSpeech('before')
         .replay();
   });
 });

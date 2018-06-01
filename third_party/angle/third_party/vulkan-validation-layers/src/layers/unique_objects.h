@@ -35,6 +35,7 @@ namespace unique_objects {
 
 // All increments must be guarded by global_lock
 static uint64_t global_unique_id = 1;
+static std::unordered_map<uint64_t, uint64_t> unique_id_mapping;  // Map uniqueID to actual object handle
 
 struct TEMPLATE_STATE {
     VkDescriptorUpdateTemplateKHR desc_update_template;
@@ -51,13 +52,10 @@ struct instance_layer_data {
     std::vector<VkDebugReportCallbackEXT> logging_callback;
     VkLayerInstanceDispatchTable dispatch_table = {};
 
-    // The following are for keeping track of the temporary callbacks that can
-    // be used in vkCreateInstance and vkDestroyInstance:
+    // The following are for keeping track of the temporary callbacks that can be used in vkCreateInstance and vkDestroyInstance:
     uint32_t num_tmp_callbacks;
     VkDebugReportCallbackCreateInfoEXT *tmp_dbg_create_infos;
     VkDebugReportCallbackEXT *tmp_callbacks;
-
-    std::unordered_map<uint64_t, uint64_t> unique_id_mapping;  // Map uniqueID to actual object handle
 };
 
 struct layer_data {
@@ -69,15 +67,18 @@ struct layer_data {
     std::unordered_map<uint64_t, std::unique_ptr<TEMPLATE_STATE>> desc_template_map;
 
     bool wsi_enabled;
-    std::unordered_map<uint64_t, uint64_t> unique_id_mapping;  // Map uniqueID to actual object handle
     VkPhysicalDevice gpu;
 
     struct SubpassesUsageStates {
         std::unordered_set<uint32_t> subpasses_using_color_attachment;
         std::unordered_set<uint32_t> subpasses_using_depthstencil_attachment;
     };
-    // uses unwrapped handles
+    // Uses unwrapped handles
     std::unordered_map<VkRenderPass, SubpassesUsageStates> renderpasses_states;
+
+    // Map of wrapped swapchain handles to arrays of wrapped swapchain image IDs
+    // Each swapchain has an immutable list of wrapped swapchain image IDs -- always return these IDs if they exist
+    std::unordered_map<VkSwapchainKHR, std::vector<VkImage>> swapchain_wrapped_image_handle_map;
 
     layer_data() : wsi_enabled(false), gpu(VK_NULL_HANDLE){};
 };
@@ -109,21 +110,19 @@ bool ContainsExtStruct(const T *target, VkStructureType ext_type) {
     return false;
 }
 
-
 /* Unwrap a handle. */
 // must hold lock!
-template<typename HandleType, typename MapType>
-HandleType Unwrap(MapType *layer_data, HandleType wrappedHandle) {
+template <typename HandleType>
+HandleType Unwrap(HandleType wrappedHandle) {
     // TODO: don't use operator[] here.
-    return (HandleType)layer_data->unique_id_mapping[reinterpret_cast<uint64_t const &>(wrappedHandle)];
+    return (HandleType)unique_id_mapping[reinterpret_cast<uint64_t const &>(wrappedHandle)];
 }
 
-/* Wrap a newly created handle with a new unique ID, and return the new ID. */
-// must hold lock!
-template<typename HandleType, typename MapType>
-HandleType WrapNew(MapType *layer_data, HandleType newlyCreatedHandle) {
+// Wrap a newly created handle with a new unique ID, and return the new ID -- must hold lock!
+template <typename HandleType>
+HandleType WrapNew(HandleType newlyCreatedHandle) {
     auto unique_id = global_unique_id++;
-    layer_data->unique_id_mapping[unique_id] = reinterpret_cast<uint64_t const &>(newlyCreatedHandle);
+    unique_id_mapping[unique_id] = reinterpret_cast<uint64_t const &>(newlyCreatedHandle);
     return (HandleType)unique_id;
 }
 

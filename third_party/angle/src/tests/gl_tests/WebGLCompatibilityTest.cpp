@@ -197,6 +197,7 @@ class WebGLCompatibilityTest : public ANGLETest
                              glCheckFramebufferStatus(GL_FRAMEBUFFER));
             return;
         }
+
         ASSERT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
 
         const std::string renderingVs =
@@ -224,6 +225,8 @@ class WebGLCompatibilityTest : public ANGLETest
         EXPECT_PIXEL_COLOR32F_NEAR(
             0, 0, GLColor32F(floatData[0], floatData[1], floatData[2], floatData[3]), 1.0f);
     }
+
+    void TestDifferentStencilMaskAndRef(GLenum errIfMismatch);
 
     // Called from RenderingFeedbackLoopWithDrawBuffersEXT.
     void drawBuffersEXTFeedbackLoop(GLuint program,
@@ -597,6 +600,9 @@ TEST_P(WebGLCompatibilityTest, EnableBlendMinMaxExtension)
 // Test enabling the query extensions
 TEST_P(WebGLCompatibilityTest, EnableQueryExtensions)
 {
+    // Seems to be causing a device lost. http://anglebug.com/2423
+    ANGLE_SKIP_TEST_IF(IsAMD() && IsWindows() && IsOpenGL());
+
     EXPECT_FALSE(extensionEnabled("GL_EXT_occlusion_query_boolean"));
     EXPECT_FALSE(extensionEnabled("GL_EXT_disjoint_timer_query"));
     EXPECT_FALSE(extensionEnabled("GL_CHROMIUM_sync_query"));
@@ -1179,8 +1185,9 @@ TEST_P(WebGLCompatibilityTest, NullPixelDataForSubImage)
     }
 }
 
-// Tests the WebGL requirement of having the same stencil mask, writemask and ref for fron and back
-TEST_P(WebGLCompatibilityTest, RequiresSameStencilMaskAndRef)
+// Tests the WebGL requirement of having the same stencil mask, writemask and ref for front and back
+// (when stencil testing is enabled)
+void WebGLCompatibilityTest::TestDifferentStencilMaskAndRef(GLenum errIfMismatch)
 {
     // Run the test in an FBO to make sure we have some stencil bits.
     GLRenderbuffer renderbuffer;
@@ -1206,7 +1213,7 @@ TEST_P(WebGLCompatibilityTest, RequiresSameStencilMaskAndRef)
     // Having a different front - back write mask generates an error.
     glStencilMaskSeparate(GL_FRONT, 1);
     glDrawArrays(GL_TRIANGLES, 0, 6);
-    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    EXPECT_GL_ERROR(errIfMismatch);
 
     // Setting both write masks separately to the same value is valid.
     glStencilMaskSeparate(GL_BACK, 1);
@@ -1216,7 +1223,7 @@ TEST_P(WebGLCompatibilityTest, RequiresSameStencilMaskAndRef)
     // Having a different stencil front - back mask generates an error
     glStencilFuncSeparate(GL_FRONT, GL_ALWAYS, 0, 1);
     glDrawArrays(GL_TRIANGLES, 0, 6);
-    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    EXPECT_GL_ERROR(errIfMismatch);
 
     // Setting both masks separately to the same value is valid.
     glStencilFuncSeparate(GL_BACK, GL_ALWAYS, 0, 1);
@@ -1226,7 +1233,7 @@ TEST_P(WebGLCompatibilityTest, RequiresSameStencilMaskAndRef)
     // Having a different stencil front - back reference generates an error
     glStencilFuncSeparate(GL_FRONT, GL_ALWAYS, 255, 1);
     glDrawArrays(GL_TRIANGLES, 0, 6);
-    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    EXPECT_GL_ERROR(errIfMismatch);
 
     // Setting both references separately to the same value is valid.
     glStencilFuncSeparate(GL_BACK, GL_ALWAYS, 255, 1);
@@ -1237,6 +1244,16 @@ TEST_P(WebGLCompatibilityTest, RequiresSameStencilMaskAndRef)
     glStencilFuncSeparate(GL_BACK, GL_NEVER, 255, 1);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     ASSERT_GL_NO_ERROR();
+}
+TEST_P(WebGLCompatibilityTest, StencilTestEnabledDisallowsDifferentStencilMaskAndRef)
+{
+    glEnable(GL_STENCIL_TEST);
+    TestDifferentStencilMaskAndRef(GL_INVALID_OPERATION);
+}
+TEST_P(WebGLCompatibilityTest, StencilTestDisabledAllowsDifferentStencilMaskAndRef)
+{
+    glDisable(GL_STENCIL_TEST);
+    TestDifferentStencilMaskAndRef(GL_NO_ERROR);
 }
 
 // Test that GL_FIXED is forbidden

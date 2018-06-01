@@ -19,6 +19,7 @@
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
+#include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_service.h"
 #include "chrome/browser/chromeos/login/lock/screen_locker.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_factory.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_storage.h"
@@ -30,17 +31,16 @@
 #include "chrome/browser/chromeos/login/users/multi_profile_user_controller.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
-#include "chrome/browser/signin/easy_unlock_service.h"
 #include "chrome/browser/ui/webui/chromeos/login/l10n_util.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/chromeos_switches.h"
+#include "chromeos/components/proximity_auth/screenlock_bridge.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "components/arc/arc_util.h"
 #include "components/prefs/pref_service.h"
-#include "components/proximity_auth/screenlock_bridge.h"
 #include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user_manager.h"
@@ -325,7 +325,8 @@ class UserSelectionScreen::DircryptoMigrationChecker {
     owner_->ShowBannerMessage(
         needs_migration ? l10n_util::GetStringUTF16(
                               IDS_LOGIN_NEEDS_DIRCRYPTO_MIGRATION_BANNER)
-                        : base::string16());
+                        : base::string16(),
+        needs_migration);
   }
 
   UserSelectionScreen* const owner_;
@@ -707,8 +708,9 @@ UserSelectionScreen::GetScreenType() const {
   return OTHER_SCREEN;
 }
 
-void UserSelectionScreen::ShowBannerMessage(const base::string16& message) {
-  view_->ShowBannerMessage(message);
+void UserSelectionScreen::ShowBannerMessage(const base::string16& message,
+                                            bool is_warning) {
+  view_->ShowBannerMessage(message, is_warning);
 }
 
 void UserSelectionScreen::ShowUserPodCustomIcon(
@@ -860,6 +862,10 @@ UserSelectionScreen::UpdateAndReturnUserListForMojo() {
   }
 
   return user_info_list;
+}
+
+void UserSelectionScreen::SetUsersLoaded(bool loaded) {
+  users_loaded_ = loaded;
 }
 
 EasyUnlockService* UserSelectionScreen::GetEasyUnlockServiceForUser(

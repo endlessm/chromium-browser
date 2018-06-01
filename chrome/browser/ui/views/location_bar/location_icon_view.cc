@@ -67,11 +67,15 @@ bool LocationIconView::GetTooltipText(const gfx::Point& p,
 }
 
 SkColor LocationIconView::GetTextColor() const {
-  return location_bar_->GetColor(LocationBarView::SECURITY_CHIP_TEXT);
+  return location_bar_->GetSecurityChipColor(
+      location_bar_->GetToolbarModel()->GetSecurityLevel(false));
 }
 
 bool LocationIconView::ShowBubble(const ui::Event& event) {
-  return ShowPageInfoDialog(location_bar_->GetWebContents());
+  auto* contents = location_bar_->GetWebContents();
+  if (!contents)
+    return false;
+  return location_bar_->ShowPageInfoDialog(contents);
 }
 
 void LocationIconView::GetAccessibleNodeData(ui::AXNodeData* node_data) {

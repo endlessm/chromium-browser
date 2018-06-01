@@ -10,7 +10,6 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/memory/ptr_util.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/permission_type.h"
 #include "content/public/browser/web_contents.h"
@@ -141,6 +140,18 @@ blink::mojom::PermissionStatus LayoutTestPermissionManager::GetPermissionStatus(
   }
 
   return it->second;
+}
+
+blink::mojom::PermissionStatus
+LayoutTestPermissionManager::GetPermissionStatusForFrame(
+    PermissionType permission,
+    content::RenderFrameHost* render_frame_host,
+    const GURL& requesting_origin) {
+  return GetPermissionStatus(
+      permission, requesting_origin,
+      content::WebContents::FromRenderFrameHost(render_frame_host)
+          ->GetLastCommittedURL()
+          .GetOrigin());
 }
 
 int LayoutTestPermissionManager::SubscribePermissionStatusChange(

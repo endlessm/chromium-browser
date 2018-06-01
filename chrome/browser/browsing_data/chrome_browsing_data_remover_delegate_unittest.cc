@@ -84,7 +84,7 @@
 #include "net/cookies/canonical_cookie.h"
 #include "net/cookies/cookie_store.h"
 #include "net/http/http_transaction_factory.h"
-#include "net/net_features.h"
+#include "net/net_buildflags.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -977,7 +977,8 @@ class MockReportingService : public net::ReportingService {
   void QueueReport(const GURL& url,
                    const std::string& group,
                    const std::string& type,
-                   std::unique_ptr<const base::Value> body) override {
+                   std::unique_ptr<const base::Value> body,
+                   int depth) override {
     NOTREACHED();
   }
 
@@ -994,9 +995,9 @@ class MockReportingService : public net::ReportingService {
     last_origin_filter_ = origin_filter;
   }
 
-  bool RequestIsUpload(const net::URLRequest& request) override {
+  int GetUploadDepth(const net::URLRequest& request) override {
     NOTREACHED();
-    return true;
+    return 0;
   }
 
   const net::ReportingPolicy& GetPolicy() const override {
@@ -1519,6 +1520,23 @@ TEST_F(ChromeBrowsingDataRemoverDelegateTest, ExpireBookmarkFavicons) {
   EXPECT_EQ(ChromeBrowsingDataRemoverDelegate::DATA_TYPE_HISTORY,
             GetRemovalMask());
   EXPECT_TRUE(favicon_tester.HasExpiredFaviconForPageURL(bookmarked_page));
+}
+
+TEST_F(ChromeBrowsingDataRemoverDelegateTest, DeleteBookmarks) {
+  GURL bookmarked_page("http://a");
+
+  TestingProfile* profile = GetProfile();
+  profile->CreateBookmarkModel(true);
+  bookmarks::BookmarkModel* bookmark_model =
+      BookmarkModelFactory::GetForBrowserContext(profile);
+  bookmarks::test::WaitForBookmarkModelToLoad(bookmark_model);
+  bookmark_model->AddURL(bookmark_model->bookmark_bar_node(), 0,
+                         base::ASCIIToUTF16("a"), bookmarked_page);
+  EXPECT_EQ(1, bookmark_model->bookmark_bar_node()->child_count());
+  BlockUntilBrowsingDataRemoved(
+      base::Time(), base::Time::Max(),
+      ChromeBrowsingDataRemoverDelegate::DATA_TYPE_BOOKMARKS, false);
+  EXPECT_EQ(0, bookmark_model->bookmark_bar_node()->child_count());
 }
 
 // TODO(crbug.com/589586): Disabled, since history is not yet marked as
@@ -2106,7 +2124,7 @@ TEST_F(ChromeBrowsingDataRemoverDelegateTest, RemoveSelectedClientHints) {
   for (size_t i = 0; i < host_settings.size(); ++i) {
     EXPECT_EQ(ContentSettingsPattern::Wildcard(),
               host_settings.at(i).secondary_pattern);
-    EXPECT_EQ(*expiration_times_dictionary, *host_settings.at(i).setting_value);
+    EXPECT_EQ(*expiration_times_dictionary, host_settings.at(i).setting_value);
   }
 }
 

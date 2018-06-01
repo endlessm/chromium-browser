@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/wm/overview/overview_utils.h"
 #include "ash/wm/overview/overview_window_animation_observer.h"
@@ -103,15 +104,21 @@ class ScopedTransformOverviewWindow::LayerCachingAndFilteringObserver
 
 // WindowMask is applied to overview windows to give them rounded edges while
 // they are in overview mode.
-class ScopedTransformOverviewWindow::WindowMask : public ui::LayerDelegate {
+class ScopedTransformOverviewWindow::WindowMask : public ui::LayerDelegate,
+                                                  public aura::WindowObserver {
  public:
   explicit WindowMask(aura::Window* window)
       : layer_(ui::LAYER_TEXTURED), window_(window) {
+    window_->AddObserver(this);
     layer_.set_delegate(this);
     layer_.SetFillsBoundsOpaquely(false);
   }
 
-  ~WindowMask() override { layer_.set_delegate(nullptr); }
+  ~WindowMask() override {
+    if (window_)
+      window_->RemoveObserver(this);
+    layer_.set_delegate(nullptr);
+  }
 
   void set_top_inset(int top_inset) { top_inset_ = top_inset; }
   ui::Layer* layer() { return &layer_; }
@@ -145,6 +152,19 @@ class ScopedTransformOverviewWindow::WindowMask : public ui::LayerDelegate {
 
   void OnDeviceScaleFactorChanged(float old_device_scale_factor,
                                   float new_device_scale_factor) override {}
+
+  // aura::WindowObserver:
+  void OnWindowBoundsChanged(aura::Window* window,
+                             const gfx::Rect& old_bounds,
+                             const gfx::Rect& new_bounds,
+                             ui::PropertyChangeReason reason) override {
+    layer_.SetBounds(new_bounds);
+  }
+
+  void OnWindowDestroying(aura::Window* window) override {
+    window_->RemoveObserver(this);
+    window_ = nullptr;
+  }
 
   ui::Layer layer_;
   int top_inset_ = 0;
@@ -191,7 +211,7 @@ void ScopedTransformOverviewWindow::RestoreWindow(bool reset_transform) {
     // Add requests to cache render surface and perform trilinear filtering for
     // the exit animation of overview mode. The requests will be removed when
     // the exit animation finishes.
-    if (switches::IsTrilinearFilteringEnabled()) {
+    if (features::IsTrilinearFilteringEnabled()) {
       for (auto& settings : animation_settings_list) {
         settings->CacheRenderSurface();
         settings->TrilinearFiltering();
@@ -223,6 +243,7 @@ void ScopedTransformOverviewWindow::BeginScopedAnimation(
       window_->layer()->SetMaskLayer(original_mask_layer_);
     }
   }
+
   for (auto* window : wm::GetTransientTreeIterator(GetOverviewWindow())) {
     auto settings = std::make_unique<ScopedOverviewAnimationSettings>(
         animation_type, window);
@@ -474,6 +495,12 @@ gfx::Rect ScopedTransformOverviewWindow::ShrinkRectToFitPreservingAspectRatio(
   return new_bounds;
 }
 
+gfx::Rect ScopedTransformOverviewWindow::GetMaskBoundsForTesting() const {
+  if (!mask_)
+    return gfx::Rect();
+  return mask_->layer()->bounds();
+}
+
 void ScopedTransformOverviewWindow::Close() {
   if (immediate_close_for_tests) {
     CloseWidget();
@@ -501,12 +528,17 @@ void ScopedTransformOverviewWindow::PrepareForOverview() {
   // requests will be removed in dtor. So the requests will be valid during the
   // enter animation and the whole time during overview mode. For the exit
   // animation of overview mode, we need to add those requests again.
-  if (switches::IsTrilinearFilteringEnabled()) {
+  if (features::IsTrilinearFilteringEnabled()) {
     for (auto* window : wm::GetTransientTreeIterator(GetOverviewWindow())) {
       cached_and_filtered_layer_observers_.push_back(
           std::make_unique<LayerCachingAndFilteringObserver>(window->layer()));
     }
   }
+
+  // Apply rounded edge mask. Windows which are animated into overview mode
+  // will have their mask removed before the animation begins and reapplied
+  // after the animation ends.
+  CreateAndApplyMaskAndShadow();
 }
 
 void ScopedTransformOverviewWindow::CloseWidget() {
@@ -530,25 +562,6 @@ void ScopedTransformOverviewWindow::EnsureVisible() {
   original_opacity_ = 1.f;
 }
 
-void ScopedTransformOverviewWindow::OnImplicitAnimationsCompleted() {
-  // Add the mask which gives the window selector items rounded corners, and add
-  // the shadow around the window.
-  DCHECK(IsNewOverviewUi());
-
-  ui::Layer* layer = minimized_widget_
-                         ? minimized_widget_->GetContentsView()->layer()
-                         : window_->layer();
-  if (!minimized_widget_)
-    original_mask_layer_ = window_->layer()->layer_mask_layer();
-
-  mask_ = std::make_unique<WindowMask>(GetOverviewWindow());
-  mask_->layer()->SetBounds(layer->bounds());
-  mask_->set_top_inset(GetTopInset());
-  layer->SetMaskLayer(mask_->layer());
-  selector_item_->SetShadowBounds(base::make_optional(GetTransformedBounds()));
-  selector_item_->EnableBackdropIfNeeded();
-}
-
 aura::Window*
 ScopedTransformOverviewWindow::GetOverviewWindowForMinimizedState() const {
   return minimized_widget_ ? minimized_widget_->GetNativeWindow() : nullptr;
@@ -560,6 +573,16 @@ void ScopedTransformOverviewWindow::UpdateWindowDimensionsType() {
 
   type_ = GetWindowDimensionsType(window_);
   window_selector_bounds_.reset();
+}
+
+void ScopedTransformOverviewWindow::CancelAnimationsListener() {
+  StopObservingImplicitAnimations();
+}
+
+void ScopedTransformOverviewWindow::OnImplicitAnimationsCompleted() {
+  DCHECK(IsNewOverviewUi());
+  CreateAndApplyMaskAndShadow();
+  selector_item_->OnDragAnimationCompleted();
 }
 
 void ScopedTransformOverviewWindow::CreateMirrorWindowForMinimizedState() {
@@ -591,6 +614,27 @@ void ScopedTransformOverviewWindow::CreateMirrorWindowForMinimizedState() {
   }
   minimized_widget_->SetBounds(bounds);
   minimized_widget_->Show();
+}
+
+void ScopedTransformOverviewWindow::CreateAndApplyMaskAndShadow() {
+  // Add the mask which gives the window selector items rounded corners, and add
+  // the shadow around the window.
+  if (!IsNewOverviewUi())
+    return;
+
+  ui::Layer* layer = minimized_widget_
+                         ? minimized_widget_->GetContentsView()->layer()
+                         : window_->layer();
+
+  if (!minimized_widget_)
+    original_mask_layer_ = window_->layer()->layer_mask_layer();
+
+  mask_ = std::make_unique<WindowMask>(GetOverviewWindow());
+  mask_->layer()->SetBounds(layer->bounds());
+  mask_->set_top_inset(GetTopInset());
+  layer->SetMaskLayer(mask_->layer());
+  selector_item_->SetShadowBounds(base::make_optional(GetTransformedBounds()));
+  selector_item_->EnableBackdropIfNeeded();
 }
 
 }  // namespace ash

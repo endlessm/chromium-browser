@@ -32,7 +32,7 @@ from tracing.value.diagnostics import diagnostic_ref
 from tracing.value.diagnostics import reserved_infos
 
 DIAGNOSTIC_NAMES_TO_ANNOTATION_NAMES = {
-    reserved_infos.LOG_URLS.name: 'a_stdio_url',
+    reserved_infos.LOG_URLS.name: 'a_stdio_uri',
     reserved_infos.CHROMIUM_COMMIT_POSITIONS.name: 'r_chromium_commit_pos',
     reserved_infos.V8_COMMIT_POSITIONS.name: 'r_v8_rev',
     reserved_infos.CHROMIUM_REVISIONS.name: 'r_chromium_git',
@@ -184,11 +184,9 @@ def _GetStoryFromDiagnosticsDict(diagnostics):
   if not story_name:
     return None
 
-  # TODO(simonhatch): Use GenericSetGetOnlyElement when it's available
-  # https://github.com/catapult-project/catapult/issues/4110
   story_name = diagnostic.Diagnostic.FromDict(story_name)
   if story_name and len(story_name) == 1:
-    return list(story_name)[0]
+    return story_name.GetOnlyElement()
   return None
 
 
@@ -220,6 +218,10 @@ def _ProcessRowAndHistogram(params, bot_whitelist):
   logging.info('Processing: %s', test_path)
 
   hist = histogram_module.Histogram.FromDict(data_dict)
+
+  if hist.num_values == 0:
+    return []
+
   test_path_parts = test_path.split('/')
   master = test_path_parts[0]
   bot = test_path_parts[1]
@@ -270,6 +272,8 @@ def _ProcessRowAndHistogram(params, bot_whitelist):
 
 
 def _ShouldFilter(test_name, benchmark_name, stat_name):
+  if test_name == 'benchmark_total_duration':
+    return True
   if benchmark_name.startswith('memory') and not benchmark_name.startswith(
       'memory.long_running'):
     if 'memory:' in test_name and stat_name in STATS_BLACKLIST:
@@ -466,8 +470,8 @@ def _MakeRowDict(revision, test_path, tracing_histogram, stat_name=None):
   # histogram and all its diagnostics including the full set of trace urls.
   trace_url_set = tracing_histogram.diagnostics.get(
       reserved_infos.TRACE_URLS.name)
-  if trace_url_set:
-    d['supplemental_columns']['a_tracing_uri'] = list(trace_url_set)[0]
+  if trace_url_set and len(trace_url_set) == 1:
+    d['supplemental_columns']['a_tracing_uri'] = trace_url_set.GetOnlyElement()
 
   for diag_name, annotation in DIAGNOSTIC_NAMES_TO_ANNOTATION_NAMES.iteritems():
     revision_info = tracing_histogram.diagnostics.get(diag_name)
@@ -485,6 +489,7 @@ def _MakeRowDict(revision, test_path, tracing_histogram, stat_name=None):
 
   if stat_name is not None:
     d['value'] = tracing_histogram.statistics_scalars[stat_name].value
+    d['error'] = 0.0
     if stat_name == 'avg':
       d['error'] = tracing_histogram.standard_deviation
   else:

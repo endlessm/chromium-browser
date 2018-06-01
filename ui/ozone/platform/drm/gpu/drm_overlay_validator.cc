@@ -32,8 +32,10 @@ scoped_refptr<ScanoutBuffer> GetBufferForPageFlipTest(
     }
   }
 
+  const std::vector<uint64_t>
+      modifiers;  // TODO(dcastagna): use the right modifiers.
   scoped_refptr<ScanoutBuffer> scanout_buffer =
-      buffer_generator->Create(drm_device, format, size);
+      buffer_generator->Create(drm_device, format, modifiers, size);
   if (scanout_buffer)
     reusable_buffers->push_back(scanout_buffer);
 
@@ -82,7 +84,7 @@ std::vector<OverlayCheckReturn_Params> DrmOverlayValidator::TestPageFlip(
 
     OverlayPlane plane(buffer, params[i].plane_z_order, params[i].transform,
                        params[i].display_rect, params[i].crop_rect,
-                       base::kInvalidPlatformFile);
+                       /* enable_blend */ true, base::kInvalidPlatformFile);
     test_list.push_back(plane);
 
     if (buffer && controller->TestPageFlip(test_list)) {

@@ -123,8 +123,6 @@ constexpr char TabletModeController::kLidAngleHistogramName[];
 TabletModeController::TabletModeController()
     : tablet_mode_usage_interval_start_time_(base::Time::Now()),
       tick_clock_(base::DefaultTickClock::GetInstance()),
-      auto_hide_title_bars_(!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kAshDisableTabletAutohideTitlebars)),
       binding_(this),
       scoped_session_observer_(this),
       weak_factory_(this) {
@@ -225,10 +223,10 @@ void TabletModeController::RemoveObserver(TabletModeObserver* observer) {
 }
 
 bool TabletModeController::ShouldAutoHideTitlebars(views::Widget* widget) {
-  const bool allowed =
-      auto_hide_title_bars_ && IsTabletModeWindowManagerEnabled();
-  if (!allowed || !widget)
-    return allowed;
+  DCHECK(widget);
+  const bool tablet_mode = IsTabletModeWindowManagerEnabled();
+  if (!tablet_mode)
+    return false;
 
   return widget->IsMaximized() ||
          wm::GetWindowState(widget->GetNativeWindow())->IsSnapped();
@@ -532,7 +530,8 @@ bool TabletModeController::CanUseUnstableLidAngle() const {
   return elapsed_time >= kUnstableLidAngleDuration;
 }
 
-void TabletModeController::SetTickClockForTest(base::TickClock* tick_clock) {
+void TabletModeController::SetTickClockForTest(
+    const base::TickClock* tick_clock) {
   DCHECK(tick_clock_);
   tick_clock_ = tick_clock;
 }

@@ -36,7 +36,6 @@
 #include "chrome/browser/profiles/profile_io_data.h"
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sessions/session_service_factory.h"
-#include "chrome/browser/ui/app_list/app_list_service.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -72,7 +71,7 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
 #include "google_apis/google_api_keys.h"
-#include "rlz/features/features.h"
+#include "rlz/buildflags/buildflags.h"
 #include "ui/base/ui_features.h"
 
 #if defined(OS_MACOSX)
@@ -374,9 +373,6 @@ bool StartupBrowserCreatorImpl::Launch(Profile* profile,
   DCHECK(profile);
   profile_ = profile;
 
-  if (AppListService::HandleLaunchCommandLine(command_line_, profile))
-    return true;
-
   if (command_line_.HasSwitch(switches::kAppId)) {
     std::string app_id = command_line_.GetSwitchValueASCII(switches::kAppId);
     const Extension* extension = GetPlatformApp(profile, app_id);
@@ -399,10 +395,7 @@ bool StartupBrowserCreatorImpl::Launch(Profile* profile,
   // Launch() call is from notification_helper.exe to process toast activation.
   // Delegate to the notification system; do not open a browser window here.
   if (command_line_.HasSwitch(switches::kNotificationLaunchId)) {
-    if (NotificationPlatformBridgeWin::NativeNotificationEnabled() &&
-        NotificationPlatformBridgeWin::HandleActivation(
-            command_line_.GetSwitchValueASCII(
-                switches::kNotificationLaunchId))) {
+    if (NotificationPlatformBridgeWin::HandleActivation(command_line_)) {
       RecordLaunchModeHistogram(LM_WIN_PLATFORM_NOTIFICATION);
       return true;
     }
@@ -901,9 +894,12 @@ void StartupBrowserCreatorImpl::AddInfoBarsIfNecessary(
   if (is_process_startup == chrome::startup::IS_PROCESS_STARTUP &&
       !command_line_.HasSwitch(switches::kTestType) &&
       !command_line_.HasSwitch(switches::kEnableAutomation)) {
-    chrome::ShowBadFlagsPrompt(browser);
-    InfoBarService* infobar_service = InfoBarService::FromWebContents(
-        browser->tab_strip_model()->GetActiveWebContents());
+    content::WebContents* web_contents =
+        browser->tab_strip_model()->GetActiveWebContents();
+    DCHECK(web_contents);
+    chrome::ShowBadFlagsPrompt(web_contents);
+    InfoBarService* infobar_service =
+        InfoBarService::FromWebContents(web_contents);
     if (!google_apis::HasKeysConfigured())
       GoogleApiKeysInfoBarDelegate::Create(infobar_service);
     if (ObsoleteSystem::IsObsoleteNowOrSoon()) {

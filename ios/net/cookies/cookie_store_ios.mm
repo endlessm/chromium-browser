@@ -10,7 +10,6 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/ios/ios_util.h"
 #include "base/location.h"
 #include "base/logging.h"
 #import "base/mac/bind_objc_block.h"
@@ -28,7 +27,7 @@
 #include "ios/net/cookies/cookie_store_ios_client.h"
 #import "ios/net/cookies/ns_http_system_cookie_store.h"
 #import "ios/net/cookies/system_cookie_util.h"
-#include "ios/net/ios_net_features.h"
+#include "ios/net/ios_net_buildflags.h"
 #import "net/base/mac/url_conversions.h"
 #include "net/cookies/cookie_util.h"
 #include "net/cookies/parsed_cookie.h"
@@ -232,6 +231,15 @@ CookieStoreIOS::CookieChangeDispatcherIOS::AddCallbackForCookie(
     const std::string& name,
     CookieChangeCallback callback) {
   return cookie_store_->AddCallbackForCookie(gurl, name, std::move(callback));
+}
+
+std::unique_ptr<CookieChangeSubscription>
+CookieStoreIOS::CookieChangeDispatcherIOS::AddCallbackForUrl(
+    const GURL& gurl,
+    CookieChangeCallback callback) {
+  // Implement when needed by iOS consumers.
+  NOTIMPLEMENTED();
+  return nullptr;
 }
 
 std::unique_ptr<CookieChangeSubscription>

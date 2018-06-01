@@ -134,11 +134,11 @@ void DrmOverlayValidatorTest::AddPlane(const ui::OverlayCheck_Params& params) {
   scoped_refptr<ui::DrmDevice> drm =
       window_->GetController()->GetAllocationDrmDevice();
   scoped_refptr<ui::ScanoutBuffer> scanout_buffer = buffer_generator_->Create(
-      drm, ui::GetFourCCFormatFromBufferFormat(params.format),
+      drm, ui::GetFourCCFormatFromBufferFormat(params.format), {},
       params.buffer_size);
   ui::OverlayPlane plane(std::move(scanout_buffer), params.plane_z_order,
                          params.transform, params.display_rect,
-                         params.crop_rect, base::kInvalidPlatformFile);
+                         params.crop_rect, true, base::kInvalidPlatformFile);
   plane_list_.push_back(plane);
 }
 

@@ -9,7 +9,7 @@
 #include "base/single_thread_task_runner.h"
 #include "cc/test/test_task_graph_runner.h"
 #include "content/renderer/gpu/compositor_dependencies.h"
-#include "third_party/WebKit/public/platform/scheduler/test/fake_renderer_scheduler.h"
+#include "third_party/blink/public/platform/scheduler/test/fake_renderer_scheduler.h"
 
 namespace content {
 
@@ -22,7 +22,6 @@ class FakeCompositorDependencies : public CompositorDependencies {
   bool IsGpuRasterizationForced() override;
   int GetGpuRasterizationMSAASampleCount() override;
   bool IsLcdTextEnabled() override;
-  bool IsDistanceFieldTextEnabled() override;
   bool IsZeroCopyEnabled() override;
   bool IsPartialRasterEnabled() override;
   bool IsGpuMemoryBufferCompositorResourcesEnabled() override;
@@ -31,7 +30,8 @@ class FakeCompositorDependencies : public CompositorDependencies {
   GetCompositorMainThreadTaskRunner() override;
   scoped_refptr<base::SingleThreadTaskRunner>
   GetCompositorImplThreadTaskRunner() override;
-  blink::scheduler::RendererScheduler* GetRendererScheduler() override;
+  blink::scheduler::WebMainThreadScheduler* GetWebMainThreadScheduler()
+      override;
   cc::TaskGraphRunner* GetTaskGraphRunner() override;
   bool IsThreadedAnimationEnabled() override;
   bool IsScrollAnimatorEnabled() override;

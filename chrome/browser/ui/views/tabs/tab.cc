@@ -330,10 +330,8 @@ SkColor Tab::GetCloseTabButtonColor(
       color_id = ThemeProperties::COLOR_TAB_CLOSE_BUTTON_BACKGROUND_PRESSED;
       break;
     default:
-      color_id =
-          IsActive()
-              ? ThemeProperties::COLOR_TAB_CLOSE_BUTTON_BACKGROUND_ACTIVE
-              : ThemeProperties::COLOR_TAB_CLOSE_BUTTON_BACKGROUND_INACTIVE;
+      color_id = IsActive() ? ThemeProperties::COLOR_TAB_CLOSE_BUTTON_ACTIVE
+                            : ThemeProperties::COLOR_TAB_CLOSE_BUTTON_INACTIVE;
   }
   return theme_provider->GetColor(color_id);
 }
@@ -865,9 +863,8 @@ void Tab::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->role = ax::mojom::Role::kTab;
   node_data->SetName(controller_->GetAccessibleTabName(this));
   node_data->AddState(ax::mojom::State::kMultiselectable);
-  node_data->AddState(ax::mojom::State::kSelectable);
-  if (IsSelected())
-    node_data->AddState(ax::mojom::State::kSelected);
+  node_data->AddBoolAttribute(ax::mojom::BoolAttribute::kSelected,
+                              IsSelected());
 }
 
 void Tab::OnGestureEvent(ui::GestureEvent* event) {
@@ -1154,7 +1151,7 @@ void Tab::UpdateIconVisibility() {
 
       // If all 3 icons are visible, we add an extra left padding for favicon.
       // See comment for |extra_padding_before_content_|.
-      if (!showing_close_button_ || !showing_alert_indicator_)
+      if (!showing_alert_indicator_)
         extra_padding = 0;
 
       showing_icon_ =
@@ -1172,9 +1169,17 @@ void Tab::UpdateIconVisibility() {
       if (!showing_icon_ || !showing_alert_indicator_)
         extra_padding = 0;
 
-      showing_close_button_ =
-          !force_hide_close_button &&
-          close_button_width + extra_padding <= available_width;
+      // For an inactive tab, the close button will be visible only when
+      // it is not forced to hide and the total width can accomodate all 3
+      // icons. When favicon or alert button is not visible, its space
+      // will be occupied by the title of this tab.
+      int title_width =
+          (!showing_icon_ + !showing_alert_indicator_) * favicon_width;
+      if (!force_hide_close_button &&
+          (title_width + close_button_width + extra_padding <=
+           available_width)) {
+        showing_close_button_ = true;
+      }
 
       // If no other controls are visible, show favicon even though we
       // don't have enough space. We'll clip the favicon in PaintChildren().
@@ -1217,7 +1222,13 @@ void Tab::OnButtonColorMaybeChanged() {
   const SkColor title_color = theme_provider->GetColor(IsActive() ?
       ThemeProperties::COLOR_TAB_TEXT :
       ThemeProperties::COLOR_BACKGROUND_TAB_TEXT);
-  const SkColor new_button_color = SkColorSetA(title_color, 0xA0);
+
+  SkColor new_button_color = title_color;
+  if (IsActive()) {
+    // This alpha value (0x2f) blends GoogleGrey800 close to GoogleGrey700.
+    new_button_color = color_utils::BlendTowardOppositeLuma(title_color, 0x2f);
+  }
+
   if (button_color_ != new_button_color) {
     button_color_ = new_button_color;
     title_->SetEnabledColor(title_color);

@@ -55,6 +55,7 @@ class Shadow : public UiElement {
  private:
   float depth_;
   float intensity_ = 1.0f;
+  gfx::SizeF contributed_size_;
 
   DISALLOW_COPY_AND_ASSIGN(Shadow);
 };

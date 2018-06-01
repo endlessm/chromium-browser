@@ -4,9 +4,9 @@
 
 #include "chrome/browser/renderer_context_menu/render_view_context_menu.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
@@ -18,6 +18,7 @@
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings_factory.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_test_util.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
@@ -34,7 +35,7 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/common/url_pattern.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/web/WebContextMenuData.h"
+#include "third_party/blink/public/web/web_context_menu_data.h"
 #include "url/gurl.h"
 
 using extensions::Extension;
@@ -100,13 +101,19 @@ std::unique_ptr<TestRenderViewContextMenu> CreateContextMenu(
 
 class RenderViewContextMenuTest : public testing::Test {
  protected:
-  RenderViewContextMenuTest() = default;
+  RenderViewContextMenuTest()
+      : RenderViewContextMenuTest(
+            std::unique_ptr<extensions::TestExtensionEnvironment>()) {}
+
   // If the test uses a TestExtensionEnvironment, which provides a MessageLoop,
   // it needs to be passed to the constructor so that it exists before the
   // RenderViewHostTestEnabler which needs to use the MessageLoop.
   explicit RenderViewContextMenuTest(
       std::unique_ptr<extensions::TestExtensionEnvironment> env)
-      : environment_(std::move(env)) {}
+      : environment_(std::move(env)) {
+    // TODO(mgiuca): Add tests with DesktopPWAs enabled.
+    feature_list_.InitAndDisableFeature(features::kDesktopPWAWindowing);
+  }
 
   // Proxy defined here to minimize friend classes in RenderViewContextMenu
   static bool ExtensionContextAndPatternMatch(
@@ -135,6 +142,7 @@ class RenderViewContextMenuTest : public testing::Test {
 
  private:
   content::RenderViewHostTestEnabler rvh_test_enabler_;
+  base::test::ScopedFeatureList feature_list_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderViewContextMenuTest);
 };
@@ -375,6 +383,8 @@ class RenderViewContextMenuPrefsTest : public ChromeRenderViewHostTestHarness {
   RenderViewContextMenuPrefsTest() = default;
 
   void SetUp() override {
+    // TODO(mgiuca): Add tests with DesktopPWAs enabled.
+    feature_list_.InitAndDisableFeature(features::kDesktopPWAWindowing);
     ChromeRenderViewHostTestHarness::SetUp();
     registry_ = std::make_unique<ProtocolHandlerRegistry>(profile(), nullptr);
   }
@@ -448,6 +458,7 @@ class RenderViewContextMenuPrefsTest : public ChromeRenderViewHostTestHarness {
 
  private:
   std::unique_ptr<ProtocolHandlerRegistry> registry_;
+  base::test::ScopedFeatureList feature_list_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderViewContextMenuPrefsTest);
 };
@@ -552,4 +563,31 @@ TEST_F(RenderViewContextMenuPrefsTest, DataSaverLoadImage) {
   ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_LOAD_ORIGINAL_IMAGE));
 
   DestroyDataReductionProxySettings();
+}
+
+// Verify that the suggested file name is propagated to web contents when save a
+// media file in context menu.
+TEST_F(RenderViewContextMenuPrefsTest, SaveMediaSuggestedFileName) {
+  const base::string16 kTestSuggestedFileName = base::ASCIIToUTF16("test_file");
+  content::ContextMenuParams params = CreateParams(MenuItem::VIDEO);
+  params.suggested_filename = kTestSuggestedFileName;
+  auto menu = std::make_unique<TestRenderViewContextMenu>(
+      web_contents()->GetMainFrame(), params);
+  menu->ExecuteCommand(IDC_CONTENT_CONTEXT_SAVEAVAS, 0 /* event_flags */);
+
+  // Video item should have suggested file name.
+  base::string16 suggested_filename =
+      content::WebContentsTester::For(web_contents())->GetSuggestedFileName();
+  EXPECT_EQ(kTestSuggestedFileName, suggested_filename);
+
+  params = CreateParams(MenuItem::AUDIO);
+  params.suggested_filename = kTestSuggestedFileName;
+  menu = std::make_unique<TestRenderViewContextMenu>(
+      web_contents()->GetMainFrame(), params);
+  menu->ExecuteCommand(IDC_CONTENT_CONTEXT_SAVEAVAS, 0 /* event_flags */);
+
+  // Audio item should have suggested file name.
+  suggested_filename =
+      content::WebContentsTester::For(web_contents())->GetSuggestedFileName();
+  EXPECT_EQ(kTestSuggestedFileName, suggested_filename);
 }

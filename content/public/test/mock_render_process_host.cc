@@ -10,7 +10,6 @@
 
 #include "base/lazy_instance.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
 #include "base/process/process_handle.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -36,7 +35,7 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/service_manager_connection.h"
 #include "content/public/common/service_names.mojom.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 #include "mojo/public/cpp/bindings/associated_interface_ptr.h"
 #include "services/resource_coordinator/public/mojom/coordination_unit.mojom.h"
 
@@ -153,14 +152,22 @@ void MockRenderProcessHost::ShutdownForBadMessage(
   ++bad_msg_count_;
 }
 
-void MockRenderProcessHost::WidgetRestored() {
+void MockRenderProcessHost::UpdateClientPriority(PriorityClient* client) {}
+
+int MockRenderProcessHost::VisibleClientCount() const {
+  int count = 0;
+  for (auto* client : priority_clients_) {
+    const Priority priority = client->GetPriority();
+    if (!priority.is_hidden) {
+      count++;
+    }
+  }
+  return count;
 }
 
-void MockRenderProcessHost::WidgetHidden() {
-}
-
-int MockRenderProcessHost::VisibleWidgetCount() const {
-  return 1;
+unsigned int MockRenderProcessHost::GetFrameDepthForTesting() const {
+  NOTIMPLEMENTED();
+  return 0u;
 }
 
 bool MockRenderProcessHost::IsForGuestsOnly() const {
@@ -183,7 +190,7 @@ StoragePartition* MockRenderProcessHost::GetStoragePartition() const {
 void MockRenderProcessHost::AddWord(const base::string16& word) {
 }
 
-bool MockRenderProcessHost::Shutdown(int exit_code, bool wait) {
+bool MockRenderProcessHost::Shutdown(int exit_code) {
   return true;
 }
 
@@ -260,17 +267,15 @@ void MockRenderProcessHost::RemovePendingView() {
 }
 
 void MockRenderProcessHost::AddWidget(RenderWidgetHost* widget) {
+  priority_clients_.insert(static_cast<RenderWidgetHostImpl*>(widget));
 }
 
 void MockRenderProcessHost::RemoveWidget(RenderWidgetHost* widget) {
+  priority_clients_.erase(static_cast<RenderWidgetHostImpl*>(widget));
 }
 
 #if defined(OS_ANDROID)
-void MockRenderProcessHost::UpdateWidgetImportance(
-    ChildProcessImportance old_value,
-    ChildProcessImportance new_value) {}
-
-ChildProcessImportance MockRenderProcessHost::ComputeEffectiveImportance() {
+ChildProcessImportance MockRenderProcessHost::GetEffectiveImportance() {
   NOTIMPLEMENTED();
   return ChildProcessImportance::NORMAL;
 }
@@ -335,16 +340,28 @@ size_t MockRenderProcessHost::GetKeepAliveRefCount() const {
   return keep_alive_ref_count_;
 }
 
-void MockRenderProcessHost::IncrementKeepAliveRefCount() {
+void MockRenderProcessHost::IncrementKeepAliveRefCount(
+    KeepAliveClientType client) {
   ++keep_alive_ref_count_;
 }
 
-void MockRenderProcessHost::DecrementKeepAliveRefCount() {
+void MockRenderProcessHost::DecrementKeepAliveRefCount(
+    KeepAliveClientType client) {
   --keep_alive_ref_count_;
 }
 
 void MockRenderProcessHost::DisableKeepAliveRefCount() {
   keep_alive_ref_count_ = 0;
+
+  // RenderProcessHost::DisableKeepAliveRefCount() virtual method gets called as
+  // part of BrowserContext::NotifyWillBeDestroyed(...).  Normally
+  // MockRenderProcessHost::DisableKeepAliveRefCount doesn't call Cleanup,
+  // because the MockRenderProcessHost might be owned by a test.  However, when
+  // the MockRenderProcessHost is the spare RenderProcessHost, we know that it
+  // is owned by the SpareRenderProcessHostManager and we need to delete the
+  // spare to avoid reports/DCHECKs about memory leaks.
+  if (this == RenderProcessHostImpl::GetSpareRenderProcessHostForTesting())
+    Cleanup();
 }
 
 bool MockRenderProcessHost::IsKeepAliveRefCountDisabled() {
@@ -417,6 +434,9 @@ MockRenderProcessHost::StartRtpDump(
     const WebRtcRtpPacketCallback& packet_callback) {
   return WebRtcStopRtpDumpCallback();
 }
+
+void MockRenderProcessHost::SetWebRtcEventLogOutput(int lid, bool enabled) {}
+
 #endif
 
 void MockRenderProcessHost::ResumeDeferredNavigation(
@@ -491,6 +511,14 @@ std::string GetInputMessageTypes(MockRenderProcessHost* process) {
   }
   process->sink().ClearMessages();
   return base::JoinString(result, " ");
+}
+
+ScopedMockRenderProcessHostFactory::ScopedMockRenderProcessHostFactory() {
+  RenderProcessHostImpl::set_render_process_host_factory(this);
+}
+
+ScopedMockRenderProcessHostFactory::~ScopedMockRenderProcessHostFactory() {
+  RenderProcessHostImpl::set_render_process_host_factory(nullptr);
 }
 
 }  // namespace content

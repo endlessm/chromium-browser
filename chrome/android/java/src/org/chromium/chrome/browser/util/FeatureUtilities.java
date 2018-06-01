@@ -24,6 +24,8 @@ import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.firstrun.FirstRunUtils;
+import org.chromium.chrome.browser.locale.LocaleManager;
+import org.chromium.chrome.browser.partnercustomizations.PartnerBrowserCustomizations;
 import org.chromium.chrome.browser.preferences.ChromePreferenceManager;
 import org.chromium.chrome.browser.tabmodel.DocumentModeAssassin;
 import org.chromium.components.signin.AccountManagerFacade;
@@ -187,6 +189,7 @@ public class FeatureUtilities {
      * be made available immediately.
      */
     public static void cacheHomePageButtonForceEnabled() {
+        if (PartnerBrowserCustomizations.isHomepageProviderAvailableAndEnabled()) return;
         ChromePreferenceManager.getInstance().setHomePageButtonForceEnabled(
                 ChromeFeatureList.isEnabled(ChromeFeatureList.HOME_PAGE_BUTTON_FORCE_ENABLED));
     }
@@ -240,7 +243,6 @@ public class FeatureUtilities {
      *
      * @return Whether or not chrome should attach the toolbar to the bottom of the screen.
      */
-    @CalledByNative
     public static boolean isChromeHomeEnabled() {
         return false;
     }
@@ -302,12 +304,18 @@ public class FeatureUtilities {
     }
 
     /**
+     * Resets whether Chrome modern design is enabled for tests. After this is called, the next
+     * call to #isChromeModernDesignEnabled() will retrieve the value from shared preferences.
+     */
+    public static void resetChromeModernDesignEnabledForTests() {
+        sIsChromeModernDesignEnabled = null;
+    }
+
+    /**
      * @return Whether Chrome modern design is enabled. This returns true if Chrome Home is enabled.
      */
     @CalledByNative
     public static boolean isChromeModernDesignEnabled() {
-        if (isChromeHomeEnabled()) return true;
-
         if (sIsChromeModernDesignEnabled == null) {
             ChromePreferenceManager prefManager = ChromePreferenceManager.getInstance();
             try (StrictModeContext unused = StrictModeContext.allowDiskReads()) {
@@ -316,6 +324,17 @@ public class FeatureUtilities {
         }
 
         return sIsChromeModernDesignEnabled;
+    }
+
+    /**
+     * @param isTablet Whether the containing Activity is being displayed on a tablet-sized screen.
+     * @return Whether the contextual suggestions bottom sheet is enabled.
+     */
+    public static boolean isContextualSuggestionsBottomSheetEnabled(boolean isTablet) {
+        return !isTablet && !LocaleManager.getInstance().needToCheckForSearchEnginePromo()
+                && isChromeModernDesignEnabled()
+                && ChromeFeatureList.isEnabled(
+                           ChromeFeatureList.CONTEXTUAL_SUGGESTIONS_BOTTOM_SHEET);
     }
 
     private static native void nativeSetCustomTabVisible(boolean visible);

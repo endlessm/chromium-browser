@@ -12,9 +12,9 @@ Tree link: https://github.com/PolymerElements/iron-a11y-announcer/tree/v1.0.5
 
 Name: iron-a11y-keys
 Repository: https://github.com/PolymerElements/iron-a11y-keys.git
-Tree: v1.0.7
-Revision: 7830e675c3d0df6e7a7377d64fc3d6e6ae0e65a5
-Tree link: https://github.com/PolymerElements/iron-a11y-keys/tree/v1.0.7
+Tree: v2.0.0
+Revision: 27f4f48935c741f4eb49d7a1ded697ea0452acf4
+Tree link: https://github.com/PolymerElements/iron-a11y-keys/tree/v2.0.0
 
 Name: iron-a11y-keys-behavior
 Repository: https://github.com/PolymerElements/iron-a11y-keys-behavior.git
@@ -30,15 +30,15 @@ Tree link: https://github.com/PolymerElements/iron-autogrow-textarea/tree/v2.1.1
 
 Name: iron-behaviors
 Repository: https://github.com/PolymerElements/iron-behaviors.git
-Tree: v1.0.17
-Revision: ef8e89b5f0aa4e8a6b51ca6491ea453bf395f94f
-Tree link: https://github.com/PolymerElements/iron-behaviors/tree/v1.0.17
+Tree: v2.1.1
+Revision: a27b45bebb2af58506af77c377dab301bf7406ce
+Tree link: https://github.com/PolymerElements/iron-behaviors/tree/v2.1.1
 
 Name: iron-checked-element-behavior
 Repository: https://github.com/PolymerElements/iron-checked-element-behavior.git
-Tree: v1.0.5
-Revision: c70add47a9af62d30746587e8a1303fb390787c6
-Tree link: https://github.com/PolymerElements/iron-checked-element-behavior/tree/v1.0.5
+Tree: v2.1.0
+Revision: 3bd74f1dda95020aad873467ca25c37dc09d6ee4
+Tree link: https://github.com/PolymerElements/iron-checked-element-behavior/tree/v2.1.0
 
 Name: iron-collapse
 Repository: https://github.com/PolymerElements/iron-collapse.git
@@ -66,15 +66,15 @@ Tree link: https://github.com/PolymerElements/iron-flex-layout/tree/v1.3.1
 
 Name: iron-form-element-behavior
 Repository: https://github.com/PolymerElements/iron-form-element-behavior.git
-Tree: v1.0.6
-Revision: cf9e09ded62daf3363852ce98260aaad1ed0fae1
-Tree link: https://github.com/PolymerElements/iron-form-element-behavior/tree/v1.0.6
+Tree: v2.1.1
+Revision: 89568e9b7ae3ebfa86f67395085b7f1f34df505e
+Tree link: https://github.com/PolymerElements/iron-form-element-behavior/tree/v2.1.1
 
 Name: iron-icon
 Repository: https://github.com/PolymerElements/iron-icon.git
-Tree: v1.0.10
-Revision: f4e146da4982ff96bb25db85290c09e8de4ec734
-Tree link: https://github.com/PolymerElements/iron-icon/tree/v1.0.10
+Tree: v2.0.1
+Revision: bfdf82f7c8eb4c205cb2d4af6996ffc98f41b1c1
+Tree link: https://github.com/PolymerElements/iron-icon/tree/v2.0.1
 
 Name: iron-icons
 Repository: https://github.com/PolymerElements/iron-icons.git
@@ -186,9 +186,9 @@ Tree link: https://github.com/PolymerElements/neon-animation/tree/v2.1.0
 
 Name: paper-behaviors
 Repository: https://github.com/PolymerElements/paper-behaviors.git
-Tree: v1.0.12
-Revision: 424919089ce3a68dfac1de17e6a56f4e09048e95
-Tree link: https://github.com/PolymerElements/paper-behaviors/tree/v1.0.12
+Tree: v2.1.0
+Revision: ddde7f8cf41078b7a7b724473558421d6bc37f57
+Tree link: https://github.com/PolymerElements/paper-behaviors/tree/v2.1.0
 
 Name: paper-button
 Repository: https://github.com/PolymerElements/paper-button.git
@@ -210,9 +210,9 @@ Tree link: https://github.com/PolymerElements/paper-fab/tree/v2.0.0
 
 Name: paper-icon-button
 Repository: https://github.com/PolymerElements/paper-icon-button.git
-Tree: v1.1.6
-Revision: 22fd17e262f5e1dd543f67cb4b7fee6ad94c759c
-Tree link: https://github.com/PolymerElements/paper-icon-button/tree/v1.1.6
+Tree: v2.1.0
+Revision: 7816606a3ef5052ceade43beeb786f0836c08e68
+Tree link: https://github.com/PolymerElements/paper-icon-button/tree/v2.1.0
 
 Name: paper-input
 Repository: https://github.com/PolymerElements/paper-input.git
@@ -252,9 +252,9 @@ Tree link: https://github.com/PolymerElements/paper-radio-group/tree/v2.1.0
 
 Name: paper-ripple
 Repository: https://github.com/PolymerElements/paper-ripple.git
-Tree: v1.0.9
-Revision: 2ec18bb9e80320bf20619e1359791fb632e9c768
-Tree link: https://github.com/PolymerElements/paper-ripple/tree/v1.0.9
+Tree: v2.0.1
+Revision: d0884e8508263e680fd9ee6c11b52c74a416f27f
+Tree link: https://github.com/PolymerElements/paper-ripple/tree/v2.0.1
 
 Name: paper-slider
 Repository: https://github.com/PolymerElements/paper-slider.git
@@ -270,9 +270,9 @@ Tree link: https://github.com/PolymerElements/paper-spinner/tree/v2.0.0
 
 Name: paper-styles
 Repository: https://github.com/PolymerElements/paper-styles.git
-Tree: v1.3.1
-Revision: 1ed324102daa36458d153dd20eac80be9758b00e
-Tree link: https://github.com/PolymerElements/paper-styles/tree/v1.3.1
+Tree: v2.1.0
+Revision: fc4b85ab853f107fc8bb18ea6cda1c2e9ac5a75f
+Tree link: https://github.com/PolymerElements/paper-styles/tree/v2.1.0
 
 Name: paper-tabs
 Repository: https://github.com/PolymerElements/paper-tabs.git

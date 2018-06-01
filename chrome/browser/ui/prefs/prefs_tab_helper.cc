@@ -44,8 +44,8 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/renderer_preferences.h"
 #include "content/public/common/web_preferences.h"
-#include "extensions/features/features.h"
-#include "media/media_features.h"
+#include "extensions/buildflags/buildflags.h"
+#include "media/media_buildflags.h"
 #include "third_party/icu/source/common/unicode/uchar.h"
 #include "third_party/icu/source/common/unicode/uscript.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -465,11 +465,6 @@ PrefsTabHelper::PrefsTabHelper(WebContents* contents)
                  content::Source<ThemeService>(
                      ThemeServiceFactory::GetForProfile(profile_)));
 #endif
-#if defined(USE_AURA)
-  registrar_.Add(this,
-                 chrome::NOTIFICATION_BROWSER_FLING_CURVE_PARAMETERS_CHANGED,
-                 content::NotificationService::AllSources());
-#endif
 }
 
 PrefsTabHelper::~PrefsTabHelper() {
@@ -492,6 +487,8 @@ void PrefsTabHelper::RegisterProfilePrefs(
                                 pref_defaults.dom_paste_enabled);
   registry->RegisterBooleanPref(prefs::kWebKitTextAreasAreResizable,
                                 pref_defaults.text_areas_are_resizable);
+  registry->RegisterBooleanPref(prefs::kWebKitJavascriptCanAccessClipboard,
+                                pref_defaults.javascript_can_access_clipboard);
   registry->RegisterBooleanPref(prefs::kWebkitTabsToLinks,
                                 pref_defaults.tabs_to_links);
   registry->RegisterBooleanPref(prefs::kWebKitAllowRunningInsecureContent,
@@ -578,13 +575,6 @@ void PrefsTabHelper::Observe(int type,
     return;
   }
 #endif
-
-#if defined(USE_AURA)
-  if (type == chrome::NOTIFICATION_BROWSER_FLING_CURVE_PARAMETERS_CHANGED) {
-    UpdateRendererPreferences();
-    return;
-  }
-#endif  // defined(USE_AURA)
 
   NOTREACHED();
 }

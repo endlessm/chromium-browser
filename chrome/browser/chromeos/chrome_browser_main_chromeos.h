@@ -12,6 +12,7 @@
 #include "chrome/browser/chrome_browser_main_linux.h"
 #include "chrome/browser/chromeos/external_metrics.h"
 #include "chrome/browser/memory/memory_kills_monitor.h"
+#include "chromeos/assistant/buildflags.h"
 #include "chromeos/system/version_loader.h"
 
 class NotificationPlatformBridge;
@@ -36,7 +37,6 @@ class LowDiskNotification;
 class NetworkPrefStateObserver;
 class NetworkThrottlingObserver;
 class PowerMetricsReporter;
-class PowerPrefs;
 class RendererFreezer;
 class ShutdownPolicyForwarder;
 class WakeOnWifiManager;
@@ -44,6 +44,12 @@ class WakeOnWifiManager;
 namespace default_app_order {
 class ExternalLoader;
 }
+
+#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
+namespace assistant {
+class AssistantClient;
+}  // namespace assistant
+#endif
 
 namespace internal {
 class DBusPreEarlyInit;
@@ -53,7 +59,8 @@ class SystemTokenCertDBInitializer;
 
 namespace power {
 namespace ml {
-class UserActivityLoggingController;
+class AdaptiveScreenBrightnessManager;
+class UserActivityController;
 }  // namespace ml
 }  // namespace power
 
@@ -88,7 +95,6 @@ class ChromeBrowserMainPartsChromeos : public ChromeBrowserMainPartsLinux {
   std::unique_ptr<default_app_order::ExternalLoader> app_order_loader_;
   std::unique_ptr<NetworkPrefStateObserver> network_pref_state_observer_;
   std::unique_ptr<ExtensionVolumeObserver> extension_volume_observer_;
-  std::unique_ptr<PowerPrefs> power_prefs_;
   std::unique_ptr<IdleActionWarningObserver> idle_action_warning_observer_;
   std::unique_ptr<RendererFreezer> renderer_freezer_;
   std::unique_ptr<PowerMetricsReporter> power_metrics_reporter_;
@@ -110,6 +116,10 @@ class ChromeBrowserMainPartsChromeos : public ChromeBrowserMainPartsLinux {
 
   std::unique_ptr<arc::ArcServiceLauncher> arc_service_launcher_;
 
+#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
+  std::unique_ptr<assistant::AssistantClient> assistant_client_;
+#endif
+
   std::unique_ptr<arc::VoiceInteractionControllerClient>
       arc_voice_interaction_controller_client_;
 
@@ -126,8 +136,10 @@ class ChromeBrowserMainPartsChromeos : public ChromeBrowserMainPartsLinux {
   // send notifier settings information to Ash.
   std::unique_ptr<NotificationPlatformBridge> notification_client_;
 
-  std::unique_ptr<power::ml::UserActivityLoggingController>
-      user_activity_logging_controller_;
+  std::unique_ptr<power::ml::AdaptiveScreenBrightnessManager>
+      adaptive_screen_brightness_manager_;
+
+  std::unique_ptr<power::ml::UserActivityController> user_activity_controller_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeBrowserMainPartsChromeos);
 };

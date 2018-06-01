@@ -515,7 +515,8 @@ public class LayoutManager implements LayoutUpdateHost, LayoutProvider,
             mHost.getWindowViewport(mCachedWindowViewport);
             mHost.getVisibleViewport(mCachedVisibleViewport);
             getActiveLayout().sizeChanged(mCachedVisibleViewport, mCachedWindowViewport,
-                    mHost.getHeightMinusBrowserControls(), getOrientation());
+                    mHost.getTopControlsHeightPixels(), mHost.getBottomControlsHeightPixels(),
+                    getOrientation());
         }
 
         for (int i = 0; i < mTabCache.size(); i++) {
@@ -668,12 +669,14 @@ public class LayoutManager implements LayoutUpdateHost, LayoutProvider,
                 tab.getContentViewCore() != null && !tab.isShowingSadTab() && !isNativePage;
 
         boolean isNtp = tab.getNativePage() instanceof NewTabPage;
+        boolean isLocationBarShownInNtp =
+                isNtp ? ((NewTabPage) tab.getNativePage()).isLocationBarShownInNTP() : false;
         boolean useModernDesign = FeatureUtilities.isChromeModernDesignEnabled()
                 && tab.getActivity() != null && tab.getActivity().supportsModernDesign();
         boolean needsUpdate = layoutTab.initFromHost(tab.getBackgroundColor(), tab.shouldStall(),
                 canUseLiveTexture, themeColor,
-                ColorUtils.getTextBoxColorForToolbarBackground(
-                        mContext.getResources(), isNtp, themeColor, useModernDesign),
+                ColorUtils.getTextBoxColorForToolbarBackground(mContext.getResources(),
+                        isLocationBarShownInNtp, themeColor, useModernDesign),
                 ColorUtils.getTextBoxAlphaForToolbarBackground(tab));
         if (needsUpdate) requestUpdate();
 
@@ -900,6 +903,15 @@ public class LayoutManager implements LayoutUpdateHost, LayoutProvider,
     protected void addAllSceneOverlays() {
         addGlobalSceneOverlay(mToolbarOverlay);
         mStaticLayout.addSceneOverlay(mContextualSearchPanel);
+    }
+
+    /**
+     * Add a {@link SceneOverlay} to the back of the list. This means the overlay will be drawn
+     * first and therefore behind all other overlays currently in the list.
+     * @param overlay The overlay to be added to the back of the list.
+     */
+    public void addSceneOverlayToBack(SceneOverlay overlay) {
+        mStaticLayout.addSceneOverlayToBack(overlay);
     }
 
     /**

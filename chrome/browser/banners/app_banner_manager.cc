@@ -28,7 +28,7 @@
 #include "content/public/browser/web_contents.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
-#include "third_party/WebKit/public/platform/modules/installation/installation.mojom.h"
+#include "third_party/blink/public/platform/modules/installation/installation.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 #if defined(OS_ANDROID)
@@ -191,6 +191,10 @@ void AppBannerManager::OnInstall(bool is_native,
       mojo::MakeRequest(&installation_service));
   DCHECK(installation_service);
   installation_service->OnInstall();
+
+  // We've triggered an installation, so reset bindings to ensure that any
+  // existing beforeinstallprompt events cannot trigger add to home screen.
+  ResetBindings();
 }
 
 void AppBannerManager::SendBannerAccepted() {
@@ -263,6 +267,10 @@ std::string AppBannerManager::GetAppIdentifier() {
   return manifest_.start_url.spec();
 }
 
+base::string16 AppBannerManager::GetAppName() const {
+  return manifest_.name.string();
+}
+
 std::string AppBannerManager::GetBannerType() {
   return "web";
 }
@@ -322,23 +330,6 @@ void AppBannerManager::PerformInstallableCheck() {
   manager_->GetData(ParamsToPerformInstallableCheck(),
                     base::Bind(&AppBannerManager::OnDidPerformInstallableCheck,
                                GetWeakPtr()));
-}
-
-// static
-AppBannerManager::Installable AppBannerManager::GetInstallable(
-    content::WebContents* web_contents) {
-  AppBannerManager* manager = nullptr;
-#if defined(OS_ANDROID)
-  manager = AppBannerManagerAndroid::FromWebContents(web_contents);
-#else
-  manager = AppBannerManagerDesktop::FromWebContents(web_contents);
-#endif
-
-  return manager ? manager->installable() : Installable::UNKNOWN;
-}
-
-AppBannerManager::Installable AppBannerManager::installable() const {
-  return installable_;
 }
 
 void AppBannerManager::OnDidPerformInstallableCheck(
@@ -601,6 +592,15 @@ bool AppBannerManager::IsRunning() const {
 bool AppBannerManager::IsExperimentalAppBannersEnabled() {
   return base::FeatureList::IsEnabled(features::kExperimentalAppBanners) ||
          base::FeatureList::IsEnabled(features::kDesktopPWAWindowing);
+}
+
+// static
+base::string16 AppBannerManager::GetInstallableAppName(
+    content::WebContents* web_contents) {
+  AppBannerManager* manager = FromWebContents(web_contents);
+  if (!manager || manager->installable_ != Installable::INSTALLABLE_YES)
+    return base::string16();
+  return manager->GetAppName();
 }
 
 void AppBannerManager::RecordCouldShowBanner() {

@@ -9,13 +9,16 @@
 
 #include "base/feature_list.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "content/public/browser/navigation_throttle.h"
 
 namespace content {
 class NavigationHandle;
 }
+
+namespace user_prefs {
+class PrefRegistrySyncable;
+};
 
 constexpr char kBlockTabUnderFormatMessage[] =
     "Chrome stopped this site from navigating to %s, see "
@@ -28,9 +31,21 @@ constexpr char kBlockTabUnderFormatMessage[] =
 // 1. It is a navigation that is "suspicious"
 //    a. It has no user gesture.
 //    b. It is renderer-initiated.
-//    c. It is cross origin to the last committed URL in the tab.
+//    c. It is cross site to the last committed URL in the tab.
+//    d. The target site has a Site Engagement score below some threshold (by
+//       default, a score of 0).
+//    e. The navigation started in the background.
 // 2. The tab has opened a popup and hasn't received a user gesture since then.
 //    This information is tracked by the PopupOpenerTabHelper.
+//
+//  TODO(csharrison): Unfortunately, the provision that a navigation must start
+//  in the background to be considered a tab-under restricts the scope of the
+//  intervention. For instance, popups that do not completely hide the original
+//  page may cause subsequent tab-under navigations to occur while visible (not
+//  compeltely backgrounded). See https://crbug.com/733736.
+//
+//  For now, we allow these tab-unders because this pattern seems to be
+//  legitimate for some cases (like auth).
 class TabUnderNavigationThrottle : public content::NavigationThrottle {
  public:
   static const base::Feature kBlockTabUnders;
@@ -59,6 +74,8 @@ class TabUnderNavigationThrottle : public content::NavigationThrottle {
     kCount
   };
 
+  static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
+
   static std::unique_ptr<content::NavigationThrottle> MaybeCreate(
       content::NavigationHandle* handle);
 
@@ -70,8 +87,7 @@ class TabUnderNavigationThrottle : public content::NavigationThrottle {
   // This method is described at the top of this file.
   //
   // Note: This method should be robust to navigations at any stage.
-  static bool IsSuspiciousClientRedirect(
-      content::NavigationHandle* navigation_handle);
+  bool IsSuspiciousClientRedirect() const;
 
   content::NavigationThrottle::ThrottleCheckResult MaybeBlockNavigation();
   void ShowUI();
@@ -84,6 +100,12 @@ class TabUnderNavigationThrottle : public content::NavigationThrottle {
       override;
   const char* GetNameForLogging() override;
 
+  // Threshold for a site's engagement score to be considered non-suspicious.
+  // Any tab-under target URL with engagement > |engagement_threshold_| will not
+  // be considered a suspicious redirect. If this member is -1, this threshold
+  // will not apply and all sites will be candidates for blocking.
+  const int engagement_threshold_ = 0;
+
   // Store whether we're off the record as a member to avoid looking it up all
   // the time.
   const bool off_the_record_ = false;
@@ -95,6 +117,10 @@ class TabUnderNavigationThrottle : public content::NavigationThrottle {
   // Tracks whether this WebContents has opened a popup since the last user
   // gesture, at the time this navigation is starting.
   const bool has_opened_popup_since_last_user_gesture_at_start_ = false;
+
+  // Whether this object was created when the hosting WebContents had visibility
+  // content::Visibility::VISIBLE.
+  const bool started_in_foreground_ = false;
 
   // True if the throttle has seen a tab under.
   bool seen_tab_under_ = false;

@@ -205,6 +205,14 @@ bool IsCompactHeight();
 // Whether the |environment| has a compact vertical size class.
 bool IsCompactHeight(id<UITraitEnvironment> environment);
 
+// Whether the the main application window's rootViewController has a regular
+// vertical and regular horizontal size class.
+bool IsRegularXRegularSizeClass();
+
+// Whether the |environment| has a regular vertical and regular horizontal
+// size class. the main application window's rootViewController
+bool IsRegularXRegularSizeClass(id<UITraitEnvironment> environment);
+
 // Returns whether the toolbar is split between top and bottom toolbar or if it
 // is displayed as only one toolbar.
 bool IsSplitToolbarMode();
@@ -216,8 +224,8 @@ bool IsSplitToolbarMode(id<UITraitEnvironment> environment);
 // Returns the current first responder.
 UIResponder* GetFirstResponder();
 
-// On iOS10 and above, trigger a haptic vibration for various types of
-// actions. This is a no-op for devices that do not support haptic feedback.
+// Trigger a haptic vibration for various types of actions. This is a no-op for
+// devices that do not support haptic feedback.
 void TriggerHapticFeedbackForAction();
 void TriggerHapticFeedbackForSelectionChange();
 void TriggerHapticFeedbackForNotification(UINotificationFeedbackType type);

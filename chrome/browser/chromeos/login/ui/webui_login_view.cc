@@ -59,7 +59,7 @@
 #include "content/public/browser/web_ui.h"
 #include "content/public/common/renderer_preferences.h"
 #include "extensions/browser/view_type_utils.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/keyboard/keyboard_controller.h"
@@ -90,6 +90,7 @@ const char kAccelNameAppLaunchBailout[] = "app_launch_bailout";
 const char kAccelNameAppLaunchNetworkConfig[] = "app_launch_network_config";
 const char kAccelNameBootstrappingSlave[] = "bootstrapping_slave";
 const char kAccelNameDemoMode[] = "demo_mode";
+const char kAccelSendFeedback[] = "send_feedback";
 
 // A class to change arrow key traversal behavior when it's alive.
 class ScopedArrowKeyTraversal {
@@ -178,6 +179,9 @@ WebUILoginView::WebUILoginView(const WebViewSettings& settings)
 
   accel_map_[ui::Accelerator(
       ui::VKEY_D, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN)] = kAccelNameDemoMode;
+
+  accel_map_[ui::Accelerator(ui::VKEY_I, ui::EF_SHIFT_DOWN | ui::EF_ALT_DOWN)] =
+      kAccelSendFeedback;
 
   for (AccelMap::iterator i(accel_map_.begin()); i != accel_map_.end(); ++i) {
     if (!ash_util::IsRunningInMash()) {
@@ -555,11 +559,11 @@ void WebUILoginView::RequestMediaAccessPermission(
 }
 
 bool WebUILoginView::CheckMediaAccessPermission(
-    content::WebContents* web_contents,
+    content::RenderFrameHost* render_frame_host,
     const GURL& security_origin,
     content::MediaStreamType type) {
   return MediaCaptureDevicesDispatcher::GetInstance()
-      ->CheckMediaAccessPermission(web_contents, security_origin, type);
+      ->CheckMediaAccessPermission(render_frame_host, security_origin, type);
 }
 
 bool WebUILoginView::PreHandleGestureEvent(

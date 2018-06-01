@@ -85,6 +85,7 @@ class OmniboxViewViews : public OmniboxView,
   void ResetTabState(content::WebContents* web_contents);
 
   // OmniboxView:
+  void EmphasizeURLComponents() override;
   void Update() override;
   base::string16 GetText() const override;
   using OmniboxView::SetUserText;
@@ -102,7 +103,6 @@ class OmniboxViewViews : public OmniboxView,
   // views::Textfield:
   gfx::Size GetMinimumSize() const override;
   void OnPaint(gfx::Canvas* canvas) override;
-  void OnNativeThemeChanged(const ui::NativeTheme* theme) override;
   void ExecuteCommand(int command_id, int event_flags) override;
   ui::TextInputType GetTextInputType() const override;
   void AddedToWidget() override;
@@ -121,6 +121,7 @@ class OmniboxViewViews : public OmniboxView,
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, MaintainCursorAfterFocusCycle);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, OnBlur);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, DoNotNavigateOnDrop);
+  friend class OmniboxViewViewsSteadyStateElisionsTest;
 
   // Update the field with |text| and set the selection.
   void SetTextAndSelectedRange(const base::string16& text,
@@ -145,8 +146,9 @@ class OmniboxViewViews : public OmniboxView,
   void ClearAccessibilityLabel();
 
   // Returns true if the user text was updated with the full URL (without
-  // steady-state elisions).
-  bool UnapplySteadyStateElisions();
+  // steady-state elisions). |home_key_pressed| is true if we are uneliding
+  // because the user has pressed the Home key.
+  bool UnapplySteadyStateElisions(bool home_key_pressed);
 
   // OmniboxView:
   void SetWindowTextAndCaretPos(const base::string16& text,
@@ -155,7 +157,6 @@ class OmniboxViewViews : public OmniboxView,
                                 bool notify_text_changed) override;
   void SetCaretPos(size_t caret_pos) override;
   bool IsSelectAll() const override;
-  bool DeleteAtEndPressed() override;
   void UpdatePopup() override;
   void ApplyCaretVisibility() override;
   void OnTemporaryTextMaybeChanged(const base::string16& display_text,
@@ -174,7 +175,6 @@ class OmniboxViewViews : public OmniboxView,
   bool IsImeShowingPopup() const override;
   void ShowImeIfNeeded() override;
   int GetOmniboxTextLength() const override;
-  void EmphasizeURLComponents() override;
   void SetEmphasis(bool emphasize, const gfx::Range& range) override;
   void UpdateSchemeStyle(const gfx::Range& range) override;
 
@@ -249,9 +249,6 @@ class OmniboxViewViews : public OmniboxView,
   // Tracking state before and after a possible change.
   State state_before_change_;
   bool ime_composing_before_change_;
-
-  // Was the delete key pressed with an empty selection at the end of the edit?
-  bool delete_at_end_pressed_;
 
   // |location_bar_view_| can be NULL in tests.
   LocationBarView* location_bar_view_;

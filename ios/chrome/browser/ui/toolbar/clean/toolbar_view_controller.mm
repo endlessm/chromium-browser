@@ -4,13 +4,11 @@
 
 #import "ios/chrome/browser/ui/toolbar/clean/toolbar_view_controller.h"
 
-#include "base/ios/ios_util.h"
 #import "base/mac/foundation_util.h"
 #include "base/metrics/user_metrics.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/history_popup_commands.h"
-#import "ios/chrome/browser/ui/commands/start_voice_search_command.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_animator.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_foreground_animator.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_scroll_end_animator.h"
@@ -29,6 +27,7 @@
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
+#import "ios/chrome/browser/ui/util/named_guide_util.h"
 #import "ios/chrome/common/material_timing.h"
 #include "ios/chrome/grit/ios_theme_resources.h"
 #import "ios/third_party/material_components_ios/src/components/ProgressView/src/MaterialProgressView.h"
@@ -235,7 +234,7 @@ const CGFloat kScrollFadeDistance = 30;
   self.expanded = NO;
 }
 
-- (void)updateForSideSwipeSnapshotOnNTP:(BOOL)onNTP {
+- (void)updateForSnapshotOnNTP:(BOOL)onNTP {
   self.view.progressBar.hidden = YES;
   if (onNTP) {
     self.view.backgroundView.alpha = 1;
@@ -246,7 +245,7 @@ const CGFloat kScrollFadeDistance = 30;
   }
 }
 
-- (void)resetAfterSideSwipeSnapshot {
+- (void)resetAfterSnapshot {
   self.view.backgroundView.alpha = 0;
   self.view.locationBarContainer.hidden = NO;
   self.view.backButton.hiddenInCurrentState = NO;
@@ -330,9 +329,7 @@ const CGFloat kScrollFadeDistance = 30;
   return self.view.toolsMenuButton;
 }
 
-- (UIColor*)backgroundColor {
-  if (self.view.backgroundView.hidden || self.view.backgroundView.alpha == 0)
-    return nil;
+- (UIColor*)backgroundColorNTP {
   return self.view.backgroundView.backgroundColor;
 }
 
@@ -434,14 +431,16 @@ const CGFloat kScrollFadeDistance = 30;
 }
 
 - (void)didMoveToParentViewController:(UIViewController*)parent {
-  ConstrainNamedGuideToView(kOmniboxGuide, self.view.locationBarContainer);
-  ConstrainNamedGuideToView(kBackButtonGuide, self.view.backButton.imageView);
-  ConstrainNamedGuideToView(kForwardButtonGuide,
-                            self.view.forwardButton.imageView);
-  ConstrainNamedGuideToView(kToolsMenuGuide, self.view.toolsMenuButton);
+  SetNamedGuideConstrainedViews(@{
+    kOmniboxGuide : self.view.locationBarContainer,
+    kBackButtonGuide : self.view.backButton.imageView,
+    kForwardButtonGuide : self.view.forwardButton.imageView,
+    kToolsMenuGuide : self.view.toolsMenuButton,
+  });
   if (!IsIPadIdiom()) {
-    ConstrainNamedGuideToView(kTabSwitcherGuide,
-                              self.view.tabSwitchStripButton.imageView);
+    UIView* tabSwitcherButton = self.view.tabSwitchStripButton.imageView;
+    [NamedGuide guideWithName:kTabSwitcherGuide view:tabSwitcherButton]
+        .constrainedView = tabSwitcherButton;
   }
 }
 
@@ -558,10 +557,6 @@ const CGFloat kScrollFadeDistance = 30;
   self.view.shareButton.enabled = enabled;
 }
 
-- (void)setSearchIcon:(UIImage*)searchIcon {
-  // No-op, no search icon in the non-adaptive toolbar.
-}
-
 #pragma mark - ToolbarViewFullscreenDelegate
 
 - (void)toolbarViewFrameChanged {
@@ -655,9 +650,9 @@ const CGFloat kScrollFadeDistance = 30;
 // Target of the voice search button.
 - (void)startVoiceSearch:(id)sender {
   UIView* view = base::mac::ObjCCastStrict<UIView>(sender);
-  StartVoiceSearchCommand* command =
-      [[StartVoiceSearchCommand alloc] initWithOriginView:view];
-  [self.dispatcher startVoiceSearch:command];
+  [NamedGuide guideWithName:kVoiceSearchButtonGuide view:view].constrainedView =
+      view;
+  [self.dispatcher startVoiceSearch];
 }
 
 // Sets all Toolbar Buttons opacity to |alpha|.

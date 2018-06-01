@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "ash/app_list/app_list_controller_impl.h"
 #include "ash/app_list/model/app_list_item.h"
 #include "ash/app_list/model/app_list_item_list.h"
 #include "ash/app_list/model/app_list_model.h"
@@ -26,7 +27,6 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/app_list/app_list_view_delegate.h"
-#include "ui/app_list/presenter/app_list.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/geometry/rect.h"
@@ -184,11 +184,6 @@ class ExampleSearchResult : public app_list::SearchResult {
 
   WindowTypeShelfItem::Type type() const { return type_; }
 
-  // app_list::SearchResult:
-  std::unique_ptr<SearchResult> Duplicate() const override {
-    return std::unique_ptr<SearchResult>();
-  }
-
  private:
   WindowTypeShelfItem::Type type_;
 
@@ -270,7 +265,7 @@ class ExampleAppListViewDelegate : public app_list::AppListViewDelegate {
 
   void Dismiss() override {
     DCHECK(ShellPort::HasInstance());
-    Shell::Get()->app_list()->Dismiss();
+    Shell::Get()->app_list_controller()->DismissAppList();
   }
 
   void ViewClosing() override {

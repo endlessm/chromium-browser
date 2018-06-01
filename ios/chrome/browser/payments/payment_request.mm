@@ -107,16 +107,7 @@ PaymentRequest::PaymentRequest(
   ParsePaymentMethodData();
   CreateNativeAppPaymentMethods();
 
-  SetSelectedShippingOption();
-
-  if (request_shipping()) {
-    // If the merchant provided a default shipping option, and the
-    // highest-ranking shipping profile is usable, select it.
-    if (selected_shipping_option_ && !shipping_profiles_.empty() &&
-        profile_comparator_.IsShippingComplete(shipping_profiles_[0])) {
-      selected_shipping_profile_ = shipping_profiles_[0];
-    }
-  }
+  SetSelectedShippingOptionAndProfile();
 
   if (request_payer_name() || request_payer_email() || request_payer_phone()) {
     // If the highest-ranking contact profile is usable, select it. Otherwise,
@@ -237,7 +228,7 @@ void PaymentRequest::UpdatePaymentDetails(const PaymentDetails& details) {
     web_payment_request_.details.total = std::move(old_total);
 
   PopulateAvailableShippingOptions();
-  SetSelectedShippingOption();
+  SetSelectedShippingOptionAndProfile();
 }
 
 bool PaymentRequest::request_shipping() const {
@@ -399,7 +390,7 @@ PaymentRequest::CreateAndAddAutofillPaymentInstrument(
   // the name of the network directly.
   std::string method_name = basic_card_issuer_network;
   if (basic_card_specified_networks_.count(basic_card_issuer_network)) {
-    method_name = "basic_card";
+    method_name = "basic-card";
   }
 
   // The total number of card types: credit, debit, prepaid, unknown.
@@ -532,7 +523,8 @@ void PaymentRequest::CreateNativeAppPaymentMethods() {
 void PaymentRequest::PopulatePaymentMethodCache(
     std::vector<std::unique_ptr<IOSPaymentInstrument>> native_app_instruments) {
   const std::vector<autofill::CreditCard*>& credit_cards_to_suggest =
-      personal_data_manager_->GetCreditCardsToSuggest();
+      personal_data_manager_->GetCreditCardsToSuggest(
+          /*include_server_cards=*/true);
 
   // Return early if the user has no stored credit cards or installed payment
   // apps.
@@ -560,7 +552,7 @@ void PaymentRequest::PopulatePaymentMethodCache(
 
   const auto first_complete_payment_method =
       std::find_if(payment_methods_.begin(), payment_methods_.end(),
-                   [this](PaymentInstrument* payment_method) {
+                   [](PaymentInstrument* payment_method) {
                      return payment_method->IsCompleteForPayment() &&
                             payment_method->IsExactlyMatchingMerchantRequest();
                    });
@@ -584,7 +576,6 @@ void PaymentRequest::PopulateAvailablePaymentMethods() {
 
 void PaymentRequest::PopulateAvailableShippingOptions() {
   shipping_options_.clear();
-  selected_shipping_option_ = nullptr;
   if (web_payment_request_.details.shipping_options.empty())
     return;
 
@@ -596,13 +587,24 @@ void PaymentRequest::PopulateAvailableShippingOptions() {
                  [](PaymentShippingOption& option) { return &option; });
 }
 
-void PaymentRequest::SetSelectedShippingOption() {
+void PaymentRequest::SetSelectedShippingOptionAndProfile() {
   // If more than one option has |selected| set, the last one in the sequence
   // should be treated as the selected item.
+  selected_shipping_option_ = nullptr;
   for (auto* shipping_option : base::Reversed(shipping_options_)) {
     if (shipping_option->selected) {
       selected_shipping_option_ = shipping_option;
       break;
+    }
+  }
+
+  selected_shipping_profile_ = nullptr;
+  if (request_shipping()) {
+    // If the merchant provided a default shipping option, and the
+    // highest-ranking shipping profile is usable, select it.
+    if (selected_shipping_option_ && !shipping_profiles_.empty() &&
+        profile_comparator_.IsShippingComplete(shipping_profiles_[0])) {
+      selected_shipping_profile_ = shipping_profiles_[0];
     }
   }
 }

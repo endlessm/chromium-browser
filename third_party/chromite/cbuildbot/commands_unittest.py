@@ -10,8 +10,10 @@ from __future__ import print_function
 import base64
 import datetime as dt
 import json
+import hashlib
 import mock
 import os
+import struct
 from StringIO import StringIO
 from os.path import join as pathjoin
 from os.path import abspath as abspath
@@ -422,7 +424,7 @@ The suite job has another 2:39:39.789250 till timeout.
       cmd_result = self.RunHWTestSuite()
     self.assertEqual(cmd_result, (None, None))
     self.assertCommandCalled(self.create_cmd, capture_output=True,
-                             combine_stdout_stderr=True)
+                             combine_stdout_stderr=True, env=mock.ANY)
     self.assertIn(self.JOB_ID_OUTPUT, '\n'.join(output.GetStdoutLines()))
 
   def testRunHWTestSuiteMaximal(self):
@@ -458,9 +460,9 @@ The suite job has another 2:39:39.789250 till timeout.
                                        subsystems=self._subsystems)
     self.assertEqual(cmd_result, (None, None))
     self.assertCommandCalled(self.create_cmd, capture_output=True,
-                             combine_stdout_stderr=True)
+                             combine_stdout_stderr=True, env=mock.ANY)
     self.assertCommandCalled(self.wait_cmd, capture_output=True,
-                             combine_stdout_stderr=True)
+                             combine_stdout_stderr=True, env=mock.ANY)
     self.assertIn(self.WAIT_OUTPUT, '\n'.join(output.GetStdoutLines()))
     self.assertIn(self.JOB_ID_OUTPUT, '\n'.join(output.GetStdoutLines()))
 
@@ -509,7 +511,7 @@ The suite job has another 2:39:39.789250 till timeout.
       cmd_result = self.RunHWTestSuite(wait_for_results=True)
       self.assertIsInstance(cmd_result.to_raise, failures_lib.TestLabFailure)
       self.assertCommandCalled(self.json_dump_cmd, capture_output=True,
-                               combine_stdout_stderr=True)
+                               combine_stdout_stderr=True, env=mock.ANY)
 
   def testRunHWTestBoardNotAvailable(self):
     """Test RunHWTestSuite when BOARD_NOT_AVAILABLE is returned."""
@@ -563,9 +565,9 @@ The suite job has another 2:39:39.789250 till timeout.
     with self.OutputCapturer() as output:
       self.RunHWTestSuite(wait_for_results=self._wait_for_results)
       self.assertCommandCalled(self.create_cmd, capture_output=True,
-                               combine_stdout_stderr=True)
+                               combine_stdout_stderr=True, env=mock.ANY)
       self.assertCommandCalled(self.wait_cmd, capture_output=True,
-                               combine_stdout_stderr=True)
+                               combine_stdout_stderr=True, env=mock.ANY)
       self.assertIn(self.WAIT_RETRY_OUTPUT.strip(),
                     '\n'.join(output.GetStdoutLines()))
       self.assertIn(self.WAIT_OUTPUT, '\n'.join(output.GetStdoutLines()))
@@ -612,9 +614,9 @@ The suite job has another 2:39:39.789250 till timeout.
       with self.OutputCapturer() as output:
         self.RunHWTestSuite(wait_for_results=self._wait_for_results)
         self.assertCommandCalled(self.create_cmd, capture_output=True,
-                                 combine_stdout_stderr=True)
+                                 combine_stdout_stderr=True, env=mock.ANY)
         self.assertCommandCalled(self.json_dump_cmd, capture_output=True,
-                                 combine_stdout_stderr=True)
+                                 combine_stdout_stderr=True, env=mock.ANY)
         self.assertIn(self.JOB_ID_OUTPUT, '\n'.join(output.GetStdoutLines()))
         self.assertIn(self.JSON_OUTPUT, '\n'.join(output.GetStdoutLines()))
 
@@ -625,7 +627,6 @@ class CBuildBotTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
   def setUp(self):
     self._board = 'test-board'
     self._buildroot = self.tempdir
-    self._boardroot = os.path.join(self.tempdir, self._board)
     self._overlays = ['%s/src/third_party/chromiumos-overlay' % self._buildroot]
     self._chroot = os.path.join(self._buildroot, 'chroot')
     os.makedirs(os.path.join(self._buildroot, '.repo'))
@@ -893,40 +894,9 @@ fe5d699f2e9e4a7de031497953313dbd *./models/snappy/setvars.sh
     self.rc.SetDefaultCmdResult(output='pyro\nreef\nsnappy\n')
     build_bin = os.path.join(self._buildroot, constants.DEFAULT_CHROOT_DIR,
                              'usr', 'bin')
-    osutils.Touch(os.path.join(build_bin, 'cros_config_host_py'), makedirs=True)
-    config_fname = os.path.join(
-        self._boardroot,
-        'usr',
-        'share',
-        'chromeos-config',
-        'config.dtb')
-    osutils.Touch(config_fname, makedirs=True)
-    result = commands.GetModels(self._buildroot, self._boardroot)
-    self.assertEquals(result, ['pyro', 'reef', 'snappy'])
-
-  def testGetModels_withYaml(self):
-    self.rc.SetDefaultCmdResult(output='pyro\nreef\nsnappy\n')
-    build_bin = os.path.join(self._buildroot, constants.DEFAULT_CHROOT_DIR,
-                             'usr', 'bin')
-    osutils.Touch(os.path.join(build_bin, 'cros_config_host_py'), makedirs=True)
-    config_fname = os.path.join(
-        self._boardroot,
-        'usr',
-        'share',
-        'chromeos-config',
-        'yaml',
-        'private-files.yaml')
-    osutils.Touch(config_fname, makedirs=True)
-    result = commands.GetModels(self._buildroot, self._boardroot)
-    self.assertEquals(result, ['pyro', 'reef', 'snappy'])
-
-  def testGetModels_emptyWithoutConfigDb(self):
-    self.rc.SetDefaultCmdResult(output='pyro\nreef\nsnappy\n')
-    build_bin = os.path.join(self._buildroot, constants.DEFAULT_CHROOT_DIR,
-                             'usr', 'bin')
-    osutils.Touch(os.path.join(build_bin, 'cros_config_host_py'), makedirs=True)
+    osutils.Touch(os.path.join(build_bin, 'cros_config_host'), makedirs=True)
     result = commands.GetModels(self._buildroot, self._board)
-    self.assertEquals(result, None)
+    self.assertEquals(result, ['pyro', 'reef', 'snappy'])
 
   def testBuildMaximum(self):
     """Base case where Build is called with all options (except extra_env)."""
@@ -1060,6 +1030,60 @@ fe5d699f2e9e4a7de031497953313dbd *./models/snappy/setvars.sh
     topology.FetchTopologyFromCIDB(None)
     commands.AbortHWTests('my_config', 'my_version', debug=False)
     self.assertCommandContains(['-i', 'my_config/my_version'])
+
+
+class GenerateDebugTarballTests(cros_test_lib.TempDirTestCase):
+  """Tests related to building tarball artifacts."""
+
+  def setUp(self):
+    self._board = 'test-board'
+    self._buildroot = os.path.join(self.tempdir, 'buildroot')
+    self._debug_base = os.path.join(
+        self._buildroot, 'chroot', 'build', self._board, 'usr', 'lib')
+
+    self._files = [
+        'debug/s1',
+        'debug/breakpad/b1',
+        'debug/tests/t1',
+        'debug/stuff/nested/deep',
+        'debug/usr/local/build/autotest/a1',
+    ]
+
+    cros_test_lib.CreateOnDiskHierarchy(self._debug_base, self._files)
+
+    self._tarball_dir = self.tempdir
+
+  def testGenerateDebugTarballGdb(self):
+    """Test the simplest case."""
+    commands.GenerateDebugTarball(
+        self._buildroot, self._board, self._tarball_dir, gdb_symbols=True)
+
+    cros_test_lib.VerifyTarball(
+        os.path.join(self._tarball_dir, 'debug.tgz'),
+        [
+            'debug/',
+            'debug/s1',
+            'debug/breakpad/',
+            'debug/breakpad/b1',
+            'debug/stuff/',
+            'debug/stuff/nested/',
+            'debug/stuff/nested/deep',
+            'debug/usr/',
+            'debug/usr/local/',
+            'debug/usr/local/build/',
+        ])
+
+  def testGenerateDebugTarballNoGdb(self):
+    """Test the simplest case."""
+    commands.GenerateDebugTarball(
+        self._buildroot, self._board, self._tarball_dir, gdb_symbols=False)
+
+    cros_test_lib.VerifyTarball(
+        os.path.join(self._tarball_dir, 'debug.tgz'),
+        [
+            'debug/breakpad/',
+            'debug/breakpad/b1',
+        ])
 
 
 class BuildTarballTests(cros_build_lib_unittest.RunCommandTempDirTestCase):
@@ -1224,6 +1248,54 @@ class UnmockedTests(cros_test_lib.TempDirTestCase):
     find_exclude_expected = self.findFilesWithPatternExpectedResults(
         search_files_root, ['file1', 'test1', 'file2', 'dir2/file2'])
     self.assertEquals(set(find_exclude), set(find_exclude_expected))
+
+  def testGenerateUploadJSON(self):
+    """Verifies GenerateUploadJSON"""
+    archive = os.path.join(self.tempdir, 'archive')
+    osutils.SafeMakedirs(archive)
+
+    # Text file.
+    text_str = "Happiness equals reality minus expectations.\n"
+    osutils.WriteFile(os.path.join(archive, 'file1.txt'), text_str)
+
+    # JSON file.
+    json_str = json.dumps([{'Salt': 'Pepper', 'Pots': 'Pans',
+                            'Cloak': 'Dagger', 'Shoes': 'Socks'}])
+    osutils.WriteFile(os.path.join(archive, 'file2.json'), json_str)
+
+    # Binary file.
+    bin_blob = struct.pack('6B', 228, 39, 123, 87, 2, 168)
+    with open(os.path.join(archive, 'file3.bin'), "wb") as f:
+      f.write(bin_blob)
+
+    # Directory.
+    osutils.SafeMakedirs(os.path.join(archive, 'dir'))
+
+    # List of files in archive.
+    uploaded = os.path.join(self.tempdir, 'uploaded')
+    osutils.WriteFile(uploaded, "file1.txt\nfile2.json\nfile3.bin\ndir\n")
+
+    upload_file = os.path.join(self.tempdir, 'upload.json')
+    commands.GenerateUploadJSON(upload_file, archive, uploaded)
+    parsed = json.loads(osutils.ReadFile(upload_file))
+
+    # Directory should be ignored.
+    test_content = {'file1.txt': text_str,
+                    'file2.json': json_str,
+                    'file3.bin': bin_blob}
+
+    self.assertEquals(set(parsed.keys()), set(test_content.keys()))
+
+    # Verify the math.
+    for filename, content in test_content.iteritems():
+      entry = parsed[filename]
+      size = len(content)
+      sha1 = base64.b64encode(hashlib.sha1(content).digest())
+      sha256 = base64.b64encode(hashlib.sha256(content).digest())
+
+      self.assertEquals(entry['size'], size)
+      self.assertEquals(entry['sha1'], sha1)
+      self.assertEquals(entry['sha256'], sha256)
 
   def testGenerateHtmlIndexTuple(self):
     """Verifies GenerateHtmlIndex gives us something sane (input: tuple)"""

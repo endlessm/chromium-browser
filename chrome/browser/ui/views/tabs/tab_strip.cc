@@ -38,7 +38,6 @@
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
 #include "third_party/skia/include/core/SkColorFilter.h"
-#include "third_party/skia/include/effects/SkBlurMaskFilter.h"
 #include "third_party/skia/include/effects/SkLayerDrawLooper.h"
 #include "third_party/skia/include/pathops/SkPathOps.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -115,6 +114,8 @@ const int kPinnedToNonPinnedOffset = 2;
 #else
 const int kPinnedToNonPinnedOffset = 3;
 #endif
+
+TabSizeInfo* g_tab_size_info = nullptr;
 
 // Returns the width needed for the new tab button (and padding).
 int GetNewTabButtonWidth(bool is_incognito) {
@@ -214,18 +215,17 @@ TabDragController::EventSource EventSourceFromEvent(
 }
 
 const TabSizeInfo& GetTabSizeInfo() {
-  static TabSizeInfo* tab_size_info = nullptr;
-  if (tab_size_info)
-    return *tab_size_info;
+  if (g_tab_size_info)
+    return *g_tab_size_info;
 
-  tab_size_info = new TabSizeInfo;
-  tab_size_info->pinned_tab_width = Tab::GetPinnedWidth();
-  tab_size_info->min_active_width = Tab::GetMinimumActiveSize().width();
-  tab_size_info->min_inactive_width = Tab::GetMinimumInactiveSize().width();
-  tab_size_info->max_size = Tab::GetStandardSize();
-  tab_size_info->tab_overlap = Tab::GetOverlap();
-  tab_size_info->pinned_to_normal_offset = kPinnedToNonPinnedOffset;
-  return *tab_size_info;
+  g_tab_size_info = new TabSizeInfo;
+  g_tab_size_info->pinned_tab_width = Tab::GetPinnedWidth();
+  g_tab_size_info->min_active_width = Tab::GetMinimumActiveSize().width();
+  g_tab_size_info->min_inactive_width = Tab::GetMinimumInactiveSize().width();
+  g_tab_size_info->max_size = Tab::GetStandardSize();
+  g_tab_size_info->tab_overlap = Tab::GetOverlap();
+  g_tab_size_info->pinned_to_normal_offset = kPinnedToNonPinnedOffset;
+  return *g_tab_size_info;
 }
 
 }  // namespace
@@ -655,13 +655,24 @@ void TabStrip::SetSelection(const ui::ListSelectionModel& old_selection,
       AnimateToIdealBounds();
     SchedulePaint();
   } else {
-    // We have "tiny tabs" if the tabs are so tiny that the unselected ones are
-    // a different size to the selected ones.
-    bool tiny_tabs = current_inactive_width_ != current_active_width_;
-    if (!IsAnimating() && (!in_tab_close_ || tiny_tabs)) {
-      DoLayout();
-    } else {
+    if (current_inactive_width_ == current_active_width_) {
+      // When tabs are wide enough, selecting a new tab cannot change the
+      // ideal bounds, so only a repaint is necessary.
       SchedulePaint();
+    } else if (IsAnimating()) {
+      // The selection change will have modified the ideal bounds of the tabs
+      // in |old_selection| and |new_selection|.  We need to recompute.
+      // Note: This is safe even if we're in the midst of mouse-based tab
+      // closure--we won't expand the tabstrip back to the full window
+      // width--because PrepareForCloseAt() will have set
+      // |available_width_for_tabs_| already.
+      GenerateIdealBounds();
+      AnimateToIdealBounds();
+    } else {
+      // As in the animating case above, the selection change will have
+      // affected the desired bounds of the tabs, but since we're not animating
+      // we can just snap to the new bounds.
+      DoLayout();
     }
   }
 
@@ -1162,7 +1173,7 @@ void TabStrip::PaintChildren(const views::PaintInfo& paint_info) {
                              paint_info.paint_recording_scale_y(), nullptr);
 
   gfx::Canvas* canvas = recorder.canvas();
-  if (active_tab) {
+  if (active_tab && active_tab->visible()) {
     canvas->sk_canvas()->clipRect(
         gfx::RectToSkRect(active_tab->GetMirroredBounds()),
         SkClipOp::kDifference);
@@ -2171,41 +2182,16 @@ void TabStrip::StartPinnedTabAnimation() {
 }
 
 void TabStrip::StartMouseInitiatedRemoveTabAnimation(int model_index) {
-  // The user initiated the close. We want to persist the bounds of all the
-  // existing tabs, so we manually shift ideal_bounds then animate.
-  Tab* tab_closing = tab_at(model_index);
-  int delta = tab_closing->width() - Tab::GetOverlap();
-  // If the tab being closed is a pinned tab next to a non-pinned tab, be sure
-  // to add the extra padding.
-  DCHECK_LT(model_index, tab_count() - 1);
-  if (tab_closing->data().pinned && !tab_at(model_index + 1)->data().pinned)
-    delta += kPinnedToNonPinnedOffset;
-
-  // Set the ideal bounds of everything to be moved over to cover for the
-  // removed tab. This does not recompute the ideal bounds so every tab slides
-  // over without expansion until the user moves the mouse away.
-  for (int i = model_index + 1; i < tab_count(); ++i) {
-    gfx::Rect bounds = ideal_bounds(i);
-    bounds.set_x(bounds.x() - delta);
-    tabs_.set_ideal_bounds(i, bounds);
-  }
-
-  // Don't just subtract |delta| from the New Tab x-coordinate, as we might have
-  // overflow tabs that will be able to animate into the strip, in which case
-  // the new tab button should stay where it is.
-  new_tab_button_bounds_.set_x(
-      std::min(width() - new_tab_button_bounds_.width(),
-               ideal_bounds(tab_count() - 1).right() +
-                   GetLayoutConstant(TABSTRIP_NEW_TAB_BUTTON_SPACING)));
-
   PrepareForAnimation();
 
+  Tab* tab_closing = tab_at(model_index);
   tab_closing->set_closing(true);
 
   // We still need to paint the tab until we actually remove it. Put it in
   // tabs_closing_map_ so we can find it.
   RemoveTabFromViewModel(model_index);
 
+  GenerateIdealBounds();
   AnimateToIdealBounds();
 
   gfx::Rect tab_bounds = tab_closing->bounds();
@@ -2230,6 +2216,14 @@ int TabStrip::GetStartXForNormalTabs() const {
     return 0;
   return pinned_tab_count * (Tab::GetPinnedWidth() - Tab::GetOverlap()) +
          kPinnedToNonPinnedOffset;
+}
+
+// static
+void TabStrip::ResetTabSizeInfoForTesting() {
+  if (g_tab_size_info) {
+    delete g_tab_size_info;
+    g_tab_size_info = nullptr;
+  }
 }
 
 Tab* TabStrip::FindTabForEvent(const gfx::Point& point) {

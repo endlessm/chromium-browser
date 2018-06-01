@@ -13,7 +13,6 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/tick_clock.h"
@@ -37,18 +36,21 @@
 namespace ui {
 namespace test {
 
+// A TickClock that advances time by one millisecond on each call to NowTicks().
 class TestTickClock : public base::TickClock {
  public:
-  // Starts off with a clock set to TimeTicks().
-  TestTickClock() {}
+  TestTickClock() = default;
 
-  base::TimeTicks NowTicks() override {
-    return base::TimeTicks() +
-           base::TimeDelta::FromMicroseconds(ticks_++ * 1000);
+  // Unconditionally returns a tick count that is 1ms later than the previous
+  // call, starting at 1ms.
+  base::TimeTicks NowTicks() const override {
+    static constexpr base::TimeDelta kOneMillisecond =
+        base::TimeDelta::FromMilliseconds(1);
+    return ticks_ += kOneMillisecond;
   }
 
  private:
-  int64_t ticks_ = 1;
+  mutable base::TimeTicks ticks_;
 
   DISALLOW_COPY_AND_ASSIGN(TestTickClock);
 };
@@ -726,9 +728,8 @@ void EventGenerator::DoDispatchEvent(ui::Event* event, bool async) {
     std::unique_ptr<ui::Event> pending_event = ui::Event::Clone(*event);
     if (pending_events_.empty()) {
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE,
-          base::Bind(&EventGenerator::DispatchNextPendingEvent,
-                     base::Unretained(this)));
+          FROM_HERE, base::BindOnce(&EventGenerator::DispatchNextPendingEvent,
+                                    base::Unretained(this)));
     }
     pending_events_.push_back(std::move(pending_event));
   } else {
@@ -772,9 +773,8 @@ void EventGenerator::DispatchNextPendingEvent() {
   pending_events_.pop_front();
   if (!pending_events_.empty()) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::Bind(&EventGenerator::DispatchNextPendingEvent,
-                   base::Unretained(this)));
+        FROM_HERE, base::BindOnce(&EventGenerator::DispatchNextPendingEvent,
+                                  base::Unretained(this)));
   }
 }
 

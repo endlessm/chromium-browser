@@ -27,6 +27,7 @@ import urlparse
 from cStringIO import StringIO
 
 import gclient_utils
+import subprocess2
 from third_party import httplib2
 
 LOGGER = logging.getLogger()
@@ -166,7 +167,11 @@ class CookiesAuthenticator(Authenticator):
   def get_gitcookies_path(cls):
     if os.getenv('GIT_COOKIES_PATH'):
       return os.getenv('GIT_COOKIES_PATH')
-    return os.path.join(os.environ['HOME'], '.gitcookies')
+    try:
+      return subprocess2.check_output(
+          ['git', 'config', '--path', 'http.cookiefile']).strip()
+    except subprocess2.CalledProcessError:
+      return os.path.join(os.environ['HOME'], '.gitcookies')
 
   @classmethod
   def _get_gitcookies(cls):
@@ -251,7 +256,8 @@ class GceAuthenticator(Authenticator):
     # Based on https://cloud.google.com/compute/docs/metadata#runninggce
     try:
       resp, _ = cls._get(cls._INFO_URL)
-    except (socket.error, httplib2.ServerNotFoundError):
+    except (socket.error, httplib2.ServerNotFoundError,
+            httplib2.socks.HTTPError):
       # Could not resolve URL.
       return False
     return resp.get('metadata-flavor') == 'Google'

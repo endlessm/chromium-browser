@@ -18,18 +18,21 @@ class CommandUpdater;
 class ManagePasswordsIconViews : public ManagePasswordsIconView,
                                  public BubbleIconView {
  public:
-  explicit ManagePasswordsIconViews(CommandUpdater* updater);
+  ManagePasswordsIconViews(CommandUpdater* updater,
+                           BubbleIconView::Delegate* delegate);
   ~ManagePasswordsIconViews() override;
 
   // ManagePasswordsIconView:
   void SetState(password_manager::ui::State state) override;
 
   // BubbleIconView:
+  views::BubbleDialogDelegateView* GetBubble() const override;
+  bool Refresh() override;
   void OnExecuting(BubbleIconView::ExecuteSource source) override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   bool OnKeyPressed(const ui::KeyEvent& event) override;
-  views::BubbleDialogDelegateView* GetBubble() const override;
   const gfx::VectorIcon& GetVectorIcon() const override;
+  base::string16 GetTextForTooltipAndAccessibleName() const override;
 
   // views::View:
   void AboutToRequestFocusFromTabTraversal(bool reverse) override;

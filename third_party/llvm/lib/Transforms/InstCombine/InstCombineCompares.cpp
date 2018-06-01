@@ -3408,8 +3408,15 @@ Instruction *InstCombiner::foldICmpWithCastAndCast(ICmpInst &ICmp) {
 
   // Turn icmp (ptrtoint x), (ptrtoint/c) into a compare of the input if the
   // integer type is the same size as the pointer type.
+  const auto& CompatibleSizes = [&](Type* SrcTy, Type* DestTy) -> bool {
+    if (isa<VectorType>(SrcTy)) {
+      SrcTy = cast<VectorType>(SrcTy)->getElementType();
+      DestTy = cast<VectorType>(DestTy)->getElementType();
+    }
+    return DL.getPointerTypeSizeInBits(SrcTy) == DestTy->getIntegerBitWidth();
+  };
   if (LHSCI->getOpcode() == Instruction::PtrToInt &&
-      DL.getPointerTypeSizeInBits(SrcTy) == DestTy->getIntegerBitWidth()) {
+      CompatibleSizes(SrcTy, DestTy)) {
     Value *RHSOp = nullptr;
     if (auto *RHSC = dyn_cast<PtrToIntOperator>(ICmp.getOperand(1))) {
       Value *RHSCIOp = RHSC->getOperand(0);
@@ -4499,6 +4506,34 @@ Instruction *InstCombiner::visitICmpInst(ICmpInst &I) {
         return New;
   }
 
+  // Zero-equality and sign-bit checks are preserved through sitofp + bitcast.
+  Value *X;
+  if (match(Op0, m_BitCast(m_SIToFP(m_Value(X))))) {
+    // icmp  eq (bitcast (sitofp X)), 0 --> icmp  eq X, 0
+    // icmp  ne (bitcast (sitofp X)), 0 --> icmp  ne X, 0
+    // icmp slt (bitcast (sitofp X)), 0 --> icmp slt X, 0
+    // icmp sgt (bitcast (sitofp X)), 0 --> icmp sgt X, 0
+    if ((Pred == ICmpInst::ICMP_EQ || Pred == ICmpInst::ICMP_SLT ||
+         Pred == ICmpInst::ICMP_NE || Pred == ICmpInst::ICMP_SGT) &&
+        match(Op1, m_Zero()))
+      return new ICmpInst(Pred, X, ConstantInt::getNullValue(X->getType()));
+
+    // icmp slt (bitcast (sitofp X)), 1 --> icmp slt X, 1
+    if (Pred == ICmpInst::ICMP_SLT && match(Op1, m_One()))
+      return new ICmpInst(Pred, X, ConstantInt::get(X->getType(), 1));
+
+    // icmp sgt (bitcast (sitofp X)), -1 --> icmp sgt X, -1
+    if (Pred == ICmpInst::ICMP_SGT && match(Op1, m_AllOnes()))
+      return new ICmpInst(Pred, X, ConstantInt::getAllOnesValue(X->getType()));
+  }
+
+  // Zero-equality checks are preserved through unsigned floating-point casts:
+  // icmp eq (bitcast (uitofp X)), 0 --> icmp eq X, 0
+  // icmp ne (bitcast (uitofp X)), 0 --> icmp ne X, 0
+  if (match(Op0, m_BitCast(m_UIToFP(m_Value(X)))))
+    if (I.isEquality() && match(Op1, m_Zero()))
+      return new ICmpInst(Pred, X, ConstantInt::getNullValue(X->getType()));
+
   // Test to see if the operands of the icmp are casted versions of other
   // values.  If the ptr->ptr cast can be stripped off both arguments, we do so
   // now.
@@ -4907,11 +4942,11 @@ Instruction *InstCombiner::visitFCmpInst(FCmpInst &I) {
   // If we're just checking for a NaN (ORD/UNO) and have a non-NaN operand,
   // then canonicalize the operand to 0.0.
   if (Pred == CmpInst::FCMP_ORD || Pred == CmpInst::FCMP_UNO) {
-    if (!match(Op0, m_Zero()) && isKnownNeverNaN(Op0)) {
+    if (!match(Op0, m_PosZeroFP()) && isKnownNeverNaN(Op0)) {
       I.setOperand(0, ConstantFP::getNullValue(Op0->getType()));
       return &I;
     }
-    if (!match(Op1, m_Zero()) && isKnownNeverNaN(Op1)) {
+    if (!match(Op1, m_PosZeroFP()) && isKnownNeverNaN(Op1)) {
       I.setOperand(1, ConstantFP::getNullValue(Op0->getType()));
       return &I;
     }

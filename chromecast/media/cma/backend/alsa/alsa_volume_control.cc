@@ -11,6 +11,7 @@
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/message_loop/message_loop.h"
 #include "chromecast/base/chromecast_switches.h"
 #include "media/base/media_switches.h"
 
@@ -339,21 +340,22 @@ void AlsaVolumeControl::RefreshMixerFds(ScopedAlsaMixer* mixer) {
   DCHECK_GT(num_fds, 0);
   for (int i = 0; i < num_fds; ++i) {
     auto watcher =
-        std::make_unique<base::MessageLoopForIO::FileDescriptorWatcher>(
-            FROM_HERE);
+        std::make_unique<base::MessagePumpForIO::FdWatchController>(FROM_HERE);
     base::MessageLoopForIO::current()->WatchFileDescriptor(
-        pfds[i].fd, true /* persistent */, base::MessageLoopForIO::WATCH_READ,
+        pfds[i].fd, true /* persistent */, base::MessagePumpForIO::WATCH_READ,
         watcher.get(), this);
     file_descriptor_watchers_.push_back(std::move(watcher));
   }
 }
 
 void AlsaVolumeControl::OnFileCanReadWithoutBlocking(int fd) {
-  alsa_->MixerHandleEvents(volume_mixer_->mixer);
-  if (mute_mixer_) {
+  if (volume_mixer_->mixer) {
+    alsa_->MixerHandleEvents(volume_mixer_->mixer);
+  }
+  if (mute_mixer_ && mute_mixer_->mixer) {
     alsa_->MixerHandleEvents(mute_mixer_->mixer);
   }
-  if (amp_mixer_) {
+  if (amp_mixer_ && amp_mixer_->mixer) {
     // amixer locks up if we don't call this for unknown reasons.
     alsa_->MixerHandleEvents(amp_mixer_->mixer);
   }

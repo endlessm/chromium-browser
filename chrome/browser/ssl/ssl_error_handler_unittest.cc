@@ -267,6 +267,8 @@ class TestSSLErrorHandlerDelegate : public SSLErrorHandler::Delegate {
 
   bool IsErrorOverridable() const override { return is_overridable_error_; }
 
+  void ReportNetworkConnectivity(base::OnceClosure callback) override {}
+
   Profile* profile_;
   bool captive_portal_checked_;
   bool os_reports_captive_portal_;
@@ -645,6 +647,13 @@ class SSLErrorHandlerDateInvalidTest : public ChromeRenderViewHostTestHarness {
       error_handler_.reset(nullptr);
     }
     SSLErrorHandler::ResetConfigForTesting();
+
+    // ChromeRenderViewHostTestHarness::TearDown() simulates shutdown and as
+    // such destroys parts of the task environment required in these
+    // destructors.
+    test_server_.reset();
+    tracker_.reset();
+
     ChromeRenderViewHostTestHarness::TearDown();
   }
 

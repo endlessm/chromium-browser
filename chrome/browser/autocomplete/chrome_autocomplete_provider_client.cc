@@ -8,7 +8,6 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
@@ -34,15 +33,17 @@
 #include "components/browser_sync/profile_sync_service.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
+#include "components/omnibox/browser/autocomplete_match.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/signin_manager.h"
+#include "components/sync/base/model_type.h"
 #include "components/sync/driver/sync_service_utils.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/service_worker_context.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -254,10 +255,10 @@ bool ChromeAutocompleteProviderClient::SearchSuggestEnabled() const {
   return profile_->GetPrefs()->GetBoolean(prefs::kSearchSuggestEnabled);
 }
 
-bool ChromeAutocompleteProviderClient::TabSyncEnabledAndUnencrypted() const {
-  return syncer::IsTabSyncEnabledAndUnencrypted(
-      ProfileSyncServiceFactory::GetInstance()->GetForProfile(profile_),
-      profile_->GetPrefs());
+bool ChromeAutocompleteProviderClient::IsTabUploadToGoogleActive() const {
+  return syncer::GetUploadToGoogleState(
+             ProfileSyncServiceFactory::GetInstance()->GetForProfile(profile_),
+             syncer::ModelType::PROXY_TABS) == syncer::UploadState::ACTIVE;
 }
 
 bool ChromeAutocompleteProviderClient::IsAuthenticated() const {
@@ -363,7 +364,9 @@ void ChromeAutocompleteProviderClient::OnAutocompleteControllerResultReady(
 }
 
 // TODO(crbug.com/46623): Maintain a map of URL->WebContents for fast look-up.
-bool ChromeAutocompleteProviderClient::IsTabOpenWithURL(const GURL& url) {
+bool ChromeAutocompleteProviderClient::IsTabOpenWithURL(
+    const GURL& url,
+    const AutocompleteInput* input) {
 #if !defined(OS_ANDROID)
   Browser* active_browser = BrowserList::GetInstance()->GetLastActive();
   content::WebContents* active_tab = nullptr;
@@ -376,11 +379,28 @@ bool ChromeAutocompleteProviderClient::IsTabOpenWithURL(const GURL& url) {
       for (int i = 0; i < browser->tab_strip_model()->count(); ++i) {
         content::WebContents* web_contents =
             browser->tab_strip_model()->GetWebContentsAt(i);
-        if (web_contents != active_tab && web_contents->GetVisibleURL() == url)
+        if (web_contents != active_tab &&
+            StrippedURLsAreEqual(web_contents->GetLastCommittedURL(), url,
+                                 input))
           return true;
       }
     }
   }
 #endif  // !defined(OS_ANDROID)
   return false;
+}
+
+bool ChromeAutocompleteProviderClient::StrippedURLsAreEqual(
+    const GURL& url1,
+    const GURL& url2,
+    const AutocompleteInput* input) const {
+  AutocompleteInput empty_input;
+  if (!input)
+    input = &empty_input;
+  const TemplateURLService* template_url_service = GetTemplateURLService();
+  return AutocompleteMatch::GURLToStrippedGURL(url1, AutocompleteInput(),
+                                               template_url_service,
+                                               base::string16()) ==
+         AutocompleteMatch::GURLToStrippedGURL(
+             url2, *input, template_url_service, base::string16());
 }

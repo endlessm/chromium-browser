@@ -118,6 +118,7 @@ ContentSettingsType kPermissionType[] = {
     CONTENT_SETTINGS_TYPE_AUTOPLAY,
     CONTENT_SETTINGS_TYPE_MIDI_SYSEX,
     CONTENT_SETTINGS_TYPE_CLIPBOARD_READ,
+    CONTENT_SETTINGS_TYPE_USB_GUARD,
 };
 
 // Checks whether this permission is currently the factory default, as set by
@@ -276,38 +277,6 @@ void ReportAnyInsecureContent(const security_state::SecurityInfo& security_info,
         IDS_PAGE_INFO_SECURITY_TAB_ENCRYPTED_SENTENCE_LINK, *connection_details,
         l10n_util::GetStringUTF16(
             IDS_PAGE_INFO_SECURITY_TAB_ENCRYPTED_INSECURE_CONTENT_WARNING)));
-  }
-}
-
-void GetSiteIdentityByMaliciousContentStatus(
-    security_state::MaliciousContentStatus malicious_content_status,
-    PageInfo::SiteIdentityStatus* status,
-    base::string16* details) {
-  switch (malicious_content_status) {
-    case security_state::MALICIOUS_CONTENT_STATUS_NONE:
-      NOTREACHED();
-      break;
-    case security_state::MALICIOUS_CONTENT_STATUS_MALWARE:
-      *status = PageInfo::SITE_IDENTITY_STATUS_MALWARE;
-      *details = l10n_util::GetStringUTF16(IDS_PAGE_INFO_MALWARE_DETAILS);
-      break;
-    case security_state::MALICIOUS_CONTENT_STATUS_SOCIAL_ENGINEERING:
-      *status = PageInfo::SITE_IDENTITY_STATUS_SOCIAL_ENGINEERING;
-      *details =
-          l10n_util::GetStringUTF16(IDS_PAGE_INFO_SOCIAL_ENGINEERING_DETAILS);
-      break;
-    case security_state::MALICIOUS_CONTENT_STATUS_UNWANTED_SOFTWARE:
-      *status = PageInfo::SITE_IDENTITY_STATUS_UNWANTED_SOFTWARE;
-      *details =
-          l10n_util::GetStringUTF16(IDS_PAGE_INFO_UNWANTED_SOFTWARE_DETAILS);
-      break;
-    case security_state::MALICIOUS_CONTENT_STATUS_PASSWORD_REUSE:
-#if defined(SAFE_BROWSING_DB_LOCAL)
-      *status = PageInfo::SITE_IDENTITY_STATUS_PASSWORD_REUSE;
-      *details =
-          l10n_util::GetStringUTF16(IDS_PAGE_INFO_CHANGE_PASSWORD_DETAILS);
-#endif
-      break;
   }
 }
 
@@ -852,11 +821,10 @@ void PageInfo::PresentSitePermissions() {
 
       // If under embargo, update |permission_info| to reflect that.
       if (permission_result.content_setting == CONTENT_SETTING_BLOCK &&
-          (permission_result.source ==
-               PermissionStatusSource::MULTIPLE_DISMISSALS ||
-           permission_result.source ==
-               PermissionStatusSource::SAFE_BROWSING_BLACKLIST))
+          permission_result.source ==
+              PermissionStatusSource::MULTIPLE_DISMISSALS) {
         permission_info.setting = permission_result.content_setting;
+      }
     }
 
     if (ShouldShowPermission(permission_info, site_url_, content_settings_,
@@ -868,6 +836,12 @@ void PageInfo::PresentSitePermissions() {
   for (const ChooserUIInfo& ui_info : kChooserUIInfo) {
     ChooserContextBase* context = ui_info.get_context(profile_);
     const GURL origin = site_url_.GetOrigin();
+
+    // Hide individual object permissions because when the chooser is blocked
+    // previously granted device permissions are also ignored.
+    if (!context->CanRequestObjectPermission(origin, origin))
+      continue;
+
     auto chosen_objects = context->GetGrantedObjects(origin, origin);
     for (std::unique_ptr<base::DictionaryValue>& object : chosen_objects) {
       chosen_object_info_list.push_back(
@@ -941,4 +915,37 @@ std::vector<ContentSettingsType> PageInfo::GetAllPermissionsForTesting() {
     permission_list.push_back(kPermissionType[i]);
   }
   return permission_list;
+}
+
+void PageInfo::GetSiteIdentityByMaliciousContentStatus(
+    security_state::MaliciousContentStatus malicious_content_status,
+    PageInfo::SiteIdentityStatus* status,
+    base::string16* details) {
+  switch (malicious_content_status) {
+    case security_state::MALICIOUS_CONTENT_STATUS_NONE:
+      NOTREACHED();
+      break;
+    case security_state::MALICIOUS_CONTENT_STATUS_MALWARE:
+      *status = PageInfo::SITE_IDENTITY_STATUS_MALWARE;
+      *details = l10n_util::GetStringUTF16(IDS_PAGE_INFO_MALWARE_DETAILS);
+      break;
+    case security_state::MALICIOUS_CONTENT_STATUS_SOCIAL_ENGINEERING:
+      *status = PageInfo::SITE_IDENTITY_STATUS_SOCIAL_ENGINEERING;
+      *details =
+          l10n_util::GetStringUTF16(IDS_PAGE_INFO_SOCIAL_ENGINEERING_DETAILS);
+      break;
+    case security_state::MALICIOUS_CONTENT_STATUS_UNWANTED_SOFTWARE:
+      *status = PageInfo::SITE_IDENTITY_STATUS_UNWANTED_SOFTWARE;
+      *details =
+          l10n_util::GetStringUTF16(IDS_PAGE_INFO_UNWANTED_SOFTWARE_DETAILS);
+      break;
+    case security_state::MALICIOUS_CONTENT_STATUS_PASSWORD_REUSE:
+#if defined(SAFE_BROWSING_DB_LOCAL)
+      *status = PageInfo::SITE_IDENTITY_STATUS_PASSWORD_REUSE;
+      *details = safe_browsing::ChromePasswordProtectionService::
+                     GetPasswordProtectionService(profile_)
+                         ->GetWarningDetailText();
+#endif
+      break;
+  }
 }

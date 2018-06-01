@@ -5,7 +5,10 @@
 #include "chrome/browser/resource_coordinator/lifecycle_unit_base.h"
 
 #include "base/macros.h"
+#include "base/test/simple_test_tick_clock.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit_observer.h"
+#include "chrome/browser/resource_coordinator/time.h"
+#include "content/public/browser/visibility.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -18,6 +21,8 @@ class MockLifecycleUnitObserver : public LifecycleUnitObserver {
   MockLifecycleUnitObserver() = default;
 
   MOCK_METHOD1(OnLifecycleUnitStateChanged, void(LifecycleUnit*));
+  MOCK_METHOD2(OnLifecycleUnitVisibilityChanged,
+               void(LifecycleUnit*, content::Visibility));
   MOCK_METHOD1(OnLifecycleUnitDestroyed, void(LifecycleUnit*));
 
  private:
@@ -27,6 +32,7 @@ class MockLifecycleUnitObserver : public LifecycleUnitObserver {
 class DummyLifecycleUnit : public LifecycleUnitBase {
  public:
   using LifecycleUnitBase::SetState;
+  using LifecycleUnitBase::OnLifecycleUnitVisibilityChanged;
 
   DummyLifecycleUnit() = default;
   ~DummyLifecycleUnit() override { OnLifecycleUnitDestroyed(); }
@@ -37,9 +43,17 @@ class DummyLifecycleUnit : public LifecycleUnitBase {
   }
   base::string16 GetTitle() const override { return base::string16(); }
   std::string GetIconURL() const override { return std::string(); }
+  base::ProcessHandle GetProcessHandle() const override {
+    return base::ProcessHandle();
+  }
   SortKey GetSortKey() const override { return SortKey(); }
   State GetState() const override { return State::LOADED; }
+  content::Visibility GetVisibility() const override {
+    return content::Visibility::VISIBLE;
+  }
+  bool Freeze() override { return false; }
   int GetEstimatedMemoryFreedOnDiscardKB() const override { return 0; }
+  bool CanPurge() const override { return false; }
   bool CanDiscard(DiscardReason reason) const override { return false; }
   bool Discard(DiscardReason discard_reason) override { return false; }
 
@@ -92,6 +106,51 @@ TEST(LifecycleUnitBaseTest, DestroyNotifiesObservers) {
     EXPECT_CALL(observer, OnLifecycleUnitDestroyed(&lifecycle_unit));
   }
   testing::Mock::VerifyAndClear(&observer);
+}
+
+// Verify that observers are notified when the visibility of the LifecyleUnit
+// changes. Verify that when visibility changes |last_visibility_change_time_|
+// is updated with the time of the change.
+TEST(LifecycleUnitBaseTest, VisibilityChangeNotifiesObserversAndUpdatesTime) {
+  base::SimpleTestTickClock test_clock_;
+  ScopedSetTickClockForTesting scoped_set_tick_clock_for_testing_(&test_clock_);
+  testing::StrictMock<MockLifecycleUnitObserver> observer;
+  DummyLifecycleUnit lifecycle_unit;
+  lifecycle_unit.AddObserver(&observer);
+
+  // Observer is notified when the visibility changes.
+  EXPECT_CALL(observer, OnLifecycleUnitVisibilityChanged(
+                            &lifecycle_unit, content::Visibility::HIDDEN))
+      .WillOnce(testing::Invoke([&](LifecycleUnit* lifecycle_unit,
+                                    content::Visibility visibility) {
+        EXPECT_EQ(NowTicks(), lifecycle_unit->GetLastVisibilityChangeTime());
+      }));
+
+  lifecycle_unit.OnLifecycleUnitVisibilityChanged(content::Visibility::HIDDEN);
+  testing::Mock::VerifyAndClear(&observer);
+
+  EXPECT_CALL(observer, OnLifecycleUnitVisibilityChanged(
+                            &lifecycle_unit, content::Visibility::OCCLUDED))
+      .WillOnce(testing::Invoke([&](LifecycleUnit* lifecycle_unit,
+                                    content::Visibility visibility) {
+        EXPECT_EQ(NowTicks(), lifecycle_unit->GetLastVisibilityChangeTime());
+      }));
+
+  lifecycle_unit.OnLifecycleUnitVisibilityChanged(
+      content::Visibility::OCCLUDED);
+  testing::Mock::VerifyAndClear(&observer);
+
+  EXPECT_CALL(observer, OnLifecycleUnitVisibilityChanged(
+                            &lifecycle_unit, content::Visibility::VISIBLE))
+      .WillOnce(testing::Invoke([&](LifecycleUnit* lifecycle_unit,
+                                    content::Visibility visibility) {
+        EXPECT_EQ(NowTicks(), lifecycle_unit->GetLastVisibilityChangeTime());
+      }));
+
+  lifecycle_unit.OnLifecycleUnitVisibilityChanged(content::Visibility::VISIBLE);
+  testing::Mock::VerifyAndClear(&observer);
+
+  lifecycle_unit.RemoveObserver(&observer);
 }
 
 }  // namespace resource_coordinator

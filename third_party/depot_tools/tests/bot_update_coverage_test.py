@@ -149,22 +149,16 @@ class BotUpdateUnittests(unittest.TestCase):
       'target_os_only': None,
       'target_cpu': None,
       'patch_root': None,
-      'issue': None,
-      'patchset': None,
-      'rietveld_server': None,
       'gerrit_repo': None,
       'gerrit_ref': None,
       'gerrit_rebase_patch_ref': None,
-      'revision_mapping': {},
-      'apply_issue_email_file': None,
-      'apply_issue_key_file': None,
-      'apply_issue_oauth2_file': None,
       'shallow': False,
       'refs': [],
       'git_cache_dir': '',
       'cleanup_dir': None,
       'gerrit_reset': None,
       'disable_syntax_validation': False,
+      'apply_patch_on_gclient': False,
   }
 
   def setUp(self):
@@ -221,6 +215,22 @@ class BotUpdateUnittests(unittest.TestCase):
     self.assertEquals(args[idx_second_revision+1], 'src@origin/master')
     self.assertEquals(args[idx_third_revision+1], 'src/v8@deadbeef')
     return self.call.records
+
+  def testEnableGclientExperiment(self):
+    self.params['gerrit_ref'] = 'refs/changes/12/345/6'
+    self.params['gerrit_repo'] = 'https://chromium.googlesource.com/v8/v8'
+    self.params['apply_patch_on_gclient'] = True
+    bot_update.ensure_checkout(**self.params)
+    args = self.gclient.records[0]
+    idx = args.index('--patch-ref')
+    self.assertEqual(
+        args[idx+1],
+        self.params['gerrit_repo'] + '@' + self.params['gerrit_ref'])
+    self.assertNotIn('--patch-ref', args[idx+1:])
+    # Assert we're not patching in bot_update.py
+    for record in self.call.records:
+      self.assertNotIn('git fetch ' + self.params['gerrit_repo'],
+                       ' '.join(record[0]))
 
   def testBreakLocks(self):
     self.overrideSetupForWindows()

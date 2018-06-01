@@ -201,7 +201,7 @@ const char kRateThisAppCommand[] = "ratethisapp";
     // offset, taking into account the size of the toolbar.
     offset = MAX(0, MIN(offset, collection.contentSize.height -
                                     collection.bounds.size.height -
-                                    ntp_header::kToolbarHeight));
+                                    ntp_header::ToolbarHeight()));
     collection.contentOffset = CGPointMake(0, offset);
     // Update the constraints in case the omnibox needs to be moved.
     [self.suggestionsViewController updateConstraints];
@@ -257,15 +257,19 @@ const char kRateThisAppCommand[] = "ratethisapp";
     switch (mostVisitedItem.action) {
       case ContentSuggestionsMostVisitedActionBookmark:
         [self.dispatcher showBookmarksManager];
+        base::RecordAction(base::UserMetricsAction("MobileNTPShowBookmarks"));
         break;
       case ContentSuggestionsMostVisitedActionReadingList:
         [self.dispatcher showReadingList];
+        base::RecordAction(base::UserMetricsAction("MobileNTPShowReadingList"));
         break;
       case ContentSuggestionsMostVisitedActionRecentTabs:
         [self.dispatcher showRecentTabs];
+        base::RecordAction(base::UserMetricsAction("MobileNTPShowRecentTabs"));
         break;
       case ContentSuggestionsMostVisitedActionHistory:
         [self.dispatcher showHistory];
+        base::RecordAction(base::UserMetricsAction("MobileNTPShowHistory"));
         break;
     }
     return;

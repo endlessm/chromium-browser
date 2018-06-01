@@ -4,8 +4,9 @@
 
 package org.chromium.chrome.browser.firstrun;
 
-import android.app.Fragment;
 import android.os.Bundle;
+import android.support.v4.app.Fragment;
+import android.support.v4.app.FragmentManager;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -16,6 +17,7 @@ import org.chromium.chrome.browser.ntp.cards.SignInPromo;
 import org.chromium.chrome.browser.signin.AccountSigninView;
 import org.chromium.chrome.browser.signin.SigninAccessPoint;
 import org.chromium.chrome.browser.signin.SigninManager;
+import org.chromium.components.signin.ChildAccountStatus;
 
 /**
  * A {@link Fragment} meant to handle sync setup for the first run experience.
@@ -33,7 +35,7 @@ public class AccountFirstRunFragment
     // Per-page parameters:
     public static final String FORCE_SIGNIN_ACCOUNT_TO = "ForceSigninAccountTo";
     public static final String PRESELECT_BUT_ALLOW_TO_CHANGE = "PreselectButAllowToChange";
-    public static final String IS_CHILD_ACCOUNT = "IsChildAccount";
+    public static final String CHILD_ACCOUNT_STATUS = "ChildAccountStatus";
 
     private AccountSigninView mView;
 
@@ -50,7 +52,9 @@ public class AccountFirstRunFragment
         super.onViewCreated(view, savedInstanceState);
 
         Bundle freProperties = getPageDelegate().getProperties();
-        boolean isChildAccount = freProperties.getBoolean(IS_CHILD_ACCOUNT);
+        @ChildAccountStatus.Status
+        int childAccountStatus =
+                freProperties.getInt(CHILD_ACCOUNT_STATUS, ChildAccountStatus.NOT_CHILD);
         String forceAccountTo = freProperties.getString(FORCE_SIGNIN_ACCOUNT_TO);
 
         AccountSigninView.Listener listener = new AccountSigninView.Listener() {
@@ -87,10 +91,10 @@ public class AccountFirstRunFragment
         final Bundle arguments;
         if (forceAccountTo == null) {
             arguments = AccountSigninView.createArgumentsForDefaultFlow(
-                    SigninAccessPoint.START_PAGE, isChildAccount);
+                    SigninAccessPoint.START_PAGE, childAccountStatus);
         } else {
             arguments = AccountSigninView.createArgumentsForConfirmationFlow(
-                    SigninAccessPoint.START_PAGE, isChildAccount, forceAccountTo, false,
+                    SigninAccessPoint.START_PAGE, childAccountStatus, forceAccountTo, false,
                     AccountSigninView.UNDO_INVISIBLE);
         }
         mView.init(arguments, this, listener);
@@ -117,5 +121,10 @@ public class AccountFirstRunFragment
 
         mView.cancelConfirmationScreen();
         return true;
+    }
+
+    @Override
+    public FragmentManager getSupportFragmentManager() {
+        return getFragmentManager();
     }
 }

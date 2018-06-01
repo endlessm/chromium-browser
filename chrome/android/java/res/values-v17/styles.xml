@@ -122,6 +122,7 @@
         <item name="android:windowMinWidthMinor">100%</item>
         <item name="buttonBarStyle">@style/ModalDialogButtonBarStyle</item>
         <item name="buttonBarButtonStyle">@style/ModalDialogButtonStyle</item>
+        <item name="android:windowSoftInputMode">adjustResize|stateHidden</item>
     </style>
 
     <style name="ModalDialogButtonBarStyle" parent="Widget.AppCompat.ButtonBar.AlertDialog">
@@ -264,6 +265,7 @@
     <style name="AlertDialogContent">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
+        <item name="android:textAlignment">viewStart</item>
         <item name="android:paddingStart">@dimen/dialog_padding_sides</item>
         <item name="android:paddingEnd">@dimen/dialog_padding_sides</item>
         <item name="android:paddingTop">@dimen/dialog_padding_top</item>
@@ -309,28 +311,6 @@
         <item name="android:background">
             @drawable/distilled_page_prefs_button_bg
         </item>
-    </style>
-    <style name="OverflowMenuHeaderLayout">
-        <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:background">@color/modern_light_grey</item>
-        <item name="android:orientation">horizontal</item>
-        <item name="android:paddingStart">16dp</item>
-    </style>
-        <!-- Top and bottom padding is used to achieve layout that best matches
-         UX spec. While the text matches @style/BlankHint2, text size and color
-         are set explicitly. When shown in the overflow menu, the header
-         is inflated using the OverflowMenuTheme. The theme's textAppearance
-         will override any textAppearance set on this element. -->
-    <style name="OverflowMenuHeaderText">
-        <item name="android:layout_weight">1</item>
-        <item name="android:layout_width">0dp</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_gravity">center_vertical</item>
-        <item name="android:paddingTop">9dp</item>
-        <item name="android:paddingBottom">9dp</item>
-        <item name="android:textColor">@color/black_alpha_54</item>
-        <item name="android:textSize">@dimen/text_size_medium</item>
     </style>
 
     <!-- Button bar styles -->
@@ -464,10 +444,12 @@
         <item name="android:alpha">0.6</item>
     </style>
 
-    <!-- First Run and Bookmark/recent-tabs dialogs -->
+    <!-- First Run and Bookmark/recent-tabs dialogs.
+         TODO(https://crbug.com/819142): Remove textAppearance when all TextViews have text style
+         explicitly specified. -->
     <style name="DialogWhenLargeBase" parent="Theme.AppCompat.Light.DialogWhenLarge" >
         <item name="android:windowBackground">@drawable/bg_white_dialog</item>
-        <item name="android:textColor">@color/default_text_color</item>
+        <item name="android:textAppearance">@style/BlackBodyDefault</item>
         <item name="android:textColorLink">@color/light_active_color</item>
         <item name="colorPrimaryDark">@android:color/black</item>
         <item name="colorAccent">@color/light_active_color</item>
@@ -557,7 +539,7 @@
     <style name="PaymentsUiSectionPendingTextEndAligned" parent="PaymentsUiSectionDescriptiveTextEndAligned">
         <item name="android:textColor">@color/explanation_text_color</item>
     </style>
-    <style name="PaymentsUiSectionAddButtonLabel">
+    <style name="EditorDialogSectionAddButtonLabel">
         <item name="android:textColor">@color/light_active_color</item>
         <item name="android:textSize">14sp</item>
         <item name="android:textAllCaps">true</item>
@@ -567,7 +549,7 @@
     <style name="LocationBarButton">
         <item name="android:background">@null</item>
     </style>
-    <style name="LocationBarButtonTablet" parent="LocationBarButton">
+    <style name="LocationBarActionButton" parent="LocationBarButton">
         <item name="android:layout_width">@dimen/location_bar_icon_width</item>
         <item name="android:layout_height">match_parent</item>
         <item name="android:scaleType">center</item>
@@ -714,25 +696,25 @@
     </style>
 
     <!-- Data Reduction -->
-    <style name="DataReductionPrefSecondaryStyle">
-        <item name="android:textColor">?android:attr/textColorSecondary</item>
-        <item name="android:textSize">12sp</item>
-    </style>
     <style name="DataUsageBreakdownColumnLabel">
         <item name="android:layout_height">wrap_content</item>
         <item name="android:paddingBottom">10dp</item>
         <item name="android:paddingTop">10dp</item>
         <item name="android:singleLine">true</item>
-        <item name="android:textSize">14sp</item>
-        <item name="android:textAppearance">@style/RobotoMediumStyle</item>
+        <item name="android:textAppearance">@style/BlackButtonText</item>
+    </style>
+    <style name="DataUsageBreakdownSavedColumnLabel" parent="DataUsageBreakdownColumnLabel">
+        <item name="android:textAppearance">@style/BlueButtonText2</item>
     </style>
     <style name="DataUsageBreakdownColumnItem">
         <item name="android:layout_height">wrap_content</item>
         <item name="android:paddingBottom">10dp</item>
         <item name="android:paddingTop">10dp</item>
         <item name="android:singleLine">true</item>
-        <item name="android:textColor">@color/data_reduction_breakdown_text_color</item>
-        <item name="android:textSize">12sp</item>
+        <item name="android:textAppearance">@style/BlackCaption</item>
+    </style>
+    <style name="DataUsageBreakdownSavedColumnItem" parent="DataUsageBreakdownColumnItem">
+        <item name="android:textAppearance">@style/BlueLink3</item>
     </style>
 
     <!-- Incognito New Tab Page -->

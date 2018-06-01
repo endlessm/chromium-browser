@@ -7,7 +7,6 @@
 import json
 import logging
 import sys
-import traceback
 
 from google.appengine.api import taskqueue
 from google.appengine.ext import ndb
@@ -65,27 +64,14 @@ class AddHistogramsHandler(api_request_handler.ApiRequestHandler):
   def AuthorizedPost(self):
     datastore_hooks.SetPrivilegedRequest()
 
-    try:
-      data_str = self.request.get('data')
-      if not data_str:
-        raise api_request_handler.BadRequestError('Missing "data" parameter')
+    data_str = self.request.get('data')
+    if not data_str:
+      raise api_request_handler.BadRequestError('Missing "data" parameter')
 
-      logging.info('Received data: %s', data_str)
+    logging.info('Received data: %s', data_str)
 
-      histogram_dicts = json.loads(data_str)
-      ProcessHistogramSet(histogram_dicts)
-    except api_request_handler.BadRequestError:
-      # TODO(simonhatch, eakuefner: Remove this later.
-      # When this has all stabilized a bit, remove and let this 400 to clients,
-      # but for now to preven the waterfall from re-uploading over and over
-      # while we bug fix, let's just log the error.
-      # https://github.com/catapult-project/catapult/issues/4019
-      logging.error(traceback.format_exc())
-    except Exception:  # pylint: disable=broad-except
-      # TODO(simonhatch, eakuefner: Remove this later.
-      # We shouldn't be catching ALL exceptions, this is just while the
-      # stability of the endpoint is being worked on.
-      logging.error(traceback.format_exc())
+    histogram_dicts = json.loads(data_str)
+    ProcessHistogramSet(histogram_dicts)
 
 
 def _LogDebugInfo(histograms):
@@ -138,6 +124,8 @@ def ProcessHistogramSet(histogram_dicts):
       reserved_infos.BENCHMARK_DESCRIPTIONS.name,
       histograms.GetFirstHistogram(), optional=True)
 
+  _ValidateMasterBotBenchmarkName(master, bot, benchmark)
+
   suite_key = utils.TestKey('%s/%s/%s' % (master, bot, benchmark))
 
   bot_whitelist = bot_whitelist_future.get_result()
@@ -161,6 +149,12 @@ def ProcessHistogramSet(histogram_dicts):
       suite_key.id(), histograms, revision, benchmark_description)
 
   _QueueHistogramTasks(tasks)
+
+
+def _ValidateMasterBotBenchmarkName(master, bot, benchmark):
+  for n in (master, bot, benchmark):
+    if '/' in n:
+      raise api_request_handler.BadRequestError('Illegal slash in %s' % n)
 
 
 def _MakeTask(params):
@@ -335,21 +329,25 @@ def ComputeTestPath(suite_path, guid, histograms):
   hist = histograms.LookupHistogram(guid)
   path = '%s/%s' % (suite_path, hist.name)
 
-  tir_label = histogram_helpers.GetTIRLabelFromHistogram(hist)
-  if tir_label:
-    path += '/' + tir_label
-
-  is_ref = hist.diagnostics.get(reserved_infos.IS_REFERENCE_BUILD.name)
-  if is_ref and len(is_ref) == 1:
-    is_ref = list(is_ref)[0]
-
   # If a Histogram represents a summary across multiple stories, then its
   # 'stories' diagnostic will contain the names of all of the stories.
   # If a Histogram is not a summary, then its 'stories' diagnostic will contain
   # the singular name of its story.
+  is_summary = list(
+      hist.diagnostics.get(reserved_infos.SUMMARY_KEYS.name, []))
+
+  tir_label = histogram_helpers.GetTIRLabelFromHistogram(hist)
+  if tir_label and (
+      not is_summary or reserved_infos.STORY_TAGS.name in is_summary):
+    path += '/' + tir_label
+
+  is_ref = hist.diagnostics.get(reserved_infos.IS_REFERENCE_BUILD.name)
+  if is_ref and len(is_ref) == 1:
+    is_ref = is_ref.GetOnlyElement()
+
   story_name = hist.diagnostics.get(reserved_infos.STORIES.name)
-  if story_name and len(story_name) == 1:
-    escaped_story_name = add_point.EscapeName(list(story_name)[0])
+  if story_name and len(story_name) == 1 and not is_summary:
+    escaped_story_name = add_point.EscapeName(story_name.GetOnlyElement())
     path += '/' + escaped_story_name
     if is_ref:
       path += '_ref'
@@ -371,7 +369,7 @@ def _GetDiagnosticValue(name, hist, optional=False):
   _CheckRequest(
       len(value) == 1,
       'Histograms must have exactly 1 "%s"' % name)
-  return list(value)[0]
+  return value.GetOnlyElement()
 
 
 def ComputeRevision(histograms):
@@ -383,7 +381,7 @@ def ComputeRevision(histograms):
   # TODO(eakuefner): Allow users to specify other types of revisions to be used
   # for computing revisions of dashboard points. See
   # https://github.com/catapult-project/catapult/issues/3623.
-  if not isinstance(commit_position, int):
+  if not type(commit_position) in (long, int):
     raise api_request_handler.BadRequestError(
         'Commit Position must be an integer.')
   return commit_position

@@ -44,6 +44,10 @@ namespace {
 // of the popup 2px below the bottom of the Omnibox.
 const CGFloat kBrowserActionBubbleYOffset = 3.0;
 
+// The amount of horizontal padding the browser action container should have on
+// each side.
+const CGFloat kBrowserActionHorizontalPadding = 2.0;
+
 }  // namespace
 
 @interface BrowserActionsController(Private)
@@ -410,7 +414,8 @@ void ToolbarActionsBarBridge::ShowToolbarActionBubble(
 }
 
 - (void)updateMaxWidth {
-  const CGFloat ownMaxWidth = toolbarActionsBar_->GetMaximumWidth();
+  const CGFloat ownMaxWidth = toolbarActionsBar_->GetMaximumWidth() +
+                              kBrowserActionHorizontalPadding * 2;
   containerView_.maxWidth =
       (maxWidth_ ? std::min(maxWidth_, ownMaxWidth) : ownMaxWidth);
 }
@@ -422,10 +427,9 @@ void ToolbarActionsBarBridge::ShowToolbarActionBubble(
 
 - (void)addViewForAction:(ToolbarActionViewController*)action
                withIndex:(NSUInteger)index {
-  NSRect buttonFrame = NSMakeRect(NSMaxX([containerView_ bounds]),
-                                  0,
-                                  ToolbarActionsBar::IconWidth(false),
-                                  ToolbarActionsBar::IconHeight());
+  const gfx::Size size = toolbarActionsBar_->GetViewSize();
+  NSRect buttonFrame = NSMakeRect(NSMaxX([containerView_ bounds]), 0,
+                                  size.width(), size.height());
   BrowserActionButton* newButton =
       [[[BrowserActionButton alloc]
          initWithFrame:buttonFrame
@@ -539,7 +543,7 @@ void ToolbarActionsBarBridge::ShowToolbarActionBubble(
   BOOL animate = !toolbarActionsBar_->suppress_animation() &&
       ![containerView_ isAnimating] && [[containerView_ window] isVisible];
   [self updateContainerVisibility];
-  [containerView_ resizeToWidth:width
+  [containerView_ resizeToWidth:width + kBrowserActionHorizontalPadding * 2
                         animate:animate];
   [containerView_ setNeedsDisplay:YES];
 
@@ -701,12 +705,13 @@ void ToolbarActionsBarBridge::ShowToolbarActionBubble(
   // Calculate the row index and the index in the row. We bound the latter
   // because the view can go farther right than the right-most icon in the last
   // row of the overflow menu.
-  NSInteger rowIndex = midPoint.y / ToolbarActionsBar::IconHeight();
+  const gfx::Size size = toolbarActionsBar_->GetViewSize();
+  NSInteger rowIndex = midPoint.y / size.height();
   int icons_per_row = isOverflow_ ?
       toolbarActionsBar_->platform_settings().icons_per_overflow_menu_row :
       toolbarActionsBar_->GetIconCount();
-  NSInteger indexInRow = std::min(icons_per_row - 1,
-      static_cast<int>(midPoint.x / ToolbarActionsBar::IconWidth(true)));
+  NSInteger indexInRow =
+      std::min(icons_per_row - 1, static_cast<int>(midPoint.x / size.width()));
 
   // Find the desired index for the button.
   NSInteger maxIndex = [buttons_ count] - 1;
@@ -733,20 +738,24 @@ void ToolbarActionsBarBridge::ShowToolbarActionBubble(
 
 - (NSRect)frameForIndex:(NSUInteger)index {
   gfx::Rect frameRect = toolbarActionsBar_->GetFrameForIndex(index);
-  int iconWidth = ToolbarActionsBar::IconWidth(false);
+  const gfx::Size size = toolbarActionsBar_->GetViewSize();
+  int iconWidth = size.width();
   // The toolbar actions bar will return an empty rect if the index is for an
   // action that is before range we show (i.e., is for a button that's on the
   // main bar, and this is the overflow). Set the frame to be outside the bounds
   // of the view.
-  NSRect frame = frameRect.IsEmpty() ?
-      NSMakeRect(-iconWidth - 1, 0, iconWidth,
-                 ToolbarActionsBar::IconHeight()) :
-      NSRectFromCGRect(frameRect.ToCGRect());
+  NSRect frame = frameRect.IsEmpty()
+                     ? NSMakeRect(-iconWidth - 1, 0, iconWidth, size.height())
+                     : NSRectFromCGRect(frameRect.ToCGRect());
+
   // We need to flip the y coordinate for Cocoa's view system.
   frame.origin.y = NSHeight([containerView_ frame]) - NSMaxY(frame);
-  if (cocoa_l10n_util::ShouldDoExperimentalRTLLayout())
-    frame.origin.x =
-        NSWidth([containerView_ frame]) - NSWidth(frame) - NSMinX(frame);
+  if (cocoa_l10n_util::ShouldDoExperimentalRTLLayout()) {
+    frame.origin.x = NSWidth([containerView_ frame]) - NSWidth(frame) -
+                     NSMinX(frame) - kBrowserActionHorizontalPadding;
+  } else {
+    frame.origin.x += kBrowserActionHorizontalPadding;
+  }
   return frame;
 }
 

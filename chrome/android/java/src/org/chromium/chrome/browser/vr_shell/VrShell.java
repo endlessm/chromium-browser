@@ -6,18 +6,15 @@ package org.chromium.chrome.browser.vr_shell;
 
 import android.widget.FrameLayout;
 
-import org.chromium.chrome.browser.tab.Tab;
-
 /**
  * Abstracts away the VrShell class, which may or may not be present at runtime depending on
  * compile flags.
  */
-public interface VrShell extends VrDialogManager {
+public interface VrShell extends VrDialogManager, VrToastManager {
     /**
      * Performs native VrShell initialization.
      */
-    void initializeNative(
-            Tab currentTab, boolean forWebVr, boolean webVrAutopresentationExpected, boolean inCct);
+    void initializeNative(boolean forWebVr, boolean webVrAutopresentationExpected, boolean inCct);
 
     /**
      * Pauses VrShell.
@@ -37,9 +34,7 @@ public interface VrShell extends VrDialogManager {
     /**
      * Sets whether we're presenting WebVR content or not.
      */
-    // TODO(bshe): Refactor needed. See https://crbug.com/735169.
-    // TODO(mthiesse, https://crbug.com/803236): Remove this showToast parameter.
-    void setWebVrModeEnabled(boolean enabled, boolean showToast);
+    void setWebVrModeEnabled(boolean enabled);
 
     /**
      * Returns true if we're presenting WebVR content.
@@ -69,7 +64,7 @@ public interface VrShell extends VrDialogManager {
     /**
      * Requests to exit VR.
      */
-    void requestToExitVr(@UiUnsupportedMode int reason);
+    void requestToExitVr(@UiUnsupportedMode int reason, boolean showExitPromptBeforeDoff);
 
     /**
      *  Triggers VrShell to navigate forward.
@@ -80,6 +75,21 @@ public interface VrShell extends VrDialogManager {
      *  Triggers VrShell to navigate backward.
      */
     void navigateBack();
+
+    /**
+     *  Asks VrShell to reload the current page.
+     */
+    void reloadTab();
+
+    /**
+     *  Asks VrShell to open a new tab.
+     */
+    void openNewTab(boolean incognito);
+
+    /**
+     *  Asks VrShell to close all incognito tabs.
+     */
+    void closeAllIncognitoTabs();
 
     /**
      * Simulates a user accepting the currently visible DOFF prompt.

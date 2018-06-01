@@ -46,8 +46,9 @@ ToolbarActionView* GetExtensionAnchorView(const std::string& extension_id,
       BrowserView::GetBrowserViewForNativeWindow(window);
   if (!browser_view)
     return nullptr;
-  ToolbarActionView* reference_view =
-      browser_view->toolbar()->browser_actions()->GetViewForId(extension_id);
+  ToolbarActionView* reference_view = browser_view->toolbar_button_provider()
+                                          ->GetBrowserActionsContainer()
+                                          ->GetViewForId(extension_id);
   return reference_view && reference_view->visible() ? reference_view : nullptr;
 #else
   // Anchoring is not supported when using Cocoa.
@@ -182,7 +183,9 @@ ExtensionUninstallDialogDelegateView::ExtensionUninstallDialogDelegateView(
     const extensions::Extension* extension,
     const extensions::Extension* triggering_extension,
     const gfx::ImageSkia* image)
-    : BubbleDialogDelegateView(anchor_view, views::BubbleBorder::TOP_RIGHT),
+    : BubbleDialogDelegateView(anchor_view,
+                               anchor_view ? views::BubbleBorder::TOP_RIGHT
+                                           : views::BubbleBorder::NONE),
       dialog_(dialog_view),
       extension_name_(base::UTF8ToUTF16(extension->name())),
       report_abuse_checkbox_(nullptr),

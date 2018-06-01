@@ -33,8 +33,8 @@
 namespace {
 
 // The text context / style of the |PermissionSelectorRow| combobox and label.
-constexpr int kTextContext = views::style::CONTEXT_LABEL;
-constexpr int kTextStyle = views::style::STYLE_PRIMARY;
+constexpr int kPermissionRowTextContext = views::style::CONTEXT_LABEL;
+constexpr int kPermissionRowTextStyle = views::style::STYLE_PRIMARY;
 
 // Calculates the amount of padding to add beneath a |PermissionSelectorRow|
 // depending on whether it has an accompanying permission decision reason.
@@ -52,7 +52,8 @@ int CalculatePaddingBeneathPermissionRow(bool has_reason) {
   // subtracting the line height, then dividing everything by two. Note it is
   // assumed the combobox is the tallest part of the row.
   return (list_item_padding * 2 + combobox_height -
-          views::style::GetLineHeight(kTextContext, kTextStyle)) /
+          views::style::GetLineHeight(kPermissionRowTextContext,
+                                      kPermissionRowTextStyle)) /
          2;
 }
 
@@ -174,13 +175,15 @@ class ComboboxModelAdapter : public ui::ComboboxModel {
 };
 
 void ComboboxModelAdapter::OnPerformAction(int index) {
-  model_->ExecuteCommand(index, 0);
+  int command_id = model_->GetCommandIdAt(index);
+  model_->ExecuteCommand(command_id, 0);
 }
 
 int ComboboxModelAdapter::GetCheckedIndex() {
   int checked_index = -1;
   for (int i = 0; i < model_->GetItemCount(); ++i) {
-    if (model_->IsCommandIdChecked(i)) {
+    int command_id = model_->GetCommandIdAt(i);
+    if (model_->IsCommandIdChecked(command_id)) {
       // This function keeps track of |checked_index| instead of returning early
       // here so that it can DCHECK that there's exactly one selected item,
       // which is not normally guaranteed by MenuModel, but *is* true of
@@ -372,7 +375,8 @@ PermissionSelectorRow::~PermissionSelectorRow() {
 // static
 int PermissionSelectorRow::MinHeightForPermissionRow() {
   return ChromeLayoutProvider::Get()->GetControlHeightForFont(
-      kTextContext, kTextStyle, views::Combobox::GetFontList());
+      kPermissionRowTextContext, kPermissionRowTextStyle,
+      views::Combobox::GetFontList());
 }
 
 void PermissionSelectorRow::AddObserver(

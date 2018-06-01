@@ -64,7 +64,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/origin_util.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "net/base/url_util.h"
 #include "net/cert/cert_status_flags.h"
@@ -234,9 +234,9 @@ bool ChromePasswordManagerClient::IsPasswordManagementEnabledForCurrentPage()
   // The password manager is disabled while VR (virtual reality) is being used,
   // as the use of conventional UI elements might harm the user experience in
   // VR.
-  if (vr::VrTabHelper::IsInVr(web_contents())) {
+  if (vr::VrTabHelper::IsUiSuppressedInVr(
+          web_contents(), vr::UiSuppressedElement::kPasswordManager)) {
     is_enabled = false;
-    vr::VrTabHelper::UISuppressed(vr::UiSuppressedElement::kPasswordManager);
   }
 
   if (log_manager_->IsLoggingActive()) {
@@ -549,7 +549,7 @@ void ChromePasswordManagerClient::OnInputEvent(
 }
 #endif
 
-PrefService* ChromePasswordManagerClient::GetPrefs() {
+PrefService* ChromePasswordManagerClient::GetPrefs() const {
   return profile_->GetPrefs();
 }
 

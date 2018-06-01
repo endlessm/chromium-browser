@@ -16,7 +16,6 @@
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_layout_manager.h"
 #include "ash/shell.h"
-#include "ash/system/tray/system_tray_notifier.h"
 #include "base/numerics/ranges.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -202,8 +201,14 @@ void DockedMagnifierController::CenterOnPoint(
 
   auto* screen = display::Screen::GetScreen();
   auto* window = screen->GetWindowAtScreenPoint(point_in_screen);
-  if (!window)
-    return;
+  if (!window) {
+    // In tests and sometimes initially on signin screen, |point_in_screen|
+    // maybe invalid and doesn't belong to any existing root window. However, we
+    // are here because the Docked Magnifier is enabled. We need to create the
+    // viewport widget somewhere, so we'll use the primary root window until we
+    // get a valid cursor event.
+    window = Shell::GetPrimaryRootWindow();
+  }
 
   auto* root_window = window->GetRootWindow();
   DCHECK(root_window);
@@ -278,6 +283,11 @@ void DockedMagnifierController::OnActiveUserPrefServiceChanged(
     PrefService* pref_service) {
   active_user_pref_service_ = pref_service;
   InitFromUserPrefs();
+}
+
+void DockedMagnifierController::OnSigninScreenPrefServiceInitialized(
+    PrefService* prefs) {
+  OnActiveUserPrefServiceChanged(prefs);
 }
 
 void DockedMagnifierController::OnMouseEvent(ui::MouseEvent* event) {
@@ -502,7 +512,18 @@ void DockedMagnifierController::InitFromUserPrefs() {
 
 void DockedMagnifierController::OnEnabledPrefChanged() {
   Shell* shell = Shell::Get();
-  if (GetEnabled()) {
+  // When switching from the signin screen to a newly created profile while the
+  // Docked Magnifier is enabled, the prefs will copied from the signin profile
+  // to the user profile, and the Docked Magnifier will remain enabled. We don't
+  // want to redo the below operations if the status doesn't change, for example
+  // readding the same observer to the WindowTreeHostManager will cause a crash
+  // on DCHECK on debug builds.
+  const bool current_enabled = !!current_source_root_window_;
+  const bool new_enabled = GetEnabled();
+  if (current_enabled == new_enabled)
+    return;
+
+  if (new_enabled) {
     // Enabling the Docked Magnifier disables the Fullscreen Magnifier.
     SetFullscreenMagnifierEnabled(false);
     // Calling refresh will result in the creation of the magnifier viewport and
@@ -510,7 +531,7 @@ void DockedMagnifierController::OnEnabledPrefChanged() {
     Refresh();
     // Make sure we are in front of the fullscreen magnifier which also handles
     // scroll events.
-    shell->PrependPreTargetHandler(this);
+    shell->AddPreTargetHandler(this, ui::EventTarget::Priority::kSystem);
     shell->window_tree_host_manager()->AddObserver(this);
   } else {
     shell->window_tree_host_manager()->RemoveObserver(this);
@@ -524,8 +545,7 @@ void DockedMagnifierController::OnEnabledPrefChanged() {
 
   // Update the green checkmark status in the accessibility menu in the system
   // tray.
-  shell->system_tray_notifier()->NotifyAccessibilityStatusChanged(
-      A11Y_NOTIFICATION_NONE);
+  shell->accessibility_controller()->NotifyAccessibilityStatusChanged();
 
   // We use software composited mouse cursor so that it can be mirrored into the
   // magnifier viewport.

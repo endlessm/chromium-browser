@@ -24,7 +24,7 @@ SuggestionsContainerView::SuggestionsContainerView(
   layer()->SetFillsBoundsOpaquely(false);
 
   DCHECK(contents_view);
-  view_delegate_ = contents_view_->app_list_main_view()->view_delegate();
+  view_delegate_ = contents_view_->GetAppListMainView()->view_delegate();
   SetBackground(views::CreateSolidBackground(kLabelBackgroundColor));
 
   CreateAppsGrid(kNumStartPageTiles);
@@ -46,7 +46,8 @@ int SuggestionsContainerView::DoUpdate() {
 
   std::vector<SearchResult*> display_results =
       SearchModel::FilterSearchResultsByDisplayType(
-          results(), SearchResult::DISPLAY_RECOMMENDATION, kNumStartPageTiles);
+          results(), ash::SearchResultDisplayType::kRecommendation,
+          kNumStartPageTiles);
   if (display_results.size() != search_result_tile_views_.size()) {
     // We should recreate the grid layout in this case.
     for (size_t i = 0; i < search_result_tile_views_.size(); ++i)

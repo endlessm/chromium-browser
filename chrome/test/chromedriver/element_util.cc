@@ -159,6 +159,26 @@ Status ScrollElementRegionIntoViewHelper(
     middle.Offset(region.Width() / 2, region.Height() / 2);
     status = VerifyElementClickable(
         frame, web_view, clickable_element_id, middle);
+    if (status.code() == kUnknownError &&
+        status.message().find("is not clickable") != std::string::npos) {
+      // Clicking at the target location isn't reaching the target element.
+      // One possible cause is a scroll event handler has shifted the element.
+      // Try again to get the updated location of the target element.
+      status = web_view->CallFunction(
+          frame,
+          webdriver::atoms::asString(webdriver::atoms::GET_LOCATION_IN_VIEW),
+          args, &result);
+      if (status.IsError())
+        return status;
+      if (!ParseFromValue(result.get(), &tmp_location)) {
+        return Status(kUnknownError,
+                      "failed to parse value of GET_LOCATION_IN_VIEW");
+      }
+      middle = tmp_location;
+      middle.Offset(region.Width() / 2, region.Height() / 2);
+      status =
+          VerifyElementClickable(frame, web_view, clickable_element_id, middle);
+    }
     if (status.IsError())
       return status;
   }
@@ -630,12 +650,15 @@ Status ScrollElementRegionIntoView(
       "  return document.evaluate(xpath, document, null,"
       "      XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;"
       "}";
+  bool needs_special_oopif_handling =
+      !session->chrome->GetBrowserInfo()->is_android &&
+      session->chrome->GetBrowserInfo()->major_version <= 65;
   bool has_saved_region_offset = false;
   WebPoint saved_region_offset;
   for (std::list<FrameInfo>::reverse_iterator rit = session->frames.rbegin();
        rit != session->frames.rend(); ++rit) {
-    if (!session->chrome->GetBrowserInfo()->is_android &&
-        !has_saved_region_offset && web_view->IsOOPIF(rit->frame_id)) {
+    if (needs_special_oopif_handling && !has_saved_region_offset &&
+        web_view->IsOOPIF(rit->frame_id)) {
       saved_region_offset = region_offset;
       has_saved_region_offset = true;
     }

@@ -109,8 +109,8 @@ class ProxyBrowserTest : public InProcessBrowserTest {
   DISALLOW_COPY_AND_ASSIGN(ProxyBrowserTest);
 };
 
-#if defined(OS_CHROMEOS)
 // We bypass manually installed proxy for localhost on chromeos.
+#if defined(OS_CHROMEOS)
 #define MAYBE_BasicAuthWSConnect DISABLED_BasicAuthWSConnect
 #else
 #define MAYBE_BasicAuthWSConnect BasicAuthWSConnect

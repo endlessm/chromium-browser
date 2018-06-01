@@ -44,6 +44,7 @@
 #include "components/password_manager/core/browser/test_password_store.h"
 #include "components/password_manager/core/common/password_manager_features.h"
 #include "components/version_info/version_info.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_frame_host.h"
@@ -59,7 +60,7 @@
 #include "net/test/embedded_test_server/http_response.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/geometry/point.h"
@@ -1791,6 +1792,40 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
   WaitForElementValue("username_id", "temp");
 }
 
+// Test that if the same dynamic form is created multiple times then all of them
+// are autofilled and no unnecessary PasswordStore requests are fired.
+IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
+                       DuplicateFormsGetFilled) {
+  // At first let us save a credential to the password store.
+  scoped_refptr<password_manager::TestPasswordStore> password_store =
+      static_cast<password_manager::TestPasswordStore*>(
+          PasswordStoreFactory::GetForProfile(
+              browser()->profile(), ServiceAccessType::IMPLICIT_ACCESS)
+              .get());
+  autofill::PasswordForm signin_form;
+  signin_form.signon_realm = embedded_test_server()->base_url().spec();
+  signin_form.origin = embedded_test_server()->base_url();
+  signin_form.action = embedded_test_server()->base_url();
+  signin_form.username_value = base::ASCIIToUTF16("temp");
+  signin_form.password_value = base::ASCIIToUTF16("random");
+  password_store->AddLogin(signin_form);
+
+  NavigateToFile("/password/recurring_dynamic_form.html");
+  ASSERT_TRUE(content::ExecuteScript(RenderViewHost(), "addForm();"));
+  // Wait until the username is filled, to make sure autofill kicked in.
+  WaitForJsElementValue("document.body.children[0].children[0]", "temp");
+  WaitForJsElementValue("document.body.children[0].children[1]", "random");
+
+  // It's a trick. There should be no second request to the password store since
+  // the existing PasswordFormManager will manage the new form.
+  password_store->Clear();
+  // Add one more form.
+  ASSERT_TRUE(content::ExecuteScript(RenderViewHost(), "addForm();"));
+  // Wait until the username is filled, to make sure autofill kicked in.
+  WaitForJsElementValue("document.body.children[1].children[0]", "temp");
+  WaitForJsElementValue("document.body.children[1].children[1]", "random");
+}
+
 IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
                        PromptForPushStateWhenFormDisappears) {
   NavigateToFile("/password/password_push_state.html");
@@ -1925,16 +1960,8 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_FALSE(prompt_observer->IsSavePromptShownAutomatically());
 }
 
-// https://crbug.com/814845 Flaky on macOS ASan.
-#if defined(ADDRESS_SANITIZER) && defined(OS_MACOSX)
-#define MAYBE_InFrameNavigationDoesNotClearPopupState \
-  DISABLED_InFrameNavigationDoesNotClearPopupState
-#else
-#define MAYBE_InFrameNavigationDoesNotClearPopupState \
-  InFrameNavigationDoesNotClearPopupState
-#endif
 IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
-                       MAYBE_InFrameNavigationDoesNotClearPopupState) {
+                       InFrameNavigationDoesNotClearPopupState) {
   scoped_refptr<password_manager::TestPasswordStore> password_store =
       static_cast<password_manager::TestPasswordStore*>(
           PasswordStoreFactory::GetForProfile(
@@ -2618,8 +2645,15 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
       ManagePasswordsUIController::FromWebContents(WebContents())
           ->GetPendingPassword()
           .all_possible_passwords,
-      ElementsAre(base::ASCIIToUTF16("pass1"), base::ASCIIToUTF16("pass2"),
-                  base::ASCIIToUTF16("pass3")));
+      ElementsAre(autofill::ValueElementPair(
+                      base::ASCIIToUTF16("pass1"),
+                      base::ASCIIToUTF16("chg_password_wo_username_field")),
+                  autofill::ValueElementPair(
+                      base::ASCIIToUTF16("pass2"),
+                      base::ASCIIToUTF16("chg_new_password_wo_username_1")),
+                  autofill::ValueElementPair(
+                      base::ASCIIToUTF16("pass3"),
+                      base::ASCIIToUTF16("chg_new_password_wo_username_2"))));
   bubble_observer.AcceptSavePrompt();
   WaitForPasswordStore();
   CheckThatCredentialsStored(base::ASCIIToUTF16(""),
@@ -3004,17 +3038,8 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
                       "mypassword");
 }
 
-
-// Flaky on Linux. http://crbug.com/804398
-#if defined(OS_LINUX)
-#define MAYBE_InternalsPage_Renderer DISABLED_InternalsPage_Renderer
-#else
-#define MAYBE_InternalsPage_Renderer InternalsPage_Renderer
-#endif
-
 // Check that the internals page contains logs from the renderer.
-IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
-    MAYBE_InternalsPage_Renderer) {
+IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase, InternalsPage_Renderer) {
   // Open the internals page.
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), GURL("chrome://password-manager-internals"),
@@ -3022,22 +3047,27 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTestBase,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
   content::WebContents* internals_web_contents = WebContents();
 
-  // Open some page with a HTML form.
+  // The renderer is supposed to ask whether logging is available. To avoid
+  // race conditions between the answer "Logging is available" arriving from
+  // the browser and actual logging callsites reached in the renderer, open
+  // first an arbitrary page to ensure that the renderer queries the
+  // availability of logging and has enough time to receive the answer.
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), embedded_test_server()->GetURL("/password/password_form.html"),
+      browser(), embedded_test_server()->GetURL("/password/done.html"),
       WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
   content::WebContents* forms_web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
 
-  // The renderer queries the availability of logging on start-up. However, it
-  // can take too long to propagate that message from the browser back to the
-  // renderer. The renderer might have attempted logging in the meantime.
-  // Therefore the page with the form is reloaded to increase the likelihood
-  // that the availability query was answered before the logging during page
-  // load.
+  // Now navigate to another page, containing some forms, so that the renderer
+  // attempts to log. It should be a different page than the current one,
+  // because just reloading the current one sometimes confused the Wait() call
+  // and lead to timeouts (https://crbug.com/804398).
   NavigationObserver observer(forms_web_contents);
-  forms_web_contents->ReloadFocusedFrame(false);
+  ui_test_utils::NavigateToURLWithDisposition(
+      browser(), embedded_test_server()->GetURL("/password/password_form.html"),
+      WindowOpenDisposition::CURRENT_TAB,
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
   observer.Wait();
 
   std::string find_logs =

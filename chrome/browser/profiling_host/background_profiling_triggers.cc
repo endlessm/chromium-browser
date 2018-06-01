@@ -15,7 +15,7 @@
 #include "content/public/common/process_type.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/memory_instrumentation.h"
 
-namespace profiling {
+namespace heap_profiling {
 
 namespace {
 // Check memory usage every hour. Trigger slow report if needed.
@@ -82,20 +82,7 @@ void BackgroundProfilingTriggers::StartTimer() {
 }
 
 bool BackgroundProfilingTriggers::IsAllowedToUpload() const {
-  if (!ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled()) {
-    return false;
-  }
-
-  // Do not upload if there is an incognito session running in any profile.
-  std::vector<Profile*> profiles =
-      g_browser_process->profile_manager()->GetLoadedProfiles();
-  for (Profile* profile : profiles) {
-    if (profile->HasOffTheRecordProfile()) {
-      return false;
-    }
-  }
-
-  return true;
+  return ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled();
 }
 
 bool BackgroundProfilingTriggers::IsOverTriggerThreshold(
@@ -177,4 +164,4 @@ void BackgroundProfilingTriggers::TriggerMemoryReport() {
   host_->RequestProcessReport("MEMLOG_BACKGROUND_TRIGGER");
 }
 
-}  // namespace profiling
+}  // namespace heap_profiling

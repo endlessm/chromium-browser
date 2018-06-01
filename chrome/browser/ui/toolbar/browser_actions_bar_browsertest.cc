@@ -10,7 +10,6 @@
 #include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
 #include "chrome/browser/extensions/extension_action.h"
 #include "chrome/browser/extensions/extension_action_manager.h"
@@ -74,7 +73,7 @@ void BrowserActionsBarBrowserTest::SetUpCommandLine(
 
 void BrowserActionsBarBrowserTest::SetUpOnMainThread() {
   ExtensionBrowserTest::SetUpOnMainThread();
-  browser_actions_bar_.reset(new BrowserActionTestUtil(browser()));
+  browser_actions_bar_ = BrowserActionTestUtil::Create(browser());
   toolbar_model_ = ToolbarActionsModel::Get(profile());
 }
 
@@ -281,7 +280,7 @@ IN_PROC_BROWSER_TEST_F(BrowserActionsBarBrowserTest,
   ASSERT_TRUE(action);
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
-  int tab_id = SessionTabHelper::IdForTab(web_contents);
+  int tab_id = SessionTabHelper::IdForTab(web_contents).id();
   action->SetIsVisible(tab_id, true);
   extensions::ExtensionActionAPI* extension_action_api =
       extensions::ExtensionActionAPI::Get(profile());
@@ -508,7 +507,7 @@ IN_PROC_BROWSER_TEST_F(BrowserActionsBarBrowserTest,
       LoadExtension(test_data_dir_.AppendASCII("trigger_actions").
                         AppendASCII("page_action_popup"));
   ASSERT_TRUE(page_action_extension);
-  listener.WaitUntilSatisfied();
+  EXPECT_TRUE(listener.WaitUntilSatisfied());
   EXPECT_EQ(1, browser_actions_bar()->VisibleBrowserActions());
   EXPECT_EQ(page_action_extension->id(),
             browser_actions_bar()->GetExtensionId(0));
@@ -632,18 +631,14 @@ IN_PROC_BROWSER_TEST_F(BrowserActionsBarIncognitoTest, IncognitoMode) {
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(second_browser->profile()->IsOffTheRecord());
 
-  content::WindowedNotificationObserver window_close_observer(
-      chrome::NOTIFICATION_BROWSER_CLOSED, content::Source<Browser>(browser()));
-  browser()->window()->Close();
-  window_close_observer.Wait();
+  CloseBrowserSynchronously(browser());
 
   std::vector<ToolbarActionViewController*> actions =
       second_browser->window()->GetToolbarActionsBar()->GetActions();
   ASSERT_EQ(1u, actions.size());
   gfx::Image icon = actions[0]->GetIcon(
       second_browser->tab_strip_model()->GetActiveWebContents(),
-      gfx::Size(ToolbarActionsBar::IconWidth(false),
-                ToolbarActionsBar::IconHeight()));
+      second_browser->window()->GetToolbarActionsBar()->GetViewSize());
   const gfx::ImageSkia* skia = icon.ToImageSkia();
   ASSERT_TRUE(skia);
   // Force the image to try and load a representation.

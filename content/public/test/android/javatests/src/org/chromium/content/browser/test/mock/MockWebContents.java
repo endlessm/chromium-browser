@@ -9,14 +9,15 @@ import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Parcel;
 
+import org.chromium.base.Callback;
 import org.chromium.content_public.browser.AccessibilitySnapshotCallback;
-import org.chromium.content_public.browser.ContentBitmapCallback;
 import org.chromium.content_public.browser.ImageDownloadCallback;
 import org.chromium.content_public.browser.JavaScriptCallback;
 import org.chromium.content_public.browser.MessagePort;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.RenderFrameHost;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.content_public.browser.WebContents.UserDataFactory;
 import org.chromium.content_public.browser.WebContentsObserver;
 import org.chromium.ui.OverscrollRefreshHandler;
 import org.chromium.ui.base.EventForwarder;
@@ -51,6 +52,11 @@ public class MockWebContents implements WebContents {
     @Override
     public boolean isDestroyed() {
         return false;
+    }
+
+    @Override
+    public <T> T getOrSetUserData(Class key, UserDataFactory<T> userDataFactory) {
+        return null;
     }
 
     @Override
@@ -92,27 +98,6 @@ public class MockWebContents implements WebContents {
     public void stop() {}
 
     @Override
-    public void cut() {}
-
-    @Override
-    public void copy() {}
-
-    @Override
-    public void paste() {}
-
-    @Override
-    public void pasteAsPlainText() {}
-
-    @Override
-    public void replace(String word) {}
-
-    @Override
-    public void selectAll() {}
-
-    @Override
-    public void collapseSelection() {}
-
-    @Override
     public void onHide() {}
 
     @Override
@@ -120,12 +105,6 @@ public class MockWebContents implements WebContents {
 
     @Override
     public void setImportance(int importance) {}
-
-    @Override
-    public void dismissTextHandles() {}
-
-    @Override
-    public void showContextMenuAtTouchHandle(int x, int y) {}
 
     @Override
     public void suspendAllMediaPlayers() {}
@@ -234,7 +213,8 @@ public class MockWebContents implements WebContents {
     public void setOverscrollRefreshHandler(OverscrollRefreshHandler handler) {}
 
     @Override
-    public void getContentBitmapAsync(int width, int height, ContentBitmapCallback callback) {}
+    public void getContentBitmapAsync(
+            int width, int height, String path, Callback<String> callback) {}
 
     @Override
     public void reloadLoFiImages() {}

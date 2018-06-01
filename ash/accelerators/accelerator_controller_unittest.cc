@@ -4,10 +4,14 @@
 
 #include "ash/accelerators/accelerator_controller.h"
 
+#include <utility>
+
 #include "ash/accelerators/accelerator_table.h"
 #include "ash/accessibility/accessibility_controller.h"
 #include "ash/accessibility/test_accessibility_controller_client.h"
+#include "ash/app_list/test/app_list_test_helper.h"
 #include "ash/ime/ime_controller.h"
+#include "ash/ime/test_ime_controller_client.h"
 #include "ash/media_controller.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/config.h"
@@ -19,11 +23,11 @@
 #include "ash/shell_test_api.h"
 #include "ash/system/brightness_control_delegate.h"
 #include "ash/system/keyboard_brightness_control_delegate.h"
+#include "ash/system/power/power_button_controller_test_api.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test_media_client.h"
 #include "ash/test_screenshot_delegate.h"
 #include "ash/wm/lock_state_controller.h"
-#include "ash/wm/lock_state_controller_test_api.h"
 #include "ash/wm/panels/panel_layout_manager.h"
 #include "ash/wm/test_session_state_animator.h"
 #include "ash/wm/window_positioning_utils.h"
@@ -34,16 +38,12 @@
 #include "base/run_loop.h"
 #include "base/test/user_action_tester.h"
 #include "services/ui/public/interfaces/window_manager_constants.mojom.h"
-#include "ui/app_list/presenter/app_list.h"
-#include "ui/app_list/presenter/test/test_app_list_presenter.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/test/test_window_delegate.h"
 #include "ui/aura/test/test_windows.h"
 #include "ui/aura/window.h"
 #include "ui/base/ime/chromeos/fake_ime_keyboard.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
-#include "ui/base/ime/chromeos/input_method_manager.h"
-#include "ui/base/ime/chromeos/mock_input_method_manager.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
 #include "ui/events/event.h"
@@ -51,8 +51,6 @@
 #include "ui/events/test/event_generator.h"
 #include "ui/message_center/message_center.h"
 #include "ui/views/widget/widget.h"
-
-using chromeos::input_method::InputMethodManager;
 
 namespace ash {
 
@@ -136,23 +134,6 @@ class DummyBrightnessControlDelegate : public BrightnessControlDelegate {
   DISALLOW_COPY_AND_ASSIGN(DummyBrightnessControlDelegate);
 };
 
-class TestInputMethodManager
-    : public chromeos::input_method::MockInputMethodManager {
- public:
-  TestInputMethodManager() = default;
-  ~TestInputMethodManager() override = default;
-
-  // MockInputMethodManager:
-  chromeos::input_method::ImeKeyboard* GetImeKeyboard() override {
-    return &keyboard_;
-  }
-
-  chromeos::input_method::FakeImeKeyboard keyboard_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestInputMethodManager);
-};
-
 class DummyKeyboardBrightnessControlDelegate
     : public KeyboardBrightnessControlDelegate {
  public:
@@ -208,18 +189,6 @@ class AcceleratorControllerTest : public AshTestBase {
  public:
   AcceleratorControllerTest() = default;
   ~AcceleratorControllerTest() override = default;
-
-  void SetUp() override {
-    AshTestBase::SetUp();
-    test_input_method_manager_ = new TestInputMethodManager;
-    // Takes ownership.
-    InputMethodManager::Initialize(test_input_method_manager_);
-  }
-
-  void TearDown() override {
-    InputMethodManager::Shutdown();
-    AshTestBase::TearDown();
-  }
 
  protected:
   static AcceleratorController* GetController();
@@ -288,9 +257,6 @@ class AcceleratorControllerTest : public AshTestBase {
       std::unique_ptr<KeyboardBrightnessControlDelegate> delegate) {
     Shell::Get()->keyboard_brightness_control_delegate_ = std::move(delegate);
   }
-
-  // Owned by InputMethodManager.
-  TestInputMethodManager* test_input_method_manager_ = nullptr;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(AcceleratorControllerTest);
@@ -619,7 +585,6 @@ TEST_F(AcceleratorControllerTest, DontRepeatToggleFullscreen) {
   GetController()->RegisterAccelerators(accelerators, arraysize(accelerators));
 
   views::Widget::InitParams params(views::Widget::InitParams::TYPE_WINDOW);
-  params.context = CurrentContext();
   params.bounds = gfx::Rect(5, 5, 20, 20);
   views::Widget* widget = new views::Widget;
   widget->Init(params);
@@ -819,9 +784,6 @@ TEST_F(AcceleratorControllerTest, GlobalAccelerators) {
 }
 
 TEST_F(AcceleratorControllerTest, GlobalAcceleratorsToggleAppList) {
-  app_list::test::TestAppListPresenter test_app_list_presenter;
-  Shell::Get()->app_list()->SetAppListPresenter(
-      test_app_list_presenter.CreateInterfacePtrAndBind());
   AccessibilityController* controller =
       Shell::Get()->accessibility_controller();
 
@@ -830,12 +792,12 @@ TEST_F(AcceleratorControllerTest, GlobalAcceleratorsToggleAppList) {
       ProcessInController(ui::Accelerator(ui::VKEY_LWIN, ui::EF_NONE)));
   RunAllPendingInMessageLoop();
   EXPECT_EQ(ui::VKEY_LWIN, GetCurrentAccelerator().key_code());
-  EXPECT_EQ(0u, test_app_list_presenter.toggle_count());
+  GetAppListTestHelper()->CheckVisibility(false);
 
   EXPECT_TRUE(ProcessInController(
       CreateReleaseAccelerator(ui::VKEY_LWIN, ui::EF_NONE)));
   RunAllPendingInMessageLoop();
-  EXPECT_EQ(1u, test_app_list_presenter.toggle_count());
+  GetAppListTestHelper()->CheckVisibility(true);
   EXPECT_EQ(ui::VKEY_LWIN, GetPreviousAccelerator().key_code());
 
   // When spoken feedback is on, the AppList should not toggle.
@@ -848,7 +810,7 @@ TEST_F(AcceleratorControllerTest, GlobalAcceleratorsToggleAppList) {
   controller->SetSpokenFeedbackEnabled(false, A11Y_NOTIFICATION_NONE);
   EXPECT_FALSE(controller->IsSpokenFeedbackEnabled());
   RunAllPendingInMessageLoop();
-  EXPECT_EQ(1u, test_app_list_presenter.toggle_count());
+  GetAppListTestHelper()->CheckVisibility(true);
 
   // Turning off spoken feedback should allow the AppList to toggle again.
   EXPECT_FALSE(
@@ -856,17 +818,17 @@ TEST_F(AcceleratorControllerTest, GlobalAcceleratorsToggleAppList) {
   EXPECT_TRUE(ProcessInController(
       CreateReleaseAccelerator(ui::VKEY_LWIN, ui::EF_NONE)));
   RunAllPendingInMessageLoop();
-  EXPECT_EQ(2u, test_app_list_presenter.toggle_count());
+  GetAppListTestHelper()->CheckVisibility(false);
 
   // The press of VKEY_BROWSER_SEARCH should toggle the AppList
   EXPECT_TRUE(ProcessInController(
       ui::Accelerator(ui::VKEY_BROWSER_SEARCH, ui::EF_NONE)));
   RunAllPendingInMessageLoop();
-  EXPECT_EQ(3u, test_app_list_presenter.toggle_count());
+  GetAppListTestHelper()->CheckVisibility(true);
   EXPECT_FALSE(ProcessInController(
       CreateReleaseAccelerator(ui::VKEY_BROWSER_SEARCH, ui::EF_NONE)));
   RunAllPendingInMessageLoop();
-  EXPECT_EQ(3u, test_app_list_presenter.toggle_count());
+  GetAppListTestHelper()->CheckVisibility(true);
 
   // When pressed key is interrupted by mouse, the AppList should not toggle.
   EXPECT_FALSE(
@@ -875,7 +837,7 @@ TEST_F(AcceleratorControllerTest, GlobalAcceleratorsToggleAppList) {
   EXPECT_FALSE(ProcessInController(
       CreateReleaseAccelerator(ui::VKEY_LWIN, ui::EF_NONE)));
   RunAllPendingInMessageLoop();
-  EXPECT_EQ(3u, test_app_list_presenter.toggle_count());
+  GetAppListTestHelper()->CheckVisibility(true);
 }
 
 TEST_F(AcceleratorControllerTest, MediaGlobalAccelerators) {
@@ -965,10 +927,11 @@ namespace {
 
 // Tests the four combinations of the TOGGLE_CAPS_LOCK accelerator.
 TEST_F(AcceleratorControllerTest, ToggleCapsLockAccelerators) {
-  chromeos::input_method::InputMethodManager* input_method_manager =
-      chromeos::input_method::InputMethodManager::Get();
-  ASSERT_TRUE(input_method_manager);
-  EXPECT_FALSE(input_method_manager->GetImeKeyboard()->CapsLockIsEnabled());
+  ImeController* controller = Shell::Get()->ime_controller();
+
+  TestImeControllerClient client;
+  controller->SetClient(client.CreateInterfacePtr());
+  EXPECT_EQ(0, client.set_caps_lock_count_);
 
   // 1. Press Alt, Press Search, Release Search, Release Alt.
   // Note when you press Alt then press search, the key_code at this point is
@@ -980,30 +943,38 @@ TEST_F(AcceleratorControllerTest, ToggleCapsLockAccelerators) {
   const ui::Accelerator release_search_before_alt(
       CreateReleaseAccelerator(ui::VKEY_LWIN, ui::EF_ALT_DOWN));
   EXPECT_TRUE(ProcessInController(release_search_before_alt));
-  EXPECT_TRUE(input_method_manager->GetImeKeyboard()->CapsLockIsEnabled());
-  input_method_manager->GetImeKeyboard()->SetCapsLockEnabled(false);
+  controller->FlushMojoForTesting();
+  EXPECT_EQ(1, client.set_caps_lock_count_);
+  EXPECT_TRUE(controller->IsCapsLockEnabled());
+  controller->UpdateCapsLockState(false);
 
   // 2. Press Search, Press Alt, Release Search, Release Alt.
   const ui::Accelerator press_search_then_alt(ui::VKEY_MENU,
                                               ui::EF_COMMAND_DOWN);
   EXPECT_FALSE(ProcessInController(press_search_then_alt));
   EXPECT_TRUE(ProcessInController(release_search_before_alt));
-  EXPECT_TRUE(input_method_manager->GetImeKeyboard()->CapsLockIsEnabled());
-  input_method_manager->GetImeKeyboard()->SetCapsLockEnabled(false);
+  controller->FlushMojoForTesting();
+  EXPECT_EQ(2, client.set_caps_lock_count_);
+  EXPECT_TRUE(controller->IsCapsLockEnabled());
+  controller->UpdateCapsLockState(false);
 
   // 3. Press Alt, Press Search, Release Alt, Release Search.
   EXPECT_FALSE(ProcessInController(press_alt_then_search));
   const ui::Accelerator release_alt_before_search(
       CreateReleaseAccelerator(ui::VKEY_MENU, ui::EF_COMMAND_DOWN));
   EXPECT_TRUE(ProcessInController(release_alt_before_search));
-  EXPECT_TRUE(input_method_manager->GetImeKeyboard()->CapsLockIsEnabled());
-  input_method_manager->GetImeKeyboard()->SetCapsLockEnabled(false);
+  controller->FlushMojoForTesting();
+  EXPECT_EQ(3, client.set_caps_lock_count_);
+  EXPECT_TRUE(controller->IsCapsLockEnabled());
+  controller->UpdateCapsLockState(false);
 
   // 4. Press Search, Press Alt, Release Alt, Release Search.
   EXPECT_FALSE(ProcessInController(press_search_then_alt));
   EXPECT_TRUE(ProcessInController(release_alt_before_search));
-  EXPECT_TRUE(input_method_manager->GetImeKeyboard()->CapsLockIsEnabled());
-  input_method_manager->GetImeKeyboard()->SetCapsLockEnabled(false);
+  controller->FlushMojoForTesting();
+  EXPECT_EQ(4, client.set_caps_lock_count_);
+  EXPECT_TRUE(controller->IsCapsLockEnabled());
+  controller->UpdateCapsLockState(false);
 }
 
 class PreferredReservedAcceleratorsTest : public AshTestBase {
@@ -1016,6 +987,10 @@ class PreferredReservedAcceleratorsTest : public AshTestBase {
     AshTestBase::SetUp();
     Shell::Get()->lock_state_controller()->set_animator_for_test(
         new TestSessionStateAnimator);
+    Shell::Get()->power_button_controller()->OnGetSwitchStates(
+        chromeos::PowerManagerClient::SwitchStates{
+            chromeos::PowerManagerClient::LidState::OPEN,
+            chromeos::PowerManagerClient::TabletMode::ON});
   }
 
  private:
@@ -1037,10 +1012,12 @@ TEST_F(PreferredReservedAcceleratorsTest, AcceleratorsWithFullscreen) {
   ui::test::EventGenerator& generator = GetEventGenerator();
 
   // Power key (reserved) should always be handled.
-  LockStateControllerTestApi test_api(Shell::Get()->lock_state_controller());
-  EXPECT_FALSE(test_api.is_animating_lock());
+  Shell::Get()->power_button_controller()->OnTabletModeStarted();
+  PowerButtonControllerTestApi test_api(
+      Shell::Get()->power_button_controller());
+  EXPECT_FALSE(test_api.PowerButtonMenuTimerIsRunning());
   generator.PressKey(ui::VKEY_POWER, ui::EF_NONE);
-  EXPECT_TRUE(test_api.is_animating_lock());
+  EXPECT_TRUE(test_api.PowerButtonMenuTimerIsRunning());
 
   auto press_and_release_alt_tab = [&generator]() {
     generator.PressKey(ui::VKEY_TAB, ui::EF_ALT_DOWN);
@@ -1085,10 +1062,12 @@ TEST_F(PreferredReservedAcceleratorsTest, AcceleratorsWithPinned) {
   ui::test::EventGenerator& generator = GetEventGenerator();
 
   // Power key (reserved) should always be handled.
-  LockStateControllerTestApi test_api(Shell::Get()->lock_state_controller());
-  EXPECT_FALSE(test_api.is_animating_lock());
+  Shell::Get()->power_button_controller()->OnTabletModeStarted();
+  PowerButtonControllerTestApi test_api(
+      Shell::Get()->power_button_controller());
+  EXPECT_FALSE(test_api.PowerButtonMenuTimerIsRunning());
   generator.PressKey(ui::VKEY_POWER, ui::EF_NONE);
-  EXPECT_TRUE(test_api.is_animating_lock());
+  EXPECT_TRUE(test_api.PowerButtonMenuTimerIsRunning());
 
   // A pinned window can consume ALT-TAB (preferred), but no side effect.
   ASSERT_EQ(w1, wm::GetActiveWindow());

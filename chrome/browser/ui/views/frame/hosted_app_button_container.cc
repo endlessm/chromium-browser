@@ -5,38 +5,50 @@
 #include "chrome/browser/ui/views/frame/hosted_app_button_container.h"
 
 #include "base/metrics/histogram_macros.h"
-#include "base/strings/utf_string_conversions.h"
-#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ui/browser_content_setting_bubble_model_delegate.h"
 #include "chrome/browser/ui/content_settings/content_setting_image_model.h"
-#include "chrome/browser/ui/extensions/hosted_app_browser_controller.h"
-#include "chrome/browser/ui/extensions/hosted_app_menu_model.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/hosted_app_menu_button.h"
 #include "chrome/browser/ui/views/location_bar/content_setting_image_view.h"
-#include "chrome/browser/ui/views/toolbar/app_menu.h"
 #include "chrome/browser/ui/views/toolbar/browser_actions_container.h"
-#include "chrome/grit/generated_resources.h"
-#include "ui/base/l10n/l10n_util.h"
-#include "ui/base/resource/resource_bundle.h"
+#include "ui/compositor/layer_animation_element.h"
+#include "ui/compositor/layer_animation_sequence.h"
+#include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
-#include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/animation/ink_drop.h"
+#include "ui/views/border.h"
+#include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/layout/layout_provider.h"
 #include "ui/views/widget/native_widget_aura.h"
 
 namespace {
 
-// Padding around content setting icons.
-constexpr int kContentSettingIconInteriorPadding = 4;
+bool g_animation_disabled_for_testing = false;
+
+constexpr base::TimeDelta kContentSettingsFadeInDuration =
+    base::TimeDelta::FromMilliseconds(500);
 
 class HostedAppToolbarActionsBar : public ToolbarActionsBar {
  public:
   using ToolbarActionsBar::ToolbarActionsBar;
 
+  gfx::Insets GetIconAreaInsets() const override {
+    // TODO(calamity): Unify these toolbar action insets with other clients once
+    // all toolbar button sizings are consolidated. https://crbug.com/822967.
+    return gfx::Insets(2);
+  }
+
   size_t GetIconCount() const override {
     // Only show an icon when an extension action is popped out due to
     // activation, and none otherwise.
     return popped_out_action() ? 1 : 0;
+  }
+
+  int GetMinimumWidth() const override {
+    // Allow the BrowserActionsContainer to collapse completely and be hidden
+    return 0;
   }
 
  private:
@@ -45,40 +57,111 @@ class HostedAppToolbarActionsBar : public ToolbarActionsBar {
 
 }  // namespace
 
-HostedAppButtonContainer::AppMenuButton::AppMenuButton(
-    BrowserView* browser_view)
-    : views::MenuButton(base::string16(), this, false),
-      browser_view_(browser_view) {
-  SetInkDropMode(InkDropMode::ON);
-  // This name is guaranteed not to change during the lifetime of this button.
-  // Get the app name only, aka "Google Docs" instead of "My Doc - Google Docs",
-  // because the menu applies to the entire app.
-  base::string16 app_name = base::UTF8ToUTF16(
-      browser_view->browser()->hosted_app_controller()->GetAppShortName());
-  SetAccessibleName(app_name);
-  SetTooltipText(
-      l10n_util::GetStringFUTF16(IDS_HOSTED_APPMENU_TOOLTIP, app_name));
+class HostedAppButtonContainer::ContentSettingsContainer
+    : public views::View,
+      public ContentSettingImageView::Delegate {
+ public:
+  ContentSettingsContainer(BrowserView* browser_view, SkColor icon_color);
+  ~ContentSettingsContainer() override = default;
+
+  // Updates the visibility of each content setting.
+  void RefreshContentSettingViews() {
+    for (auto* v : content_setting_views_)
+      v->Update();
+  }
+
+  // Sets the color of the content setting icons.
+  void SetIconColor(SkColor icon_color) {
+    for (auto* v : content_setting_views_)
+      v->SetIconColor(icon_color);
+  }
+
+  void FadeIn() {
+    SetVisible(true);
+    DCHECK_EQ(layer()->opacity(), 0);
+    ui::ScopedLayerAnimationSettings settings(layer()->GetAnimator());
+    settings.SetTransitionDuration(kContentSettingsFadeInDuration);
+    layer()->SetOpacity(1);
+  }
+
+  const std::vector<ContentSettingImageView*>&
+  GetContentSettingViewsForTesting() const {
+    return content_setting_views_;
+  }
+
+ private:
+  // views::View:
+  void ChildVisibilityChanged(views::View* child) override {
+    PreferredSizeChanged();
+  }
+
+  // ContentSettingsImageView::Delegate:
+  content::WebContents* GetContentSettingWebContents() override {
+    return browser_view_->GetActiveWebContents();
+  }
+  ContentSettingBubbleModelDelegate* GetContentSettingBubbleModelDelegate()
+      override {
+    return browser_view_->browser()->content_setting_bubble_model_delegate();
+  }
+  void OnContentSettingImageBubbleShown(
+      ContentSettingImageModel::ImageType type) const override {
+    UMA_HISTOGRAM_ENUMERATION(
+        "HostedAppFrame.ContentSettings.ImagePressed", type,
+        ContentSettingImageModel::ImageType::NUM_IMAGE_TYPES);
+  }
+
+  // Owned by the views hierarchy.
+  std::vector<ContentSettingImageView*> content_setting_views_;
+
+  BrowserView* browser_view_;
+
+  DISALLOW_COPY_AND_ASSIGN(ContentSettingsContainer);
+};
+
+void HostedAppButtonContainer::DisableAnimationForTesting() {
+  g_animation_disabled_for_testing = true;
 }
 
-HostedAppButtonContainer::AppMenuButton::~AppMenuButton() {}
-
-void HostedAppButtonContainer::AppMenuButton::SetIconColor(SkColor color) {
-  SetImage(views::Button::STATE_NORMAL,
-           gfx::CreateVectorIcon(kBrowserToolsIcon, color));
-  set_ink_drop_base_color(color);
+views::View* HostedAppButtonContainer::GetContentSettingContainerForTesting() {
+  return content_settings_container_;
 }
 
-void HostedAppButtonContainer::AppMenuButton::OnMenuButtonClicked(
-    views::MenuButton* source,
-    const gfx::Point& point,
-    const ui::Event* event) {
-  Browser* browser = browser_view_->browser();
-  menu_ = std::make_unique<AppMenu>(browser, 0);
-  menu_model_ = std::make_unique<HostedAppMenuModel>(browser_view_, browser);
-  menu_model_->Init();
-  menu_->Init(menu_model_.get());
+const std::vector<ContentSettingImageView*>&
+HostedAppButtonContainer::GetContentSettingViewsForTesting() const {
+  return content_settings_container_->GetContentSettingViewsForTesting();
+}
 
-  menu_->RunMenu(this);
+HostedAppButtonContainer::ContentSettingsContainer::ContentSettingsContainer(
+    BrowserView* browser_view,
+    SkColor icon_color)
+    : browser_view_(browser_view) {
+  SetLayoutManager(std::make_unique<views::BoxLayout>(
+      views::BoxLayout::kHorizontal, gfx::Insets(),
+      views::LayoutProvider::Get()->GetDistanceMetric(
+          views::DISTANCE_RELATED_CONTROL_HORIZONTAL)));
+
+  if (!g_animation_disabled_for_testing) {
+    SetVisible(false);
+    SetPaintToLayer();
+    layer()->SetFillsBoundsOpaquely(false);
+    layer()->SetOpacity(0);
+  }
+
+  std::vector<std::unique_ptr<ContentSettingImageModel>> models =
+      ContentSettingImageModel::GenerateContentSettingImageModels();
+  for (auto& model : models) {
+    auto image_view = std::make_unique<ContentSettingImageView>(
+        std::move(model), this,
+        views::NativeWidgetAura::GetWindowTitleFontList());
+    image_view->SetIconColor(icon_color);
+    // Padding around content setting icons.
+    constexpr int kContentSettingIconInteriorPadding = 4;
+    image_view->SetBorder(views::CreateEmptyBorder(
+        gfx::Insets(kContentSettingIconInteriorPadding)));
+    image_view->disable_animation();
+    content_setting_views_.push_back(image_view.get());
+    AddChildView(image_view.release());
+  }
 }
 
 HostedAppButtonContainer::HostedAppButtonContainer(BrowserView* browser_view,
@@ -87,78 +170,99 @@ HostedAppButtonContainer::HostedAppButtonContainer(BrowserView* browser_view,
     : browser_view_(browser_view),
       active_icon_color_(active_icon_color),
       inactive_icon_color_(inactive_icon_color),
-      app_menu_button_(new AppMenuButton(browser_view)),
+      app_menu_button_(new HostedAppMenuButton(browser_view)),
       browser_actions_container_(
           new BrowserActionsContainer(browser_view->browser(),
                                       nullptr,
                                       this,
                                       false /* interactive */)) {
   DCHECK(browser_view_);
-  auto layout =
-      std::make_unique<views::BoxLayout>(views::BoxLayout::kHorizontal);
+  const int kHorizontalPadding =
+      views::LayoutProvider::Get()->GetDistanceMetric(
+          views::DISTANCE_RELATED_CONTROL_HORIZONTAL);
+  auto layout = std::make_unique<views::BoxLayout>(
+      views::BoxLayout::kHorizontal, gfx::Insets(0, kHorizontalPadding),
+      kHorizontalPadding);
   layout->set_cross_axis_alignment(
       views::BoxLayout::CROSS_AXIS_ALIGNMENT_CENTER);
   SetLayoutManager(std::move(layout));
 
-  std::vector<std::unique_ptr<ContentSettingImageModel>> models =
-      ContentSettingImageModel::GenerateContentSettingImageModels();
-  for (auto& model : models) {
-    auto image_view = std::make_unique<ContentSettingImageView>(
-        std::move(model), this,
-        views::NativeWidgetAura::GetWindowTitleFontList());
-    image_view->SetIconColor(active_icon_color);
-    image_view->set_next_element_interior_padding(
-        kContentSettingIconInteriorPadding);
-    image_view->SetVisible(false);
-    image_view->disable_animation();
-    content_setting_views_.push_back(image_view.get());
-    AddChildView(image_view.release());
-  }
+  auto content_settings_container = std::make_unique<ContentSettingsContainer>(
+      browser_view, active_icon_color);
+  content_settings_container_ = content_settings_container.get();
+  AddChildView(content_settings_container.release());
 
   AddChildView(browser_actions_container_);
 
   app_menu_button_->SetIconColor(active_icon_color);
   AddChildView(app_menu_button_);
 
-  browser_view_->SetButtonProvider(this);
+  browser_view_->SetToolbarButtonProvider(this);
+  browser_view_->immersive_mode_controller()->AddObserver(this);
 }
 
-HostedAppButtonContainer::~HostedAppButtonContainer() {}
+HostedAppButtonContainer::~HostedAppButtonContainer() {
+  ImmersiveModeController* immersive_controller =
+      browser_view_->immersive_mode_controller();
+  if (immersive_controller)
+    immersive_controller->RemoveObserver(this);
+}
 
 void HostedAppButtonContainer::RefreshContentSettingViews() {
-  for (auto* v : content_setting_views_)
-    v->Update();
+  content_settings_container_->RefreshContentSettingViews();
 }
 
 void HostedAppButtonContainer::SetPaintAsActive(bool active) {
-  for (auto* v : content_setting_views_)
-    v->SetIconColor(active ? active_icon_color_ : inactive_icon_color_);
+  content_settings_container_->SetIconColor(active ? active_icon_color_
+                                                   : inactive_icon_color_);
 
   app_menu_button_->SetIconColor(active ? active_icon_color_
                                         : inactive_icon_color_);
 }
 
-content::WebContents* HostedAppButtonContainer::GetContentSettingWebContents() {
-  return browser_view_->GetActiveWebContents();
-}
+void HostedAppButtonContainer::StartTitlebarAnimation(
+    base::TimeDelta origin_text_slide_duration) {
+  if (g_animation_disabled_for_testing ||
+      browser_view_->immersive_mode_controller()->IsEnabled()) {
+    return;
+  }
 
-ContentSettingBubbleModelDelegate*
-HostedAppButtonContainer::GetContentSettingBubbleModelDelegate() {
-  return browser_view_->browser()->content_setting_bubble_model_delegate();
-}
+  app_menu_button_->StartHighlightAnimation(origin_text_slide_duration);
 
-void HostedAppButtonContainer::OnContentSettingImageBubbleShown(
-    ContentSettingImageModel::ImageType type) const {
-  UMA_HISTOGRAM_ENUMERATION(
-      "HostedAppFrame.ContentSettings.ImagePressed", type,
-      ContentSettingImageModel::ImageType::NUM_IMAGE_TYPES);
+  fade_in_content_setting_buttons_timer_.Start(
+      FROM_HERE, origin_text_slide_duration, content_settings_container_,
+      &ContentSettingsContainer::FadeIn);
 }
 
 void HostedAppButtonContainer::ChildPreferredSizeChanged(views::View* child) {
-  if (child != browser_actions_container_)
+  if (child != browser_actions_container_ &&
+      child != content_settings_container_) {
     return;
+  }
 
   PreferredSizeChanged();
+}
+
+void HostedAppButtonContainer::OnImmersiveRevealStarted() {
+  // Cancel the content setting animation as icons need immediately show in
+  // immersive mode.
+  if (fade_in_content_setting_buttons_timer_.IsRunning()) {
+    fade_in_content_setting_buttons_timer_.AbandonAndStop();
+    content_settings_container_->SetVisible(true);
+  }
+  // Remove layers so that buttons display correctly when painted into the
+  // immersive mode top container view.
+  // See https://crbug.com/787640 for details.
+  // TODO(calamity): Make immersive mode support button layers.
+  content_settings_container_->DestroyLayer();
+  // Disable the ink drop as ink drops also render layers.
+  app_menu_button_->SetInkDropMode(HostedAppMenuButton::InkDropMode::OFF);
+}
+
+void HostedAppButtonContainer::OnImmersiveFullscreenExited() {
+  content_settings_container_->SetPaintToLayer();
+  content_settings_container_->layer()->SetFillsBoundsOpaquely(false);
+  app_menu_button_->SetInkDropMode(HostedAppMenuButton::InkDropMode::ON);
 }
 
 void HostedAppButtonContainer::ChildVisibilityChanged(views::View* child) {
@@ -191,6 +295,14 @@ HostedAppButtonContainer::GetBrowserActionsContainer() {
   return browser_actions_container_;
 }
 
-views::MenuButton* HostedAppButtonContainer::GetAppMenuButton() {
+AppMenuButton* HostedAppButtonContainer::GetAppMenuButton() {
   return app_menu_button_;
+}
+
+void HostedAppButtonContainer::FocusToolbar() {
+  SetPaneFocus(nullptr);
+}
+
+views::AccessiblePaneView* HostedAppButtonContainer::GetAsAccessiblePaneView() {
+  return this;
 }

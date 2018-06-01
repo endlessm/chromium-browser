@@ -26,11 +26,13 @@
 <translation id="1537254971476575106">Vollbildlupe</translation>
 <translation id="15373452373711364">Großer Cursor</translation>
 <translation id="1550523713251050646">Für weitere Optionen klicken</translation>
+<translation id="1567387640189251553">Seit der letzten Eingabe Ihres Passwortes wurde eine andere Tastatur angeschlossen. Möglicherweise versucht jemand, darüber Ihre Tastatureingaben zu erfassen.</translation>
 <translation id="1608626060424371292">Diesen Nutzer entfernen</translation>
 <translation id="1621499497873603021">Verbleibende Akku-Laufzeit: <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">Ihr Passwort konnte immer noch nicht bestätigt werden. Hinweis: Falls Sie Ihr Passwort kürzlich geändert haben, wird Ihr neues Passwort übernommen, sobald Sie sich abmelden. Bitte verwenden Sie hier das alte Passwort.</translation>
 <translation id="1677472565718498478">Verbleibende Zeit: <ph name="TIME" /> h</translation>
 <translation id="1698760176351776263">IPv6-Adresse: <ph name="ADDRESS" /></translation>
+<translation id="170389796989115980">Der Geräteadministrator kann Ihre Aktivitäten möglicherweise überwachen.</translation>
 <translation id="1734367976349034509">Dieses Gerät wird vom Unternehmen verwaltet</translation>
 <translation id="1746730358044914197">Die Eingabemethoden werden von Ihrem Administrator konfiguriert.</translation>
 <translation id="1747827819627189109">Bildschirmtastatur aktiviert</translation>
@@ -41,9 +43,11 @@
 <translation id="1882897271359938046">Wird auf <ph name="DISPLAY_NAME" /> gespiegelt...</translation>
 <translation id="1919743966458266018">Die Tastenkombination zum Öffnen des Task-Managers hat sich geändert. Bitte drücken Sie <ph name="NEW_SHORTCUT" /> statt <ph name="OLD_SHORTCUT" />.</translation>
 <translation id="1923539912171292317">Automatische Klicks</translation>
+<translation id="1928739107511554905">Sie können das Update vornehmen, indem Sie den Touchscreen verwenden, um das Chromebook mit angeschlossener Tastatur neu zu starten.</translation>
 <translation id="1942830294380034169">Überlaufschaltfläche</translation>
 <translation id="1951012854035635156">Assistant</translation>
 <translation id="1957803754585243749">0°</translation>
+<translation id="1957958912175573503">Sprache festlegen</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
 <translation id="1995660704900986789">Ausschalten</translation>
 <translation id="2012624427112548395">Strg + Suche + H</translation>
@@ -63,6 +67,7 @@
 <translation id="2292698582925480719">Displaymaßstab</translation>
 <translation id="2303600792989757991">Fensterübersicht umschalten</translation>
 <translation id="2338501278241028356">Aktivieren Sie Bluetooth, damit Geräte in der Nähe gefunden werden</translation>
+<translation id="2351266942280602854">Sprache und Eingabe</translation>
 <translation id="2352467521400612932">Eingabestift-Einstellungen</translation>
 <translation id="2354174487190027830"><ph name="NAME" /> wird aktiviert</translation>
 <translation id="2365393535144473978">Bei Aktivierung der mobilen Daten wird auch Bluetooth aktiviert.</translation>
@@ -78,6 +83,9 @@
 <translation id="2653659639078652383">Senden</translation>
 <translation id="2675319268637823299">Ein Administrator hat die Mehrfachanmeldung für <ph name="USER_EMAIL" /> deaktiviert.
     Alle Nutzer müssen sich abmelden, um fortfahren zu können.</translation>
+<translation id="2696763960464195425">Ihre Informationen werden bei der Abmeldung entfernt. <ph name="LEARN_MORE" /></translation>
+<translation id="2700493154570097719">Tastatur einrichten</translation>
+<translation id="2718395828230677721">Nachtlicht</translation>
 <translation id="2727977024730340865">Das Gerät ist an ein Schwachstrom-Ladegerät angeschlossen. Möglicherweise kann der Akku nicht zuverlässig aufgeladen werden.</translation>
 <translation id="2761704814324807722">Statusleiste, Uhrzeit <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581">Verbindung zu <ph name="NAME" /> wird wiederhergestellt</translation>
@@ -100,9 +108,11 @@
 <translation id="3077734595579995578">Umschalttaste</translation>
 <translation id="3087734570205094154">Unten</translation>
 <translation id="3105990244222795498"><ph name="DEVICE_NAME" /> (Bluetooth)</translation>
+<translation id="3112378005171663295">Minimieren</translation>
 <translation id="3126069444801937830">Zum Aktualisieren neu starten</translation>
 <translation id="3147142846278915599">Launcher (Apps werden synchronisiert...)</translation>
 <translation id="315116470104423982">Mobilfunk</translation>
+<translation id="3151786313568798007">Ausrichtung</translation>
 <translation id="3153444934357957346">Bei der Mehrfachanmeldung sind maximal <ph name="MULTI_PROFILE_USER_LIMIT" /> Konten zulässig.</translation>
 <translation id="3236488194889173876">Kein Mobilfunknetz verfügbar</translation>
 <translation id="3294437725009624529">Gast</translation>
@@ -124,6 +134,7 @@
 <translation id="3621202678540785336">Eingang</translation>
 <translation id="3626281679859535460">Helligkeit</translation>
 <translation id="3631369015426612114">Alle Benachrichtigungen zulassen von:</translation>
+<translation id="3705722231355495246">-</translation>
 <translation id="3712407551474845318">Bereich erfassen</translation>
 <translation id="371370241367527062">Mikrofon auf der Vorderseite</translation>
 <translation id="3771549900096082774">Modus mit hohem Kontrast</translation>
@@ -168,6 +179,7 @@
 <translation id="4905614135390995787">Die Tastenkombination zum Deaktivieren des Modus mit hohem Kontrast hat sich geändert. Bitte drücken Sie <ph name="NEW_SHORTCUT" /> statt <ph name="OLD_SHORTCUT" />.</translation>
 <translation id="4918086044614829423">Annehmen</translation>
 <translation id="4961318399572185831">Bildschirmübertragung</translation>
+<translation id="5136175204352732067">Andere Tastatur angeschlossen</translation>
 <translation id="5168181903108465623">Übertragungsgeräte verfügbar</translation>
 <translation id="5207949376430453814">Textcursor hervorheben</translation>
 <translation id="5222676887888702881">Abmelden</translation>
@@ -179,6 +191,7 @@
 <translation id="5431825016875453137">OpenVPN/L2TP</translation>
 <translation id="544691375626129091">Alle verfügbaren Nutzer wurden bereits zur Sitzung hinzugefügt.</translation>
 <translation id="5457599981699367932">Als Gast nutzen</translation>
+<translation id="54609108002486618">Verwaltet</translation>
 <translation id="553675580533261935">Sitzung wird beendet</translation>
 <translation id="5548285847212963613">Die Erweiterung "<ph name="EXTENSION_NAME" />" kann die Verbindung mit diesem Netzwerk unterstützen.</translation>
 <translation id="5571066253365925590">Bluetooth aktiviert</translation>
@@ -203,6 +216,7 @@
 <translation id="5977415296283489383">Kopfhörer</translation>
 <translation id="5978382165065462689">Sie teilen sich die Bildschirmsteuerung per Remote-Unterstützung.</translation>
 <translation id="5980301590375426705">Gastsitzung beenden</translation>
+<translation id="598882571027504733">Sie können das Update vornehmen, indem Sie das Chromebook mit angeschlossener Tastatur neu starten.</translation>
 <translation id="5992218262414051481">Modus mit hohem Kontrast aktiviert. Drücken Sie Strg + Suche + H, um ihn zu deaktivieren.</translation>
 <translation id="6018164090099858612">Spiegelungsmodus wird beendet</translation>
 <translation id="6043212731627905357">Dieser Monitor ist mit Ihrem <ph name="DEVICE_TYPE" /> nicht kompatibel (wird nicht unterstützt).</translation>
@@ -239,6 +253,7 @@ Nutzen Sie diese Funktion nur mit vertrauenswürdigen Konten.</translation>
 <translation id="6650933572246256093">Das Bluetooth-Gerät "<ph name="DEVICE_NAME" />" bittet um Erlaubnis für Kopplung. Geben Sie auf dem Gerät folgenden Zugangscode ein: <ph name="PASSKEY" />.</translation>
 <translation id="6657585470893396449">Passwort</translation>
 <translation id="6691659475504239918">Suche + Umschalttaste + H</translation>
+<translation id="6696025732084565524">Wichtiges Update für Ihre abnehmbare Tastatur</translation>
 <translation id="6700713906295497288">IME-Menüschaltfläche</translation>
 <translation id="6713285437468012787">Das Bluetooth-Gerät "<ph name="DEVICE_NAME" />" wurde gekoppelt und ist nun für alle Nutzer verfügbar. Sie können es unter "Einstellungen" wieder entkoppeln.</translation>
 <translation id="6715542151869432661">Keine Mobilgeräte gefunden.</translation>
@@ -258,6 +273,7 @@ Nutzen Sie diese Funktion nur mit vertrauenswürdigen Konten.</translation>
 <translation id="7098389117866926363">USB-C-Gerät (linker Port hinten)</translation>
 <translation id="7131634465328662194">Sie werden automatisch abgemeldet.</translation>
 <translation id="7165278925115064263">Alt + Umschalttaste + K</translation>
+<translation id="7165511658052620796">(TEMP) Show webui login; if used file bug (crbug.com) or feedback (alt+shift+i)</translation>
 <translation id="7168224885072002358">Alte Auflösung wird in <ph name="TIMEOUT_SECONDS" /> wiederhergestellt.</translation>
 <translation id="7256634071279256947">Mikrofon auf der Rückseite</translation>
 <translation id="726276584504105859">Hierher ziehen, um den Bildschirm zu teilen</translation>
@@ -317,6 +333,8 @@ Nutzen Sie diese Funktion nur mit vertrauenswürdigen Konten.</translation>
 <translation id="8652175077544655965">Einstellungen schließen</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">Schwachstrom-Ladegerät angeschlossen</translation>
+<translation id="8734991477317290293">Möglicherweise versucht jemand, darüber Ihre Tastatureingaben zu erfassen</translation>
+<translation id="8809737090443522491">Name einer App oder eines Dokuments eingeben</translation>
 <translation id="8814190375133053267">WLAN</translation>
 <translation id="8814715559352963456">Durch das Verschieben des Fensters auf einen anderen Desktop kann unerwartetes Verhalten auftreten.
 
@@ -330,6 +348,7 @@ Nachfolgende Benachrichtigungen, Fenster und Dialogfenster werden unter Umständ
 <translation id="8921624153894383499">Google Assistant spricht diese Sprache nicht.</translation>
 <translation id="8938800817013097409">USB-C-Gerät (rechter Port hinten)</translation>
 <translation id="8940956008527784070">Niedriger Akkustand (<ph name="PERCENTAGE" /> %)</translation>
+<translation id="8995603266996330174">Verwaltet von <ph name="DOMAIN" /></translation>
 <translation id="9074739597929991885">Bluetooth</translation>
 <translation id="9079731690316798640">WLAN: <ph name="ADDRESS" /></translation>
 <translation id="9080206825613744995">Mikrofon wird verwendet.</translation>

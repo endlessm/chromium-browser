@@ -28,7 +28,7 @@
 #include "media/base/timestamp_constants.h"
 #include "media/cdm/aes_decryptor.h"
 #include "media/cdm/json_web_key.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 #include "media/renderers/renderer_impl.h"
 #include "media/test/fake_encrypted_media.h"
 #include "media/test/mock_media_source.h"
@@ -395,14 +395,16 @@ class NoResponseApp : public FakeEncryptedMedia::AppBase {
 class FailingVideoDecoder : public VideoDecoder {
  public:
   std::string GetDisplayName() const override { return "FailingVideoDecoder"; }
-  void Initialize(const VideoDecoderConfig& config,
-                  bool low_delay,
-                  CdmContext* cdm_context,
-                  const InitCB& init_cb,
-                  const OutputCB& output_cb) override {
+  void Initialize(
+      const VideoDecoderConfig& config,
+      bool low_delay,
+      CdmContext* cdm_context,
+      const InitCB& init_cb,
+      const OutputCB& output_cb,
+      const WaitingForDecryptionKeyCB& waiting_for_decryption_key_cb) override {
     init_cb.Run(true);
   }
-  void Decode(const scoped_refptr<DecoderBuffer>& buffer,
+  void Decode(scoped_refptr<DecoderBuffer> buffer,
               const DecodeCB& decode_cb) override {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(decode_cb, DecodeStatus::DECODE_ERROR));
@@ -1848,7 +1850,7 @@ TEST_P(MSEPipelineIntegrationTest, ConfigChange_MP4) {
 
 MAYBE_EME_TEST_P(MSEPipelineIntegrationTest,
                  MAYBE_EME(ConfigChange_Encrypted_MP4_CENC_VideoOnly)) {
-  MockMediaSource source("bear-640x360-v_frag-cenc.mp4", kMP4Video,
+  MockMediaSource source("bear-640x360-v_frag-cenc-mdat.mp4", kMP4Video,
                          kAppendWholeFile);
   FakeEncryptedMedia encrypted_media(new KeyProvidingApp());
   EXPECT_EQ(PIPELINE_OK,
@@ -1948,7 +1950,7 @@ TEST_P(MSEPipelineIntegrationTest,
 // Config changes from encrypted to clear are not currently supported.
 MAYBE_EME_TEST_P(MSEPipelineIntegrationTest,
                  MAYBE_EME(ConfigChange_EncryptedThenClear_MP4_CENC)) {
-  MockMediaSource source("bear-640x360-v_frag-cenc.mp4", kMP4Video,
+  MockMediaSource source("bear-640x360-v_frag-cenc-mdat.mp4", kMP4Video,
                          kAppendWholeFile);
   FakeEncryptedMedia encrypted_media(new KeyProvidingApp());
   EXPECT_EQ(PIPELINE_OK,
@@ -2191,6 +2193,25 @@ MAYBE_EME_TEST_P(
   MockMediaSource source("bear-1280x720-a_frag-cenc_clear-all.mp4", kMP4Audio,
                          kAppendWholeFile);
   FakeEncryptedMedia encrypted_media(new NoResponseApp());
+  EXPECT_EQ(PIPELINE_OK,
+            StartPipelineWithEncryptedMedia(&source, &encrypted_media));
+
+  source.EndOfStream();
+
+  Play();
+
+  ASSERT_TRUE(WaitUntilOnEnded());
+  source.Shutdown();
+  Stop();
+}
+
+// Older packagers saved sample encryption auxiliary information in the
+// beginning of mdat box.
+MAYBE_EME_TEST_P(MSEPipelineIntegrationTest,
+                 MAYBE_EME(EncryptedPlayback_MP4_CENC_MDAT_Video)) {
+  MockMediaSource source("bear-640x360-v_frag-cenc-mdat.mp4", kMP4Video,
+                         kAppendWholeFile);
+  FakeEncryptedMedia encrypted_media(new KeyProvidingApp());
   EXPECT_EQ(PIPELINE_OK,
             StartPipelineWithEncryptedMedia(&source, &encrypted_media));
 
@@ -2631,6 +2652,12 @@ TEST_F(PipelineIntegrationTest, BasicPlaybackChainedOgg) {
   Play();
   ASSERT_TRUE(WaitUntilOnEnded());
   ASSERT_EQ(base::TimeDelta(), demuxer_->GetStartTime());
+}
+
+TEST_F(PipelineIntegrationTest, TrailingGarbage) {
+  ASSERT_EQ(PIPELINE_OK, Start("trailing-garbage.mp3"));
+  Play();
+  ASSERT_TRUE(WaitUntilOnEnded());
 }
 
 // Ensures audio-video playback with missing or negative timestamps fails

@@ -80,6 +80,7 @@ chrome.system.display.TouchCalibrationPairQuad;
  *   heightInNativePixels: number,
  *   uiScale: number,
  *   deviceScaleFactor: number,
+ *   refreshRate: number,
  *   isNative: boolean,
  *   isSelected: boolean
  * }}
@@ -129,6 +130,7 @@ chrome.system.display.DisplayLayout;
  *   modes: !Array<!chrome.system.display.DisplayMode>,
  *   hasTouchSupport: boolean,
  *   hasAccelerometerSupport: boolean,
+ *   availableDisplayZoomFactors: !Array<number>,
  *   displayZoomFactor: number
  * }}
  * @see https://developer.chrome.com/extensions/system.display#type-DisplayUnitInfo

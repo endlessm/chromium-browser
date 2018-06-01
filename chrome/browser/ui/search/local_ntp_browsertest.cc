@@ -40,20 +40,21 @@
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/download_test_observer.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_navigation_throttle_inserter.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/platform/web_feature.mojom.h"
+#include "third_party/blink/public/platform/web_feature.mojom.h"
 #include "url/gurl.h"
 
 namespace {
 
-// In a non-signed-in, fresh profile with no history, there should be two
-// default TopSites tiles (see history::PrepopulatedPage).
-const int kDefaultMostVisitedItemCount = 2;
+// In a non-signed-in, fresh profile with no history, there should be one
+// default TopSites tile (see history::PrepopulatedPage).
+const int kDefaultMostVisitedItemCount = 1;
 
 class TestMostVisitedObserver : public InstantServiceObserver {
  public:
@@ -179,6 +180,45 @@ IN_PROC_BROWSER_TEST_F(LocalNTPTest, EmbeddedSearchAPIOnlyAvailableOnNTP) {
   EXPECT_TRUE(result);
 }
 
+// The spare RenderProcessHost is warmed up *before* the target destination is
+// known and therefore doesn't include any special command-line flags that are
+// used when launching a RenderProcessHost known to be needed for NTP.  This
+// test ensures that the spare RenderProcessHost doesn't accidentally end up
+// being used for NTP navigations.
+IN_PROC_BROWSER_TEST_F(LocalNTPTest, SpareProcessDoesntInterfereWithSearchAPI) {
+  content::WebContents* active_tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  // Navigate to a non-NTP URL, so that the next step needs to swap the process.
+  GURL non_ntp_url = ui_test_utils::GetTestUrl(
+      base::FilePath(), base::FilePath().AppendASCII("title1.html"));
+  ui_test_utils::NavigateToURL(browser(), non_ntp_url);
+  content::RenderProcessHost* old_process =
+      active_tab->GetMainFrame()->GetProcess();
+
+  // Navigate to an NTP while a spare process is present.
+  content::RenderProcessHost::WarmupSpareRenderProcessHost(
+      browser()->profile());
+  ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUINewTabURL));
+  ASSERT_TRUE(search::IsInstantNTP(active_tab));
+
+  // Verify that a process swap has taken place.  This is an indirect indication
+  // that the spare process could have been used (during the process swap).
+  // This assertion is a sanity check of the test setup, rather than
+  // verification of the core thing that the test cares about.
+  content::RenderProcessHost* new_process =
+      active_tab->GetMainFrame()->GetProcess();
+  ASSERT_NE(new_process, old_process);
+
+  // Check that the embeddedSearch API is available - the spare
+  // RenderProcessHost either shouldn't be used, or if used it should have been
+  // launched with the appropriate, NTP-specific cmdline flags.
+  bool result = false;
+  ASSERT_TRUE(instant_test_utils::GetBoolFromJS(
+      active_tab, "!!window.chrome.embeddedSearch", &result));
+  EXPECT_TRUE(result);
+}
+
 // Regression test for crbug.com/776660 and crbug.com/776655.
 IN_PROC_BROWSER_TEST_F(LocalNTPTest, EmbeddedSearchAPIExposesStaticFunctions) {
   // Open an NTP.
@@ -266,14 +306,6 @@ IN_PROC_BROWSER_TEST_F(LocalNTPTest, EmbeddedSearchAPIEndToEnd) {
 
 // Regression test for crbug.com/592273.
 IN_PROC_BROWSER_TEST_F(LocalNTPTest, EmbeddedSearchAPIAfterDownload) {
-  // Set up a temporary directory for downloads, so that we don't leak the
-  // downloaded file.
-  base::ScopedAllowBlockingForTesting allow_blocking;
-  base::ScopedTempDir downloads_dir;
-  ASSERT_TRUE(downloads_dir.CreateUniqueTempDir());
-  browser()->profile()->GetPrefs()->SetFilePath(
-      prefs::kDownloadDefaultDirectory, downloads_dir.GetPath());
-
   // Set up a test server, so we have some URL to download.
   net::EmbeddedTestServer test_server(net::EmbeddedTestServer::TYPE_HTTPS);
   test_server.ServeFilesFromSourceDirectory("chrome/test/data");
@@ -297,8 +329,9 @@ IN_PROC_BROWSER_TEST_F(LocalNTPTest, EmbeddedSearchAPIAfterDownload) {
   ui_test_utils::NavigateToURL(browser(), download_url);
   download_observer.WaitForFinished();
 
-  // This should have changed the visible URL, but not the last committed one.
-  ASSERT_EQ(download_url, active_tab->GetVisibleURL());
+  // This should neither have changed the visible URL, nor the last committed
+  // one.
+  ASSERT_EQ(GURL(chrome::kChromeUINewTabURL), active_tab->GetVisibleURL());
   ASSERT_EQ(GURL(chrome::kChromeUINewTabURL),
             active_tab->GetLastCommittedURL());
 
@@ -375,19 +408,18 @@ IN_PROC_BROWSER_TEST_F(LocalNTPTest, GoogleNTPLoadsWithoutError) {
   histograms.ExpectTotalCount("NewTabPage.TilesReceivedTime.LocalNTP", 1);
   histograms.ExpectTotalCount("NewTabPage.TilesReceivedTime.MostVisited", 1);
 
-  // Make sure impression metrics were recorded. There should be 2 tiles, the
+  // Make sure impression metrics were recorded. There should be 1 tile, the
   // default prepopulated TopSites (see history::PrepopulatedPage).
   histograms.ExpectTotalCount("NewTabPage.NumberOfTiles", 1);
-  histograms.ExpectBucketCount("NewTabPage.NumberOfTiles", 2, 1);
-  histograms.ExpectTotalCount("NewTabPage.SuggestionsImpression", 2);
+  histograms.ExpectBucketCount("NewTabPage.NumberOfTiles", 1, 1);
+  histograms.ExpectTotalCount("NewTabPage.SuggestionsImpression", 1);
   histograms.ExpectBucketCount("NewTabPage.SuggestionsImpression", 0, 1);
-  histograms.ExpectBucketCount("NewTabPage.SuggestionsImpression", 1, 1);
-  histograms.ExpectTotalCount("NewTabPage.SuggestionsImpression.client", 2);
-  histograms.ExpectTotalCount("NewTabPage.SuggestionsImpression.Thumbnail", 2);
-  histograms.ExpectTotalCount("NewTabPage.TileTitle", 2);
-  histograms.ExpectTotalCount("NewTabPage.TileTitle.client", 2);
-  histograms.ExpectTotalCount("NewTabPage.TileType", 2);
-  histograms.ExpectTotalCount("NewTabPage.TileType.client", 2);
+  histograms.ExpectTotalCount("NewTabPage.SuggestionsImpression.client", 1);
+  histograms.ExpectTotalCount("NewTabPage.SuggestionsImpression.Thumbnail", 1);
+  histograms.ExpectTotalCount("NewTabPage.TileTitle", 1);
+  histograms.ExpectTotalCount("NewTabPage.TileTitle.client", 1);
+  histograms.ExpectTotalCount("NewTabPage.TileType", 1);
+  histograms.ExpectTotalCount("NewTabPage.TileType.client", 1);
 }
 
 IN_PROC_BROWSER_TEST_F(LocalNTPTest, NonGoogleNTPLoadsWithoutError) {
@@ -427,19 +459,18 @@ IN_PROC_BROWSER_TEST_F(LocalNTPTest, NonGoogleNTPLoadsWithoutError) {
   histograms.ExpectTotalCount("NewTabPage.TilesReceivedTime.LocalNTP", 1);
   histograms.ExpectTotalCount("NewTabPage.TilesReceivedTime.MostVisited", 1);
 
-  // Make sure impression metrics were recorded. There should be 2 tiles, the
+  // Make sure impression metrics were recorded. There should be 1 tile, the
   // default prepopulated TopSites (see history::PrepopulatedPage).
   histograms.ExpectTotalCount("NewTabPage.NumberOfTiles", 1);
-  histograms.ExpectBucketCount("NewTabPage.NumberOfTiles", 2, 1);
-  histograms.ExpectTotalCount("NewTabPage.SuggestionsImpression", 2);
+  histograms.ExpectBucketCount("NewTabPage.NumberOfTiles", 1, 1);
+  histograms.ExpectTotalCount("NewTabPage.SuggestionsImpression", 1);
   histograms.ExpectBucketCount("NewTabPage.SuggestionsImpression", 0, 1);
-  histograms.ExpectBucketCount("NewTabPage.SuggestionsImpression", 1, 1);
-  histograms.ExpectTotalCount("NewTabPage.SuggestionsImpression.client", 2);
-  histograms.ExpectTotalCount("NewTabPage.SuggestionsImpression.Thumbnail", 2);
-  histograms.ExpectTotalCount("NewTabPage.TileTitle", 2);
-  histograms.ExpectTotalCount("NewTabPage.TileTitle.client", 2);
-  histograms.ExpectTotalCount("NewTabPage.TileType", 2);
-  histograms.ExpectTotalCount("NewTabPage.TileType.client", 2);
+  histograms.ExpectTotalCount("NewTabPage.SuggestionsImpression.client", 1);
+  histograms.ExpectTotalCount("NewTabPage.SuggestionsImpression.Thumbnail", 1);
+  histograms.ExpectTotalCount("NewTabPage.TileTitle", 1);
+  histograms.ExpectTotalCount("NewTabPage.TileTitle.client", 1);
+  histograms.ExpectTotalCount("NewTabPage.TileType", 1);
+  histograms.ExpectTotalCount("NewTabPage.TileType.client", 1);
 }
 
 IN_PROC_BROWSER_TEST_F(LocalNTPTest, FrenchGoogleNTPLoadsWithoutError) {
@@ -466,9 +497,11 @@ IN_PROC_BROWSER_TEST_F(LocalNTPTest, FrenchGoogleNTPLoadsWithoutError) {
 }
 
 // Tests that blink::UseCounter do not track feature usage for NTP activities.
+// TODO(lunalu): remove this test when blink side use counter is removed
+// (crbug.com/811948).
 IN_PROC_BROWSER_TEST_F(LocalNTPTest, ShouldNotTrackBlinkUseCounterForNTP) {
   base::HistogramTester histogram_tester;
-  const char kFeaturesHistogramName[] = "Blink.UseCounter.Features";
+  const char kFeaturesHistogramName[] = "Blink.UseCounter.Features_Legacy";
 
   // Set up a test server, so we have some arbitrary non-NTP URL to navigate to.
   net::EmbeddedTestServer test_server(net::EmbeddedTestServer::TYPE_HTTPS);

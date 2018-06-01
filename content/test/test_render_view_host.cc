@@ -60,7 +60,7 @@ void InitNavigateParams(FrameHostMsg_DidCommitProvisionalLoad_Params* params,
 }
 
 TestRenderWidgetHostView::TestRenderWidgetHostView(RenderWidgetHost* rwh)
-    : rwh_(RenderWidgetHostImpl::From(rwh)),
+    : RenderWidgetHostViewBase(rwh),
       is_showing_(false),
       is_occluded_(false),
       did_swap_compositor_frame_(false),
@@ -80,7 +80,7 @@ TestRenderWidgetHostView::TestRenderWidgetHostView(RenderWidgetHost* rwh)
   }
 #endif
 
-  rwh_->SetView(this);
+  host()->SetView(this);
 
 #if defined(USE_AURA)
   window_.reset(new aura::Window(
@@ -94,10 +94,6 @@ TestRenderWidgetHostView::~TestRenderWidgetHostView() {
   viz::HostFrameSinkManager* manager = GetHostFrameSinkManager();
   if (manager)
     manager->InvalidateFrameSinkId(frame_sink_id_);
-}
-
-gfx::Vector2dF TestRenderWidgetHostView::GetLastScrollOffset() const {
-  return gfx::Vector2dF();
 }
 
 gfx::NativeView TestRenderWidgetHostView::GetNativeView() const {
@@ -161,24 +157,12 @@ SkColor TestRenderWidgetHostView::background_color() const {
 }
 
 #if defined(OS_MACOSX)
-
 void TestRenderWidgetHostView::SetActive(bool active) {
   // <viettrungluu@gmail.com>: Do I need to do anything here?
 }
 
-bool TestRenderWidgetHostView::SupportsSpeech() const {
-  return false;
-}
-
 void TestRenderWidgetHostView::SpeakSelection() {
 }
-
-bool TestRenderWidgetHostView::IsSpeaking() const {
-  return false;
-}
-
-void TestRenderWidgetHostView::StopSpeaking() {}
-
 #endif
 
 gfx::Vector2d TestRenderWidgetHostView::GetOffsetFromRootSurface() {
@@ -204,16 +188,16 @@ void TestRenderWidgetHostView::SubmitCompositorFrame(
     OnFrameTokenChanged(frame_token);
 }
 
+void TestRenderWidgetHostView::TakeFallbackContentFrom(
+    RenderWidgetHostView* view) {
+  SetBackgroundColor(view->background_color());
+}
+
 bool TestRenderWidgetHostView::LockMouse() {
   return false;
 }
 
 void TestRenderWidgetHostView::UnlockMouse() {
-}
-
-RenderWidgetHostImpl* TestRenderWidgetHostView::GetRenderWidgetHostImpl()
-    const {
-  return rwh_;
 }
 
 viz::FrameSinkId TestRenderWidgetHostView::GetFrameSinkId() {

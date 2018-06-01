@@ -20,8 +20,8 @@
 #include "components/sync/engine/connection_status.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 
+struct AccountInfo;
 class GoogleServiceAuthError;
-class SigninManagerBase;
 
 namespace sync_sessions {
 class OpenTabsUIDelegate;
@@ -126,7 +126,7 @@ class SyncService : public DataTypeEncryptionHandler, public KeyedService {
   // Returns true if sync is fully initialized and active. This implies that
   // an initial configuration has successfully completed, although there may
   // be datatype specific, auth, or other transient errors. To see which
-  // datetypes are actually syncing, see GetActiveTypes() below.
+  // datatypes are actually syncing, see GetActiveDataTypes() below.
   virtual bool IsSyncActive() const = 0;
 
   // Returns true if the local sync backend server has been enabled through a
@@ -350,9 +350,8 @@ class SyncService : public DataTypeEncryptionHandler, public KeyedService {
       const base::Callback<void(std::unique_ptr<base::ListValue>)>&
           callback) = 0;
 
-  // Non-owning pointer to sign in logic that can be used to fetch information
-  // about the currently signed in user.
-  virtual SigninManagerBase* signin() const = 0;
+  // Information about the currently signed in user.
+  virtual AccountInfo GetAuthenticatedAccountInfo() const = 0;
 
   virtual GlobalIdMapper* GetGlobalIdMapper() const = 0;
 

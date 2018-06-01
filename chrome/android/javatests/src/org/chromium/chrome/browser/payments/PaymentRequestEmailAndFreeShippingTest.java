@@ -64,8 +64,8 @@ public class PaymentRequestEmailAndFreeShippingTest implements MainActivityStart
         mPaymentRequestTestRule.clickCardUnmaskButtonAndWait(
                 DialogInterface.BUTTON_POSITIVE, mPaymentRequestTestRule.getDismissed());
         mPaymentRequestTestRule.expectResultContains(new String[] {"jon.doe@google.com", "Jon Doe",
-                "4111111111111111", "12", "2050", "visa", "123", "Google", "340 Main St", "CA",
-                "Los Angeles", "90291", "US", "en", "freeShippingOption"});
+                "4111111111111111", "12", "2050", "basic-card", "123", "Google", "340 Main St",
+                "CA", "Los Angeles", "90291", "US", "en", "freeShippingOption"});
     }
 
     /**
@@ -110,7 +110,7 @@ public class PaymentRequestEmailAndFreeShippingTest implements MainActivityStart
                         "94043", "650-253-0000"},
                 mPaymentRequestTestRule.getEditorTextUpdate());
         mPaymentRequestTestRule.clickInEditorAndWait(
-                R.id.payments_edit_done_button, mPaymentRequestTestRule.getReadyForInput());
+                R.id.editor_dialog_done_button, mPaymentRequestTestRule.getReadyForInput());
         mPaymentRequestTestRule.clickAndWait(
                 R.id.close_button, mPaymentRequestTestRule.getDismissed());
         mPaymentRequestTestRule.expectResultContains(new String[] {"Request cancelled"});

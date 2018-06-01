@@ -27,7 +27,7 @@
 #include "chrome/browser/safe_browsing/safe_browsing_navigation_observer_manager.h"
 #include "chrome/browser/safe_browsing/ui_manager.h"
 #include "components/safe_browsing/db/database_manager.h"
-#include "net/url_request/url_request_context_getter.h"
+#include "components/sessions/core/session_id.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -41,6 +41,10 @@ class DownloadItem;
 namespace net {
 class X509Certificate;
 }  // namespace net
+
+namespace network {
+class SharedURLLoaderFactory;
+}
 
 class Profile;
 
@@ -239,7 +243,7 @@ class DownloadProtectionService {
   void AddReferrerChainToPPAPIClientDownloadRequest(
       const GURL& initiating_frame_url,
       const GURL& initiating_main_frame_url,
-      int tab_id,
+      SessionID tab_id,
       bool has_user_gesture,
       ClientDownloadRequest* out_request);
 
@@ -250,8 +254,8 @@ class DownloadProtectionService {
   scoped_refptr<SafeBrowsingNavigationObserverManager>
       navigation_observer_manager_;
 
-  // The context we use to issue network requests.
-  scoped_refptr<net::URLRequestContextGetter> request_context_getter_;
+  // The loader factory we use to issue network requests.
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
 
   // Set of pending server requests for DownloadManager mediated downloads.
   std::set<scoped_refptr<CheckClientDownloadRequest>> download_requests_;

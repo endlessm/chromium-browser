@@ -12,7 +12,6 @@
 
 #include "ash/app_list/model/search/search_model.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/app_list/app_list_features.h"
@@ -57,7 +56,7 @@ class SearchResultListViewTest : public views::ViewsTestBase {
     for (int i = 0; i < kDefaultSearchItems; ++i) {
       std::unique_ptr<TestSearchResult> result =
           std::make_unique<TestSearchResult>();
-      result->set_display_type(SearchResult::DISPLAY_LIST);
+      result->set_display_type(ash::SearchResultDisplayType::kList);
       result->set_title(base::UTF8ToUTF16(base::StringPrintf("Result %d", i)));
       if (i < 2)
         result->set_details(base::ASCIIToUTF16("Detail"));

@@ -23,7 +23,7 @@
 
 namespace cast_channel {
 class CastSocketService;
-}  // namespace cast_channel
+}
 
 namespace media_router {
 
@@ -61,16 +61,23 @@ class CastMediaSinkServiceImpl
   // before we can say confidently that it is unlikely to be a Cast device.
   static constexpr int kMaxDialSinkFailureCount = 10;
 
+  // Returns the icon type to use according to |capabilities|. |capabilities| is
+  // a bit set of cast_channel::CastDeviceCapabilities in CastSinkExtraData.
+  static SinkIconType GetCastSinkIconType(uint8_t capabilities);
+
   // |callback|: Callback passed to MediaSinkServiceBase.
   // |observer|: Observer to invoke on sink updates. Can be nullptr.
   // |cast_socket_service|: CastSocketService to use to open Cast channels to
   // discovered devices.
   // |network_monitor|: DiscoveryNetworkMonitor to use to listen for network
   // changes.
+  // |allow_all_ips|: If |true|, |this| will try to open channel to
+  //     sinks on all IPs, and not just private IPs.
   CastMediaSinkServiceImpl(const OnSinksDiscoveredCallback& callback,
                            Observer* observer,
                            cast_channel::CastSocketService* cast_socket_service,
-                           DiscoveryNetworkMonitor* network_monitor);
+                           DiscoveryNetworkMonitor* network_monitor,
+                           bool allow_all_ips);
   ~CastMediaSinkServiceImpl() override;
 
   // Returns the SequencedTaskRunner that should be used to invoke methods on
@@ -81,7 +88,8 @@ class CastMediaSinkServiceImpl
 
   void SetClockForTest(base::Clock* clock);
 
-  // Marked virtual for tests.
+  // Marked virtual for tests. Registers observers to listen for Cast devices
+  // and network changes.
   virtual void Start();
 
   // MediaSinkServiceBase implementation
@@ -108,6 +116,9 @@ class CastMediaSinkServiceImpl
   // assumption is that |this| will outlive the invoker
   // (DialMediaSinkServiceImpl), and that they run on the same sequence.
   OnDialSinkAddedCallback GetDialSinkAddedCallback();
+
+  // Called by CastMediaSinkService to set |allow_all_ips_|.
+  void SetCastAllowAllIPs(bool allow_all_ips);
 
  private:
   friend class CastMediaSinkServiceImplTest;
@@ -340,6 +351,10 @@ class CastMediaSinkServiceImpl
   OpenParams open_params_;
 
   net::BackoffEntry::Policy backoff_policy_;
+
+  // If |true|, |this| will try to open channel to sinks on all IPs, and not
+  // just private IPs.
+  bool allow_all_ips_ = false;
 
   // Map of consecutive failure count keyed by IP endpoint. Keeps track of
   // failure counts for each IP endpoint. Used to dynamically adjust timeout

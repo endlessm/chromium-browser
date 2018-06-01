@@ -12,10 +12,10 @@
 #include "build/build_config.h"
 #include "build/buildflag.h"
 #include "chrome/common/buildflags.h"
-#include "device/vr/features/features.h"
-#include "extensions/features/features.h"
-#include "ppapi/features/features.h"
-#include "printing/features/features.h"
+#include "device/vr/buildflags/buildflags.h"
+#include "extensions/buildflags/buildflags.h"
+#include "ppapi/buildflags/buildflags.h"
+#include "printing/buildflags/buildflags.h"
 #include "ui/base/ui_features.h"
 
 namespace features {
@@ -32,10 +32,6 @@ extern const base::Feature kAllowAutoplayUnmutedInWebappManifestScope;
 #if defined(OS_MACOSX)
 extern const base::Feature kAppleScriptExecuteJavaScriptMenuItem;
 extern const base::Feature kShow10_9ObsoleteInfobar;
-#if BUILDFLAG(MAC_VIEWS_BROWSER)
-extern const base::Feature kViewsBrowserWindows;
-#endif
-extern const base::Feature kViewsProfileChooser;
 extern const base::Feature kViewsTaskManager;
 #endif  // defined(OS_MACOSX)
 
@@ -80,9 +76,9 @@ extern const base::Feature kDialogTouchBar;
 extern const base::Feature kTabStripKeyboardFocus;
 #endif  // defined(OS_MACOSX)
 
-extern const base::Feature kCaptureThumbnailDependingOnTransitionType;
-
-extern const base::Feature kCaptureThumbnailOnNavigatingAway;
+#if (defined(OS_LINUX) && !defined(OS_CHROMEOS)) || defined(OS_MACOSX)
+extern const base::Feature kCertDualVerificationTrialFeature;
+#endif
 
 extern const base::Feature kChangePictureVideoMode;
 
@@ -157,6 +153,8 @@ extern const base::Feature kOpenVR;
 
 #endif  // ENABLE_VR
 
+extern const base::Feature kFullscreenExitUI;
+
 #if defined(OS_MACOSX)
 extern const base::Feature kFullscreenToolbarReveal;
 #endif
@@ -173,6 +171,10 @@ extern const base::Feature kGrantNotificationsToDSE;
 
 #if defined(OS_CHROMEOS)
 extern const base::Feature kHappinessTrackingSystem;
+#endif
+
+#if !defined(OS_ANDROID)
+extern const base::Feature kViewsCastDialog;
 #endif
 
 extern const base::Feature kImportantSitesInCbd;
@@ -245,8 +247,6 @@ extern const base::Feature kOneGoogleBarOnLocalNtp;
 
 extern const base::Feature kUseNewAcceptLanguageHeader;
 
-extern const base::Feature kPermissionsBlacklist;
-
 extern const base::Feature kPermissionDelegation;
 
 #if defined(OS_WIN)
@@ -280,10 +280,6 @@ extern const base::Feature kPushMessagingBackgroundMode;
 extern const base::Feature kRemoveUsageOfDeprecatedGaiaSigninEndpoint;
 #endif
 
-#if defined(OS_CHROMEOS)
-extern const base::Feature kRuntimeMemoryLeakDetector;
-#endif  // defined(OS_CHROMEOS)
-
 extern const base::Feature kSafeSearchUrlReporting;
 
 extern const base::Feature kSecurityKeyAttestationPrompt;
@@ -292,11 +288,20 @@ extern const base::Feature kSecurityKeyAttestationPrompt;
 extern const base::Feature kShowAllDialogsWithViewsToolkit;
 #endif
 
+#if defined(OS_ANDROID)
+extern const base::Feature kShowTrustedPublisherURL;
+#endif
+
 extern const base::Feature kSimplifiedFullscreenUI;
 
 #if defined(OS_ANDROID)
 extern const base::Feature kSiteNotificationChannels;
 #endif
+
+extern const base::Feature kSitePerProcess;
+
+extern const base::Feature kSitePerProcessOnlyForHighMemoryClients;
+extern const char kSitePerProcessOnlyForHighMemoryClientsParamName[];
 
 #if defined(OS_CHROMEOS)
 extern const base::Feature kNativeSmb;
@@ -312,21 +317,17 @@ extern const base::Feature kSupervisedUserCommittedInterstitials;
 extern const base::Feature kSysInternals;
 #endif
 
-#if defined(SYZYASAN)
-extern const base::Feature kSyzyasanDeferredFree;
-#endif
-
 #if !defined(OS_ANDROID)
 extern const base::Feature kTabMetricsLogging;
 #endif
 
 extern const base::Feature kTopSitesFromSiteEngagement;
 
-extern const base::Feature kUnifiedConsent;
-
 extern const base::Feature kUseGoogleLocalNtp;
 
 #if defined(OS_CHROMEOS)
+extern const base::Feature kAdaptiveScreenBrightnessLogging;
+
 extern const base::Feature kUserActivityEventLogging;
 #endif
 

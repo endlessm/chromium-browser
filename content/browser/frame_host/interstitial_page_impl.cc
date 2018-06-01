@@ -38,7 +38,7 @@
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/browser/web_contents/web_contents_view.h"
-#include "content/common/features.h"
+#include "content/common/buildflags.h"
 #include "content/common/frame_messages.h"
 #include "content/common/input_messages.h"
 #include "content/common/view_messages.h"
@@ -548,6 +548,10 @@ const std::string& InterstitialPageImpl::GetUserAgentOverride() const {
   return base::EmptyString();
 }
 
+bool InterstitialPageImpl::ShouldOverrideUserAgentInNewTabs() {
+  return false;
+}
+
 bool InterstitialPageImpl::ShowingInterstitialPage() const {
   // An interstitial page never shows a second interstitial.
   return false;
@@ -832,6 +836,12 @@ void InterstitialPageImpl::Shutdown() {
 }
 
 void InterstitialPageImpl::OnNavigatingAwayOrTabClosing() {
+  // Notify the RenderWidgetHostView so it can clean up interstitial resources
+  // before the WebContents is fully destroyed.
+  if (render_view_host_ && render_view_host_->GetWidget() &&
+      render_view_host_->GetWidget()->GetView()) {
+    render_view_host_->GetWidget()->GetView()->OnInterstitialPageGoingAway();
+  }
   if (action_taken_ == NO_ACTION) {
     // We are navigating away from the interstitial or closing a tab with an
     // interstitial.  Default to DontProceed(). We don't just call Hide as

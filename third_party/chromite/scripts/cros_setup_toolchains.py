@@ -51,6 +51,7 @@ CROSSDEV_OVERLAY = '/usr/local/portage/crossdev'
 # want crossdev managing /etc/portage config files for the sdk
 HOST_PACKAGES = (
     'dev-lang/go',
+    'dev-libs/elfutils',
     'sys-devel/binutils',
     'sys-devel/clang',
     'sys-devel/gcc',
@@ -90,6 +91,7 @@ TARGET_COMPILER_RT_ENABLED = (
     'armv7a-cros-linux-gnueabi',
     'armv7a-cros-linux-gnueabihf',
     'aarch64-cros-linux-gnu',
+    'armv7m-cros-eabi',
 )
 CROSSDEV_COMPILER_RT_ARGS = ['--ex-pkg', 'sys-libs/compiler-rt']
 

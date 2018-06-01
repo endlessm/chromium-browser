@@ -173,6 +173,10 @@ gfx::Size OpaqueBrowserFrameView::GetMinimumSize() const {
   return layout_->GetMinimumSize(width());
 }
 
+int OpaqueBrowserFrameView::GetTabStripLeftInset() const {
+  return layout_->GetTabStripLeftInset();
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // OpaqueBrowserFrameView, views::NonClientFrameView implementation:
 
@@ -191,7 +195,7 @@ bool OpaqueBrowserFrameView::IsWithinAvatarMenuButtons(
       profile_indicator_icon()->GetMirroredBounds().Contains(point)) {
     return true;
   }
-  views::View* profile_switcher_view = GetProfileSwitcherView();
+  views::View* profile_switcher_view = GetProfileSwitcherButton();
   if (profile_switcher_view &&
       profile_switcher_view->GetMirroredBounds().Contains(point)) {
     return true;
@@ -451,6 +455,7 @@ bool OpaqueBrowserFrameView::UseCustomFrame() const {
 
 // views::View:
 void OpaqueBrowserFrameView::OnPaint(gfx::Canvas* canvas) {
+  TRACE_EVENT0("views.frame", "OpaqueBrowserFrameView::OnPaint");
   if (frame()->IsFullscreen())
     return;  // Nothing is visible, so don't bother to paint.
 

@@ -815,14 +815,14 @@ public class ContextualSearchManager
         mSearchPanel.loadUrlInPanel(searchUrl);
         mDidStartLoadingResolvedSearchRequest = true;
 
-        // TODO(pedrosimonetti): If the user taps on a word and quickly after that taps on the
+        // TODO(donnd): If the user taps on a word and quickly after that taps on the
         // peeking Search Bar, the Search Content View will not be displayed. It seems that
-        // calling ContentViewCore.onShow() while it's being created has no effect. Need
+        // calling WebContents.onShow() while it's being created has no effect. Need
         // to coordinate with Chrome-Android folks to come up with a proper fix for this.
         // For now, we force the ContentView to be displayed by calling onShow() again
         // when a URL is being loaded. See: crbug.com/398206
-        if (mSearchPanel.isContentShowing() && getSearchPanelContentViewCore() != null) {
-            getSearchPanelContentViewCore().onShow();
+        if (mSearchPanel.isContentShowing() && getSearchPanelWebContents() != null) {
+            getSearchPanelWebContents().onShow();
         }
     }
 
@@ -1293,13 +1293,6 @@ public class ContextualSearchManager
         }
 
         @Override
-        public void showUnhandledTapUIIfNeeded(final int x, final int y) {
-            if (!isOverlayVideoMode()) {
-                mSelectionController.handleShowUnhandledTapUIIfNeeded(x, y);
-            }
-        }
-
-        @Override
         public void selectWordAroundCaretAck(boolean didSelect, int startAdjust, int endAdjust) {
             if (mSelectWordAroundCaretCounter > 0) mSelectWordAroundCaretCounter--;
             if (mSelectWordAroundCaretCounter > 0
@@ -1325,6 +1318,14 @@ public class ContextualSearchManager
 
         @Override
         public void cancelAllRequests() {}
+    }
+
+    /** Shows the Unhandled Tap UI.  Called by {@link ContextualSearchTabHelper}. */
+    void onShowUnhandledTapUIIfNeeded(int x, int y, int fontSizeDips, int textRunLength) {
+        if (!isOverlayVideoMode()) {
+            mSelectionController.handleShowUnhandledTapUIIfNeeded(
+                    x, y, fontSizeDips, textRunLength);
+        }
     }
 
     /**
@@ -1586,6 +1587,7 @@ public class ContextualSearchManager
                 // Set up the next batch of Ranker logging.
                 mTapSuppressionRankerLogger.setupLoggingForPage(getBaseWebContents());
                 mSearchPanel.getPanelMetrics().setRankerLogger(mTapSuppressionRankerLogger);
+                ContextualSearchUma.logRankerFeaturesAvailable(false);
                 mInternalStateController.notifyFinishedWorkOn(InternalState.TAP_GESTURE_COMMIT);
             }
 
@@ -1674,6 +1676,7 @@ public class ContextualSearchManager
             public void showContextualSearchTapUi() {
                 mInternalStateController.notifyStartingWorkOn(InternalState.SHOW_FULL_TAP_UI);
                 showContextualSearch(StateChangeReason.TEXT_SELECT_TAP);
+                ContextualSearchUma.logRankerFeaturesAvailable(true);
                 mInternalStateController.notifyFinishedWorkOn(InternalState.SHOW_FULL_TAP_UI);
             }
 

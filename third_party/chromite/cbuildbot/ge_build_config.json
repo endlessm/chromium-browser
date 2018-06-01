@@ -50,6 +50,18 @@
       ]
     },
     {
+      "name": "atlas",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
       "name": "auron_paine",
       "configs": [
         {
@@ -139,6 +151,18 @@
         {
           "builder": "RELEASE",
           "experimental": false,
+          "leader_board": true,
+          "board_group": "vm builds",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "betty-arcnext",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
           "leader_board": true,
           "board_group": "vm builds",
           "arch": "X86_INTERNAL"
@@ -417,6 +441,18 @@
           "experimental": false,
           "leader_board": false,
           "board_group": "poppy",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "eve-campfire",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "",
           "arch": "X86_INTERNAL"
         }
       ]
@@ -813,18 +849,6 @@
           "experimental": true,
           "leader_board": false,
           "board_group": "",
-          "arch": "ARM_INTERNAL"
-        }
-      ]
-    },
-    {
-      "name": "lassen",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": true,
-          "leader_board": false,
-          "board_group": "lassen",
           "arch": "ARM_INTERNAL"
         }
       ]
@@ -1230,7 +1254,7 @@
       "configs": [
         {
           "builder": "RELEASE",
-          "experimental": true,
+          "experimental": false,
           "leader_board": false,
           "board_group": "",
           "arch": "X86_INTERNAL"
@@ -1244,6 +1268,18 @@
           "builder": "RELEASE",
           "experimental": false,
           "leader_board": true,
+          "board_group": "scarlet",
+          "arch": "ARM_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "scarlet-arcnext",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
           "board_group": "scarlet",
           "arch": "ARM_INTERNAL"
         }
@@ -1562,18 +1598,6 @@
       ]
     },
     {
-      "name": "x30evb",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": true,
-          "leader_board": false,
-          "board_group": "lassen",
-          "arch": "ARM_INTERNAL"
-        }
-      ]
-    },
-    {
       "name": "zako",
       "configs": [
         {
@@ -1622,7 +1646,28 @@
         },
         {
           "board_name": "coral",
+          "name": "babymega",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt"
+        },
+        {
+          "board_name": "coral",
           "name": "blacktip",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt"
+        },
+        {
+          "board_name": "coral",
+          "name": "blacktip360",
+          "test_suites": [
+            "sanity",
+            "bvt-inline",
+            "bvt-installer",
+            "bvt-arc",
+            "au",
+            "bvt-cq",
+            "bvt-perbuild"
+          ],
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt"
         },
@@ -1668,11 +1713,7 @@
           "board_name": "coral",
           "name": "nasher360",
           "test_suites": [
-            "bvt-inline",
-            "bvt-installer",
-            "bvt-arc",
-            "bvt-cq",
-            "bvt-perbuild"
+            "bvt-cq"
           ],
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt"
@@ -1725,18 +1766,6 @@
         {
           "board_name": "coral",
           "name": "whitetip",
-          "cq_test_enabled": false,
-          "release_builder_test_pool": "bvt"
-        },
-        {
-          "board_name": "coral",
-          "name": "whitetip1",
-          "cq_test_enabled": false,
-          "release_builder_test_pool": "bvt"
-        },
-        {
-          "board_name": "coral",
-          "name": "whitetip2",
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt"
         }
@@ -1801,26 +1830,11 @@
       "reference_board_name": "grunt",
       "arch": "X86_INTERNAL",
       "builder": "RELEASE",
-      "experimental": true,
+      "experimental": false,
       "models": [
         {
           "board_name": "grunt",
           "name": "grunt",
-          "cq_test_enabled": false,
-          "release_builder_test_pool": "bvt"
-        }
-      ]
-    },
-    {
-      "name": "kahlee",
-      "reference_board_name": "kahlee",
-      "arch": "X86_INTERNAL",
-      "builder": "RELEASE",
-      "experimental": false,
-      "models": [
-        {
-          "board_name": "kahlee",
-          "name": "kahlee",
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt"
         }
@@ -1833,6 +1847,12 @@
       "builder": "RELEASE",
       "experimental": false,
       "models": [
+        {
+          "board_name": "nami",
+          "name": "akali",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt"
+        },
         {
           "board_name": "nami",
           "name": "nami",

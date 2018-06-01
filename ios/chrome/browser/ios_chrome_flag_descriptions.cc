@@ -16,6 +16,15 @@ const char kAutofillIOSDelayBetweenFieldsDescription[] =
     "Delay between the different fields of a form being autofilled. In "
     "milliseconds.";
 
+const char kAutofillDynamicFormsName[] = "Autofill dynamic forms";
+const char kAutofillDynamicFormsDescription[] =
+    "Refills forms that dynamically change after an initial fill";
+
+const char kAutofillRestrictUnownedFieldsToFormlessCheckoutName[] =
+    "Restrict formless form extraction";
+const char kAutofillRestrictUnownedFieldsToFormlessCheckoutDescription[] =
+    "Restrict extraction of formless forms to checkout flows";
+
 const char kBrowserTaskScheduler[] = "Task Scheduler";
 const char kBrowserTaskSchedulerDescription[] =
     "Enables redirection of some task posting APIs to the task scheduler.";
@@ -53,6 +62,16 @@ const char kExternalSearchDescription[] = "Enable support for External Search.";
 
 const char kFeedbackKitV2Name[] = "FeedbackKit V2";
 const char kFeedbackKitV2Description[] = "Enable use of FeedbackKit V2.";
+const char kFeedbackKitV2WithSSOServiceName[] =
+    "FeedbackKit V2 with SSOService configured for FeedbackKit";
+const char kFeedbackKitV2WithSSOServiceDescription[] =
+    "Send SSOService with configuration for FeedbackKit V2.";
+
+const char kFullscreenContentInsetName[] = "Fullscreen ContentInset";
+const char kFullscreenContentInsetDescription[] =
+    "When enabled, fullscreen will be implemented by adjusting the "
+    "contentInset of the WKWebView's scroll view rather than adjusting its "
+    "frame.";
 
 const char kHistoryBatchUpdatesFilterName[] = "History Single Batch Filtering";
 const char kHistoryBatchUpdatesFilterDescription[] =
@@ -65,6 +84,11 @@ const char kInProductHelpDemoModeDescription[] =
     "start. Enabled causes all in-product help promotions to occur. Enabling "
     "an individual promotion causes that promotion but no other promotions to "
     "occur.";
+
+const char kITunesLinksStoreKitHandlingName[] = "Store kit for ITunes links";
+const char kITunesLinksStoreKitHandlingDescription[] =
+    "When enabled, opening itunes product links will be handled using the "
+    "store kit.";
 
 const char kMailtoHandlingWithGoogleUIName[] = "Mailto Handling with Google UI";
 const char kMailtoHandlingWithGoogleUIDescription[] =
@@ -82,22 +106,15 @@ const char kMemexTabSwitcherDescription[] =
     "prototype site instead of triggering the native Tab Switcher. The native "
     "TabSwitcher is accessible by long pressing the button";
 
+const char kNewToolsMenuName[] = "Enable the new tools menu";
+const char kNewToolsMenuDescription[] =
+    "When enabled, the new tools menu is displayed";
+
 const char kOmniboxUIElideSuggestionUrlAfterHostName[] =
     "Hide the path, query, and ref of omnibox suggestions";
 const char kOmniboxUIElideSuggestionUrlAfterHostDescription[] =
     "Elides the path, query, and ref of suggested URLs in the omnibox "
     "dropdown.";
-
-const char kOmniboxUIHideSuggestionUrlSchemeName[] =
-    "Hide scheme in omnibox suggestions";
-const char kOmniboxUIHideSuggestionUrlSchemeDescription[] =
-    "Elides the schemes of suggested URLs in the omnibox dropdown.";
-
-const char kOmniboxUIHideSuggestionUrlTrivialSubdomainsName[] =
-    "Hide trivial subdomains in omnibox suggestions";
-const char kOmniboxUIHideSuggestionUrlTrivialSubdomainsDescription[] =
-    "Elides trivially informative subdomains (www, m) from suggested URLs in "
-    "the omnibox dropdown.";
 
 const char kPasswordExportName[] = "Password Export";
 const char kPasswordExportDescription[] =
@@ -108,23 +125,14 @@ const char kPhysicalWebDescription[] =
     "When enabled, the omnibox will include suggestions for web pages "
     "broadcast by devices near you.";
 
-const char kRecentTabsUIRebootName[] = "Recent Tabs UI Reboot";
-const char kRecentTabsUIRebootDescription[] =
-    "When enabled, Recent Tabs will use the new UI Reboot stack.";
-
-const char kShareCanonicalURLName[] = "Share Canonical URL";
-const char kShareCanonicalURLDescription[] =
-    "When enabled, the current page's canonical URL is shared (if it exists) "
-    "instead of the visible URL.";
+const char kCollectionsUIRebootName[] = "Collections UI Reboot";
+const char kCollectionsUIRebootDescription[] =
+    "When enabled, Collections will use the new UI Reboot stack.";
 
 const char kSlimNavigationManagerName[] = "Use Slim Navigation Manager";
 const char kSlimNavigationManagerDescription[] =
     "When enabled, uses the experimental slim navigation manager that provides "
     "better compatibility with HTML navigation spec.";
-
-const char kNewPassKitDownloadName[] = "Use PassKit with ios/web Download API";
-const char kNewPassKitDownloadDescription[] =
-    "When enabled, uses ios/web Download API as dowload backend for PassKit.";
 
 const char kNewFileDownloadName[] = "Use new Download Manager UI and backend";
 const char kNewFileDownloadDescription[] =
@@ -142,14 +150,20 @@ const char kTabSwitcherPresentsBVCDescription[] =
     "BVC is visible, the tab switcher will remain in the VC hierarchy "
     "underneath it.";
 
-const char kTabSwitcherTabGridName[] = "TabSwitcher Tab Grid";
-const char kTabSwitcherTabGridDescription[] =
-    "When enabled, the tab grid will be used as the tab switcher for both "
-    "phone and tablet.";
+const char kUIRefreshLocationBarName[] = "UI Refresh Location Bar";
+const char kUIRefreshLocationBarDescription[] =
+    "When enabled, the UI Refresh location bar with a custom steady-state will "
+    "be displayed.";
 
 const char kUIRefreshPhase1Name[] = "UI Refresh Phase 1";
 const char kUIRefreshPhase1Description[] =
     "When enabled, the first phase of the iOS UI refresh will be displayed.";
+
+const char kUnifiedConsentName[] = "Unified Consent";
+const char kUnifiedConsentDescription[] =
+    "Enables a unified management of user consent for privacy-related "
+    "features. This includes new confirmation screens and improved settings "
+    "pages.";
 
 const char kUseDdljsonApiName[] = "Use new ddljson API for Doodles";
 const char kUseDdljsonApiDescription[] =

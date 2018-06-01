@@ -10,7 +10,6 @@
 #include <utility>
 
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/strings/string_util.h"
 #include "base/time/clock.h"
@@ -35,7 +34,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
-#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "url/gurl.h"
 
 #if defined(OS_ANDROID)
@@ -118,12 +117,13 @@ bool SiteEngagementService::IsEnabled() {
 double SiteEngagementService::GetScoreFromSettings(
     HostContentSettingsMap* settings,
     const GURL& origin) {
-  auto clock = std::make_unique<base::DefaultClock>();
-  return SiteEngagementScore(clock.get(), origin, settings).GetTotalScore();
+  return SiteEngagementScore(base::DefaultClock::GetInstance(), origin,
+                             settings)
+      .GetTotalScore();
 }
 
 SiteEngagementService::SiteEngagementService(Profile* profile)
-    : SiteEngagementService(profile, std::make_unique<base::DefaultClock>()) {
+    : SiteEngagementService(profile, base::DefaultClock::GetInstance()) {
   content::BrowserThread::PostAfterStartupTask(
       FROM_HERE,
       content::BrowserThread::GetTaskRunnerForThread(
@@ -282,6 +282,11 @@ double SiteEngagementService::GetTotalEngagementPoints() const {
   return total_score;
 }
 
+void SiteEngagementService::AddPointsForTesting(const GURL& url,
+                                                double points) {
+  AddPoints(url, points);
+}
+
 #if defined(OS_ANDROID)
 SiteEngagementServiceAndroid* SiteEngagementService::GetAndroidService() const {
   return android_service_.get();
@@ -294,8 +299,8 @@ void SiteEngagementService::SetAndroidService(
 #endif
 
 SiteEngagementService::SiteEngagementService(Profile* profile,
-                                             std::unique_ptr<base::Clock> clock)
-    : profile_(profile), clock_(std::move(clock)), weak_factory_(this) {
+                                             base::Clock* clock)
+    : profile_(profile), clock_(clock), weak_factory_(this) {
   // May be null in tests.
   history::HistoryService* history = HistoryServiceFactory::GetForProfile(
       profile, ServiceAccessType::IMPLICIT_ACCESS);
@@ -592,8 +597,7 @@ SiteEngagementScore SiteEngagementService::CreateEngagementScore(
   // the original profile migrated in, so all engagement scores in incognito
   // will be initialised to the values from the original profile.
   return SiteEngagementScore(
-      clock_.get(), origin,
-      HostContentSettingsMapFactory::GetForProfile(profile_));
+      clock_, origin, HostContentSettingsMapFactory::GetForProfile(profile_));
 }
 
 int SiteEngagementService::OriginsWithMaxDailyEngagement() const {

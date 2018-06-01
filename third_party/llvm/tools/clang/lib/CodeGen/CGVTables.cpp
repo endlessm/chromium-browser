@@ -49,11 +49,6 @@ llvm::Constant *CodeGenModule::GetAddrOfThunk(GlobalDecl GD,
                                  /*DontDefer=*/true, /*IsThunk=*/true);
 }
 
-static void setThunkVisibility(CodeGenModule &CGM, const CXXMethodDecl *MD,
-                               const ThunkInfo &Thunk, llvm::Function *Fn) {
-  CGM.setGVProperties(Fn, MD);
-}
-
 static void setThunkProperties(CodeGenModule &CGM, const ThunkInfo &Thunk,
                                llvm::Function *ThunkFn, bool ForVTable,
                                GlobalDecl GD) {
@@ -62,8 +57,12 @@ static void setThunkProperties(CodeGenModule &CGM, const ThunkInfo &Thunk,
                                   !Thunk.Return.isEmpty());
 
   // Set the right visibility.
-  const CXXMethodDecl *MD = cast<CXXMethodDecl>(GD.getDecl());
-  setThunkVisibility(CGM, MD, Thunk, ThunkFn);
+  CGM.setGVProperties(ThunkFn, GD);
+
+  if (!CGM.getCXXABI().exportThunk()) {
+    ThunkFn->setDLLStorageClass(llvm::GlobalValue::DefaultStorageClass);
+    ThunkFn->setDSOLocal(true);
+  }
 
   if (CGM.supportsCOMDAT() && ThunkFn->isWeakForLinker())
     ThunkFn->setComdat(CGM.getModule().getOrInsertComdat(ThunkFn->getName()));
@@ -993,8 +992,8 @@ void CodeGenModule::EmitVTableTypeMetadata(llvm::GlobalVariable *VTable,
                            AP.second.AddressPointIndex));
 
   // Sort the bit set entries for determinism.
-  std::sort(BitsetEntries.begin(), BitsetEntries.end(),
-            [this](const BSEntry &E1, const BSEntry &E2) {
+  llvm::sort(BitsetEntries.begin(), BitsetEntries.end(),
+             [this](const BSEntry &E1, const BSEntry &E2) {
     if (&E1 == &E2)
       return false;
 

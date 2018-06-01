@@ -22,8 +22,13 @@
 // Progress bar displayed below the toolbar.
 @property(nonatomic, strong, readonly) MDCProgressView* progressBar;
 
+// The blur visual effect view.
+@property(nonatomic, strong, readonly) UIVisualEffectView* blur;
+
 // Button to navigate back.
 @property(nonatomic, strong, readonly) ToolbarButton* backButton;
+// Buttons to navigate forward.
+@property(nonatomic, strong, readonly) ToolbarButton* forwardButton;
 // Button to display the TabGrid.
 @property(nonatomic, strong, readonly) ToolbarTabGridButton* tabGridButton;
 // Button to stop the loading of the page.
@@ -38,15 +43,6 @@
 @property(nonatomic, strong, readonly) ToolbarToolsMenuButton* toolsMenuButton;
 // Button to display the tools menu.
 @property(nonatomic, strong, readonly) ToolbarButton* omniboxButton;
-
-// The following 2 properties are for the two buttons to navigate forward that
-// are visible in various mutually exclusive configurations of the toolbar.
-// Forward button when it's positioned on the leading side of the toolbar
-// (relatively to the omnibox) | ← → [omnibox] ㉈ ⋮ |.
-@property(nonatomic, strong, readonly) ToolbarButton* forwardLeadingButton;
-// Forward button when it's positioned on the trailing side of the toolbar
-// (relatively to the omnibox) | ← [omnibox] → |.
-@property(nonatomic, strong, readonly) ToolbarButton* forwardTrailingButton;
 
 @end
 

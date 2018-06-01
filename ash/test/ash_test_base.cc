@@ -4,10 +4,12 @@
 
 #include "ash/test/ash_test_base.h"
 
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "ash/app_list/test/app_list_test_helper.h"
 #include "ash/display/extended_mouse_warp_controller.h"
 #include "ash/display/mouse_cursor_event_filter.h"
 #include "ash/display/screen_orientation_controller_test_api.h"
@@ -390,6 +392,10 @@ TestSessionControllerClient* AshTestBase::GetSessionControllerClient() {
   return ash_test_helper_->test_session_controller_client();
 }
 
+AppListTestHelper* AshTestBase::GetAppListTestHelper() {
+  return ash_test_helper_->app_list_test_helper();
+}
+
 void AshTestBase::CreateUserSessions(int n) {
   GetSessionControllerClient()->CreatePredefinedUserSessions(n);
 }
@@ -401,6 +407,18 @@ void AshTestBase::SimulateUserLogin(const std::string& user_email) {
   session_controller_client->SwitchActiveUser(
       AccountId::FromUserEmail(user_email));
   session_controller_client->SetSessionState(SessionState::ACTIVE);
+}
+
+void AshTestBase::SimulateNewUserFirstLogin(const std::string& user_email) {
+  TestSessionControllerClient* const session_controller_client =
+      GetSessionControllerClient();
+  session_controller_client->AddUserSession(
+      user_email, user_manager::USER_TYPE_REGULAR, true /* enable_settings */,
+      true /* provide_pref_service */, true /* is_new_profile */);
+  session_controller_client->SwitchActiveUser(
+      AccountId::FromUserEmail(user_email));
+  session_controller_client->SetSessionState(
+      session_manager::SessionState::ACTIVE);
 }
 
 void AshTestBase::SimulateGuestLogin() {

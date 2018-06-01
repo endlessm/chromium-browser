@@ -269,6 +269,29 @@ std::string ArcAppListPrefs::GetAppId(const std::string& package_name,
   return app_id;
 }
 
+std::string ArcAppListPrefs::GetAppIdByPackageName(
+    const std::string& package_name) const {
+  const base::DictionaryValue* apps =
+      prefs_->GetDictionary(arc::prefs::kArcApps);
+  if (!apps)
+    return std::string();
+
+  for (const auto& it : apps->DictItems()) {
+    const base::Value& value = it.second;
+    const base::Value* installed_package_name =
+        value.FindKeyOfType(kPackageName, base::Value::Type::STRING);
+    if (!installed_package_name ||
+        installed_package_name->GetString() != package_name)
+      continue;
+
+    const base::Value* activity_name =
+        value.FindKeyOfType(kActivity, base::Value::Type::STRING);
+    return activity_name ? GetAppId(package_name, activity_name->GetString())
+                         : std::string();
+  }
+  return std::string();
+}
+
 ArcAppListPrefs::ArcAppListPrefs(
     Profile* profile,
     arc::ConnectionHolder<arc::mojom::AppInstance, arc::mojom::AppHost>*
@@ -478,6 +501,17 @@ bool ArcAppListPrefs::HasObserver(Observer* observer) {
   return observer_list_.HasObserver(observer);
 }
 
+base::RepeatingCallback<std::string(const std::string&)>
+ArcAppListPrefs::GetAppIdByPackageNameCallback() {
+  return base::BindRepeating(
+      [](base::WeakPtr<ArcAppListPrefs> self, const std::string& package_name) {
+        if (!self)
+          return std::string();
+        return self->GetAppIdByPackageName(package_name);
+      },
+      weak_ptr_factory_.GetWeakPtr());
+}
+
 std::unique_ptr<ArcAppListPrefs::PackageInfo> ArcAppListPrefs::GetPackage(
     const std::string& package_name) const {
   if (!IsArcAlive() || !IsArcAndroidEnabledForProfile(profile_))
@@ -596,8 +630,9 @@ std::unique_ptr<ArcAppListPrefs::AppInfo> ArcAppListPrefs::GetApp(
   if (SetNotificationsEnabledDeferred(prefs_).Get(app_id, &deferred))
     notifications_enabled = deferred;
 
-  arc::mojom::OrientationLock orientation_lock =
-      static_cast<arc::mojom::OrientationLock>(orientation_lock_value);
+  arc::mojom::OrientationLockDeprecated orientation_lock =
+      static_cast<arc::mojom::OrientationLockDeprecated>(
+          orientation_lock_value);
 
   return std::make_unique<AppInfo>(
       name, package_name, activity, intent_uri, icon_resource_id,
@@ -758,7 +793,6 @@ void ArcAppListPrefs::SetDefaultAppsFilterLevel() {
 
 void ArcAppListPrefs::OnDefaultAppsReady() {
   // Apply uninstalled packages now.
-
   const std::vector<std::string> uninstalled_package_names =
       GetPackagesFromPrefs(false /* check_arc_alive */, false /* installed */);
   for (const auto& uninstalled_package_name : uninstalled_package_names)
@@ -781,21 +815,48 @@ void ArcAppListPrefs::RegisterDefaultApps() {
     if (!default_apps_.HasApp(app_id))
       continue;
     // Skip already tracked app.
-    if (tracked_apps_.count(app_id))
+    if (tracked_apps_.count(app_id)) {
+      // Icon should be already taken from the cache. Play Store icon is loaded
+      // from internal resources.
+      if (ready_apps_.count(app_id) || app_id == arc::kPlayStoreAppId)
+        continue;
+      // Notify that icon is ready for default app.
+      for (auto& observer : observer_list_) {
+        for (ui::ScaleFactor scale_factor : ui::GetSupportedScaleFactors())
+          observer.OnAppIconUpdated(app_id, scale_factor);
+      }
       continue;
+    }
+
     const ArcDefaultAppList::AppInfo& app_info = *default_app.second.get();
-    AddAppAndShortcut(false /* app_ready */,
-                      app_info.name,
-                      app_info.package_name,
-                      app_info.activity,
-                      std::string() /* intent_uri */,
-                      std::string() /* icon_resource_id */,
-                      false /* sticky */,
-                      false /* notifications_enabled */,
-                      false /* shortcut */,
-                      true /* launchable */,
-                      arc::mojom::OrientationLock::NONE);
+    AddAppAndShortcut(
+        false /* app_ready */, app_info.name, app_info.package_name,
+        app_info.activity, std::string() /* intent_uri */,
+        std::string() /* icon_resource_id */, false /* sticky */,
+        false /* notifications_enabled */, false /* shortcut */,
+        true /* launchable */, arc::mojom::OrientationLockDeprecated::NONE);
   }
+}
+
+base::Value* ArcAppListPrefs::GetPackagePrefs(const std::string& package_name,
+                                              const std::string& key) {
+  if (!GetPackage(package_name)) {
+    LOG(ERROR) << package_name << " can not be found.";
+    return nullptr;
+  }
+  ScopedArcPrefUpdate update(prefs_, package_name, arc::prefs::kArcPackages);
+  return update.Get()->FindKey(key);
+}
+
+void ArcAppListPrefs::SetPackagePrefs(const std::string& package_name,
+                                      const std::string& key,
+                                      base::Value value) {
+  if (!GetPackage(package_name)) {
+    LOG(ERROR) << package_name << " can not be found.";
+    return;
+  }
+  ScopedArcPrefUpdate update(prefs_, package_name, arc::prefs::kArcPackages);
+  update.Get()->SetKey(key, std::move(value));
 }
 
 void ArcAppListPrefs::SetDefaltAppsReadyCallback(base::Closure callback) {
@@ -855,7 +916,7 @@ void ArcAppListPrefs::HandleTaskCreated(const base::Optional<std::string>& name,
                       std::string() /* icon_resource_id */, false /* sticky */,
                       false /* notifications_enabled */, false /* shortcut */,
                       false /* launchable */,
-                      arc::mojom::OrientationLock::NONE);
+                      arc::mojom::OrientationLockDeprecated::NONE);
   }
 }
 
@@ -870,7 +931,7 @@ void ArcAppListPrefs::AddAppAndShortcut(
     const bool notifications_enabled,
     const bool shortcut,
     const bool launchable,
-    const arc::mojom::OrientationLock orientation_lock) {
+    const arc::mojom::OrientationLockDeprecated orientation_lock) {
   const std::string app_id = shortcut ? GetAppId(package_name, intent_uri)
                                       : GetAppId(package_name, activity);
 
@@ -1057,18 +1118,11 @@ void ArcAppListPrefs::OnAppListRefreshed(
   ready_apps_.clear();
   for (const auto& app : apps) {
     // TODO(oshima): Do we have to update orientation?
-    AddAppAndShortcut(
-        true /* app_ready */,
-        app->name,
-        app->package_name,
-        app->activity,
-        std::string() /* intent_uri */,
-        std::string() /* icon_resource_id */,
-        app->sticky,
-        app->notifications_enabled,
-        false /* shortcut */,
-        true /* launchable */,
-        app->orientation_lock);
+    AddAppAndShortcut(true /* app_ready */, app->name, app->package_name,
+                      app->activity, std::string() /* intent_uri */,
+                      std::string() /* icon_resource_id */, app->sticky,
+                      app->notifications_enabled, false /* shortcut */,
+                      true /* launchable */, app->orientation_lock_deprecated);
   }
 
   // Detect removed ARC apps after current refresh.
@@ -1132,17 +1186,12 @@ void ArcAppListPrefs::AddApp(const arc::mojom::AppInfo& app_info) {
     return;
   }
 
-  AddAppAndShortcut(true /* app_ready */,
-                    app_info.name,
-                    app_info.package_name,
-                    app_info.activity,
-                    std::string() /* intent_uri */,
-                    std::string() /* icon_resource_id */,
-                    app_info.sticky,
-                    app_info.notifications_enabled,
-                    false /* shortcut */,
+  AddAppAndShortcut(true /* app_ready */, app_info.name, app_info.package_name,
+                    app_info.activity, std::string() /* intent_uri */,
+                    std::string() /* icon_resource_id */, app_info.sticky,
+                    app_info.notifications_enabled, false /* shortcut */,
                     true /* launchable */,
-                    app_info.orientation_lock);
+                    app_info.orientation_lock_deprecated);
 }
 
 void ArcAppListPrefs::OnAppAddedDeprecated(arc::mojom::AppInfoPtr app) {
@@ -1202,17 +1251,12 @@ void ArcAppListPrefs::OnInstallShortcut(arc::mojom::ShortcutInfoPtr shortcut) {
     return;
   }
 
-  AddAppAndShortcut(true /* app_ready */,
-                    shortcut->name,
-                    shortcut->package_name,
-                    std::string() /* activity */,
-                    shortcut->intent_uri,
-                    shortcut->icon_resource_id,
-                    false /* sticky */,
-                    false /* notifications_enabled */,
-                    true /* shortcut */,
-                    true /* launchable */,
-                    arc::mojom::OrientationLock::NONE);
+  AddAppAndShortcut(true /* app_ready */, shortcut->name,
+                    shortcut->package_name, std::string() /* activity */,
+                    shortcut->intent_uri, shortcut->icon_resource_id,
+                    false /* sticky */, false /* notifications_enabled */,
+                    true /* shortcut */, true /* launchable */,
+                    arc::mojom::OrientationLockDeprecated::NONE);
 }
 
 void ArcAppListPrefs::OnUninstallShortcut(const std::string& package_name,
@@ -1365,11 +1409,12 @@ void ArcAppListPrefs::OnTaskDestroyed(int32_t task_id) {
     observer.OnTaskDestroyed(task_id);
 }
 
-void ArcAppListPrefs::OnTaskOrientationLockRequested(
+void ArcAppListPrefs::OnTaskOrientationLockRequestedDeprecated(
     int32_t task_id,
-    const arc::mojom::OrientationLock orientation_lock) {
+    const arc::mojom::OrientationLockDeprecated orientation_lock) {
   for (auto& observer : observer_list_)
-    observer.OnTaskOrientationLockRequested(task_id, orientation_lock);
+    observer.OnTaskOrientationLockRequestedDeprecated(task_id,
+                                                      orientation_lock);
 }
 
 void ArcAppListPrefs::OnTaskSetActive(int32_t task_id) {
@@ -1402,32 +1447,6 @@ void ArcAppListPrefs::OnNotificationsEnabledChanged(
     observer.OnNotificationsEnabledChanged(package_name, enabled);
 }
 
-void ArcAppListPrefs::MaybeShowPackageInAppLauncher(
-    const arc::mojom::ArcPackageInfo& package_info) {
-  // Ignore system packages and auxiliary packages.
-  if (!package_info.sync || package_info.system)
-    return;
-
-  std::unordered_set<std::string> app_ids =
-      GetAppsForPackage(package_info.package_name);
-  for (const auto& app_id : app_ids) {
-    std::unique_ptr<ArcAppListPrefs::AppInfo> app_info = GetApp(app_id);
-    if (!app_info) {
-      NOTREACHED();
-      continue;
-    }
-    if (!app_info->showInLauncher)
-      continue;
-
-    AppListService* service = AppListService::Get();
-    CHECK(service);
-    service->ShowForAppInstall(profile_, app_id, false);
-    last_shown_batch_installation_revision_ =
-        current_batch_installation_revision_;
-    break;
-  }
-}
-
 bool ArcAppListPrefs::IsUnknownPackage(const std::string& package_name) const {
   return !GetPackage(package_name) && sync_service_ &&
          !sync_service_->IsPackageSyncing(package_name);
@@ -1437,18 +1456,9 @@ void ArcAppListPrefs::OnPackageAdded(
     arc::mojom::ArcPackageInfoPtr package_info) {
   DCHECK(IsArcAndroidEnabledForProfile(profile_));
 
-  // Ignore packages installed by internal sync.
-  const bool unknown_package = IsUnknownPackage(package_info->package_name);
-
   AddOrUpdatePackagePrefs(prefs_, *package_info);
   for (auto& observer : observer_list_)
     observer.OnPackageInstalled(*package_info);
-
-  if (unknown_package &&
-      current_batch_installation_revision_ !=
-          last_shown_batch_installation_revision_) {
-    MaybeShowPackageInAppLauncher(*package_info);
-  }
 }
 
 void ArcAppListPrefs::OnPackageModified(
@@ -1563,9 +1573,6 @@ void ArcAppListPrefs::OnIconInstalled(const std::string& app_id,
 
 void ArcAppListPrefs::OnInstallationStarted(
     const base::Optional<std::string>& package_name) {
-  // Start new batch installation group if this is first installation.
-  if (!installing_packages_count_)
-    ++current_batch_installation_revision_;
   ++installing_packages_count_;
 
   if (!package_name.has_value())
@@ -1605,20 +1612,21 @@ void ArcAppListPrefs::NotifyAppReadyChanged(const std::string& app_id,
     observer.OnAppReadyChanged(app_id, ready);
 }
 
-ArcAppListPrefs::AppInfo::AppInfo(const std::string& name,
-                                  const std::string& package_name,
-                                  const std::string& activity,
-                                  const std::string& intent_uri,
-                                  const std::string& icon_resource_id,
-                                  const base::Time& last_launch_time,
-                                  const base::Time& install_time,
-                                  bool sticky,
-                                  bool notifications_enabled,
-                                  bool ready,
-                                  bool showInLauncher,
-                                  bool shortcut,
-                                  bool launchable,
-                                  arc::mojom::OrientationLock orientation_lock)
+ArcAppListPrefs::AppInfo::AppInfo(
+    const std::string& name,
+    const std::string& package_name,
+    const std::string& activity,
+    const std::string& intent_uri,
+    const std::string& icon_resource_id,
+    const base::Time& last_launch_time,
+    const base::Time& install_time,
+    bool sticky,
+    bool notifications_enabled,
+    bool ready,
+    bool showInLauncher,
+    bool shortcut,
+    bool launchable,
+    arc::mojom::OrientationLockDeprecated orientation_lock)
     : name(name),
       package_name(package_name),
       activity(activity),

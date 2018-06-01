@@ -12,11 +12,11 @@ DEPS = [
   'recipe_engine/runtime',
   'recipe_engine/source_manifest',
   'recipe_engine/step',
-  'rietveld',
   'tryserver',
 ]
 
 from recipe_engine.recipe_api import Property
+from recipe_engine.config import ConfigGroup, Single
 
 PROPERTIES = {
   # Gerrit patches will have all properties about them prefixed with patch_.
@@ -30,10 +30,7 @@ PROPERTIES = {
   # Legacy Gerrit fields.
   'event.patchSet.ref': Property(default=None, param_name='gerrit_ref'),
 
-  # Rietveld-only fields.
-  'rietveld': Property(default=None),  # Stores Url of Rietveld server.
-  'issue': Property(default=None),
-  'patchset': Property(default=None),
+  # Rietveld-only (?) fields.
   'repository': Property(default=None),
 
   # Common fields for both systems.
@@ -41,4 +38,14 @@ PROPERTIES = {
   'fail_patch': Property(default=None, kind=str),
   'parent_got_revision': Property(default=None),
   'revision': Property(default=None),
+
+  '$depot_tools/bot_update': Property(
+      help='Properties specific to bot_update module.',
+      param_name='properties',
+      kind=ConfigGroup(
+          # Whether we should do the patching in gclient instead of bot_update
+          apply_patch_on_gclient=Single(bool),
+      ),
+      default={},
+  ),
 }

@@ -4,6 +4,7 @@
 
 #include "components/omnibox/browser/zero_suggest_provider.h"
 
+#include <list>
 #include <map>
 #include <memory>
 #include <string>
@@ -86,11 +87,19 @@ class FakeEmptyTopSites : public history::TopSites {
   // RefcountedKeyedService:
   void ShutdownOnUIThread() override {}
 
-  // A test-specific field for controlling when most visited callback is run
-  // after top sites have been requested.
-  GetMostVisitedURLsCallback mv_callback;
+  // Only runs a single callback, so that the test can specify a different
+  // set per call.
+  void RunACallback(const history::MostVisitedURLList& urls) {
+    DCHECK(!callbacks.empty());
+    callbacks.front().Run(urls);
+    callbacks.pop_front();
+  }
 
  protected:
+  // A test-specific field for controlling when most visited callback is run
+  // after top sites have been requested.
+  std::list<GetMostVisitedURLsCallback> callbacks;
+
   ~FakeEmptyTopSites() override {}
 
   DISALLOW_COPY_AND_ASSIGN(FakeEmptyTopSites);
@@ -99,7 +108,7 @@ class FakeEmptyTopSites : public history::TopSites {
 void FakeEmptyTopSites::GetMostVisitedURLs(
     const GetMostVisitedURLsCallback& callback,
     bool include_forced_urls)  {
-  mv_callback = callback;
+  callbacks.push_back(callback);
 }
 
 class FakeAutocompleteProviderClient : public MockAutocompleteProviderClient {
@@ -263,6 +272,33 @@ TEST_F(ZeroSuggestProviderTest, TestDoesNotReturnMatchesForPrefix) {
   EXPECT_FALSE(fetcher);
 }
 
+TEST_F(ZeroSuggestProviderTest, TestStartWillStopForSomeInput) {
+  CreatePersonalizedFieldTrial();
+
+  std::string input_url("http://www.cnn.com/");
+  AutocompleteInput input(base::ASCIIToUTF16(input_url),
+                          metrics::OmniboxEventProto::OTHER,
+                          TestSchemeClassifier());
+  input.set_current_url(GURL(input_url));
+  input.set_from_omnibox_focus(true);
+
+  provider_->Start(input, false);
+  EXPECT_FALSE(provider_->done_);
+
+  // Make sure input stops the provider.
+  input.set_from_omnibox_focus(false);
+  provider_->Start(input, false);
+  EXPECT_TRUE(provider_->done_);
+
+  // Make sure invalid input stops the provider.
+  input.set_from_omnibox_focus(true);
+  provider_->Start(input, false);
+  EXPECT_FALSE(provider_->done_);
+  AutocompleteInput input2;
+  provider_->Start(input2, false);
+  EXPECT_TRUE(provider_->done_);
+}
+
 TEST_F(ZeroSuggestProviderTest, TestMostVisitedCallback) {
   CreateMostVisitedFieldTrial();
 
@@ -281,7 +317,7 @@ TEST_F(ZeroSuggestProviderTest, TestMostVisitedCallback) {
   provider_->Start(input, false);
   EXPECT_TRUE(provider_->matches().empty());
   scoped_refptr<history::TopSites> top_sites = client_->GetTopSites();
-  static_cast<FakeEmptyTopSites*>(top_sites.get())->mv_callback.Run(urls);
+  static_cast<FakeEmptyTopSites*>(top_sites.get())->RunACallback(urls);
   // Should have verbatim match + most visited url match.
   EXPECT_EQ(2U, provider_->matches().size());
   provider_->Stop(false, false);
@@ -291,8 +327,23 @@ TEST_F(ZeroSuggestProviderTest, TestMostVisitedCallback) {
   EXPECT_TRUE(provider_->matches().empty());
   // Most visited results arriving after Stop() has been called, ensure they
   // are not displayed.
-  static_cast<FakeEmptyTopSites*>(top_sites.get())->mv_callback.Run(urls);
+  static_cast<FakeEmptyTopSites*>(top_sites.get())->RunACallback(urls);
   EXPECT_TRUE(provider_->matches().empty());
+
+  history::MostVisitedURLList urls2;
+  urls2.push_back(history::MostVisitedURL(GURL("http://bar.com/"),
+                                          base::ASCIIToUTF16("Bar")));
+  urls2.push_back(history::MostVisitedURL(GURL("http://zinga.com/"),
+                                          base::ASCIIToUTF16("Zinga")));
+  provider_->Start(input, false);
+  provider_->Stop(false, false);
+  provider_->Start(input, false);
+  static_cast<FakeEmptyTopSites*>(top_sites.get())->RunACallback(urls);
+  // Stale results should get rejected.
+  EXPECT_TRUE(provider_->matches().empty());
+  static_cast<FakeEmptyTopSites*>(top_sites.get())->RunACallback(urls2);
+  EXPECT_FALSE(provider_->matches().empty());
+  provider_->Stop(false, false);
 }
 
 TEST_F(ZeroSuggestProviderTest, TestMostVisitedNavigateToSearchPage) {
@@ -326,7 +377,7 @@ TEST_F(ZeroSuggestProviderTest, TestMostVisitedNavigateToSearchPage) {
   EXPECT_TRUE(provider_->matches().empty());
   // Most visited results arriving after a new request has been started.
   scoped_refptr<history::TopSites> top_sites = client_->GetTopSites();
-  static_cast<FakeEmptyTopSites*>(top_sites.get())->mv_callback.Run(urls);
+  static_cast<FakeEmptyTopSites*>(top_sites.get())->RunACallback(urls);
   EXPECT_TRUE(provider_->matches().empty());
 }
 

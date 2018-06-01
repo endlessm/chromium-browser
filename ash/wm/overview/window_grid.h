@@ -19,12 +19,12 @@
 #include "ui/aura/window_observer.h"
 #include "ui/gfx/geometry/rect.h"
 
-namespace views {
-class Widget;
+namespace ui {
+class Shadow;
 }
 
-namespace wm {
-class Shadow;
+namespace views {
+class Widget;
 }
 
 namespace ash {
@@ -125,6 +125,8 @@ class ASH_EXPORT WindowGrid : public aura::WindowObserver,
   // when it is dragged.
   void SetSelectionWidgetVisibility(bool visible);
 
+  void ShowNoRecentsWindowMessage(bool visible);
+
   void UpdateCannotSnapWarningVisibility();
 
   // Called when any WindowSelectorItem on any WindowGrid has started/ended
@@ -162,6 +164,8 @@ class ASH_EXPORT WindowGrid : public aura::WindowObserver,
 
   bool IsNoItemsIndicatorLabelVisibleForTesting();
 
+  gfx::Rect GetNoItemsIndicatorLabelBoundsForTesting() const;
+
   WindowSelector* window_selector() { return window_selector_; }
 
   void set_window_animation_observer(
@@ -181,6 +185,15 @@ class ASH_EXPORT WindowGrid : public aura::WindowObserver,
   void SetWindowListAnimationStates(
       WindowSelectorItem* selected_item,
       WindowSelector::OverviewTransition transition);
+
+  // Do not animate the entire window list during exiting the overview. It's
+  // used when splitview and overview mode are both active, selecting a window
+  // will put the window in splitview mode and also end the overview mode. In
+  // this case the windows in WindowGrid should not animate when exiting the
+  // overivew mode. Instead, OverviewWindowAnimationObserver will observer the
+  // snapped window animation and reset all windows transform in WindowGrid
+  // directly when the animation is completed.
+  void SetWindowListNotAnimatedWhenExiting();
 
   // Reset |selector_item|'s |should_animate_when_entering_|,
   // |should_animate_when_exiting_| and |should_be_observed_when_exiting_|.
@@ -253,7 +266,7 @@ class ASH_EXPORT WindowGrid : public aura::WindowObserver,
   std::unique_ptr<views::Widget> selection_widget_;
 
   // Shadow around the selector.
-  std::unique_ptr<::wm::Shadow> selector_shadow_;
+  std::unique_ptr<ui::Shadow> selector_shadow_;
 
   // Current selected window position.
   size_t selected_index_;

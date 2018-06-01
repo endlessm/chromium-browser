@@ -179,7 +179,7 @@ void ClientControlledState::HandleCompoundEvents(WindowState* window_state,
       break;
     case WM_EVENT_CYCLE_SNAP_LEFT:
     case WM_EVENT_CYCLE_SNAP_RIGHT:
-      // TODO(oshima): implement this.
+      CycleSnap(window_state, event->type());
       break;
     default:
       NOTREACHED() << "Invalid event :" << event->type();
@@ -205,17 +205,16 @@ void ClientControlledState::HandleBoundsEvents(WindowState* window_state,
             break;
         }
         bounds_change_animation_type_ = kAnimationNone;
-      } else if (window_state->IsPinned() || window_state->IsTrustedPinned()) {
-        // In pinned state, it should ignore the SetBounds from window manager
-        // or user.
-      } else {
+      } else if (!window_state->IsMaximizedOrFullscreenOrPinned()) {
+        // In maximied, fullscreen, or pinned state, it should ignore
+        // the SetBounds from window manager or user.
         delegate_->HandleBoundsRequest(window_state,
                                        window_state->GetStateType(), bounds);
       }
       break;
     }
     case WM_EVENT_CENTER:
-      // TODO(oshima): implement this.
+      CenterWindow(window_state);
       break;
     default:
       NOTREACHED() << "Unknown event:" << event->type();

@@ -4,11 +4,15 @@
 
 #include "ash/touch/touch_devices_controller.h"
 
+#include <utility>
+
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/root_window_controller.h"
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
+#include "base/metrics/histogram_macros.h"
+#include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
@@ -50,6 +54,10 @@ PrefService* GetActivePrefService() {
 // static
 void TouchDevicesController::RegisterProfilePrefs(
     PrefRegistrySimple* registry) {
+  registry->RegisterBooleanPref(
+      prefs::kTapDraggingEnabled, false,
+      user_prefs::PrefRegistrySyncable::SYNCABLE_PRIORITY_PREF |
+          PrefRegistry::PUBLIC);
   registry->RegisterBooleanPref(prefs::kTouchpadEnabled, PrefRegistry::PUBLIC);
   registry->RegisterBooleanPref(prefs::kTouchscreenEnabled,
                                 PrefRegistry::PUBLIC);
@@ -121,6 +129,13 @@ void TouchDevicesController::SetTouchscreenEnabled(
   prefs->SetBoolean(prefs::kTouchscreenEnabled, enabled);
 }
 
+void TouchDevicesController::OnUserSessionAdded(const AccountId& account_id) {
+  uma_record_callback_ = base::BindOnce([](PrefService* prefs) {
+    UMA_HISTOGRAM_BOOLEAN("Touchpad.TapDragging.Started",
+                          prefs->GetBoolean(prefs::kTapDraggingEnabled));
+  });
+}
+
 void TouchDevicesController::OnSigninScreenPrefServiceInitialized(
     PrefService* prefs) {
   ObservePrefs(prefs);
@@ -128,6 +143,8 @@ void TouchDevicesController::OnSigninScreenPrefServiceInitialized(
 
 void TouchDevicesController::OnActiveUserPrefServiceChanged(
     PrefService* prefs) {
+  if (uma_record_callback_)
+    std::move(uma_record_callback_).Run(prefs);
   ObservePrefs(prefs);
 }
 
@@ -136,29 +153,46 @@ void TouchDevicesController::ObservePrefs(PrefService* prefs) {
   pref_change_registrar_ = std::make_unique<PrefChangeRegistrar>();
   pref_change_registrar_->Init(prefs);
   pref_change_registrar_->Add(
+      prefs::kTapDraggingEnabled,
+      base::BindRepeating(&TouchDevicesController::UpdateTapDraggingEnabled,
+                          base::Unretained(this)));
+  pref_change_registrar_->Add(
       prefs::kTouchpadEnabled,
-      base::Bind(&TouchDevicesController::UpdateTouchpadEnabled,
-                 base::Unretained(this)));
+      base::BindRepeating(&TouchDevicesController::UpdateTouchpadEnabled,
+                          base::Unretained(this)));
   pref_change_registrar_->Add(
       prefs::kTouchscreenEnabled,
-      base::Bind(&TouchDevicesController::UpdateTouchscreenEnabled,
-                 base::Unretained(this)));
+      base::BindRepeating(&TouchDevicesController::UpdateTouchscreenEnabled,
+                          base::Unretained(this)));
   // Load current state.
+  UpdateTapDraggingEnabled();
   UpdateTouchpadEnabled();
   UpdateTouchscreenEnabled();
+}
+
+void TouchDevicesController::UpdateTapDraggingEnabled() {
+  PrefService* prefs = GetActivePrefService();
+  const bool enabled = prefs->GetBoolean(prefs::kTapDraggingEnabled);
+
+  if (tap_dragging_enabled_ == enabled)
+    return;
+
+  tap_dragging_enabled_ = enabled;
+
+  UMA_HISTOGRAM_BOOLEAN("Touchpad.TapDragging.Changed", enabled);
+
+  if (!GetInputDeviceControllerClient())
+    return;  // Happens in tests.
+
+  GetInputDeviceControllerClient()->SetTapDragging(enabled);
 }
 
 void TouchDevicesController::UpdateTouchpadEnabled() {
   if (!GetInputDeviceControllerClient())
     return;  // Happens in tests.
 
-  PrefService* prefs =
-      Shell::Get()->session_controller()->GetActivePrefService();
-  if (!prefs)
-    return;
-
-  bool enabled = global_touchpad_enabled_ &&
-                 prefs->GetBoolean(prefs::kTouchpadEnabled);
+  bool enabled = GetTouchpadEnabled(TouchDeviceEnabledSource::GLOBAL) &&
+                 GetTouchpadEnabled(TouchDeviceEnabledSource::USER_PREF);
 
   GetInputDeviceControllerClient()->SetInternalTouchpadEnabled(
       enabled, base::BindRepeating(&OnSetTouchpadEnabledDone, enabled));

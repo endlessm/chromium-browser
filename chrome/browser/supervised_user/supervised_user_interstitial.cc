@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include "base/bind.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/scoped_observer.h"
@@ -53,6 +54,9 @@ using content::BrowserThread;
 using content::WebContents;
 
 namespace {
+
+// For use in histograms.
+enum Commands { PREVIEW, BACK, NTP, ACCESS_REQUEST, HISTOGRAM_BOUNDING_VALUE };
 
 class TabCloser : public content::WebContentsUserData<TabCloser> {
  public:
@@ -161,6 +165,7 @@ SupervisedUserInterstitial::SupervisedUserInterstitial(
       url_(url),
       reason_(reason),
       initial_page_load_(initial_page_load),
+      proceeded_(false),
       callback_(callback),
       scoped_observer_(this),
       weak_ptr_factory_(this) {}
@@ -249,21 +254,16 @@ std::string SupervisedUserInterstitial::GetHTMLContents() {
 }
 
 void SupervisedUserInterstitial::CommandReceived(const std::string& command) {
-  // For use in histograms.
-  enum Commands {
-    PREVIEW,
-    BACK,
-    NTP,
-    ACCESS_REQUEST,
-    HISTOGRAM_BOUNDING_VALUE
-  };
-
   if (command == "\"back\"") {
     UMA_HISTOGRAM_ENUMERATION("ManagedMode.BlockingInterstitialCommand",
                               BACK,
                               HISTOGRAM_BOUNDING_VALUE);
-
-    interstitial_page_->DontProceed();
+    if (base::FeatureList::IsEnabled(
+            features::kSupervisedUserCommittedInterstitials)) {
+      DontProceedInternal();
+    } else {
+      interstitial_page_->DontProceed();
+    }
     return;
   }
 
@@ -309,13 +309,22 @@ void SupervisedUserInterstitial::CommandReceived(const std::string& command) {
   NOTREACHED();
 }
 
+void SupervisedUserInterstitial::RequestPermission(
+    base::OnceCallback<void(bool)> RequestCallback) {
+  UMA_HISTOGRAM_ENUMERATION("ManagedMode.BlockingInterstitialCommand",
+                            ACCESS_REQUEST, HISTOGRAM_BOUNDING_VALUE);
+  SupervisedUserService* supervised_user_service =
+      SupervisedUserServiceFactory::GetForProfile(profile_);
+  supervised_user_service->AddURLAccessRequest(url_,
+                                               std::move(RequestCallback));
+}
+
 void SupervisedUserInterstitial::OnProceed() {
   ProceedInternal();
 }
 
 void SupervisedUserInterstitial::OnDontProceed() {
-  MoveAwayFromCurrentPage();
-  DispatchContinueRequest(false);
+  DontProceedInternal();
 }
 
 content::InterstitialPageDelegate::TypeID
@@ -329,12 +338,18 @@ void SupervisedUserInterstitial::OnURLFilterChanged() {
             features::kSupervisedUserCommittedInterstitials)) {
       ProceedInternal();
     } else {
-      interstitial_page_->Proceed();
+      // Interstitial page deletes the interstitial when proceeding but not
+      // synchronously, so a check is required to avoid calling proceed twice.
+      if (!proceeded_)
+        interstitial_page_->Proceed();
+      proceeded_ = true;
     }
   }
 }
 
 void SupervisedUserInterstitial::OnAccessRequestAdded(bool success) {
+  DCHECK(!base::FeatureList::IsEnabled(
+      features::kSupervisedUserCommittedInterstitials));
   VLOG(1) << "Sent access request for " << url_.spec()
           << (success ? " successfully" : " unsuccessfully");
   std::string jsFunc =
@@ -366,7 +381,13 @@ void SupervisedUserInterstitial::MoveAwayFromCurrentPage() {
 
   // If the interstitial was shown during a page load and there is no history
   // entry to go back to, attempt to close the tab.
-  if (initial_page_load_) {
+  // This check is skipped when committed interstitials are on, because all
+  // interstitials are treated as initial page loads in this case, the case
+  // where there is nothing to go back to will be handled by the default case at
+  // the end.
+  if (!base::FeatureList::IsEnabled(
+          features::kSupervisedUserCommittedInterstitials) &&
+      initial_page_load_) {
     if (web_contents_->GetController().IsInitialBlankNavigation())
       TabCloser::MaybeClose(web_contents_);
     return;
@@ -400,4 +421,9 @@ void SupervisedUserInterstitial::ProceedInternal() {
     web_contents_->GetController().Reload(content::ReloadType::NORMAL, true);
   }
   DispatchContinueRequest(true);
+}
+
+void SupervisedUserInterstitial::DontProceedInternal() {
+  MoveAwayFromCurrentPage();
+  DispatchContinueRequest(false);
 }

@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "ash/multi_profile_uma.h"
+#include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/interfaces/constants.mojom.h"
 #include "ash/public/interfaces/session_controller.mojom.h"
 #include "base/bind.h"
@@ -38,6 +39,7 @@
 #include "chrome/browser/chromeos/extensions/extension_tab_util_delegate_chromeos.h"
 #include "chrome/browser/chromeos/extensions/permissions_updater_delegate_chromeos.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_app_launcher.h"
+#include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_service.h"
 #include "chrome/browser/chromeos/login/enterprise_user_session_metrics.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/chromeos/login/signin/auth_sync_observer.h"
@@ -61,7 +63,6 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/signin/easy_unlock_service.h"
 #include "chrome/browser/supervised_user/chromeos/manager_password_service_factory.h"
 #include "chrome/browser/supervised_user/chromeos/supervised_user_password_service_factory.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
@@ -150,8 +151,10 @@ bool GetUserLockAttributes(const user_manager::User* user,
   if (!profile)
     return false;
   PrefService* const prefs = profile->GetPrefs();
-  if (can_lock)
-    *can_lock = user->can_lock() && prefs->GetBoolean(prefs::kAllowScreenLock);
+  if (can_lock) {
+    *can_lock =
+        user->can_lock() && prefs->GetBoolean(ash::prefs::kAllowScreenLock);
+  }
   if (multi_profile_behavior) {
     *multi_profile_behavior =
         prefs->GetString(prefs::kMultiProfileUserBehavior);
@@ -265,10 +268,6 @@ ChromeUserManagerImpl::ChromeUserManagerImpl()
 
   if (GetMinimumVersionPolicyHandler()) {
     GetMinimumVersionPolicyHandler()->AddObserver(this);
-  }
-
-  if (!device_local_account_policy_service) {
-    return;
   }
 
   avatar_policy_observer_ =
@@ -1022,6 +1021,15 @@ void ChromeUserManagerImpl::RemoveNonCryptohomeData(
   WallpaperControllerClient::Get()->RemoveUserWallpaper(account_id);
   GetUserImageManager(account_id)->DeleteUserImage();
   ExternalPrintersFactory::Get()->RemoveForUserId(account_id);
+  // TODO(tbarzic): Forward data removal request to ash::HammerDeviceHandler,
+  // instead of removing the prefs value here.
+  if (GetLocalState()->FindPreference(ash::prefs::kDetachableBaseDevices)) {
+    DictionaryPrefUpdate update(GetLocalState(),
+                                ash::prefs::kDetachableBaseDevices);
+    update->RemoveKey(account_id.HasAccountIdKey()
+                          ? account_id.GetAccountIdKey()
+                          : account_id.GetUserEmail());
+  }
 
   supervised_user_manager_->RemoveNonCryptohomeData(account_id.GetUserEmail());
 

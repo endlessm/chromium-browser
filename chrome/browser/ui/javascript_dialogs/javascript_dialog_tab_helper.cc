@@ -17,11 +17,13 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "components/app_modal/javascript_dialog_manager.h"
 #include "components/navigation_metrics/navigation_metrics.h"
+#include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "ui/gfx/text_elider.h"
 #if defined(OS_ANDROID)
-#include "chrome/browser/android/tab_android.h"
+#include "chrome/browser/ui/android/tab_model/tab_model.h"
+#include "chrome/browser/ui/android/tab_model/tab_model_list.h"
 #endif
 
 DEFINE_WEB_CONTENTS_USER_DATA_KEY(JavaScriptDialogTabHelper);
@@ -34,8 +36,9 @@ app_modal::JavaScriptDialogManager* AppModalDialogManager() {
 
 bool IsWebContentsForemost(content::WebContents* web_contents) {
 #if defined(OS_ANDROID)
-  TabAndroid* tab = TabAndroid::FromWebContents(web_contents);
-  return tab && tab->IsUserInteractable();
+  TabModel* tab_model = TabModelList::GetTabModelForWebContents(web_contents);
+  return tab_model && tab_model->IsCurrentModel() &&
+         tab_model->GetActiveWebContents() == web_contents;
 #else
   Browser* browser = BrowserList::GetInstance()->GetLastActive();
   DCHECK(browser);
@@ -207,7 +210,8 @@ void JavaScriptDialogTabHelper::RunJavaScriptDialog(
   CloseDialog(DismissalCause::SUBSEQUENT_DIALOG_SHOWN, false, base::string16());
 
   bool make_pending = false;
-  if (!IsWebContentsForemost(parent_web_contents)) {
+  if (!IsWebContentsForemost(parent_web_contents) &&
+      !content::DevToolsAgentHost::IsDebuggerAttached(parent_web_contents)) {
     switch (dialog_type) {
       case content::JAVASCRIPT_DIALOG_TYPE_ALERT: {
         // When an alert fires in the background, make the callback so that the
@@ -433,8 +437,10 @@ void JavaScriptDialogTabHelper::LogDialogDismissalCause(
 }
 
 void JavaScriptDialogTabHelper::HandleTabSwitchAway(DismissalCause cause) {
-  if (!dialog_)
+  if (!dialog_ || content::DevToolsAgentHost::IsDebuggerAttached(
+                      WebContentsObserver::web_contents())) {
     return;
+  }
 
   if (dialog_type_ == content::JAVASCRIPT_DIALOG_TYPE_ALERT) {
     // When the user switches tabs, make the callback so that the render process

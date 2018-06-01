@@ -23,7 +23,7 @@
 #include "components/omnibox/browser/shortcuts_backend.h"
 #include "components/omnibox/browser/shortcuts_provider_test_util.h"
 #include "content/public/test/test_browser_thread_bundle.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -98,11 +98,7 @@ TEST_F(ShortcutsProviderExtensionTest, Extension) {
 
   // Claim the extension has been unloaded.
   scoped_refptr<const extensions::Extension> extension =
-      extensions::ExtensionBuilder()
-          .SetManifest(extensions::DictionaryBuilder()
-                           .Set("name", "Echo")
-                           .Set("version", "1.0")
-                           .Build())
+      extensions::ExtensionBuilder("Echo")
           .SetID("cedabbhfglmiikkmdgcpjdkocfcmbkee")
           .Build();
   extensions::ExtensionRegistry::Get(&profile_)->TriggerOnUnloaded(

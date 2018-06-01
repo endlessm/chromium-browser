@@ -13,7 +13,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observer.h"
-#include "ui/app_list/search_provider.h"
+#include "chrome/browser/ui/app_list/search/search_provider.h"
 
 class AppListControllerDelegate;
 class AppListModelUpdater;
@@ -54,7 +54,7 @@ class AppSearchProvider : public SearchProvider {
   void RefreshApps();
   void UpdateResults();
   void UpdateRecommendedResults(
-      const std::unordered_map<std::string, size_t>& id_to_app_list_index);
+      const std::unordered_map<std::string, uint16_t>& id_to_app_list_index);
   void UpdateQueriedResults();
 
   AppListControllerDelegate* const list_controller_;

@@ -30,7 +30,7 @@ class AndroidPlatform(platform.Platform):
     """
     return self._platform_backend.GetSystemUi()
 
-  def GetSharedPrefs(self, package, filename):
+  def GetSharedPrefs(self, package, filename, use_encrypted_path=False):
     """Retrieves a Devil SharedPrefs instance from the backend.
 
     See devil.android.sdk.shared_prefs for the documentation of the returned
@@ -41,12 +41,15 @@ class AndroidPlatform(platform.Platform):
           instance will be for.
       filename: A string containing the specific settings file of the app that
           the SharedPrefs instance will be for.
+      use_encrypted_path: Whether to use the newer device-encrypted path
+          (/data/user_de/) instead of the older unencrypted path (/data/data/).
 
     Returns:
       A reference to a SharedPrefs object for the given package and filename
       on whatever device this platform object refers to.
     """
-    return self._platform_backend.GetSharedPrefs(package, filename)
+    return self._platform_backend.GetSharedPrefs(
+        package, filename, use_encrypted_path=use_encrypted_path)
 
   def IsSvelte(self):
     return self._platform_backend.IsSvelte()
@@ -79,3 +82,11 @@ class AndroidPlatform(platform.Platform):
         self._platform_backend, start_intent, is_app_ready_predicate,
         app_has_webviews)
     return android_app.AndroidApp(app_backend, self._platform_backend)
+
+  def StartAndroidService(self, start_intent):
+    """Starts an Android service specified by |start_intent|.
+
+    Args:
+      start_intent: The intent to use to start the service
+    """
+    self._platform_backend.device.StartService(start_intent)

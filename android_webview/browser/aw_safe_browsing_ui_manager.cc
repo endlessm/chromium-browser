@@ -13,6 +13,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/base_ping_manager.h"
 #include "components/safe_browsing/base_ui_manager.h"
+#include "components/safe_browsing/browser/safe_browsing_network_context.h"
 #include "components/safe_browsing/browser/safe_browsing_url_request_context_getter.h"
 #include "components/safe_browsing/common/safebrowsing_constants.h"
 #include "content/public/browser/browser_thread.h"
@@ -51,6 +52,10 @@ AwSafeBrowsingUIManager::AwSafeBrowsingUIManager(
   url_request_context_getter_ =
       new safe_browsing::SafeBrowsingURLRequestContextGetter(
           browser_url_request_context_getter, user_data_dir);
+
+  network_context_ =
+      std::make_unique<safe_browsing::SafeBrowsingNetworkContext>(
+          url_request_context_getter_);
 }
 
 AwSafeBrowsingUIManager::~AwSafeBrowsingUIManager() {}
@@ -82,6 +87,21 @@ void AwSafeBrowsingUIManager::SetExtendedReportingAllowed(bool allowed) {
                             allowed);
 }
 
+scoped_refptr<network::SharedURLLoaderFactory>
+AwSafeBrowsingUIManager::GetURLLoaderFactoryOnIOThread() {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  if (!shared_url_loader_factory_on_io_) {
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
+        base::BindOnce(&AwSafeBrowsingUIManager::CreateURLLoaderFactoryForIO,
+                       this, MakeRequest(&url_loader_factory_on_io_)));
+    shared_url_loader_factory_on_io_ =
+        base::MakeRefCounted<content::WeakWrapperSharedURLLoaderFactory>(
+            url_loader_factory_on_io_.get());
+  }
+  return shared_url_loader_factory_on_io_;
+}
+
 int AwSafeBrowsingUIManager::GetErrorUiType(
     const UnsafeResource& resource) const {
   WebContents* web_contents = resource.web_contents_getter.Run();
@@ -92,7 +112,7 @@ int AwSafeBrowsingUIManager::GetErrorUiType(
 
 void AwSafeBrowsingUIManager::SendSerializedThreatDetails(
     const std::string& serialized) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (!ping_manager_) {
     // Lazy creation of ping manager, needs to happen on IO thread.
@@ -107,13 +127,20 @@ void AwSafeBrowsingUIManager::SendSerializedThreatDetails(
     config.backup_network_error_url_prefix =
         ::safe_browsing::kSbBackupNetworkErrorURLPrefix;
     ping_manager_ = ::safe_browsing::BasePingManager::Create(
-        url_request_context_getter_.get(), config);
+        network_context_->GetURLLoaderFactory(), config);
   }
 
   if (!serialized.empty()) {
     DVLOG(1) << "Sending serialized threat details";
     ping_manager_->ReportThreatDetails(serialized);
   }
+}
+
+void AwSafeBrowsingUIManager::CreateURLLoaderFactoryForIO(
+    network::mojom::URLLoaderFactoryRequest request) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  network_context_->GetNetworkContext()->CreateURLLoaderFactory(
+      std::move(request), 0);
 }
 
 }  // namespace android_webview

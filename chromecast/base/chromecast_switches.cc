@@ -16,8 +16,8 @@ const char kSwitchValueTrue[] = "true";
 const char kSwitchValueFalse[] = "false";
 
 // Server url to upload crash data to.
-// Default is "http://clients2.google.com/cr/report" for prod devices.
-// Default is "http://clients2.google.com/cr/staging_report" for non prod.
+// Default is "https://clients2.google.com/cr/report" for prod devices.
+// Default is "https://clients2.google.com/cr/staging_report" for non prod.
 const char kCrashServerUrl[] = "crash-server-url";
 
 // Enable file accesses. It should not be enabled for most Cast devices.
@@ -133,6 +133,17 @@ const char kDesktopWindow1080p[] = "desktop-window-1080p";
 // Enables input event handling by the window manager.
 const char kEnableInput[] = "enable-input";
 
+// Background color used when Chromium hasn't rendered anything yet.
+const char kCastAppBackgroundColor[] = "cast-app-background-color";
+
+// The number of pixels from the very left or right of the screen to consider as
+// a valid origin for the left or right swipe gesture.
+const char kSystemGestureStartWidth[] = "system-gesture-start-width";
+
+// The number of pixels from the very top or bottom of the screen to consider as
+// a valid origin for the top or bottom swipe gesture.
+const char kSystemGestureStartHeight[] = "system-gesture-start-height";
+
 }  // namespace switches
 
 namespace chromecast {
@@ -185,6 +196,26 @@ int GetSwitchValueNonNegativeInt(const std::string& switch_name,
     return default_value;
   }
   return value;
+}
+
+uint32_t GetSwitchValueColor(const std::string& switch_name,
+                             const uint32_t default_value) {
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
+  if (!command_line->HasSwitch(switch_name)) {
+    return default_value;
+  }
+
+  uint32_t arg_value = 0;
+  if (!base::HexStringToUInt(
+          command_line->GetSwitchValueASCII(switch_name).substr(1),
+          &arg_value)) {
+    LOG(ERROR) << "Invalid value for " << switch_name << " ("
+               << command_line->GetSwitchValueASCII(switch_name)
+               << "), using default.";
+    return default_value;
+  }
+  return arg_value;
 }
 
 }  // namespace chromecast

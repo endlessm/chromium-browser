@@ -58,7 +58,6 @@ class FrameCaptionButtonContainerViewTest : public AshTestBase {
         new TestWidgetDelegate(maximize_allowed == MAXIMIZE_ALLOWED,
                                minimize_allowed == MINIMIZE_ALLOWED);
     params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-    params.context = CurrentContext();
     widget->Init(params);
     return widget;
   }
@@ -67,7 +66,7 @@ class FrameCaptionButtonContainerViewTest : public AshTestBase {
   // size to the buttons in |container|.
   void InitContainer(FrameCaptionButtonContainerView* container) {
     container->SetButtonSize(
-        GetAshLayoutSize(AshLayoutSize::NON_BROWSER_CAPTION_BUTTON));
+        GetAshLayoutSize(AshLayoutSize::kNonBrowserCaption));
     for (int icon = 0; icon < CAPTION_BUTTON_ICON_COUNT; ++icon) {
       container->SetButtonImage(static_cast<CaptionButtonIcon>(icon),
                                 ash::kWindowControlCloseIcon);
@@ -176,7 +175,7 @@ TEST_F(FrameCaptionButtonContainerViewTest,
   // Hidden size button should result in minimize button animating to the
   // right. The size button should not be visible, but should not have moved.
   Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
-  container.UpdateSizeButtonVisibility();
+  container.UpdateCaptionButtonState(false /*=animate*/);
   test.EndAnimations();
   // Parent needs to layout in response to size change.
   container.Layout();
@@ -197,7 +196,7 @@ TEST_F(FrameCaptionButtonContainerViewTest,
   // Revealing the size button should cause the minimize button to return to its
   // original position.
   Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(false);
-  container.UpdateSizeButtonVisibility();
+  container.UpdateCaptionButtonState(false /*=animate*/);
   // Calling code needs to layout in response to size change.
   container.Layout();
   test.EndAnimations();

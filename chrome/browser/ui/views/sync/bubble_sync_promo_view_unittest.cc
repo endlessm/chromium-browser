@@ -26,7 +26,8 @@ class BubbleSyncPromoViewTest : public views::ViewsTestBase,
 
  protected:
   // BubbleSyncPromoDelegate:
-  void OnEnableSync(const AccountInfo& account) override {
+  void OnEnableSync(const AccountInfo& account,
+                    bool is_default_promo_account) override {
     // The bubble sync promo view does not allow the user to enable sync
     // for an existing account id.
     DCHECK(account.IsEmpty());
@@ -42,8 +43,9 @@ class BubbleSyncPromoViewTest : public views::ViewsTestBase,
 
 TEST_F(BubbleSyncPromoViewTest, SignInLink) {
   std::unique_ptr<BubbleSyncPromoView> sync_promo;
-  sync_promo.reset(new BubbleSyncPromoView(this, IDS_BOOKMARK_SYNC_PROMO_LINK,
-                                           IDS_BOOKMARK_SYNC_PROMO_MESSAGE));
+  sync_promo.reset(new BubbleSyncPromoView(
+      this, signin_metrics::AccessPoint::ACCESS_POINT_BOOKMARK_BUBBLE,
+      IDS_BOOKMARK_SYNC_PROMO_LINK, IDS_BOOKMARK_SYNC_PROMO_MESSAGE));
 
   // Simulate clicking the "Sign in" link.
   views::StyledLabel styled_label(base::ASCIIToUTF16("test"), nullptr);

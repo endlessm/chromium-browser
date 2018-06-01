@@ -32,7 +32,7 @@
 #include "extensions/common/constants.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "ppapi/shared_impl/test_utils.h"
-#include "rlz/features/features.h"
+#include "rlz/buildflags/buildflags.h"
 
 #if defined(OS_MACOSX)
 #include "base/mac/mac_util.h"
@@ -1239,16 +1239,6 @@ TEST_PPAPI_OUT_OF_PROCESS(MAYBE_FlashFullscreen)
 
 TEST_PPAPI_OUT_OF_PROCESS(PDF)
 
-IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, PlatformVerificationPrivate) {
-  RunTest(
-#if defined(OS_CHROMEOS)
-// TODO(dalecurtis): Renable once the platform verification infobar has
-// been implemented; see http://crbug.com/270908
-// LIST_TEST(PlatformVerificationPrivate_ChallengePlatform)
-#endif
-      LIST_TEST(PlatformVerificationPrivate_StorageId));
-}
-
 IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, FlashDRM) {
   RunTest(
 #if (defined(OS_WIN) && BUILDFLAG(ENABLE_RLZ)) || defined(OS_CHROMEOS)
@@ -1258,10 +1248,6 @@ IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, FlashDRM) {
           LIST_TEST(FlashDRM_GetHmonitor)
           LIST_TEST(FlashDRM_GetVoucherFile));
 }
-
-#if defined(OS_CHROMEOS)
-TEST_PPAPI_OUT_OF_PROCESS(OutputProtectionPrivate)
-#endif
 
 #if BUILDFLAG(ENABLE_NACL)
 class PackagedAppTest : public ExtensionBrowserTest {

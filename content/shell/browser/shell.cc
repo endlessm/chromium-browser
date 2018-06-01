@@ -42,8 +42,8 @@
 #include "content/shell/common/layout_test/layout_test_switches.h"
 #include "content/shell/common/shell_messages.h"
 #include "content/shell/common/shell_switches.h"
-#include "media/media_features.h"
-#include "third_party/WebKit/public/web/WebPresentationReceiverFlags.h"
+#include "media/media_buildflags.h"
+#include "third_party/blink/public/web/web_presentation_receiver_flags.h"
 
 namespace content {
 
@@ -86,8 +86,14 @@ Shell::Shell(WebContents* web_contents)
       hide_toolbar_(false) {
   web_contents_->SetDelegate(this);
 
-  if (switches::IsRunLayoutTestSwitchPresent())
+  if (switches::IsRunLayoutTestSwitchPresent()) {
     headless_ = true;
+    // In a headless shell, disable occlusion tracking. Otherwise, WebContents
+    // would always behave as if they were occluded, i.e. would not render
+    // frames and would not receive input events.
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        switches::kDisableBackgroundingOccludedWindowsForTesting);
+  }
 
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kContentShellHideToolbar))
@@ -167,7 +173,7 @@ void Shell::CloseAllWindows() {
 void Shell::SetShellCreatedCallback(
     base::Callback<void(Shell*)> shell_created_callback) {
   DCHECK(shell_created_callback_.is_null());
-  shell_created_callback_ = shell_created_callback;
+  shell_created_callback_ = std::move(shell_created_callback);
 }
 
 Shell* Shell::FromRenderViewHost(RenderViewHost* rvh) {
@@ -210,14 +216,18 @@ Shell* Shell::CreateNewWindow(BrowserContext* browser_context,
 }
 
 void Shell::LoadURL(const GURL& url) {
-  LoadURLForFrame(url, std::string());
+  LoadURLForFrame(
+      url, std::string(),
+      ui::PageTransitionFromInt(ui::PAGE_TRANSITION_TYPED |
+                                ui::PAGE_TRANSITION_FROM_ADDRESS_BAR));
 }
 
-void Shell::LoadURLForFrame(const GURL& url, const std::string& frame_name) {
+void Shell::LoadURLForFrame(const GURL& url,
+                            const std::string& frame_name,
+                            ui::PageTransition transition_type) {
   NavigationController::LoadURLParams params(url);
-  params.transition_type = ui::PageTransitionFromInt(
-      ui::PAGE_TRANSITION_TYPED | ui::PAGE_TRANSITION_FROM_ADDRESS_BAR);
   params.frame_name = frame_name;
+  params.transition_type = transition_type;
   web_contents_->GetController().LoadURLWithParams(params);
   web_contents_->Focus();
 }
@@ -388,6 +398,7 @@ WebContents* Shell::OpenURLFromTab(WebContents* source,
   load_url_params.is_renderer_initiated = params.is_renderer_initiated;
   load_url_params.should_replace_current_entry =
       params.should_replace_current_entry;
+  load_url_params.suggested_filename = params.suggested_filename;
 
   if (params.uses_post) {
     load_url_params.load_type = NavigationController::LOAD_TYPE_HTTP_POST;

@@ -103,6 +103,14 @@ MockInputMethodManager::State::GetAllowedInputMethods() {
   return allowed_input_method_ids_;
 }
 
+void MockInputMethodManager::State::EnableInputView() {}
+
+void MockInputMethodManager::State::DisableInputView() {}
+
+const GURL& MockInputMethodManager::State::GetInputViewUrl() const {
+  return GURL::EmptyGURL();
+}
+
 MockInputMethodManager::State::~State() {}
 
 MockInputMethodManager::MockInputMethodManager()
@@ -190,8 +198,7 @@ void MockInputMethodManager::NotifyImeMenuItemsChanged(
 
 void MockInputMethodManager::MaybeNotifyImeMenuActivationChanged() {}
 
-void MockInputMethodManager::OverrideKeyboardUrlRef(const std::string& keyset) {
-}
+void MockInputMethodManager::OverrideKeyboardKeyset(mojom::ImeKeyset keyset) {}
 
 void MockInputMethodManager::SetImeMenuFeatureEnabled(ImeMenuFeature feature,
                                                       bool enabled) {

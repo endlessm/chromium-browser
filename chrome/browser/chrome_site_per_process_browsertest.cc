@@ -15,7 +15,6 @@
 #include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/external_protocol/external_protocol_handler.h"
-#include "chrome/browser/loader/chrome_resource_dispatcher_host_delegate.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_browsertest_util.h"
 #include "chrome/browser/ui/browser.h"
@@ -26,7 +25,8 @@
 #include "components/app_modal/native_app_modal_dialog.h"
 #include "components/guest_view/browser/guest_view_manager_delegate.h"
 #include "components/guest_view/browser/test_guest_view_manager.h"
-#include "components/spellcheck/spellcheck_build_features.h"
+#include "components/spellcheck/spellcheck_buildflags.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/interstitial_page.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
@@ -525,8 +525,7 @@ IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessTest,
   ui_test_utils::NavigateToURL(browser(), mailto_main_frame_url);
 
   MailtoExternalProtocolHandlerDelegate delegate;
-  ChromeResourceDispatcherHostDelegate::
-      SetExternalProtocolHandlerDelegateForTesting(&delegate);
+  ExternalProtocolHandler::SetDelegateForTesting(&delegate);
 
   GURL mailto_subframe_url(
       embedded_test_server()->GetURL("c.com", "/page_with_mailto.html"));
@@ -540,8 +539,7 @@ IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessTest,
   EXPECT_TRUE(delegate.has_triggered_external_protocol());
   EXPECT_EQ(delegate.external_protocol_url(), GURL("mailto:mail@example.org"));
   EXPECT_EQ(active_web_contents, delegate.web_contents());
-  ChromeResourceDispatcherHostDelegate::
-      SetExternalProtocolHandlerDelegateForTesting(nullptr);
+  ExternalProtocolHandler::SetDelegateForTesting(nullptr);
 }
 
 // Verify that a popup can be opened after navigating a remote frame.  This has
@@ -717,7 +715,7 @@ IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessTest,
   // This test technically performs a tab-under navigation. This will be blocked
   // if the tab-under blocking feature is enabled. Simulate clicking the opener
   // here to avoid that behavior.
-  opener_contents->UserGestureDone();
+  opener_contents->NavigatedByUser();
 
   // From the popup, start a navigation in the opener to b.com, but don't
   // commit.
@@ -1065,21 +1063,19 @@ IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessTest, TwoFingerTapContextMenu) {
 
   // Send a two finger tap event to the child and wait for the context menu to
   // open.
-  ContextMenuWaiter menu_waiter(content::NotificationService::AllSources());
+  ContextMenuWaiter menu_waiter;
 
-  gfx::Point child_location(1, 1);
-  gfx::Point child_location_in_root =
-      child_rwhv->TransformPointToRootCoordSpace(child_location);
+  gfx::PointF child_location(1, 1);
+  gfx::PointF child_location_in_root =
+      child_rwhv->TransformPointToRootCoordSpaceF(child_location);
 
   blink::WebGestureEvent event(
       blink::WebInputEvent::kGestureTwoFingerTap,
       blink::WebInputEvent::kNoModifiers,
-      blink::WebInputEvent::GetStaticTimeStampForTests());
-  event.source_device = blink::kWebGestureDeviceTouchscreen;
-  event.x = child_location.x();
-  event.y = child_location.y();
-  event.global_x = child_location_in_root.x();
-  event.global_y = child_location_in_root.y();
+      blink::WebInputEvent::GetStaticTimeStampForTests(),
+      blink::kWebGestureDeviceTouchscreen);
+  event.SetPositionInWidget(child_location);
+  event.SetPositionInScreen(child_location_in_root);
   event.data.two_finger_tap.first_finger_width = 10;
   event.data.two_finger_tap.first_finger_height = 10;
 

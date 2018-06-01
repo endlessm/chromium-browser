@@ -10,16 +10,17 @@ from recipe_engine import recipe_api
 
 class BotUpdateApi(recipe_api.RecipeApi):
 
-  def __init__(self, issue, patch_issue, patchset, patch_set,
+  def __init__(self, properties, patch_issue, patch_set,
                repository, patch_repository_url, gerrit_ref, patch_ref,
-               patch_gerrit_url, rietveld, revision, parent_got_revision,
+               patch_gerrit_url, revision, parent_got_revision,
                deps_revision_overrides, fail_patch, *args, **kwargs):
-    self._issue = issue or patch_issue
-    self._patchset = patchset or patch_set
+    self._apply_patch_on_gclient = properties.get(
+        'apply_patch_on_gclient', False)
+    self._issue = patch_issue
+    self._patchset = patch_set
     self._repository = repository or patch_repository_url
     self._gerrit_ref = gerrit_ref or patch_ref
     self._gerrit = patch_gerrit_url
-    self._rietveld = rietveld
     self._revision = revision
     self._parent_got_revision = parent_got_revision
     self._deps_revision_overrides = deps_revision_overrides
@@ -69,8 +70,8 @@ class BotUpdateApi(recipe_api.RecipeApi):
                       patch=True, update_presentation=True,
                       patch_root=None, no_shallow=False,
                       with_branch_heads=False, with_tags=False, refs=None,
-                      patch_oauth2=False, oauth2_json=False,
-                      use_site_config_creds=True, clobber=False,
+                      patch_oauth2=None, oauth2_json=None,
+                      use_site_config_creds=None, clobber=False,
                       root_solution_revision=None, rietveld=None, issue=None,
                       patchset=None, gerrit_no_reset=False,
                       gerrit_no_rebase_patch_ref=False,
@@ -78,22 +79,21 @@ class BotUpdateApi(recipe_api.RecipeApi):
                       **kwargs):
     """
     Args:
-      use_site_config_creds: If the oauth2 credentials are in the buildbot
-        site_config. See crbug.com/624212 for more information.
       gclient_config: The gclient configuration to use when running bot_update.
         If omitted, the current gclient configuration is used.
-      rietveld: The rietveld server to use. If omitted, will infer from
-        the 'rietveld' property.
-      issue: The rietveld issue number to use. If omitted, will infer from
-        the 'issue' property.
-      patchset: The rietveld issue patchset to use. If omitted, will infer from
-        the 'patchset' property.
       disable_syntax_validation: (legacy) Disables syntax validation for DEPS.
         Needed as migration paths for recipes dealing with older revisions,
         such as bisect.
       manifest_name: The name of the manifest to upload to LogDog.  This must
         be unique for the whole build.
     """
+    assert use_site_config_creds is None, "use_site_config_creds is deprecated"
+    assert rietveld is None, "rietveld is deprecated"
+    assert issue is None, "issue is deprecated"
+    assert patchset is None, "patchset is deprecated"
+    assert patch_oauth2 is None, "patch_oauth2 is deprecated"
+    assert oauth2_json is None, "oauth2_json is deprecated"
+
     refs = refs or []
     # We can re-use the gclient spec from the gclient module, since all the
     # data bot_update needs is already configured into the gclient spec.
@@ -101,8 +101,6 @@ class BotUpdateApi(recipe_api.RecipeApi):
     assert cfg is not None, (
         'missing gclient_config or forgot api.gclient.set_config(...) before?')
 
-    # Only one of these should exist.
-    assert not (oauth2_json and patch_oauth2)
 
     # Construct our bot_update command.  This basically be inclusive of
     # everything required for bot_update to know:
@@ -112,58 +110,19 @@ class BotUpdateApi(recipe_api.RecipeApi):
           self.m.properties.get('patch_project'), cfg, self._repository)
 
     if patch:
-      issue = issue or self._issue
       patchset = patchset or self._patchset
       gerrit_repo = self._repository
       gerrit_ref = self._gerrit_ref
     else:
       # The trybot recipe sometimes wants to de-apply the patch. In which case
       # we pretend the issue/patchset never existed.
-      issue = patchset = email_file = key_file = None
       gerrit_repo = gerrit_ref = None
-
-    # Issue and patchset must come together.
-    if issue:
-      assert patchset
-    if patchset:
-      assert issue
 
     # The gerrit_ref and gerrit_repo must be together or not at all.  If one is
     # missing, clear both of them.
     if not gerrit_ref or not gerrit_repo:
       gerrit_repo = gerrit_ref = None
     assert (gerrit_ref != None) == (gerrit_repo != None)
-    if gerrit_ref:
-      # Gerrit patches have historically not specified issue and patchset.
-      # resourece/bot_update has as a result implicit assumption that set issue
-      # implies Rietveld patch.
-      # TODO(tandrii): fix this madness.
-      issue = patchset = None
-
-    # Point to the oauth2 auth files if specified.
-    # These paths are where the bots put their credential files.
-    oauth2_json_file = email_file = key_file = None
-    if oauth2_json:
-      if self.m.platform.is_win:
-        oauth2_json_file = 'C:\\creds\\refresh_tokens\\internal-try'
-      else:
-        oauth2_json_file = '/creds/refresh_tokens/internal-try'
-    elif patch_oauth2:
-      # TODO(martiniss): remove this hack :(. crbug.com/624212
-      if use_site_config_creds:
-        try:
-          build_path = self.m.path['build']
-        except KeyError:
-          raise self.m.step.StepFailure(
-              'build path is not defined. This is normal for LUCI builds. '
-              'In LUCI, use_site_config_creds parameter of '
-              'bot_update.ensure_checkout is not supported')
-        email_file = build_path.join('site_config', '.rietveld_client_email')
-        key_file = build_path.join('site_config', '.rietveld_secret_key')
-      else: #pragma: no cover
-        #TODO(martiniss): make this use path.join, so it works on windows
-        email_file = '/creds/rietveld/client_email'
-        key_file = '/creds/rietveld/secret_key'
 
     # Allow patch_project's revision if necessary.
     # This is important for projects which are checked out as DEPS of the
@@ -182,15 +141,9 @@ class BotUpdateApi(recipe_api.RecipeApi):
         ['--git-cache-dir', cfg.cache_dir],
         ['--cleanup-dir', self.m.path['cleanup'].join('bot_update')],
 
-        # How to find the patch, if any (issue/patchset).
-        ['--issue', issue],
-        ['--patchset', patchset],
-        ['--rietveld_server', rietveld or self._rietveld],
+        # How to find the patch, if any
         ['--gerrit_repo', gerrit_repo],
         ['--gerrit_ref', gerrit_ref],
-        ['--apply_issue_email_file', email_file],
-        ['--apply_issue_key_file', key_file],
-        ['--apply_issue_oauth2_file', oauth2_json_file],
 
         # Hookups to JSON output back into recipes.
         ['--output_json', self.m.json.output()],
@@ -254,6 +207,8 @@ class BotUpdateApi(recipe_api.RecipeApi):
       cmd.append('--gerrit_no_rebase_patch_ref')
     if disable_syntax_validation or cfg.disable_syntax_validation:
       cmd.append('--disable-syntax-validation')
+    if self._apply_patch_on_gclient:
+      cmd.append('--apply-patch-on-gclient')
 
     # Inject Json output for testing.
     first_sln = cfg.solutions[0].name

@@ -7,7 +7,6 @@
 #include <memory>
 
 #include "base/command_line.h"
-#include "base/ios/ios_util.h"
 #include "base/mac/bind_objc_block.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
@@ -115,21 +114,13 @@ NSString* GetTranslateInfobarSwitchLabel(const std::string& language) {
 // Returns a matcher for the button with label "Cancel" in the language picker.
 // The language picker uses the system accessibility labels, thus no IDS_CANCEL.
 id<GREYMatcher> LanguagePickerCancelButton() {
-  // Setting A11y id on this button doesn't work on iOS 9.0.
-  if (base::ios::IsRunningOnIOS10OrLater())
-    return grey_accessibilityID(kLanguagePickerCancelButtonId);
-
-  return chrome_test_util::ButtonWithAccessibilityLabel(@"Cancel");
+  return grey_accessibilityID(kLanguagePickerCancelButtonId);
 }
 
 // Returns a matcher for the button with label "Done" in the language picker.
 // The language picker uses the system accessibility labels, thus no IDS_DONE.
 id<GREYMatcher> LanguagePickerDoneButton() {
-  // Setting A11y ID on this button doesn't work on iOS 9.0.
-  if (base::ios::IsRunningOnIOS10OrLater())
-    return grey_accessibilityID(kLanguagePickerDoneButtonId);
-
-  return chrome_test_util::ButtonWithAccessibilityLabel(@"Done");
+  return grey_accessibilityID(kLanguagePickerDoneButtonId);
 }
 
 // Assigns the testing callback for the current WebState's language detection
@@ -616,9 +607,8 @@ using translate::LanguageDetectionController;
       selectElementWithMatcher:chrome_test_util::ButtonWithAccessibilityLabelId(
                                    IDS_TRANSLATE_INFOBAR_ACCEPT)]
       assertWithMatcher:grey_notNil()];
-  [[EarlGrey
-      selectElementWithMatcher:chrome_test_util::ButtonWithAccessibilityLabelId(
-                                   IDS_CLOSE)] assertWithMatcher:grey_notNil()];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::CloseButton()]
+      assertWithMatcher:grey_notNil()];
 
   // Open the language picker.
   NSString* kFrench = @"French";
@@ -877,9 +867,7 @@ using translate::LanguageDetectionController;
       selectElementWithMatcher:chrome_test_util::ButtonWithAccessibilityLabelId(
                                    IDS_TRANSLATE_INFOBAR_REVERT)]
       assertWithMatcher:grey_sufficientlyVisible()];
-  [[EarlGrey
-      selectElementWithMatcher:chrome_test_util::ButtonWithAccessibilityLabelId(
-                                   IDS_CLOSE)]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::CloseButton()]
       assertWithMatcher:grey_sufficientlyVisible()];
 }
 

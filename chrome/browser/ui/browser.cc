@@ -66,7 +66,6 @@
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/pepper_broker_infobar_delegate.h"
 #include "chrome/browser/permissions/permission_request_manager.h"
-#include "chrome/browser/picture_in_picture/picture_in_picture_window_controller.h"
 #include "chrome/browser/plugins/plugin_finder.h"
 #include "chrome/browser/plugins/plugin_metadata.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
@@ -174,6 +173,7 @@
 #include "components/startup_metric_utils/browser/startup_metric_utils.h"
 #include "components/toolbar/toolbar_model_impl.h"
 #include "components/translate/core/browser/language_state.h"
+#include "components/viz/common/surfaces/surface_id.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "components/zoom/zoom_controller.h"
 #include "content/public/browser/devtools_agent_host.h"
@@ -185,6 +185,7 @@
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/overscroll_configuration.h"
+#include "content/public/browser/picture_in_picture_window_controller.h"
 #include "content/public/browser/plugin_service.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -202,10 +203,10 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
+#include "extensions/buildflags/buildflags.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_handlers/background_info.h"
-#include "extensions/features/features.h"
 #include "net/base/filename_util.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/cookies/cookie_monster.h"
@@ -293,24 +294,12 @@ const extensions::Extension* GetExtensionForOrigin(
 // Browser, CreateParams:
 
 Browser::CreateParams::CreateParams(Profile* profile, bool user_gesture)
-    : type(TYPE_TABBED),
-      profile(profile),
-      trusted_source(false),
-      initial_show_state(ui::SHOW_STATE_DEFAULT),
-      is_session_restore(false),
-      user_gesture(user_gesture),
-      window(NULL) {}
+    : CreateParams(TYPE_TABBED, profile, user_gesture) {}
 
 Browser::CreateParams::CreateParams(Type type,
                                     Profile* profile,
                                     bool user_gesture)
-    : type(type),
-      profile(profile),
-      trusted_source(false),
-      initial_show_state(ui::SHOW_STATE_DEFAULT),
-      is_session_restore(false),
-      user_gesture(user_gesture),
-      window(NULL) {}
+    : type(type), profile(profile), user_gesture(user_gesture) {}
 
 Browser::CreateParams::CreateParams(const CreateParams& other) = default;
 
@@ -378,6 +367,7 @@ Browser::Browser(const CreateParams& params)
                                           params.profile)),
       app_name_(params.app_name),
       is_trusted_source_(params.trusted_source),
+      session_id_(SessionID::NewUnique()),
       cancel_download_confirmation_state_(NOT_PROMPTED),
       override_bounds_(params.initial_bounds),
       initial_show_state_(params.initial_show_state),
@@ -431,11 +421,13 @@ Browser::Browser(const CreateParams& params)
   profile_pref_registrar_.Init(profile_->GetPrefs());
   profile_pref_registrar_.Add(
       prefs::kDevToolsDisabled,
-      base::Bind(&Browser::OnDevToolsDisabledChanged, base::Unretained(this)));
+      base::BindRepeating(&Browser::OnDevToolsDisabledChanged,
+                          base::Unretained(this)));
   profile_pref_registrar_.Add(
       bookmarks::prefs::kShowBookmarkBar,
-      base::Bind(&Browser::UpdateBookmarkBarState, base::Unretained(this),
-                 BOOKMARK_BAR_STATE_CHANGE_PREF_CHANGE));
+      base::BindRepeating(&Browser::UpdateBookmarkBarState,
+                          base::Unretained(this),
+                          BOOKMARK_BAR_STATE_CHANGE_PREF_CHANGE));
 
   if (search::IsInstantExtendedAPIEnabled() && is_type_tabbed())
     instant_controller_.reset(new BrowserInstantController(this));
@@ -448,6 +440,9 @@ Browser::Browser(const CreateParams& params)
   UpdateBookmarkBarState(BOOKMARK_BAR_STATE_CHANGE_INIT);
 
   ProfileMetrics::LogProfileLaunch(profile_);
+
+  if (params.skip_window_init_for_testing)
+    return;
 
   window_ = params.window ? params.window
                           : CreateBrowserWindow(this, params.user_gesture);
@@ -476,12 +471,7 @@ Browser::Browser(const CreateParams& params)
   exclusive_access_manager_.reset(
       new ExclusiveAccessManager(window_->GetExclusiveAccessContext()));
 
-  // TODO(beng): Move BrowserList::AddBrowser() to the end of this function and
-  //             replace uses of this with BL's notifications.
   BrowserList::AddBrowser(this);
-  content::NotificationService::current()->Notify(
-      chrome::NOTIFICATION_BROWSER_WINDOW_READY, content::Source<Browser>(this),
-      content::NotificationService::NoDetails());
 }
 
 Browser::~Browser() {
@@ -660,6 +650,16 @@ base::string16 Browser::GetWindowTitleFromWebContents(
   // On Mac, we don't want to suffix the page title with the application name.
   return title;
 #endif
+
+  // If there is no title and this is an app, fall back on the app name. This
+  // ensures that the native window gets a title which is important for a11y,
+  // for example the window selector uses the Aura window title.
+  if (title.empty() && is_app() && include_app_name) {
+    return base::UTF8ToUTF16(hosted_app_controller_
+                                 ? hosted_app_controller_->GetAppShortName()
+                                 : app_name());
+  }
+
   // Include the app name in window titles for tabbed browser windows when
   // requested with |include_app_name|.
   return (!is_app() && include_app_name) ?
@@ -1212,8 +1212,8 @@ bool Browser::CanOverscrollContent() const {
   if (is_app() || is_devtools() || !is_type_tabbed())
     return false;
 
-  return content::OverscrollConfig::GetMode() !=
-         content::OverscrollConfig::Mode::kDisabled;
+  return content::OverscrollConfig::GetHistoryNavigationMode() !=
+         content::OverscrollConfig::HistoryNavigationMode::kDisabled;
 }
 
 bool Browser::ShouldPreserveAbortedURLs(WebContents* source) {
@@ -1243,7 +1243,7 @@ content::KeyboardEventProcessingResult Browser::PreHandleKeyboardEvent(
   // Forward keyboard events to the manager for fullscreen / mouse lock. This
   // may consume the event (e.g., Esc exits fullscreen mode).
   // TODO(koz): Write a test for this http://crbug.com/100441.
-  if (exclusive_access_manager_->HandleUserKeyPress(event))
+  if (exclusive_access_manager_->HandleUserKeyEvent(event))
     return content::KeyboardEventProcessingResult::HANDLED;
 
   return window()->PreHandleKeyboardEvent(event);
@@ -1407,16 +1407,19 @@ void Browser::OnDidBlockFramebust(content::WebContents* web_contents,
       url, FramebustBlockTabHelper::ClickCallback());
 }
 
-void Browser::UpdatePictureInPictureSurfaceId(viz::SurfaceId surface_id) {
-  if (!surface_id.is_valid())
-    return;
-
-  pip_window_controller_.reset(
-      PictureInPictureWindowController::GetOrCreateForWebContents(
-          tab_strip_model_->GetActiveWebContents()));
-  pip_window_controller_->Init();
-  pip_window_controller_->EmbedSurface(surface_id);
+void Browser::UpdatePictureInPictureSurfaceId(const viz::SurfaceId& surface_id,
+                                              const gfx::Size& natural_size) {
+  if (!pip_window_controller_)
+    pip_window_controller_.reset(
+        content::PictureInPictureWindowController::GetOrCreateForWebContents(
+            tab_strip_model_->GetActiveWebContents()));
+  pip_window_controller_->EmbedSurface(surface_id, natural_size);
   pip_window_controller_->Show();
+}
+
+void Browser::ExitPictureInPicture() {
+  if (pip_window_controller_)
+    pip_window_controller_->Close();
 }
 
 bool Browser::IsMouseLocked() const {
@@ -1499,8 +1502,12 @@ void Browser::VisibleSecurityStateChanged(WebContents* source) {
   // When the current tab's security state changes, we need to update the URL
   // bar to reflect the new state.
   DCHECK(source);
-  if (tab_strip_model_->GetActiveWebContents() == source)
+  if (tab_strip_model_->GetActiveWebContents() == source) {
     UpdateToolbar(false);
+
+    if (hosted_app_controller_)
+      hosted_app_controller_->UpdateLocationBarVisibility(true);
+  }
 }
 
 void Browser::AddNewContents(WebContents* source,
@@ -1846,6 +1853,17 @@ void Browser::LostMouseLock() {
   exclusive_access_manager_->mouse_lock_controller()->LostMouseLock();
 }
 
+void Browser::RequestKeyboardLock(WebContents* web_contents,
+                                  bool esc_key_locked) {
+  exclusive_access_manager_->keyboard_lock_controller()->RequestKeyboardLock(
+      web_contents, esc_key_locked);
+}
+
+void Browser::CancelKeyboardLockRequest(WebContents* web_contents) {
+  exclusive_access_manager_->keyboard_lock_controller()
+      ->CancelKeyboardLockRequest(web_contents);
+}
+
 void Browser::RequestMediaAccessPermission(
     content::WebContents* web_contents,
     const content::MediaStreamRequest& request,
@@ -1856,15 +1874,17 @@ void Browser::RequestMediaAccessPermission(
       web_contents, request, callback, extension);
 }
 
-bool Browser::CheckMediaAccessPermission(content::WebContents* web_contents,
-                                         const GURL& security_origin,
-                                         content::MediaStreamType type) {
-  Profile* profile =
-      Profile::FromBrowserContext(web_contents->GetBrowserContext());
+bool Browser::CheckMediaAccessPermission(
+    content::RenderFrameHost* render_frame_host,
+    const GURL& security_origin,
+    content::MediaStreamType type) {
+  Profile* profile = Profile::FromBrowserContext(
+      content::WebContents::FromRenderFrameHost(render_frame_host)
+          ->GetBrowserContext());
   const extensions::Extension* extension =
       GetExtensionForOrigin(profile, security_origin);
   return MediaCaptureDevicesDispatcher::GetInstance()
-      ->CheckMediaAccessPermission(web_contents, security_origin, type,
+      ->CheckMediaAccessPermission(render_frame_host, security_origin, type,
                                    extension);
 }
 
@@ -1962,16 +1982,16 @@ void Browser::SwapTabContents(content::WebContents* old_contents,
                               content::WebContents* new_contents,
                               bool did_start_load,
                               bool did_finish_load) {
-  // Copies the background color from an old WebContents to a new one that
-  // replaces it on the screen. This allows the new WebContents to use the
-  // old one's background color as the starting background color, before having
-  // loaded any contents. As a result, we avoid flashing white when navigating
-  // from a site whith a dark background to another site with a dark background.
+  // Copies the background color and contents of the old WebContents to a new
+  // one that replaces it on the screen. This allows the new WebContents to
+  // have something to show before having loaded any contents. As a result, we
+  // avoid flashing white when navigating from a site whith a dark background to
+  // another site with a dark background.
   if (old_contents && new_contents) {
     RenderWidgetHostView* old_view = old_contents->GetMainFrame()->GetView();
     RenderWidgetHostView* new_view = new_contents->GetMainFrame()->GetView();
     if (old_view && new_view)
-      new_view->SetBackgroundColor(old_view->background_color());
+      new_view->TakeFallbackContentFrom(old_view);
   }
 
   int index = tab_strip_model_->GetIndexOfWebContents(old_contents);

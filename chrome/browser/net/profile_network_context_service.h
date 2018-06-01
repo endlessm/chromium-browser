@@ -30,6 +30,12 @@ class ProfileNetworkContextService : public KeyedService {
   // SetUpProfileIODataMainContext.
   network::mojom::NetworkContextPtr CreateMainNetworkContext();
 
+  // Create a network context for the given |relative_parition_path|. This is
+  // only used when the network service is enabled for now.
+  network::mojom::NetworkContextPtr CreateNetworkContextForPartition(
+      bool in_memory,
+      const base::FilePath& relative_partition_path);
+
   // Initializes |*network_context_params| to set up the ProfileIOData's
   // main URLRequestContext and |*network_context_request| to be one end of a
   // Mojo pipe to be bound to the NetworkContext for that URLRequestContext.
@@ -61,9 +67,24 @@ class ProfileNetworkContextService : public KeyedService {
   // Checks |quic_allowed_|, and disables QUIC if needed.
   void DisableQuicIfNotAllowed();
 
+  // Forwards changes to |pref_accept_language_| to the NetworkContext, after
+  // formatting them as appropriate.
+  void UpdateAcceptLanguage();
+
+  // Computes appropriate value of Accept-Language header based on
+  // |pref_accept_language_|
+  std::string ComputeAcceptLanguage() const;
+
   // Creates parameters for the NetworkContext. May only be called once, since
   // it initializes some class members.
   network::mojom::NetworkContextParamsPtr CreateMainNetworkContextParams();
+
+  // Creates parameters for the NetworkContext. Use |in_memory| instead of
+  // |profile_->IsOffTheRecord()| because sometimes normal profiles want off the
+  // record partitions (e.g. for webview tag).
+  network::mojom::NetworkContextParamsPtr CreateNetworkContextParams(
+      bool in_memory,
+      const base::FilePath& relative_partition_path);
 
   Profile* const profile_;
 
@@ -80,6 +101,7 @@ class ProfileNetworkContextService : public KeyedService {
   network::mojom::NetworkContextRequest profile_io_data_context_request_;
 
   BooleanPrefMember quic_allowed_;
+  StringPrefMember pref_accept_language_;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileNetworkContextService);
 };

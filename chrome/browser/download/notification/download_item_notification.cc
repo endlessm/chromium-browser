@@ -194,11 +194,7 @@ DownloadItemNotification::DownloadItemNotification(download::DownloadItem* item)
       rich_notification_data,
       base::MakeRefCounted<message_center::ThunkNotificationDelegate>(
           weak_factory_.GetWeakPtr()));
-
   notification_->set_progress(0);
-  // Dangerous notifications don't have a click handler.
-  notification_->set_clickable(!item_->IsDangerous());
-
   Update();
 }
 
@@ -255,7 +251,38 @@ void DownloadItemNotification::Close(bool by_user) {
   }
 }
 
-void DownloadItemNotification::Click() {
+void DownloadItemNotification::Click(
+    const base::Optional<int>& button_index,
+    const base::Optional<base::string16>& reply) {
+  if (button_index) {
+    if (*button_index < 0 ||
+        static_cast<size_t>(*button_index) >= button_actions_->size()) {
+      // Out of boundary.
+      NOTREACHED();
+      return;
+    }
+
+    DownloadCommands::Command command = button_actions_->at(*button_index);
+    RecordButtonClickAction(command);
+
+    DownloadCommands(item_).ExecuteCommand(command);
+
+    // ExecuteCommand() might cause |item_| to be destroyed.
+    if (item_ && command != DownloadCommands::PAUSE &&
+        command != DownloadCommands::RESUME) {
+      CloseNotification();
+    }
+
+    // Shows the notification again after clicking "Keep" on dangerous download.
+    if (command == DownloadCommands::KEEP) {
+      show_next_ = true;
+      Update();
+    }
+
+    return;
+  }
+
+  // Handle a click on the notification's body.
   if (item_->IsDangerous()) {
     base::RecordAction(
         UserMetricsAction("DownloadNotification.Click_Dangerous"));
@@ -290,37 +317,14 @@ void DownloadItemNotification::Click() {
   }
 }
 
-void DownloadItemNotification::ButtonClick(int button_index) {
-  if (button_index < 0 ||
-      static_cast<size_t>(button_index) >= button_actions_->size()) {
-    // Out of boundary.
-    NOTREACHED();
-    return;
-  }
-
-  DownloadCommands::Command command = button_actions_->at(button_index);
-  RecordButtonClickAction(command);
-
-  DownloadCommands(item_).ExecuteCommand(command);
-
-  // ExecuteCommand() might cause |item_| to be destroyed.
-  if (item_ && command != DownloadCommands::PAUSE &&
-      command != DownloadCommands::RESUME) {
-    CloseNotification();
-  }
-
-  // Shows the notification again after clicking "Keep" on dangerous download.
-  if (command == DownloadCommands::KEEP) {
-    show_next_ = true;
-    Update();
-  }
-}
-
 std::string DownloadItemNotification::GetNotificationId() const {
   return item_->GetGuid();
 }
 
 void DownloadItemNotification::CloseNotification() {
+  if (closed_)
+    return;
+
   NotificationDisplayServiceFactory::GetForProfile(profile())->Close(
       NotificationHandler::Type::TRANSIENT, GetNotificationId());
 }
@@ -347,6 +351,17 @@ void DownloadItemNotification::Update() {
 void DownloadItemNotification::UpdateNotificationData(bool display,
                                                       bool bump_priority) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  if (item_->GetState() == download::DownloadItem::CANCELLED) {
+    // Confirms that a download is cancelled by user action.
+    DCHECK(item_->GetLastReason() ==
+               download::DOWNLOAD_INTERRUPT_REASON_USER_CANCELED ||
+           item_->GetLastReason() ==
+               download::DOWNLOAD_INTERRUPT_REASON_USER_SHUTDOWN);
+
+    CloseNotification();
+    return;
+  }
 
   DownloadItemModel model(item_);
   DownloadCommands command(item_);
@@ -382,14 +397,9 @@ void DownloadItemNotification::UpdateNotificationData(bool display,
         notification_->set_progress(100);
         break;
       case download::DownloadItem::CANCELLED:
-        // Confirms that a download is cancelled by user action.
-        DCHECK(item_->GetLastReason() ==
-                   download::DOWNLOAD_INTERRUPT_REASON_USER_CANCELED ||
-               item_->GetLastReason() ==
-                   download::DOWNLOAD_INTERRUPT_REASON_USER_SHUTDOWN);
-
-        CloseNotification();
-        return;  // Skips the remaining since the notification has closed.
+        // Handled above.
+        NOTREACHED();
+        return;
       case download::DownloadItem::INTERRUPTED:
         // Shows a notifiation as progress type once so the visible content will
         // be updated. (same as the case of type = COMPLETE)

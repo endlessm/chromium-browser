@@ -15,7 +15,6 @@
 #include "base/json/json_writer.h"
 #include "base/logging.h"  // For CHECK macros.
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_split.h"
@@ -146,6 +145,9 @@ HttpHandler::HttpHandler(
       CommandMapping(
           kPost, "session/:sessionId/window/:windowHandle/maximize",
           WrapToCommand("MaximizeWindow", base::Bind(&ExecuteMaximizeWindow))),
+      CommandMapping(
+          kPost, "session/:sessionId/window/:windowHandle/minimize",
+          WrapToCommand("MinimizeWindow", base::Bind(&ExecuteMinimizeWindow))),
       CommandMapping(kPost, "session/:sessionId/window/fullscreen",
                      WrapToCommand("FullscreenWindow",
                                    base::Bind(&ExecuteFullScreenWindow))),
@@ -317,6 +319,9 @@ HttpHandler::HttpHandler(
       CommandMapping(kGet, "session/:sessionId/element/:id/location",
                      WrapToCommand("GetElementLocation",
                                    base::Bind(&ExecuteGetElementLocation))),
+      CommandMapping(
+          kGet, "session/:sessionId/element/:id/rect",
+          WrapToCommand("GetElementRect", base::Bind(&ExecuteGetElementRect))),
       CommandMapping(
           kGet, "session/:sessionId/element/:id/location_in_view",
           WrapToCommand(

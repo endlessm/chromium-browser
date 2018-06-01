@@ -53,15 +53,15 @@
 #include "components/safe_browsing/common/safe_browsing_prefs.h"
 #include "components/search_engines/default_search_policy_handler.h"
 #include "components/signin/core/browser/signin_pref_names.h"
-#include "components/spellcheck/spellcheck_build_features.h"
+#include "components/spellcheck/spellcheck_buildflags.h"
 #include "components/ssl_config/ssl_config_prefs.h"
 #include "components/sync/base/pref_names.h"
 #include "components/sync/driver/sync_policy_handler.h"
 #include "components/translate/core/browser/translate_pref_names.h"
 #include "components/variations/pref_names.h"
-#include "extensions/features/features.h"
-#include "media/media_features.h"
-#include "ppapi/features/features.h"
+#include "extensions/buildflags/buildflags.h"
+#include "media/media_buildflags.h"
+#include "ppapi/buildflags/buildflags.h"
 
 #if defined(OS_ANDROID)
 #include "chrome/browser/search/contextual_search_policy_handler_android.h"
@@ -85,6 +85,7 @@
 #if !defined(OS_ANDROID)
 #include "chrome/browser/download/default_download_dir_policy_handler.h"
 #include "chrome/browser/download/download_dir_policy_handler.h"
+#include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/policy/local_sync_policy_handler.h"
 #endif
 
@@ -482,6 +483,9 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kShowCastIconInToolbar,
     prefs::kShowCastIconInToolbar,
     base::Value::Type::BOOLEAN },
+  { key::kMediaRouterCastAllowAllIPs,
+    media_router::prefs::kMediaRouterCastAllowAllIPs,
+    base::Value::Type::BOOLEAN },
 #endif  // !defined(OS_ANDROID)
 #if BUILDFLAG(ENABLE_WEBRTC)
   { key::kWebRtcUdpPortRange,
@@ -506,7 +510,7 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
 
 #if defined(OS_CHROMEOS)
   { key::kChromeOsLockOnIdleSuspend,
-    prefs::kEnableAutoScreenLock,
+    ash::prefs::kEnableAutoScreenLock,
     base::Value::Type::BOOLEAN },
   { key::kChromeOsReleaseChannel,
     prefs::kChromeOsReleaseChannel,
@@ -539,16 +543,16 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
     prefs::kSessionWaitForInitialUserActivity,
     base::Value::Type::BOOLEAN },
   { key::kPowerManagementUsesAudioActivity,
-    prefs::kPowerUseAudioActivity,
+    ash::prefs::kPowerUseAudioActivity,
     base::Value::Type::BOOLEAN },
   { key::kPowerManagementUsesVideoActivity,
-    prefs::kPowerUseVideoActivity,
+    ash::prefs::kPowerUseVideoActivity,
     base::Value::Type::BOOLEAN },
   { key::kAllowScreenWakeLocks,
-    prefs::kPowerAllowScreenWakeLocks,
+    ash::prefs::kPowerAllowScreenWakeLocks,
     base::Value::Type::BOOLEAN },
   { key::kWaitForInitialUserActivity,
-    prefs::kPowerWaitForInitialUserActivity,
+    ash::prefs::kPowerWaitForInitialUserActivity,
     base::Value::Type::BOOLEAN },
   { key::kTermsOfServiceURL,
     prefs::kTermsOfServiceURL,
@@ -637,6 +641,12 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kNativePrintersBulkWhitelist,
     prefs::kRecommendedNativePrintersWhitelist,
     base::Value::Type::LIST },
+  { key::kUserNativePrintersAllowed,
+    prefs::kUserNativePrintersAllowed,
+    base::Value::Type::BOOLEAN },
+  { key::kArcAppInstallEventLoggingEnabled,
+    prefs::kArcAppInstallEventLoggingEnabled,
+    base::Value::Type::BOOLEAN },
 #endif  // defined(OS_CHROMEOS)
 
 // Metrics reporting is controlled by a platform specific policy for ChromeOS
@@ -712,7 +722,7 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
     base::Value::Type::DICTIONARY },
 
   { key::kAllowScreenLock,
-    prefs::kAllowScreenLock,
+    ash::prefs::kAllowScreenLock,
     base::Value::Type::BOOLEAN },
 
   { key::kQuickUnlockModeWhitelist,
@@ -758,6 +768,10 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
     prefs::kAbusiveExperienceInterventionEnforce,
     base::Value::Type::BOOLEAN },
 
+  { key::kTabUnderAllowed,
+    prefs::kTabUnderAllowed,
+    base::Value::Type::BOOLEAN },
+
 #if defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
   { key::kThirdPartyBlockingEnabled,
     prefs::kThirdPartyBlockingEnabled,
@@ -779,7 +793,15 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kAutoplayAllowed,
     prefs::kAutoplayAllowed,
     base::Value::Type::BOOLEAN },
+
+  { key::kAutoplayWhitelist,
+    prefs::kAutoplayWhitelist,
+    base::Value::Type::LIST },
 #endif  // !defined(OS_ANDROID)
+
+  { key::kDefaultWebUsbGuardSetting,
+    prefs::kManagedDefaultWebUsbGuardSetting,
+    base::Value::Type::INTEGER },
 };
 // clang-format on
 
@@ -987,8 +1009,22 @@ std::unique_ptr<ConfigurationPolicyHandlerList> BuildHandlerList(
   handlers->AddHandler(std::make_unique<SimpleSchemaValidatingPolicyHandler>(
       key::kCertificateTransparencyEnforcementDisabledForUrls,
       certificate_transparency::prefs::kCTExcludedHosts, chrome_schema,
-      SCHEMA_STRICT, SimpleSchemaValidatingPolicyHandler::RECOMMENDED_ALLOWED,
+      SCHEMA_STRICT,
+      SimpleSchemaValidatingPolicyHandler::RECOMMENDED_PROHIBITED,
       SimpleSchemaValidatingPolicyHandler::MANDATORY_ALLOWED));
+  handlers->AddHandler(std::make_unique<SimpleSchemaValidatingPolicyHandler>(
+      key::kCertificateTransparencyEnforcementDisabledForCas,
+      certificate_transparency::prefs::kCTExcludedSPKIs, chrome_schema,
+      SCHEMA_STRICT,
+      SimpleSchemaValidatingPolicyHandler::RECOMMENDED_PROHIBITED,
+      SimpleSchemaValidatingPolicyHandler::MANDATORY_ALLOWED));
+  handlers->AddHandler(std::make_unique<SimpleSchemaValidatingPolicyHandler>(
+      key::kCertificateTransparencyEnforcementDisabledForLegacyCas,
+      certificate_transparency::prefs::kCTExcludedLegacySPKIs, chrome_schema,
+      SCHEMA_STRICT,
+      SimpleSchemaValidatingPolicyHandler::RECOMMENDED_PROHIBITED,
+      SimpleSchemaValidatingPolicyHandler::MANDATORY_ALLOWED));
+
   handlers->AddHandler(std::make_unique<SecureOriginPolicyHandler>());
 
 #if defined(OS_ANDROID)
@@ -1096,44 +1132,45 @@ std::unique_ptr<ConfigurationPolicyHandlerList> BuildHandlerList(
   std::vector<std::unique_ptr<ConfigurationPolicyHandler>>
       power_management_idle_legacy_policies;
   power_management_idle_legacy_policies.push_back(
-      std::make_unique<IntRangePolicyHandler>(key::kScreenDimDelayAC,
-                                              prefs::kPowerAcScreenDimDelayMs,
-                                              0, INT_MAX, true));
-  power_management_idle_legacy_policies.push_back(
-      std::make_unique<IntRangePolicyHandler>(key::kScreenOffDelayAC,
-                                              prefs::kPowerAcScreenOffDelayMs,
-                                              0, INT_MAX, true));
-  power_management_idle_legacy_policies.push_back(
-      std::make_unique<IntRangePolicyHandler>(key::kIdleWarningDelayAC,
-                                              prefs::kPowerAcIdleWarningDelayMs,
-                                              0, INT_MAX, true));
-  power_management_idle_legacy_policies.push_back(
       std::make_unique<IntRangePolicyHandler>(
-          key::kIdleDelayAC, prefs::kPowerAcIdleDelayMs, 0, INT_MAX, true));
-  power_management_idle_legacy_policies.push_back(
-      std::make_unique<IntRangePolicyHandler>(
-          key::kScreenDimDelayBattery, prefs::kPowerBatteryScreenDimDelayMs, 0,
+          key::kScreenDimDelayAC, ash::prefs::kPowerAcScreenDimDelayMs, 0,
           INT_MAX, true));
   power_management_idle_legacy_policies.push_back(
       std::make_unique<IntRangePolicyHandler>(
-          key::kScreenOffDelayBattery, prefs::kPowerBatteryScreenOffDelayMs, 0,
+          key::kScreenOffDelayAC, ash::prefs::kPowerAcScreenOffDelayMs, 0,
           INT_MAX, true));
   power_management_idle_legacy_policies.push_back(
       std::make_unique<IntRangePolicyHandler>(
-          key::kIdleWarningDelayBattery, prefs::kPowerBatteryIdleWarningDelayMs,
-          0, INT_MAX, true));
+          key::kIdleWarningDelayAC, ash::prefs::kPowerAcIdleWarningDelayMs, 0,
+          INT_MAX, true));
   power_management_idle_legacy_policies.push_back(
-      std::make_unique<IntRangePolicyHandler>(key::kIdleDelayBattery,
-                                              prefs::kPowerBatteryIdleDelayMs,
+      std::make_unique<IntRangePolicyHandler>(key::kIdleDelayAC,
+                                              ash::prefs::kPowerAcIdleDelayMs,
                                               0, INT_MAX, true));
   power_management_idle_legacy_policies.push_back(
       std::make_unique<IntRangePolicyHandler>(
-          key::kIdleActionAC, prefs::kPowerAcIdleAction,
+          key::kScreenDimDelayBattery,
+          ash::prefs::kPowerBatteryScreenDimDelayMs, 0, INT_MAX, true));
+  power_management_idle_legacy_policies.push_back(
+      std::make_unique<IntRangePolicyHandler>(
+          key::kScreenOffDelayBattery,
+          ash::prefs::kPowerBatteryScreenOffDelayMs, 0, INT_MAX, true));
+  power_management_idle_legacy_policies.push_back(
+      std::make_unique<IntRangePolicyHandler>(
+          key::kIdleWarningDelayBattery,
+          ash::prefs::kPowerBatteryIdleWarningDelayMs, 0, INT_MAX, true));
+  power_management_idle_legacy_policies.push_back(
+      std::make_unique<IntRangePolicyHandler>(
+          key::kIdleDelayBattery, ash::prefs::kPowerBatteryIdleDelayMs, 0,
+          INT_MAX, true));
+  power_management_idle_legacy_policies.push_back(
+      std::make_unique<IntRangePolicyHandler>(
+          key::kIdleActionAC, ash::prefs::kPowerAcIdleAction,
           chromeos::PowerPolicyController::ACTION_SUSPEND,
           chromeos::PowerPolicyController::ACTION_DO_NOTHING, false));
   power_management_idle_legacy_policies.push_back(
       std::make_unique<IntRangePolicyHandler>(
-          key::kIdleActionBattery, prefs::kPowerBatteryIdleAction,
+          key::kIdleActionBattery, ash::prefs::kPowerBatteryIdleAction,
           chromeos::PowerPolicyController::ACTION_SUSPEND,
           chromeos::PowerPolicyController::ACTION_DO_NOTHING, false));
   power_management_idle_legacy_policies.push_back(
@@ -1142,25 +1179,25 @@ std::unique_ptr<ConfigurationPolicyHandlerList> BuildHandlerList(
   std::vector<std::unique_ptr<ConfigurationPolicyHandler>>
       screen_lock_legacy_policies;
   screen_lock_legacy_policies.push_back(std::make_unique<IntRangePolicyHandler>(
-      key::kScreenLockDelayAC, prefs::kPowerAcScreenLockDelayMs, 0, INT_MAX,
-      true));
-  screen_lock_legacy_policies.push_back(std::make_unique<IntRangePolicyHandler>(
-      key::kScreenLockDelayBattery, prefs::kPowerBatteryScreenLockDelayMs, 0,
+      key::kScreenLockDelayAC, ash::prefs::kPowerAcScreenLockDelayMs, 0,
       INT_MAX, true));
+  screen_lock_legacy_policies.push_back(std::make_unique<IntRangePolicyHandler>(
+      key::kScreenLockDelayBattery, ash::prefs::kPowerBatteryScreenLockDelayMs,
+      0, INT_MAX, true));
 
   handlers->AddHandler(std::make_unique<IntRangePolicyHandler>(
       key::kSAMLOfflineSigninTimeLimit, prefs::kSAMLOfflineSigninTimeLimit, -1,
       INT_MAX, true));
   handlers->AddHandler(std::make_unique<IntRangePolicyHandler>(
-      key::kLidCloseAction, prefs::kPowerLidClosedAction,
+      key::kLidCloseAction, ash::prefs::kPowerLidClosedAction,
       chromeos::PowerPolicyController::ACTION_SUSPEND,
       chromeos::PowerPolicyController::ACTION_DO_NOTHING, false));
   handlers->AddHandler(std::make_unique<IntPercentageToDoublePolicyHandler>(
       key::kPresentationScreenDimDelayScale,
-      prefs::kPowerPresentationScreenDimDelayFactor, 100, INT_MAX, true));
+      ash::prefs::kPowerPresentationScreenDimDelayFactor, 100, INT_MAX, true));
   handlers->AddHandler(std::make_unique<IntPercentageToDoublePolicyHandler>(
       key::kUserActivityScreenDimDelayScale,
-      prefs::kPowerUserActivityScreenDimDelayFactor, 100, INT_MAX, true));
+      ash::prefs::kPowerUserActivityScreenDimDelayFactor, 100, INT_MAX, true));
   handlers->AddHandler(std::make_unique<IntRangePolicyHandler>(
       key::kUptimeLimit, prefs::kUptimeLimit, 3600, INT_MAX, true));
   handlers->AddHandler(base::WrapUnique(new IntRangePolicyHandler(

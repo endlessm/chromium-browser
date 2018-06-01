@@ -95,7 +95,7 @@ public class BookmarkUtils {
                     createSnackbarControllerForEditButton(activity, bookmarkId);
             if (getLastUsedParent(activity) == null) {
                 if (fromCustomTab) {
-                    String packageLabel = BuildInfo.getPackageLabel();
+                    String packageLabel = BuildInfo.getInstance().hostPackageLabel;
                     snackbar = Snackbar.make(
                             activity.getString(R.string.bookmark_page_saved, packageLabel),
                             snackbarController, Snackbar.TYPE_ACTION, Snackbar.UMA_BOOKMARK_ADDED);
@@ -163,7 +163,7 @@ public class BookmarkUtils {
         ThreadUtils.assertOnUiThread();
         String url = getFirstUrlToLoad(activity);
 
-        if (DeviceFormFactor.isTablet()) {
+        if (DeviceFormFactor.isNonMultiDisplayContextOnTablet(activity)) {
             openUrl(activity, url, activity.getComponentName());
         } else {
             Intent intent = new Intent(activity, BookmarkActivity.class);
@@ -251,7 +251,7 @@ public class BookmarkUtils {
         RecordHistogram.recordEnumeratedHistogram(
                 "Bookmarks.OpenBookmarkType", bookmarkId.getType(), BookmarkType.LAST + 1);
 
-        if (DeviceFormFactor.isTablet()) {
+        if (DeviceFormFactor.isNonMultiDisplayContextOnTablet(activity)) {
             // For tablets, the bookmark manager is open in a tab in the ChromeActivity. Use
             // the ComponentName of the ChromeActivity passed into this method.
             openUrl(activity, url, activity.getComponentName());

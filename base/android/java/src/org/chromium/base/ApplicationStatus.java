@@ -14,7 +14,6 @@ import android.view.Window;
 
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.base.annotations.MainDex;
 
 import java.lang.ref.WeakReference;
 import java.lang.reflect.InvocationHandler;
@@ -31,7 +30,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * to register / unregister listeners for state changes.
  */
 @JNINamespace("base::android")
-@MainDex
 public class ApplicationStatus {
     private static final String TOOLBAR_CALLBACK_INTERNAL_WRAPPER_CLASS =
             "android.support.v7.internal.app.ToolbarActionBar$ToolbarCallbackWrapper";
@@ -67,6 +65,15 @@ public class ApplicationStatus {
         public ObserverList<ActivityStateListener> getListeners() {
             return mListeners;
         }
+    }
+
+    static {
+        // Chrome initializes this only for the main process. This assert aims to try and catch
+        // usages from GPU / renderers, while still allowing tests.
+        assert ContextUtils.isMainProcess()
+                || ContextUtils.getProcessName().contains(":test")
+            : "Cannot use ApplicationState from process: "
+                        + ContextUtils.getProcessName();
     }
 
     private static final Object sCachedApplicationStateLock = new Object();

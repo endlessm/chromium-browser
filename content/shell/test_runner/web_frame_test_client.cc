@@ -14,6 +14,7 @@
 #include "content/shell/test_runner/accessibility_controller.h"
 #include "content/shell/test_runner/event_sender.h"
 #include "content/shell/test_runner/mock_screen_orientation_client.h"
+#include "content/shell/test_runner/mock_web_speech_recognizer.h"
 #include "content/shell/test_runner/test_common.h"
 #include "content/shell/test_runner/test_interfaces.h"
 #include "content/shell/test_runner/test_plugin.h"
@@ -23,19 +24,19 @@
 #include "content/shell/test_runner/web_view_test_proxy.h"
 #include "content/shell/test_runner/web_widget_test_proxy.h"
 #include "net/base/net_errors.h"
-#include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/platform/WebURL.h"
-#include "third_party/WebKit/public/platform/WebURLRequest.h"
-#include "third_party/WebKit/public/platform/WebURLResponse.h"
-#include "third_party/WebKit/public/web/WebConsoleMessage.h"
-#include "third_party/WebKit/public/web/WebElement.h"
-#include "third_party/WebKit/public/web/WebFrame.h"
-#include "third_party/WebKit/public/web/WebFrameWidget.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebNavigationPolicy.h"
-#include "third_party/WebKit/public/web/WebPluginParams.h"
-#include "third_party/WebKit/public/web/WebUserGestureIndicator.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/platform/web_url.h"
+#include "third_party/blink/public/platform/web_url_request.h"
+#include "third_party/blink/public/platform/web_url_response.h"
+#include "third_party/blink/public/web/web_console_message.h"
+#include "third_party/blink/public/web/web_element.h"
+#include "third_party/blink/public/web/web_frame.h"
+#include "third_party/blink/public/web/web_frame_widget.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_navigation_policy.h"
+#include "third_party/blink/public/web/web_plugin_params.h"
+#include "third_party/blink/public/web/web_user_gesture_indicator.h"
+#include "third_party/blink/public/web/web_view.h"
 #include "url/gurl.h"
 #include "url/url_constants.h"
 
@@ -366,12 +367,9 @@ void WebFrameTestClient::ShowContextMenu(
       ->SetContextMenuData(context_menu_data);
 }
 
-void WebFrameTestClient::DownloadURL(const blink::WebURLRequest& request,
-                                     const blink::WebString& suggested_name) {
+void WebFrameTestClient::DownloadURL(const blink::WebURLRequest& request) {
   if (test_runner()->shouldWaitUntilExternalURLLoad()) {
-    delegate_->PrintMessage(
-        std::string("Downloading URL with suggested filename \"") +
-        suggested_name.Utf8() + "\"\n");
+    delegate_->PrintMessage(std::string("Download started\n"));
     delegate_->TestFinished();
   }
 }
@@ -695,6 +693,10 @@ void WebFrameTestClient::CheckIfAudioSinkExistsAndIsAuthorized(
     callback->OnError(blink::WebSetSinkIdError::kNotAuthorized);
   else
     callback->OnError(blink::WebSetSinkIdError::kNotFound);
+}
+
+blink::WebSpeechRecognizer* WebFrameTestClient::SpeechRecognizer() {
+  return test_runner()->getMockWebSpeechRecognizer();
 }
 
 void WebFrameTestClient::DidClearWindowObject() {

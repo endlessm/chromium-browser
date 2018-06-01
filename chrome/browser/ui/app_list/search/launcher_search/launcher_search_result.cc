@@ -40,7 +40,7 @@ LauncherSearchResult::LauncherSearchResult(
             chromeos::launcher_search_provider::kMaxSearchResultScore);
 
   icon_image_loader_.reset(new LauncherSearchIconImageLoaderImpl(
-      icon_url, profile, extension, GetPreferredIconDimension(this),
+      icon_url, profile, extension, GetPreferredIconDimension(display_type()),
       std::move(error_reporter)));
   icon_image_loader_->LoadResources();
 
@@ -52,7 +52,7 @@ LauncherSearchResult::~LauncherSearchResult() {
     icon_image_loader_->RemoveObserver(this);
 }
 
-std::unique_ptr<SearchResult> LauncherSearchResult::Duplicate() const {
+std::unique_ptr<ChromeSearchResult> LauncherSearchResult::Duplicate() const {
   LauncherSearchResult* duplicated_result =
       new LauncherSearchResult(item_id_, discrete_value_relevance_, profile_,
                                extension_, icon_image_loader_);

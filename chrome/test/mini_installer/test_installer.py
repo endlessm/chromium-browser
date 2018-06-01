@@ -11,9 +11,8 @@ the design documentation at http://goo.gl/Q0rGM6
 
 import argparse
 import contextlib
-import datetime
-import inspect
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -28,22 +27,14 @@ import _winreg
 from variable_expander import VariableExpander
 import verifier_runner
 
-
-def LogMessage(message):
-  """Logs a message to stderr.
-
-  Args:
-    message: The message string to be logged.
-  """
-  now = datetime.datetime.now()
-  frameinfo = inspect.getframeinfo(inspect.currentframe().f_back)
-  filename = os.path.basename(frameinfo.filename)
-  line = frameinfo.lineno
-  sys.stderr.write('[%s:%s(%s)] %s\n' % (now.strftime('%m%d/%H%M%S'),
-                                         filename, line, message))
+# Use absolute paths
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+SRC_DIR = os.path.join(THIS_DIR, '..', '..', '..')
+RUNNING_LOCALLY = (
+  os.getenv('SWARMING_HEADLESS') != '1' and os.getenv('CHROME_HEADLESS') != '1')
 
 
-class Config:
+class Config(object):
   """Describes the machine states, actions, and test cases.
 
   Attributes:
@@ -62,7 +53,7 @@ class Config:
 class InstallerTest(unittest.TestCase):
   """Tests a test case in the config file."""
 
-  def __init__(self, name, test, config, variable_expander, quiet):
+  def __init__(self, name, test, config, variable_expander):
     """Constructor.
 
     Args:
@@ -77,7 +68,6 @@ class InstallerTest(unittest.TestCase):
     self._test = test
     self._config = config
     self._variable_expander = variable_expander
-    self._quiet = quiet
     self._verifier_runner = verifier_runner.VerifierRunner()
     self._clean_on_teardown = True
 
@@ -110,11 +100,10 @@ class InstallerTest(unittest.TestCase):
     # Starting at index 1, we loop through pairs of (action, state).
     for i in range(1, len(self._test), 2):
       action = self._test[i]
-      if not self._quiet:
-        LogMessage('Beginning action %s' % action)
-      RunCommand(self._config.actions[action], self._variable_expander)
-      if not self._quiet:
-        LogMessage('Finished action %s' % action)
+      logging.info('Beginning action %s' % action)
+      RunCommand(
+        self._config.actions[action], self._variable_expander)
+      logging.info('Finished action %s' % action)
 
       state = self._test[i + 1]
       self._VerifyState(state)
@@ -144,8 +133,7 @@ class InstallerTest(unittest.TestCase):
     Args:
       state: A state name.
     """
-    if not self._quiet:
-      LogMessage('Verifying state %s' % state)
+    logging.info('Verifying state %s' % state)
     try:
       self._verifier_runner.VerifyAll(self._config.states[state],
                                       self._variable_expander)
@@ -167,10 +155,29 @@ def RunCommand(command, variable_expander):
   """
   expanded_command = variable_expander.Expand(command)
   script_dir = os.path.dirname(os.path.abspath(__file__))
-  exit_status = subprocess.call(expanded_command, shell=True, cwd=script_dir)
-  if exit_status != 0:
+  returncode = None
+  stdout = ''
+  stderr = ''
+  # Uninstall is special in that it is run in interactive mode and may need user
+  # input. This needs to happen even if the quiet arg is passed to prevent a
+  # deadlock
+  if 'uninstall_chrome.py' in expanded_command:
+    returncode = subprocess.call(
+      expanded_command, shell=True, cwd=script_dir)
+  else:
+    proc = subprocess.Popen(
+      expanded_command, shell=True, cwd=script_dir, stdout=subprocess.PIPE,
+      stderr=subprocess.PIPE)
+    stdout, stderr = proc.communicate()
+    returncode = proc.returncode
+
+  if stdout:
+    logging.info('stdout:\n%s', stdout.replace('\r', '').rstrip('\n'))
+  if stderr:
+    logging.error('stdout:\n%s', stderr.replace('\r', '').rstrip('\n'))
+  if returncode != 0:
     raise Exception('Command %s returned non-zero exit status %s' % (
-        expanded_command, exit_status))
+        expanded_command, returncode))
 
 
 def DeleteGoogleUpdateRegistration(system_level, registry_subkey,
@@ -196,7 +203,7 @@ def DeleteGoogleUpdateRegistration(system_level, registry_subkey,
 
 
 def RunCleanCommand(force_clean, variable_expander):
-  """Puts the machine in the clean state (i.e. Chrome not installed).
+  """Puts the machine in the clean state (e.g. Chrome not installed).
 
   Args:
     force_clean: A boolean indicating whether to force cleaning existing
@@ -234,7 +241,7 @@ def RunCleanCommand(force_clean, variable_expander):
     except:
       message = traceback.format_exception(*sys.exc_info())
       message.insert(0, 'Error cleaning up an old install with:\n')
-      LogMessage(''.join(message))
+      logging.info(''.join(message))
     if force_clean:
       DeleteGoogleUpdateRegistration(system_level, registry_subkey,
                                      variable_expander)
@@ -386,42 +393,129 @@ def ConfigureTempOnDrive(drive):
         raise Exception('Failed to entirely delete directory %s' % tmp_created)
 
 
+def GetAbsoluteExecutablePath(build_dir, target, path):
+  """Gets the absolute path to the an executable.
+
+  The path can either be an absolute or relative path, as well as the
+  executable's name. These are used to probe user-specified and common
+  binary paths.
+
+  This method searches for the binary in common locations:
+  - path location (when specifying a non-standard location)
+  - build_dir\target\path (explicitly passed via build_dir and target flags,
+      path here is the filename)
+  - out\Release\path (local default path, path here is the filename)
+  - out\Default\path (alternate local default path)
+  - out\Release_x64\path (on waterfall)
+
+  Note: If build_dir and target are empty (default) just the path is used. This
+  allows the user to pass in paths without having to worry about conflicts with
+  the build_dir and target args.
+
+  Args:
+    build_dir: The build directory (e.g. out)
+    target: The target directory (e.g. Release)
+    path: The path to the file. This can be an absolute or relative path.
+
+  Returns:
+    Absolute path to installer.
+  """
+  possible_paths = [
+    os.path.abspath(os.path.join(build_dir, target, path)),
+    os.path.abspath(os.path.join('out', 'Release', path)),
+    os.path.abspath(os.path.join('out', 'Release_x64', path)),
+    os.path.abspath(os.path.join('out', 'Default', path)),
+    ]
+  for _path in possible_paths:
+    if os.path.exists(_path):
+      return _path
+  raise RuntimeError('Binary can\'t be found: %s' % path)
+
+
+def GetAbsoluteConfigPath(path):
+  """Gets the absolute path to the config file.
+
+  Args:
+    path: The path to the file.
+
+  Returns:
+    Absolute path to config.
+  """
+  if os.path.exists(path):
+    pass
+  else:
+    path = os.path.join(THIS_DIR, 'config', path)
+
+  assert os.path.exists(path), 'Config can\'t be found: %s' % path
+  logging.info('Config found at %s', path)
+  return os.path.abspath(path)
+
+
 def DoMain():
-  parser = argparse.ArgumentParser()
-  parser.add_argument('--build-dir', default='out',
+  # TODO(mmeade): Replace --build-dir and --target with a new path
+  # flags and plumb it through.
+  parser = argparse.ArgumentParser(
+    description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+  parser.add_argument('-q', '--quiet', action='store_true', default=False,
+                      help='Reduce test runner output')
+  parser.add_argument('--build-dir', default='',
                       help='Path to main build directory (the parent of the '
                       'Release or Debug directory)')
-  parser.add_argument('--target', default='Release',
+  parser.add_argument('--target', default='',
                       help='Build target (Release or Debug)')
   parser.add_argument('--force-clean', action='store_true', default=False,
                       help='Force cleaning existing installations')
-  parser.add_argument('-q', '--quiet', action='store_true', default=False,
-                      help='Reduce test runner output')
   parser.add_argument('--write-full-results-to', metavar='FILENAME',
                       help='Path to write the list of full results to.')
-  parser.add_argument('--config', metavar='FILENAME',
-                      help='Path to test configuration file')
   parser.add_argument('test', nargs='*',
                       help='Name(s) of tests to run.')
+
+  # The following flags will replace the build-dir, target, and filename arg.
+  parser.add_argument('--installer-path',
+                      default='mini_installer.exe',
+                      metavar='FILENAME',
+                      help='The path of the installer.')
+  parser.add_argument('--next-version-installer-path',
+                      default='next_version_mini_installer.exe',
+                      metavar='FILENAME',
+                      help='The path of the next version installer.')
+  parser.add_argument('--chromedriver-path',
+                      default='chromedriver.exe',
+                      help='The path to chromedriver.')
+  parser.add_argument('--config', default='config.config',
+                      metavar='FILENAME',
+                      help='Path to test configuration file')
   args = parser.parse_args()
-  if not args.config:
-    parser.error('missing mandatory --config FILENAME argument')
 
-  mini_installer_path = os.path.join(args.build_dir, args.target,
-                                     'mini_installer.exe')
-  assert os.path.exists(mini_installer_path), ('Could not find file %s' %
-                                               mini_installer_path)
+  # Due to what looks like a bug the root handlers need to be cleared out
+  # so the right handler will be created.
+  logging.Logger.root.handlers = []
+  logging.basicConfig(
+    format='[%(asctime)s:%(filename)s(%(lineno)d)] %(message)s',
+    datefmt='%m%d/%H%M%S', level=logging.ERROR if args.quiet else logging.INFO)
 
-  next_version_mini_installer_path = os.path.join(
-      args.build_dir, args.target, 'next_version_mini_installer.exe')
-  assert os.path.exists(next_version_mini_installer_path), (
-      'Could not find file %s' % next_version_mini_installer_path)
+  # TODO(mmeade): Fully switch to paths
+  # Use absolute paths.
+  installer_path = GetAbsoluteExecutablePath(
+    args.build_dir, args.target, args.installer_path)
+  next_version_installer_path = GetAbsoluteExecutablePath(
+    args.build_dir, args.target, args.next_version_installer_path)
+  chromedriver_path = GetAbsoluteExecutablePath(
+    args.build_dir, args.target, args.chromedriver_path)
+  config_path = GetAbsoluteConfigPath(args.config)
+
+  # Set --force-clean when not running locally
+  if not RUNNING_LOCALLY:
+    logging.info('Setting --force-clean')
+    args.force_clean = True
 
   suite = unittest.TestSuite()
 
-  variable_expander = VariableExpander(mini_installer_path,
-                                       next_version_mini_installer_path)
-  config = ParseConfigFile(args.config, variable_expander)
+  variable_expander = VariableExpander(installer_path,
+                                       next_version_installer_path,
+                                       chromedriver_path,
+                                       args.quiet)
+  config = ParseConfigFile(config_path, variable_expander)
 
   RunCleanCommand(args.force_clean, variable_expander)
   for test in config.tests:
@@ -431,7 +525,7 @@ def DoMain():
                               test['name'])
     if not args.test or test_name in args.test:
       suite.addTest(InstallerTest(test['name'], test['traversal'], config,
-                                  variable_expander, args.quiet))
+                                  variable_expander))
 
   verbosity = 2 if not args.quiet else 1
   result = unittest.TextTestRunner(verbosity=verbosity).run(suite)

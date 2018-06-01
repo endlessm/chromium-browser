@@ -22,12 +22,36 @@ public interface VrDialogManager {
     void closeVrDialog();
 
     /**
-     * Set size of the Dialog in VR.
+     * Set size of the Dialog in VR. The width and height are used to make sure
+     * that events are sent to the correct location, and the dialog has the
+     * correct size.
+     *
+     * @param width the dialog's width in pixels
+     * @param height the dialog's height in pixels
      */
     void setDialogSize(int width, int height);
 
     /**
-     * Initialize the Dialog in VR.
+     * Set size of the Dialog in VR.
+     * @param x the dialog x offset in pixels.
+     * @param y the dialog y offset in pixels.
+     */
+    void setDialogLocation(int x, int y);
+
+    /**
+     * Initialize the Dialog in VR. The width and height are used to make sure
+     * that events are sent to the correct location, and the dialog has the
+     * correct size.
+     *
+     * @param width the dialog's width in pixels
+     * @param height the dialog's height in pixels
      */
     void initVrDialog(int width, int height);
+
+    /**
+     * Set dialog as floating or not floating. Floting means that Dialog can change its position.
+     *
+     * @param floating indicates if the dialog is floating.
+     */
+    void setDialogFloating(boolean floating);
 }

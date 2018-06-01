@@ -21,7 +21,6 @@
 #include "base/mac/scoped_cftyperef.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/path_service.h"
@@ -41,7 +40,6 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/shell_integration.h"
-#include "chrome/browser/ui/app_list/app_list_service.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
@@ -287,12 +285,9 @@ void UpdateAndLaunchShim(std::unique_ptr<web_app::ShortcutInfo> shortcut_info) {
 
 void RebuildAppAndLaunch(std::unique_ptr<web_app::ShortcutInfo> shortcut_info) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (shortcut_info->extension_id == app_mode::kAppListModeId) {
-    AppListService* app_list_service = AppListService::Get();
-    app_list_service->CreateShortcut();
-    app_list_service->Show();
+  // TODO(crbug/821659): Clean up the desktop UserManager webui.
+  if (shortcut_info->extension_id == app_mode::kAppListModeId)
     return;
-  }
 
   ProfileManager* profile_manager = g_browser_process->profile_manager();
   Profile* profile =

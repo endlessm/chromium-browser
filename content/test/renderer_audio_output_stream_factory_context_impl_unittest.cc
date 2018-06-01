@@ -9,7 +9,6 @@
 #include "base/bind.h"
 #include "base/memory/shared_memory.h"
 #include "base/memory/shared_memory_handle.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/sync_socket.h"
@@ -82,11 +81,7 @@ void SyncWithAllThreads() {
   // New tasks might be posted while we are syncing, but in every iteration at
   // least one task will be run. 20 iterations should be enough for our code.
   for (int i = 0; i < 20; ++i) {
-    {
-      base::MessageLoop::ScopedNestableTaskAllower allower(
-          base::MessageLoop::current());
-      base::RunLoop().RunUntilIdle();
-    }
+    base::RunLoop(base::RunLoop::Type::kNestableTasksAllowed).RunUntilIdle();
     SyncWith(BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
     SyncWith(media::AudioManager::Get()->GetWorkerTaskRunner());
   }
@@ -257,12 +252,13 @@ TEST_F(RendererAudioOutputStreamFactoryIntegrationTest, StreamIntegrationTest) {
   // Wait for factory_ptr to be set.
   SyncWith(renderer_ipc_task_runner);
 
-  auto renderer_side_ipc =
-      std::make_unique<MojoAudioOutputIPC>(base::BindRepeating(
+  auto renderer_side_ipc = std::make_unique<MojoAudioOutputIPC>(
+      base::BindRepeating(
           [](mojom::RendererAudioOutputStreamFactory* factory_ptr) {
             return factory_ptr;
           },
-          factory_ptr));
+          factory_ptr),
+      renderer_ipc_task_runner);
 
   auto device = base::MakeRefCounted<media::AudioOutputDevice>(
       std::move(renderer_side_ipc), renderer_ipc_task_runner, kNoSessionId, "",

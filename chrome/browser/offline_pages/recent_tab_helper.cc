@@ -10,7 +10,6 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/sys_info.h"
@@ -42,8 +41,7 @@ class DefaultRecentTabHelperDelegate
   // offline_pages::RecentTabHelper::Delegate
   std::unique_ptr<offline_pages::OfflinePageArchiver> CreatePageArchiver(
       content::WebContents* web_contents) override {
-    return std::make_unique<offline_pages::OfflinePageMHTMLArchiver>(
-        web_contents);
+    return std::make_unique<offline_pages::OfflinePageMHTMLArchiver>();
   }
   bool GetTabId(content::WebContents* web_contents, int* tab_id) override {
     return offline_pages::OfflinePageUtils::GetTabId(web_contents, tab_id);
@@ -459,6 +457,7 @@ void RecentTabHelper::ContinueSnapshotAfterPurge(
   save_page_params.request_origin = snapshot_info->origin;
   page_model_->SavePage(
       save_page_params, delegate_->CreatePageArchiver(web_contents()),
+      web_contents(),
       base::Bind(&RecentTabHelper::SavePageCallback,
                  weak_ptr_factory_.GetWeakPtr(), snapshot_info));
 }

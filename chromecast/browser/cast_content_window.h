@@ -9,6 +9,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "chromecast/graphics/cast_window_manager.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/events/event.h"
 
@@ -17,19 +18,58 @@ class WebContents;
 }
 
 namespace chromecast {
-class CastWindowManager;
-
 namespace shell {
+
+enum class VisibilityType {
+  UNKNOWN = 0,
+  FULL_SCREEN = 1,
+  PARTIAL_OUT = 2,
+  HIDDEN = 3
+};
+
+enum class VisibilityPriority {
+  // Default priority, up to system to decide how to show the app.
+  DEFAULT = 0,
+
+  // Priority for app need to show in full screen mode but could be timout.
+  TRANSIENT_ACTIVITY = 1,
+
+  // A high priority interruption takes half screen if a sticky activity
+  // showing on screen, otherwise takes full screen.
+  HIGH_PRIORITY_INTERRUPTION = 2,
+
+  // Priority for app need to show in full screen mode and stick to screen.
+  STICKY_ACTIVITY = 3,
+};
+
+enum class GestureType { NO_GESTURE = 0, GO_BACK = 1 };
 
 // Class that represents the "window" a WebContents is displayed in cast_shell.
 // For Linux, this represents an Aura window. For Android, this is a Activity.
-// See CastContentWindowLinux and CastContentWindowAndroid.
+// See CastContentWindowAura and CastContentWindowAndroid.
 class CastContentWindow {
  public:
   class Delegate {
    public:
-    virtual void OnWindowDestroyed() = 0;
-    virtual void OnKeyEvent(const ui::KeyEvent& key_event) = 0;
+    // Notify window destruction.
+    virtual void OnWindowDestroyed() {}
+
+    // Notifies that a key event was triggered on the window.
+    virtual void OnKeyEvent(const ui::KeyEvent& key_event) {}
+
+    // Check to see if the gesture can be handled by the delegate. This is
+    // called prior to ConsumeGesture().
+    virtual bool CanHandleGesture(GestureType gesture_type) = 0;
+
+    // Consume and handle a UI gesture. Returns whether the gesture was
+    // handled or not.
+    virtual bool ConsumeGesture(GestureType gesture_type) = 0;
+
+    // Notify visibility change for this window.
+    virtual void OnVisibilityChange(VisibilityType visibility_type) {}
+
+    // Returns app ID of cast activity or appliction.
+    virtual std::string GetId() = 0;
 
    protected:
     virtual ~Delegate() {}
@@ -48,9 +88,25 @@ class CastContentWindow {
   // |is_visible| is true.
   // |web_contents| should outlive this CastContentWindow.
   // |window_manager| should outlive this CastContentWindow.
-  virtual void CreateWindowForWebContents(content::WebContents* web_contents,
-                                          CastWindowManager* window_manager,
-                                          bool is_visible) = 0;
+  // TODO(seantopping): This method probably shouldn't exist; this class should
+  // use RAII instead.
+  virtual void CreateWindowForWebContents(
+      content::WebContents* web_contents,
+      CastWindowManager* window_manager,
+      bool is_visible,
+      CastWindowManager::WindowId z_order,
+      VisibilityPriority visibility_priority) = 0;
+
+  // Enables touch input to be routed to the window's WebContents.
+  virtual void EnableTouchInput(bool enabled) = 0;
+
+  // Cast activity or application calls it to request for a visibility priority
+  // change.
+  virtual void RequestVisibility(VisibilityPriority visibility_priority) = 0;
+
+  // Cast activity or application calls it to request for moving out of the
+  // screen.
+  virtual void RequestMoveOut() = 0;
 };
 
 }  // namespace shell

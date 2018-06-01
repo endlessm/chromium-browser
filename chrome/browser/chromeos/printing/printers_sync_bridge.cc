@@ -14,25 +14,27 @@
 #include "base/optional.h"
 #include "base/stl_util.h"
 #include "base/task_scheduler/post_task.h"
+#include "chrome/browser/chromeos/printing/specifics_translation.h"
 #include "components/sync/base/report_unrecoverable_error.h"
 #include "components/sync/model/model_type_change_processor.h"
 #include "components/sync/model/model_type_store.h"
 #include "components/sync/model/mutable_data_batch.h"
+#include "components/sync/model_impl/client_tag_based_model_type_processor.h"
 #include "components/sync/protocol/model_type_state.pb.h"
 #include "components/sync/protocol/sync.pb.h"
-#include "specifics_translation.h"
 
 namespace chromeos {
 
 namespace {
 
+using syncer::ClientTagBasedModelTypeProcessor;
 using syncer::ConflictResolution;
 using syncer::EntityChange;
 using syncer::EntityChangeList;
 using syncer::EntityData;
+using syncer::MetadataChangeList;
 using syncer::ModelTypeChangeProcessor;
 using syncer::ModelTypeStore;
-using syncer::MetadataChangeList;
 
 std::unique_ptr<EntityData> CopyToEntityData(
     const sync_pb::PrinterSpecifics& specifics) {
@@ -137,7 +139,8 @@ class PrintersSyncBridge::StoreProxy {
       return;
     }
 
-    owner_->change_processor()->ModelReadyToSync(std::move(metadata_batch));
+    owner_->change_processor()->ModelReadyToSync(owner_,
+                                                 std::move(metadata_batch));
   }
 
   PrintersSyncBridge* owner_;
@@ -149,9 +152,9 @@ class PrintersSyncBridge::StoreProxy {
 PrintersSyncBridge::PrintersSyncBridge(
     syncer::OnceModelTypeStoreFactory callback,
     const base::RepeatingClosure& error_callback)
-    : ModelTypeSyncBridge(base::BindRepeating(&ModelTypeChangeProcessor::Create,
-                                              error_callback),
-                          syncer::PRINTERS),
+    : ModelTypeSyncBridge(
+          std::make_unique<ClientTagBasedModelTypeProcessor>(syncer::PRINTERS,
+                                                             error_callback)),
       store_delegate_(std::make_unique<StoreProxy>(this, std::move(callback))),
       observers_(new base::ObserverListThreadSafe<Observer>()) {}
 
@@ -200,7 +203,7 @@ base::Optional<syncer::ModelError> PrintersSyncBridge::MergeSyncData(
   }
 
   NotifyPrintersUpdated();
-  batch->TransferMetadataChanges(std::move(metadata_change_list));
+  batch->TakeMetadataChangesFrom(std::move(metadata_change_list));
   store_delegate_->Commit(std::move(batch));
   return {};
 }
@@ -234,7 +237,7 @@ base::Optional<syncer::ModelError> PrintersSyncBridge::ApplySyncChanges(
 
   NotifyPrintersUpdated();
   // Update the local database with metadata for the incoming changes.
-  batch->TransferMetadataChanges(std::move(metadata_change_list));
+  batch->TakeMetadataChangesFrom(std::move(metadata_change_list));
 
   store_delegate_->Commit(std::move(batch));
   return {};
@@ -252,7 +255,7 @@ void PrintersSyncBridge::GetData(StorageKeyList storage_keys,
       }
     }
   }
-  callback.Run(std::move(batch));
+  std::move(callback).Run(std::move(batch));
 }
 
 void PrintersSyncBridge::GetAllData(DataCallback callback) {
@@ -263,7 +266,7 @@ void PrintersSyncBridge::GetAllData(DataCallback callback) {
       batch->Put(entry.first, CopyToEntityData(*entry.second));
     }
   }
-  callback.Run(std::move(batch));
+  std::move(callback).Run(std::move(batch));
 }
 
 std::string PrintersSyncBridge::GetClientTag(const EntityData& entity_data) {

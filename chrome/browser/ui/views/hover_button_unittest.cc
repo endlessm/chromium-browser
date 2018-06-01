@@ -153,3 +153,27 @@ TEST_F(HoverButtonTest, CustomTooltip) {
     EXPECT_EQ(expected, base::UTF8ToUTF16(accessible_name));
   }
 }
+
+// Tests that setting the style and the subtitle elide behavior don't lead to a
+// crash for a HoverButton with an empty subtitle.
+TEST_F(HoverButtonTest, SetStyleAndSubtitleElideBehavior) {
+  HoverButton button(nullptr, CreateIcon(), base::ASCIIToUTF16("Test title"),
+                     base::string16());
+  button.SetStyle(HoverButton::STYLE_PROMINENT);
+  button.SetSubtitleElideBehavior(gfx::ELIDE_EMAIL);
+}
+
+// Tests that a button with a subtitle and icons can be instantiated without a
+// crash.
+TEST_F(HoverButtonTest, CreateButtonWithSubtitleAndIcons) {
+  std::unique_ptr<views::View> primary_icon = CreateIcon();
+  views::View* primary_icon_raw = primary_icon.get();
+  std::unique_ptr<views::View> secondary_icon = CreateIcon();
+  views::View* secondary_icon_raw = secondary_icon.get();
+
+  HoverButton button(nullptr, std::move(primary_icon),
+                     base::ASCIIToUTF16("Title"),
+                     base::ASCIIToUTF16("Subtitle"), std::move(secondary_icon));
+  EXPECT_TRUE(button.Contains(primary_icon_raw));
+  EXPECT_TRUE(button.Contains(secondary_icon_raw));
+}

@@ -39,11 +39,14 @@ CGFloat CurrentScreenWidth();
 // Returns true if the device is an iPhone X.
 bool IsIPhoneX();
 
+// Returns whether the UI Refresh Location Bar will be used.
+bool IsRefreshLocationBarEnabled();
+
+// Returns whether the UI Refresh Omnibox Popup presentation will be used.
+bool IsRefreshPopupPresentationEnabled();
+
 // Returns whether the first phase of the UI refresh will be displayed.
 bool IsUIRefreshPhase1Enabled();
-
-// Returns whether the tab grid will be displayed as the tab switcher.
-bool IsTabSwitcherTabGridEnabled();
 
 // Returns the height of the status bar, accounting for orientation.
 CGFloat StatusBarHeight();

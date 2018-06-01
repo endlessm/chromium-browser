@@ -70,6 +70,7 @@
 #include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/printing/print_preview_dialog_controller.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/resource_coordinator/tab_lifecycle_unit_source.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/browser/status_icons/status_tray.h"
@@ -124,17 +125,18 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/network_connection_tracker.h"
+#include "extensions/buildflags/buildflags.h"
 #include "extensions/common/constants.h"
-#include "extensions/features/features.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 #include "net/socket/client_socket_pool_manager.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "ppapi/features/features.h"
-#include "printing/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
+#include "printing/buildflags/buildflags.h"
 #include "services/network/public/cpp/network_switches.h"
 #include "services/preferences/public/cpp/in_process_service_factory.h"
 #include "ui/base/idle/idle.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/message_center/message_center.h"
 
 #if defined(OS_WIN)
@@ -143,7 +145,13 @@
 #include "chrome/browser/chrome_browser_main_mac.h"
 #endif
 
-#if !defined(OS_ANDROID)
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/ui/ash/ash_util.h"
+#endif
+
+#if defined(OS_ANDROID)
+#include "chrome/browser/android/physical_web/physical_web_data_source_android.h"
+#else  // !defined(OS_ANDROID)
 #include "chrome/browser/gcm/gcm_product_util.h"
 #include "components/gcm_driver/gcm_client_factory.h"
 #include "components/gcm_driver/gcm_desktop_utils.h"
@@ -168,6 +176,7 @@
 #endif
 
 #if BUILDFLAG(ENABLE_WEBRTC)
+#include "chrome/browser/media/webrtc/webrtc_event_log_manager.h"
 #include "chrome/browser/media/webrtc/webrtc_log_uploader.h"
 #endif
 
@@ -178,10 +187,6 @@
 #if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
 #include "chrome/browser/first_run/upgrade_util.h"
 #include "chrome/browser/ui/user_manager.h"
-#endif
-
-#if defined(OS_ANDROID)
-#include "chrome/browser/android/physical_web/physical_web_data_source_android.h"
 #endif
 
 #if (defined(OS_WIN) || defined(OS_LINUX)) && !defined(OS_CHROMEOS)
@@ -264,9 +269,16 @@ void BrowserProcessImpl::Init() {
   extensions::ExtensionsBrowserClient::Set(extensions_browser_client_.get());
 #endif
 
-  // TODO(estade): don't initialize the MessageCenter until we know it's needed
-  // (i.e. because a NotificationPlatformBridgeMessageCenter has been created).
-  message_center::MessageCenter::Initialize();
+  bool initialize_message_center = true;
+#if defined(OS_CHROMEOS)
+  // On Chrome OS, the message center is initialized and shut down by Ash and
+  // should not be directly accessible to Chrome. However, ARC++ still relies
+  // on the existence of a MessageCenter object, so in Mash, initialize one
+  // here.
+  initialize_message_center = ash_util::IsRunningInMash();
+#endif
+  if (initialize_message_center)
+    message_center::MessageCenter::Initialize();
 
   update_client::UpdateQueryParams::SetDelegate(
       ChromeUpdateQueryParamsDelegate::GetInstance());
@@ -299,6 +311,11 @@ void BrowserProcessImpl::Init() {
       std::max(std::min(max_per_proxy, 99),
                net::ClientSocketPoolManager::max_sockets_per_group(
                    net::HttpNetworkSession::NORMAL_SOCKET_POOL)));
+
+#if BUILDFLAG(ENABLE_WEBRTC)
+  DCHECK(!webrtc_event_log_manager_);
+  webrtc_event_log_manager_ = WebRtcEventLogManager::CreateSingletonInstance();
+#endif
 }
 
 BrowserProcessImpl::~BrowserProcessImpl() {
@@ -376,7 +393,8 @@ void BrowserProcessImpl::StartTearDown() {
   storage_monitor::StorageMonitor::Destroy();
 #endif
 
-  message_center::MessageCenter::Shutdown();
+  if (message_center::MessageCenter::Get())
+    message_center::MessageCenter::Shutdown();
 
   // The policy providers managed by |browser_policy_connector_| need to shut
   // down while the IO and FILE threads are still alive. The monitoring
@@ -412,7 +430,7 @@ void BrowserProcessImpl::PostDestroyThreads() {
   icon_manager_.reset();
 
 #if BUILDFLAG(ENABLE_WEBRTC)
-  // Must outlive the file thread.
+  // Must outlive the worker threads.
   webrtc_log_uploader_.reset();
 #endif
 
@@ -662,11 +680,17 @@ NotificationUIManager* BrowserProcessImpl::notification_ui_manager() {
 // are enabled by default.
 #if defined(OS_ANDROID)
   return nullptr;
-#else
+#else  // !defined(OS_ANDROID)
+#if defined(OS_CHROMEOS)
+  if (base::FeatureList::IsEnabled(features::kNativeNotifications) ||
+      base::FeatureList::IsEnabled(features::kMash)) {
+    return nullptr;
+  }
+#endif  // defined(OS_CHROMEOS)
   if (!created_notification_ui_manager_)
     CreateNotificationUIManager();
   return notification_ui_manager_.get();
-#endif
+#endif  // !defined(OS_ANDROID)
 }
 
 NotificationPlatformBridge* BrowserProcessImpl::notification_platform_bridge() {
@@ -833,8 +857,12 @@ gcm::GCMDriver* BrowserProcessImpl::gcm_driver() {
 resource_coordinator::TabManager* BrowserProcessImpl::GetTabManager() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 #if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
-  if (!tab_manager_)
+  if (!tab_manager_) {
     tab_manager_ = std::make_unique<resource_coordinator::TabManager>();
+    tab_lifecycle_unit_source_ =
+        std::make_unique<resource_coordinator::TabLifecycleUnitSource>();
+    tab_lifecycle_unit_source_->AddObserver(tab_manager_.get());
+  }
   return tab_manager_.get();
 #else
   return nullptr;
@@ -1091,7 +1119,7 @@ void BrowserProcessImpl::PreCreateThreads(
     }
     net_log_->StartWritingToFile(
         log_file, GetNetCaptureModeFromCommandLine(command_line),
-        command_line.GetCommandLineString(), chrome::GetChannelString());
+        command_line.GetCommandLineString(), chrome::GetChannelName());
   }
 
   // Must be created before the IOThread.
@@ -1260,7 +1288,7 @@ void BrowserProcessImpl::CreateSubresourceFilterRulesetService() {
           blocking_task_runner);
   subresource_filter_ruleset_service_->set_ruleset_service(
       std::make_unique<subresource_filter::RulesetService>(
-          local_state(), blocking_task_runner, background_task_runner,
+          local_state(), background_task_runner,
           subresource_filter_ruleset_service_.get(), indexed_ruleset_base_dir));
 }
 

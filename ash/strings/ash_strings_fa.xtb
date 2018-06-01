@@ -26,11 +26,13 @@
 <translation id="1537254971476575106">ذره‌بین تمام‌صفحه</translation>
 <translation id="15373452373711364">نشانگر موشواره بزرگ</translation>
 <translation id="1550523713251050646">برای گزینه‌های بیشتر کلیک کنید</translation>
+<translation id="1567387640189251553">بعد از آخرین باری که گذرواژه‌تان را وارد کردید، صفحه‌کلید دیگری متصل شده است. ممکن است تلاش کند ضربه‌کلیدهای شما را به سرقت ببرد.</translation>
 <translation id="1608626060424371292">حذف این کاربر</translation>
 <translation id="1621499497873603021">زمان باقیمانده تا خالی‌شدن شارژ باتری، <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">متأسفیم، گذرواژه‌تان هنوز تأیید نشده است. توجه: اگر به‌تازگی گذرواژه‌تان را تغییر داده‌اید، گذرواژه جدید شما هنگامی‌که از سیستم خارج شوید، اعمال می‌شود؛ لطفاً اینجا از گذرواژه قدیمی خود استفاده کنید.</translation>
 <translation id="1677472565718498478"><ph name="TIME" /> باقی‌مانده</translation>
 <translation id="1698760176351776263">‏نشانی IPv6: <ph name="ADDRESS" /></translation>
+<translation id="170389796989115980">سرپرست دستگاه ممکن است بر فعالیتتان نظارت داشته باشد.</translation>
 <translation id="1734367976349034509">این دستگاه توسط سازمانی مدیریت می‌شود</translation>
 <translation id="1746730358044914197">روش‌های ورودی توسط سرپرستتان پیکربندی می‌شوند.</translation>
 <translation id="1747827819627189109">صفحه‌کلید روی صفحه فعال شد</translation>
@@ -41,9 +43,11 @@
 <translation id="1882897271359938046">بازتاب به <ph name="DISPLAY_NAME" /></translation>
 <translation id="1919743966458266018">کلیدهای میان‌بر باز کردن مدیر فعالیت‌ها تغییر کرده است. لطفاً از <ph name="NEW_SHORTCUT" /> به جای <ph name="OLD_SHORTCUT" /> استفاده کنید.</translation>
 <translation id="1923539912171292317">کلیک‌های خودکار</translation>
+<translation id="1928739107511554905">‏برای دریافت به‌روزرسانی، از صفحه لمسی برای بازراه‌اندازی Chromebook خود با صفحه‌کلید متصل استفاده کنید.</translation>
 <translation id="1942830294380034169">دکمه سرریز</translation>
 <translation id="1951012854035635156">دستیار</translation>
 <translation id="1957803754585243749">۰ درجه</translation>
+<translation id="1957958912175573503">تنظیم زبان</translation>
 <translation id="1969011864782743497">‏<ph name="DEVICE_NAME" /> (‏USB)</translation>
 <translation id="1995660704900986789">خاموش کردن</translation>
 <translation id="2012624427112548395">Ctrl+Search+H</translation>
@@ -63,6 +67,7 @@
 <translation id="2292698582925480719">مقیاس نمایش</translation>
 <translation id="2303600792989757991">مروری کلی بر پنجره تغییر حالت</translation>
 <translation id="2338501278241028356">برای کاوش دستگاه‌های همین اطراف، بلوتوث را روشن کنید</translation>
+<translation id="2351266942280602854">زبان و ورودی</translation>
 <translation id="2352467521400612932">تنظیمات قلم</translation>
 <translation id="2354174487190027830">فعال‌سازی <ph name="NAME" /></translation>
 <translation id="2365393535144473978">فعال کردن داده تلفن همراه، بلوتوث را فعال می‌کند.</translation>
@@ -78,6 +83,9 @@
 <translation id="2653659639078652383">ارائه</translation>
 <translation id="2675319268637823299">یکی از سرپرست‌ها ورود چندگانه به سیستم را برای <ph name="USER_EMAIL" /> غیرمجاز کرده است.
     برای ادامه دادن، همه کاربران باید از سیستم خارج شوند.</translation>
+<translation id="2696763960464195425">هنگامی‌که از سیستم خارج شوید، اطلاعاتتان حذف خواهد شد. <ph name="LEARN_MORE" /></translation>
+<translation id="2700493154570097719">تنظیم صفحه‌کلید</translation>
+<translation id="2718395828230677721">نور شب</translation>
 <translation id="2727977024730340865">باتری به شارژر برق ضعیف متصل است. شارژ باتری ممکن است قابل اطمینان نباشد.</translation>
 <translation id="2761704814324807722">سینی وضعیت، زمان <ph name="TIME" />، ‏<ph name="BATTERY" /></translation>
 <translation id="277257480934873581">اتصال مجدد به <ph name="NAME" /></translation>
@@ -100,9 +108,11 @@
 <translation id="3077734595579995578">تبدیل</translation>
 <translation id="3087734570205094154">پایین</translation>
 <translation id="3105990244222795498"><ph name="DEVICE_NAME" /> (بلوتوث)</translation>
+<translation id="3112378005171663295">کوچک کردن</translation>
 <translation id="3126069444801937830">راه‌اندازی مجدد برای به‌روزرسانی</translation>
 <translation id="3147142846278915599">راه انداز (همگام‌سازی برنامه‌ها...)</translation>
 <translation id="315116470104423982">داده‌های تلفن همراه</translation>
+<translation id="3151786313568798007">جهت‌‌</translation>
 <translation id="3153444934357957346">در ورود چندگانه به سیستم، می‌توانید حداکثر از <ph name="MULTI_PROFILE_USER_LIMIT" /> حساب استفاده کنید.</translation>
 <translation id="3236488194889173876">هیچ شبکه تلفن همراهی دردسترس نیست</translation>
 <translation id="3294437725009624529">مهمان</translation>
@@ -124,6 +134,7 @@
 <translation id="3621202678540785336">ورودی</translation>
 <translation id="3626281679859535460">روشنایی</translation>
 <translation id="3631369015426612114">مجاز کردن اعلان‌های منابع زیر</translation>
+<translation id="3705722231355495246">-</translation>
 <translation id="3712407551474845318">محدوده گرفتن عکس</translation>
 <translation id="371370241367527062">میکروفون جلو</translation>
 <translation id="3771549900096082774">حالت تضاد بالا</translation>
@@ -169,6 +180,7 @@
 <translation id="4905614135390995787">میان‌بر روشن/خاموش کردن «حالت تضاد بالا» تغییر کرده است. لطفاً به‌جای <ph name="OLD_SHORTCUT" /> از <ph name="NEW_SHORTCUT" /> استفاده کنید.</translation>
 <translation id="4918086044614829423">می‌پذیرم</translation>
 <translation id="4961318399572185831">فرستادن صفحه</translation>
+<translation id="5136175204352732067">صفحه‌کلید دیگری متصل شد</translation>
 <translation id="5168181903108465623">دستگاه‌های فرستادن موجود هستند</translation>
 <translation id="5207949376430453814">برجسته کردن هشتک نوشتار</translation>
 <translation id="5222676887888702881">خروج از سیستم</translation>
@@ -180,6 +192,7 @@
 <translation id="5431825016875453137">OpenVPN / L2TP</translation>
 <translation id="544691375626129091">تمام کاربران موجود قبلاً به این جلسه اضافه شده‌اند.</translation>
 <translation id="5457599981699367932">مرور کردن به‌عنوان یک مهمان</translation>
+<translation id="54609108002486618">مدیریت شده</translation>
 <translation id="553675580533261935">خروج از جلسه</translation>
 <translation id="5548285847212963613">افزونه «<ph name="EXTENSION_NAME" />» می‌تواند در اتصال به این شبکه به شما کمک کند.</translation>
 <translation id="5571066253365925590">بلوتوث فعال شد</translation>
@@ -204,6 +217,7 @@
 <translation id="5977415296283489383">هدفون</translation>
 <translation id="5978382165065462689">هم‌رسانی کنترل صفحه‌تان از طریق راهنمایی ازراه‌دور.</translation>
 <translation id="5980301590375426705">خروج از مهمان</translation>
+<translation id="598882571027504733">‏برای دریافت به‌روزرسانی، Chromebook را با صفحه‌کلید متصل بازراه‌اندازی کنید.</translation>
 <translation id="5992218262414051481">‏«حالت تضاد بالا» فعال شد. برای خاموش کردن آن، Ctrl+Search+H را دوباره فشار دهید.</translation>
 <translation id="6018164090099858612">خروج از حالت آینه</translation>
 <translation id="6043212731627905357">این نمایشگر با <ph name="DEVICE_TYPE" /> سازگار نیست (نمایشگر پشتیبانی نمی‌شود).</translation>
@@ -240,6 +254,7 @@
 <translation id="6650933572246256093">دستگاه بلوتوث «<ph name="DEVICE_NAME" />» برای مرتبط‌سازی به مجوز نیاز دارد. لطفاً این کلیدواژه را در آن دستگاه وارد کنید: <ph name="PASSKEY" /></translation>
 <translation id="6657585470893396449">گذرواژه</translation>
 <translation id="6691659475504239918">Search+Shift+H</translation>
+<translation id="6696025732084565524">لازم است صفحه‌کلید قابل جدا شدن به‌روزرسانی ضروری شود</translation>
 <translation id="6700713906295497288">‏دکمه منو IME</translation>
 <translation id="6713285437468012787">دستگاه بلوتوث «<ph name="DEVICE_NAME" />» مرتبط شده است و اکنون برای همه کاربران در دسترس است. می‌توانید این مرتبط‌سازی را با استفاده از تنظیمات حذف کنید.</translation>
 <translation id="6715542151869432661">هیچ دستگاه همراهی پیدا نشد.</translation>
@@ -259,6 +274,7 @@
 <translation id="7098389117866926363">‏دستگاه USB-C (درگاه عقب سمت چپ)</translation>
 <translation id="7131634465328662194">به‌طور خودکار از سیستم خارج خواهید شد.</translation>
 <translation id="7165278925115064263">Alt+Shift+K</translation>
+<translation id="7165511658052620796">‏(TEMP) نمایش ورود به سیستم webui؛ برای استفاده از ثبت اشکال (crbug.com) یا بازخورد (alt+shift+i)</translation>
 <translation id="7168224885072002358">برگرداندن به وضوح قدیمی در <ph name="TIMEOUT_SECONDS" /></translation>
 <translation id="7256634071279256947">میکروفون پشت</translation>
 <translation id="726276584504105859">برای استفاده از تقسیم صفحه، به اینجا بکشید</translation>
@@ -318,6 +334,8 @@
 <translation id="8652175077544655965">بستن تنظیمات</translation>
 <translation id="8673028979667498656">‎۲۷۰°‎</translation>
 <translation id="8676770494376880701">شارژر برق متصل شده ضعیف است</translation>
+<translation id="8734991477317290293">ممکن است تلاش کند ضربه‌کلیدهای شما را به سرقت ببرد</translation>
+<translation id="8809737090443522491">نام برنامه یا سندی را وارد کنید</translation>
 <translation id="8814190375133053267">Wi-Fi</translation>
 <translation id="8814715559352963456">انتقال پنجره‌ها به میزکار دیگری ممکن است منجر به رفتاری غیرمنتظره شود.
 
@@ -331,6 +349,7 @@
 <translation id="8921624153894383499">‏«دستیار Google» به این زبان صحبت نمی‌کند.</translation>
 <translation id="8938800817013097409">‏دستگاه USB-C (درگاه عقب سمت راست)</translation>
 <translation id="8940956008527784070">باتری ضعیف است (<ph name="PERCENTAGE" />٪)</translation>
+<translation id="8995603266996330174">مدیریت شده توسط <ph name="DOMAIN" /></translation>
 <translation id="9074739597929991885">بلوتوث</translation>
 <translation id="9079731690316798640">Wi-Fi: <ph name="ADDRESS" /></translation>
 <translation id="9080206825613744995">میکروفون در حال استفاده است.</translation>

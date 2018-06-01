@@ -81,7 +81,7 @@ class APIPermission {
     kCryptotokenPrivate,
     kDataReductionProxy,
     kDiagnostics,
-    kDial,
+    kDeleted_Dial,  // API removed.
     kDebugger,
     kDeclarative,
     kDeclarativeContent,
@@ -251,6 +251,7 @@ class APIPermission {
     kDeclarativeNetRequest,
     kLockWindowFullscreenPrivate,
     kWebrtcLoggingPrivateAudioDebug,
+    kEnterpriseReportingPrivate,
     // Last entry: Add new entries above and ensure to update the
     // "ExtensionPermission3" enum in tools/metrics/histograms/histograms.xml
     // (by running update_extension_permission.py).

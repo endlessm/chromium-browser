@@ -14,7 +14,6 @@
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_piece.h"
@@ -22,6 +21,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/metrics/subprocess_metrics_provider.h"
 #include "chrome/browser/page_load_metrics/observers/subresource_filter_metrics_observer.h"
@@ -48,6 +48,7 @@
 #include "components/subresource_filter/core/common/activation_decision.h"
 #include "components/subresource_filter/core/common/activation_level.h"
 #include "components/subresource_filter/core/common/activation_state.h"
+#include "components/subresource_filter/core/common/common_features.h"
 #include "components/subresource_filter/core/common/scoped_timers.h"
 #include "components/subresource_filter/core/common/test_ruleset_creator.h"
 #include "components/subresource_filter/core/common/test_ruleset_utils.h"
@@ -68,6 +69,10 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
+
+namespace subresource_filter {
+
+using subresource_filter::testing::TestRulesetPair;
 
 namespace {
 
@@ -132,12 +137,46 @@ GURL GetURLWithFragment(const GURL& url, base::StringPiece fragment) {
   return url.ReplaceComponents(replacements);
 }
 
+void OpenAndPublishRuleset(ContentRulesetService* content_ruleset_service,
+                           const base::FilePath& path) {
+  base::File index_file;
+  base::RunLoop open_loop;
+  auto open_callback = base::BindRepeating(
+      [](base::OnceClosure quit_closure, base::File* out, base::File result) {
+        *out = std::move(result);
+        std::move(quit_closure).Run();
+      },
+      open_loop.QuitClosure(), &index_file);
+  content_ruleset_service->TryOpenAndSetRulesetFile(path,
+                                                    std::move(open_callback));
+  open_loop.Run();
+  ASSERT_TRUE(index_file.IsValid());
+  content_ruleset_service->PublishNewRulesetVersion(std::move(index_file));
+}
+
+RulesetVerificationStatus GetRulesetVerification() {
+  ContentRulesetService* service =
+      g_browser_process->subresource_filter_ruleset_service();
+  VerifiedRulesetDealer::Handle* dealer_handle = service->ruleset_dealer();
+
+  auto callback_method = [](base::OnceClosure quit_closure,
+                            RulesetVerificationStatus* status,
+                            VerifiedRulesetDealer* verified_dealer) {
+    *status = verified_dealer->status();
+    std::move(quit_closure).Run();
+  };
+
+  RulesetVerificationStatus status;
+  base::RunLoop run_loop;
+  auto callback =
+      base::BindRepeating(callback_method, run_loop.QuitClosure(), &status);
+
+  dealer_handle->GetDealerAsync(callback);
+  run_loop.Run();
+  return status;
+}
+
 }  // namespace
-
-namespace subresource_filter {
-
-using subresource_filter::testing::TestRulesetCreator;
-using subresource_filter::testing::TestRulesetPair;
 
 // Tests -----------------------------------------------------------------------
 
@@ -654,8 +693,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterBrowserTest,
   ContentRulesetService* service =
       g_browser_process->subresource_filter_ruleset_service();
   ASSERT_TRUE(service->ruleset_dealer());
-  service->PublishNewRulesetVersion(
-      testing::TestRuleset::Open(test_ruleset_pair.indexed));
+  OpenAndPublishRuleset(service, test_ruleset_pair.indexed.path);
 
   auto ruleset_handle =
       std::make_unique<VerifiedRuleset::Handle>(service->ruleset_dealer());
@@ -667,6 +705,30 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterBrowserTest,
                                         receiver.GetCallback());
   receiver.WaitForActivationDecision();
   receiver.ExpectReceivedOnce(ActivationState(ActivationLevel::DISABLED));
+  RulesetVerificationStatus dealer_status = GetRulesetVerification();
+  EXPECT_EQ(RulesetVerificationStatus::CORRUPT, dealer_status);
+}
+
+IN_PROC_BROWSER_TEST_F(SubresourceFilterBrowserTest, LazyRulesetValidation) {
+  // The ruleset shouldn't be validated until it's used, unless ad tagging is
+  // enabled.
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndDisableFeature(subresource_filter::kAdTagging);
+  SetRulesetToDisallowURLsWithPathSuffix("included_script.js");
+  RulesetVerificationStatus dealer_status = GetRulesetVerification();
+  EXPECT_EQ(RulesetVerificationStatus::NOT_VERIFIED, dealer_status);
+}
+
+IN_PROC_BROWSER_TEST_F(SubresourceFilterBrowserTest,
+                       AdsTaggingImmediateRulesetValidation) {
+  // When Ads Tagging is enabled, the ruleset should be validated as soon as
+  // it's published.
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(subresource_filter::kAdTagging);
+
+  SetRulesetToDisallowURLsWithPathSuffix("included_script.js");
+  RulesetVerificationStatus dealer_status = GetRulesetVerification();
+  EXPECT_EQ(RulesetVerificationStatus::INTACT, dealer_status);
 }
 
 IN_PROC_BROWSER_TEST_F(SubresourceFilterBrowserTest, PageLoadMetrics) {
@@ -881,8 +943,14 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(SubresourceFilterBrowserTest,
                        ExpectHistogramsNotRecordedWhenFilteringNotActivated) {
+  // This test only makes sense when AdTagging is disabled.
+  base::test::ScopedFeatureList scoped_tagging;
+  scoped_tagging.InitAndDisableFeature(kAdTagging);
   ASSERT_NO_FATAL_FAILURE(SetRulesetToDisallowURLsWithPathSuffix(
       "suffix-that-does-not-match-anything"));
+  ResetConfigurationToEnableOnPhishingSites(
+      true /* measure_performance */, false /* whitelist_site_on_reload */);
+
   const GURL url = GetTestUrl(kTestFrameSetPath);
   // Note: The |url| is not configured to be fishing.
 

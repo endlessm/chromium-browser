@@ -11,7 +11,6 @@
 #include "base/files/file_path.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/platform_thread.h"
@@ -374,7 +373,8 @@ Status WebViewImpl::GetFrameByFunction(const std::string& frame,
 Status WebViewImpl::DispatchMouseEvents(const std::list<MouseEvent>& events,
                                         const std::string& frame) {
   WebView* target = GetTargetForFrame(this, frame);
-  if (target != nullptr && target != this)
+  bool needs_special_oopif_handling = browser_info_->major_version <= 65;
+  if (needs_special_oopif_handling && target != nullptr && target != this)
     return target->DispatchMouseEvents(events, frame);
 
   double page_scale_factor = 1.0;

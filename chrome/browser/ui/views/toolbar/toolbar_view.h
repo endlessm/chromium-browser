@@ -13,7 +13,7 @@
 #include "chrome/browser/command_observer.h"
 #include "chrome/browser/ui/toolbar/app_menu_icon_controller.h"
 #include "chrome/browser/ui/toolbar/back_forward_menu_model.h"
-#include "chrome/browser/ui/views/frame/browser_view_button_provider.h"
+#include "chrome/browser/ui/views/frame/toolbar_button_provider.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/toolbar/browser_actions_container.h"
 #include "chrome/browser/upgrade_observer.h"
@@ -34,6 +34,7 @@
 #endif  // defined(OS_CHROMEOS)
 
 class AppMenuButton;
+class BrowserAppMenuButton;
 class Browser;
 class HomeButton;
 class ReloadButton;
@@ -53,7 +54,7 @@ class ToolbarView : public views::AccessiblePaneView,
                     public views::ButtonListener,
                     public AppMenuIconController::Delegate,
                     public UpgradeObserver,
-                    public BrowserViewButtonProvider {
+                    public ToolbarButtonProvider {
  public:
   // The view class name.
   static const char kViewClassName[];
@@ -81,11 +82,9 @@ class ToolbarView : public views::AccessiblePaneView,
   // Returns true if the app menu is focused.
   bool IsAppMenuFocused();
 
-  virtual bool GetAcceleratorInfo(int id, ui::Accelerator* accel);
-
 #if defined(OS_CHROMEOS)
   void ShowIntentPickerBubble(
-      const std::vector<IntentPickerBubbleView::AppInfo>& app_info,
+      std::vector<IntentPickerBubbleView::AppInfo> app_info,
       IntentPickerResponse callback);
 #endif  // defined(OS_CHROMEOS)
 
@@ -106,7 +105,8 @@ class ToolbarView : public views::AccessiblePaneView,
   ToolbarButton* back_button() const { return back_; }
   ReloadButton* reload_button() const { return reload_; }
   LocationBarView* location_bar() const { return location_bar_; }
-  AppMenuButton* app_menu_button() const { return app_menu_button_; }
+  ToolbarButton* avatar_button() const { return avatar_; }
+  BrowserAppMenuButton* app_menu_button() const { return app_menu_button_; }
   HomeButton* home_button() const { return home_; }
   AppMenuIconController* app_menu_icon_controller() {
     return &app_menu_icon_controller_;
@@ -141,7 +141,7 @@ class ToolbarView : public views::AccessiblePaneView,
   // views::ButtonListener:
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
-  // UpgradeObserver implementation.
+  // UpgradeObserver toolbar_button_view_provider.
   void OnOutdatedInstall() override;
   void OnOutdatedInstallNoAutoUpdate() override;
   void OnCriticalUpgradeInstalled() override;
@@ -181,9 +181,11 @@ class ToolbarView : public views::AccessiblePaneView,
                       AppMenuIconController::Severity severity,
                       bool animate) override;
 
-  // BrowserViewButtonProvider:
+  // ToolbarButtonProvider:
   BrowserActionsContainer* GetBrowserActionsContainer() override;
-  views::MenuButton* GetAppMenuButton() override;
+  AppMenuButton* GetAppMenuButton() override;
+  void FocusToolbar() override;
+  views::AccessiblePaneView* GetAsAccessiblePaneView() override;
 
   // Used to avoid duplicating the near-identical logic of
   // ToolbarView::CalculatePreferredSize() and ToolbarView::GetMinimumSize().
@@ -215,7 +217,8 @@ class ToolbarView : public views::AccessiblePaneView,
   HomeButton* home_ = nullptr;
   LocationBarView* location_bar_ = nullptr;
   BrowserActionsContainer* browser_actions_ = nullptr;
-  AppMenuButton* app_menu_button_ = nullptr;
+  ToolbarButton* avatar_ = nullptr;
+  BrowserAppMenuButton* app_menu_button_ = nullptr;
 
   Browser* const browser_;
 

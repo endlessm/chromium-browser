@@ -31,6 +31,12 @@ enum ChromeTextContext {
   // "Body 2". Usually 12pt.
   CONTEXT_BODY_TEXT_SMALL,
 
+  // Text in the location bar entry, and primary text in the omnibox dropdown.
+  CONTEXT_OMNIBOX_PRIMARY,
+
+  // Text that goes inside location bar decorations such as the keyword hint.
+  CONTEXT_OMNIBOX_DECORATION,
+
   // Text for titles, body text and buttons that appear in dialogs attempting to
   // mimic the native Windows 10 look and feel.
   CONTEXT_WINDOWS10_NATIVE,
@@ -59,7 +65,18 @@ enum ChromeTextStyle {
   // Used to draw attention to a section of body text such as an extension name
   // or hostname.
   STYLE_EMPHASIZED,
+
+  // Emphasized secondary style. Like STYLE_EMPHASIZED but styled to match
+  // surrounding STYLE_SECONDARY text.
+  STYLE_EMPHASIZED_SECONDARY,
 };
+
+// Takes a desired font size and returns the size delta to request from
+// ui::ResourceBundle that will result either in that font size, or the biggest
+// font size that is smaller than the desired font size but will fit inside
+// |available_height|.
+int GetFontSizeDeltaBoundedByAvailableHeight(int available_height,
+                                             int desired_font_size);
 
 // Sets the |size_delta| and |font_weight| for text that should not be affected
 // by the Harmony spec.

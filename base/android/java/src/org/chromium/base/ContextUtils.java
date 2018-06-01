@@ -21,10 +21,11 @@ import org.chromium.base.annotations.MainDex;
  * This class provides Android application context related utility methods.
  */
 @JNINamespace("base::android")
-@MainDex
 public class ContextUtils {
     private static final String TAG = "ContextUtils";
     private static Context sApplicationContext;
+    // TODO(agrieve): Remove sProcessName caching when we stop supporting JB.
+    private static String sProcessName;
 
     /**
      * Initialization-on-demand holder. This exists for thread-safe lazy initialization.
@@ -58,6 +59,7 @@ public class ContextUtils {
      *
      * @param appContext The application context.
      */
+    @MainDex // TODO(agrieve): Could add to whole class if not for ApplicationStatus.initialize().
     public static void initApplicationContext(Context appContext) {
         // Conceding that occasionally in tests, native is loaded before the browser process is
         // started, in which case the browser process re-sets the application context.
@@ -166,13 +168,22 @@ public class ContextUtils {
 
     /** @return The name of the current process. E.g. "org.chromium.chrome:privileged_process0". */
     public static String getProcessName() {
+        // Once we drop support JB, this method can be simplified to not cache sProcessName and call
+        // ActivityThread.currentProcessName().
+        if (sProcessName != null) {
+            return sProcessName;
+        }
         try {
             // An even more convenient ActivityThread.currentProcessName() exists, but was not added
             // until JB MR2.
             Class<?> activityThreadClazz = Class.forName("android.app.ActivityThread");
             Object activityThread =
                     activityThreadClazz.getMethod("currentActivityThread").invoke(null);
-            return (String) activityThreadClazz.getMethod("getProcessName").invoke(activityThread);
+            // Before JB MR2, currentActivityThread() returns null when called on a non-UI thread.
+            // Cache the name to allow other threads to access it.
+            sProcessName =
+                    (String) activityThreadClazz.getMethod("getProcessName").invoke(activityThread);
+            return sProcessName;
         } catch (Exception e) { // No multi-catch below API level 19 for reflection exceptions.
             // If fallback logic is ever needed, refer to:
             // https://chromium-review.googlesource.com/c/chromium/src/+/905563/1

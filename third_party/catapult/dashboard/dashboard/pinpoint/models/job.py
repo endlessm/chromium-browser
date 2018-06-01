@@ -10,10 +10,13 @@ import uuid
 from google.appengine.api import datastore_errors
 from google.appengine.api import taskqueue
 from google.appengine.ext import ndb
+from google.appengine.ext.ndb import msgprop
 from google.appengine.runtime import apiproxy_errors
+from protorpc import messages
 
 from dashboard.common import utils
 from dashboard.pinpoint.models import job_state
+from dashboard.pinpoint.models import results2
 from dashboard.services import issue_tracker_service
 
 
@@ -40,6 +43,11 @@ def JobFromId(job_id):
   return job_key.get()
 
 
+class ComparisonMode(messages.Enum):
+  FUNCTIONAL = 1
+  PERFORMANCE = 2
+
+
 class Job(ndb.Model):
   """A Pinpoint job."""
 
@@ -63,20 +71,30 @@ class Job(ndb.Model):
   # If False, only run the Changes explicitly added by the user.
   auto_explore = ndb.BooleanProperty(required=True)
 
+  # The metric to use when determining whether to add additional Attempts or
+  # Changes to the Job. If None, the Job will use a fixed number of Attempts.
+  comparison_mode = msgprop.EnumProperty(ComparisonMode)
+
   # TODO: The bug id is only used for posting bug comments when a job starts and
   # completes. This probably should not be the responsibility of Pinpoint.
   bug_id = ndb.IntegerProperty()
+
+  # Email of the job creator.
+  user = ndb.StringProperty()
 
   state = ndb.PickleProperty(required=True, compressed=True)
 
   tags = ndb.JsonProperty()
 
   @classmethod
-  def New(cls, arguments, quests, auto_explore, bug_id=None, tags=None):
+  def New(cls, arguments, quests, auto_explore, comparison_mode=None,
+          user=None, bug_id=None, tags=None):
     # Create job.
     return cls(
         arguments=arguments,
         auto_explore=auto_explore,
+        comparison_mode=comparison_mode,
+        user=user,
         bug_id=bug_id,
         tags=tags,
         state=job_state.JobState(quests))
@@ -110,7 +128,20 @@ class Job(ndb.Model):
     self._PostBugComment(comment, send_email=False)
 
   def _Complete(self):
+    try:
+      results2.ScheduleResults2Generation(self)
+    except taskqueue.Error:
+      pass
+
     # Format bug comment.
+
+    if not self.auto_explore:
+      # There is no comparison metric.
+      title = "<b>%s Job complete. See results below.</b>" % _ROUND_PUSHPIN
+      self._PostBugComment('\n'.join((title, self.url)))
+      return
+
+    # There is a comparison metric.
     differences = tuple(self.state.Differences())
 
     if not differences:
@@ -186,7 +217,8 @@ class Job(ndb.Model):
     self.task = None  # In case an exception is thrown.
 
     try:
-      self.state.Explore(self.auto_explore)
+      if self.auto_explore:
+        self.state.Explore()
       work_left = self.state.ScheduleWork()
 
       # Schedule moar task.
@@ -203,7 +235,16 @@ class Job(ndb.Model):
       self.updated = datetime.datetime.now()
       try:
         self.put()
+      except (datastore_errors.Timeout,
+              datastore_errors.TransactionFailedError):
+        # Retry once.
+        self.put()
       except datastore_errors.BadRequestError:
+        if self.task:
+          queue = taskqueue.Queue('job-queue')
+          queue.delete_tasks(taskqueue.Task(name=self.task))
+        self.task = None
+
         # The _JobState is too large to fit in an ndb property.
         # Load the Job from before we updated it, and fail it.
         job = self.key.get(use_cache=False)
@@ -220,6 +261,7 @@ class Job(ndb.Model):
         'arguments': self.arguments,
         'auto_explore': self.auto_explore,
         'bug_id': self.bug_id,
+        'user': self.user,
 
         'created': self.created.isoformat(),
         'updated': self.updated.isoformat(),
@@ -247,7 +289,3 @@ class Job(ndb.Model):
 def _FormatCommitForBug(commit_info):
   subject = '<b>%s</b> by %s' % (commit_info['subject'], commit_info['author'])
   return '\n'.join((subject, commit_info['url']))
-
-
-# TODO: Remove after data migration.
-_JobState = job_state.JobState

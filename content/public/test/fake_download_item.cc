@@ -258,6 +258,11 @@ bool FakeDownloadItem::CanResume() const {
   return false;
 }
 
+int64_t FakeDownloadItem::GetBytesWasted() const {
+  NOTREACHED();
+  return 0;
+}
+
 const GURL& FakeDownloadItem::GetReferrerUrl() const {
   NOTREACHED();
   return dummy_url;
@@ -341,6 +346,10 @@ const std::string& FakeDownloadItem::GetHash() const {
 void FakeDownloadItem::DeleteFile(const base::Callback<void(bool)>& callback) {
   NOTREACHED();
   callback.Run(false);
+}
+
+download::DownloadFile* FakeDownloadItem::GetDownloadFile() {
+  return nullptr;
 }
 
 bool FakeDownloadItem::IsDangerous() const {

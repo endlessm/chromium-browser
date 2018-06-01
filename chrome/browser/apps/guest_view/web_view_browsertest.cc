@@ -27,7 +27,6 @@
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/apps/app_browsertest_util.h"
 #include "chrome/browser/chrome_content_browser_client.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/download/download_core_service.h"
 #include "chrome/browser/download/download_core_service_factory.h"
@@ -53,6 +52,7 @@
 #include "components/guest_view/browser/test_guest_view_manager.h"
 #include "components/viz/common/features.h"
 #include "content/public/browser/ax_event_notification_details.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/gpu_data_manager.h"
 #include "content/public/browser/interstitial_page.h"
 #include "content/public/browser/notification_service.h"
@@ -90,8 +90,8 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
-#include "ppapi/features/features.h"
-#include "third_party/WebKit/public/platform/WebMouseEvent.h"
+#include "ppapi/buildflags/buildflags.h"
+#include "third_party/blink/public/platform/web_mouse_event.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
 #include "ui/compositor/compositor.h"
@@ -161,37 +161,32 @@ class WebContentsHiddenObserver : public content::WebContentsObserver {
   DISALLOW_COPY_AND_ASSIGN(WebContentsHiddenObserver);
 };
 
-// Watches for context menu to be shown, records count of how many times
-// context menu was shown.
-class ContextMenuCallCountObserver {
+// Watches for context menu to be shown, sets a boolean if it is shown.
+class ContextMenuShownObserver {
  public:
-  ContextMenuCallCountObserver()
-      : num_times_shown_(0),
-        menu_observer_(chrome::NOTIFICATION_RENDER_VIEW_CONTEXT_MENU_SHOWN,
-                       base::Bind(&ContextMenuCallCountObserver::OnMenuShown,
-                                  base::Unretained(this))) {
+  ContextMenuShownObserver() {
+    RenderViewContextMenu::RegisterMenuShownCallbackForTesting(base::BindOnce(
+        &ContextMenuShownObserver::OnMenuShown, base::Unretained(this)));
   }
-  ~ContextMenuCallCountObserver() {}
+  ~ContextMenuShownObserver() {}
 
-  bool OnMenuShown(const content::NotificationSource& source,
-                   const content::NotificationDetails& details) {
-    ++num_times_shown_;
-    auto* context_menu = content::Source<RenderViewContextMenu>(source).ptr();
+  void OnMenuShown(RenderViewContextMenu* context_menu) {
+    shown_ = true;
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::BindOnce(&RenderViewContextMenuBase::Cancel,
                                   base::Unretained(context_menu)));
-    return true;
+    run_loop_.Quit();
   }
 
-  void Wait() { menu_observer_.Wait(); }
+  void Wait() { run_loop_.Run(); }
 
-  int num_times_shown() { return num_times_shown_; }
+  bool shown() { return shown_; }
 
  private:
-  int num_times_shown_;
-  content::WindowedNotificationObserver menu_observer_;
+  bool shown_ = false;
+  base::RunLoop run_loop_;
 
-  DISALLOW_COPY_AND_ASSIGN(ContextMenuCallCountObserver);
+  DISALLOW_COPY_AND_ASSIGN(ContextMenuShownObserver);
 };
 
 class EmbedderWebContentsObserver : public content::WebContentsObserver {
@@ -385,7 +380,7 @@ class MockWebContentsDelegate : public content::WebContentsDelegate {
       request_message_loop_runner_->Quit();
   }
 
-  bool CheckMediaAccessPermission(content::WebContents* web_contents,
+  bool CheckMediaAccessPermission(content::RenderFrameHost* render_frame_host,
                                   const GURL& security_origin,
                                   content::MediaStreamType type) override {
     checked_ = true;
@@ -1053,6 +1048,23 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, AudibilityStatePropagates) {
   EXPECT_FALSE(guest->WasRecentlyAudible());
 }
 
+IN_PROC_BROWSER_TEST_P(WebViewTest, WebViewRespectsInsets) {
+  LoadAppWithGuest("web_view/simple");
+
+  content::WebContents* guest = GetGuestWebContents();
+  content::RenderWidgetHostView* guest_host_view =
+      guest->GetRenderWidgetHostView();
+
+  gfx::Insets insets(0, 0, 100, 0);
+  gfx::Rect expected(guest_host_view->GetVisibleViewportSize());
+  expected.Inset(insets);
+
+  guest_host_view->SetInsets(gfx::Insets(0, 0, 100, 0));
+
+  gfx::Size size_after = guest_host_view->GetVisibleViewportSize();
+  EXPECT_EQ(expected.size(), size_after);
+}
+
 IN_PROC_BROWSER_TEST_P(WebViewTest, AudioMutesWhileAttached) {
   LoadAppWithGuest("web_view/simple");
 
@@ -1326,7 +1338,13 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, Shim_TestWebRequestAPIErrorOccurred) {
 #if defined(USE_AURA)
 // Test validates that select tag can be shown and hidden in webview safely
 // using quick touch.
-IN_PROC_BROWSER_TEST_P(WebViewTest, SelectShowHide) {
+// Very high timeout rate under Linux MSAN; see https://crbug.com/818161.
+#if defined(OS_LINUX) && defined(MEMORY_SANITIZER)
+#define MAYBE_SelectShowHide DISABLED_SelectShowHide
+#else
+#define MAYBE_SelectShowHide SelectShowHide
+#endif
+IN_PROC_BROWSER_TEST_P(WebViewTest, MAYBE_SelectShowHide) {
   LoadAppWithGuest("web_view/select");
 
   content::WebContents* embedder_contents = GetFirstAppWindowWebContents();
@@ -2131,6 +2149,7 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, PRE_StoragePersistence) {
       "platform_apps/web_view/storage_persistence", "PRE_StoragePersistence",
       kFlagEnableFileAccess))
       << message_;
+  content::EnsureCookiesFlushed(profile());
 }
 
 // This is the post-reset portion of the StoragePersistence test.  See
@@ -2431,18 +2450,6 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, ContextMenusAPI_Basic) {
   ASSERT_EQ(0u, items_after_all_removal.size());
 }
 
-// Called in the TestContextMenu test to cancel the context menu after its
-// shown notification is received.
-static bool ContextMenuNotificationCallback(
-    const content::NotificationSource& source,
-    const content::NotificationDetails& details) {
-  auto* context_menu = content::Source<RenderViewContextMenu>(source).ptr();
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(&RenderViewContextMenuBase::Cancel,
-                                base::Unretained(context_menu)));
-  return true;
-}
-
 IN_PROC_BROWSER_TEST_P(WebViewTest, ContextMenusAPI_PreventDefault) {
   LoadAppWithGuest("web_view/context_menus/basic");
 
@@ -2455,13 +2462,13 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, ContextMenusAPI_PreventDefault) {
   ExtensionTestMessageListener prevent_default_listener(
       "WebViewTest.CONTEXT_MENU_DEFAULT_PREVENTED", false);
   EXPECT_TRUE(content::ExecuteScript(embedder, "registerPreventDefault()"));
-  ContextMenuCallCountObserver context_menu_shown_observer;
+  ContextMenuShownObserver context_menu_shown_observer;
 
   OpenContextMenu(guest_web_contents);
 
   EXPECT_TRUE(prevent_default_listener.WaitUntilSatisfied());
   // Expect the menu to not show up.
-  EXPECT_EQ(0, context_menu_shown_observer.num_times_shown());
+  EXPECT_EQ(false, context_menu_shown_observer.shown());
 
   // Now remove the preventDefault() and expect context menu to be shown.
   ExecuteScriptWaitForTitle(
@@ -2470,7 +2477,7 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, ContextMenusAPI_PreventDefault) {
 
   // We expect to see a context menu for the second call to |OpenContextMenu|.
   context_menu_shown_observer.Wait();
-  EXPECT_EQ(1, context_menu_shown_observer.num_times_shown());
+  EXPECT_EQ(true, context_menu_shown_observer.shown());
 }
 
 // Tests that a context menu is created when right-clicking in the webview. This
@@ -2479,15 +2486,23 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, TestContextMenu) {
   LoadAppWithGuest("web_view/context_menus/basic");
   content::WebContents* guest_web_contents = GetGuestWebContents();
 
-  // Register an observer for the context menu.
-  content::WindowedNotificationObserver menu_observer(
-      chrome::NOTIFICATION_RENDER_VIEW_CONTEXT_MENU_SHOWN,
-      base::Bind(ContextMenuNotificationCallback));
+  auto close_menu_and_stop_run_loop = [](base::OnceClosure closure,
+                                         RenderViewContextMenu* context_menu) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(&RenderViewContextMenuBase::Cancel,
+                                  base::Unretained(context_menu)));
+
+    std::move(closure).Run();
+  };
+
+  base::RunLoop run_loop;
+  RenderViewContextMenu::RegisterMenuShownCallbackForTesting(
+      base::BindOnce(close_menu_and_stop_run_loop, run_loop.QuitClosure()));
 
   OpenContextMenu(guest_web_contents);
 
   // Wait for the context menu to be visible.
-  menu_observer.Wait();
+  run_loop.Run();
 }
 
 IN_PROC_BROWSER_TEST_P(WebViewTest, MediaAccessAPIAllow_TestAllow) {
@@ -2781,12 +2796,6 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, DownloadPermission) {
                 "web_view/download");
   ASSERT_TRUE(guest_web_contents);
 
-  base::ScopedAllowBlockingForTesting allow_blocking;
-  base::ScopedTempDir temporary_download_dir;
-  ASSERT_TRUE(temporary_download_dir.CreateUniqueTempDir());
-  DownloadPrefs::FromBrowserContext(guest_web_contents->GetBrowserContext())
-      ->SetDownloadPath(temporary_download_dir.GetPath());
-
   std::unique_ptr<content::DownloadTestObserver> completion_observer(
       new content::DownloadTestObserverTerminal(
           content::BrowserContext::GetDownloadManager(
@@ -2926,12 +2935,6 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, DownloadCookieIsolation) {
   content::WebContents* web_contents = GetFirstAppWindowWebContents();
   ASSERT_TRUE(web_contents);
 
-  base::ScopedAllowBlockingForTesting allow_blocking;
-  base::ScopedTempDir temporary_download_dir;
-  ASSERT_TRUE(temporary_download_dir.CreateUniqueTempDir());
-  DownloadPrefs::FromBrowserContext(web_contents->GetBrowserContext())
-      ->SetDownloadPath(temporary_download_dir.GetPath());
-
   content::DownloadManager* download_manager =
       content::BrowserContext::GetDownloadManager(
           web_contents->GetBrowserContext());
@@ -2988,6 +2991,7 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, DownloadCookieIsolation) {
 
   completion_observer->WaitForFinished();
 
+  base::ScopedAllowBlockingForTesting allow_blocking;
   std::set<std::string> cookies;
   for (auto* download : downloads) {
     ASSERT_EQ(download::DownloadItem::COMPLETE, download->GetState());
@@ -3014,12 +3018,6 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, PRE_DownloadCookieIsolation_CrossSession) {
 
   content::WebContents* web_contents = GetFirstAppWindowWebContents();
   ASSERT_TRUE(web_contents);
-
-  base::ScopedAllowBlockingForTesting allow_blocking;
-  base::ScopedTempDir temporary_download_dir;
-  ASSERT_TRUE(temporary_download_dir.CreateUniqueTempDir());
-  DownloadPrefs::FromBrowserContext(web_contents->GetBrowserContext())
-      ->SetDownloadPath(temporary_download_dir.GetPath());
 
   content::DownloadManager* download_manager =
       content::BrowserContext::GetDownloadManager(
@@ -3061,9 +3059,7 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, PRE_DownloadCookieIsolation_CrossSession) {
   // Wait for both downloads to be stored.
   history_waiter.WaitForStored(2);
 
-  // Leak the temporary download directory. We'll retake ownership in the next
-  // browser session.
-  temporary_download_dir.Take();
+  content::EnsureCookiesFlushed(profile());
 }
 
 IN_PROC_BROWSER_TEST_P(WebViewTest, DownloadCookieIsolation_CrossSession) {
@@ -3077,11 +3073,6 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, DownloadCookieIsolation_CrossSession) {
 
   DownloadHistoryWaiter history_waiter(browser_context);
   history_waiter.WaitForHistoryLoad();
-
-  base::ScopedAllowBlockingForTesting allow_blocking;
-  base::ScopedTempDir temporary_download_dir;
-  ASSERT_TRUE(temporary_download_dir.Set(
-      DownloadPrefs::FromBrowserContext(browser_context)->DownloadPath()));
 
   content::DownloadManager::DownloadVector saved_downloads;
   download_manager->GetAllDownloads(&saved_downloads);
@@ -3122,8 +3113,6 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, DownloadCookieIsolation_CrossSession) {
 
   for (auto* download : downloads) {
     ASSERT_TRUE(download->CanResume());
-    ASSERT_TRUE(temporary_download_dir.GetPath().IsParent(
-        download->GetTargetFilePath()));
     ASSERT_TRUE(download->GetFullPath().empty());
     EXPECT_EQ(download::DOWNLOAD_INTERRUPT_REASON_SERVER_FAILED,
               download->GetLastReason());
@@ -3143,6 +3132,8 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, DownloadCookieIsolation_CrossSession) {
     std::swap(succeeded_download, failed_download);
 
   ASSERT_EQ(download::DownloadItem::COMPLETE, succeeded_download->GetState());
+
+  base::ScopedAllowBlockingForTesting allow_blocking;
   ASSERT_TRUE(base::PathExists(succeeded_download->GetTargetFilePath()));
   std::string content;
   ASSERT_TRUE(base::ReadFileToString(succeeded_download->GetTargetFilePath(),
@@ -3710,7 +3701,7 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, ReloadAfterCrash) {
   auto* rph = GetGuestWebContents()->GetMainFrame()->GetProcess();
   content::RenderProcessHostWatcher crash_observer(
       rph, content::RenderProcessHostWatcher::WATCH_FOR_PROCESS_EXIT);
-  EXPECT_TRUE(rph->Shutdown(content::RESULT_CODE_KILLED, false));
+  EXPECT_TRUE(rph->Shutdown(content::RESULT_CODE_KILLED));
   crash_observer.Wait();
   EXPECT_FALSE(GetGuestWebContents()->GetMainFrame()->GetView());
 
@@ -3927,25 +3918,6 @@ class WebViewGuestScrollTouchTest : public WebViewGuestScrollTest {
   }
 };
 
-namespace {
-
-class ScrollWaiter {
- public:
-  explicit ScrollWaiter(content::RenderWidgetHostView* host_view)
-      : host_view_(host_view) {}
-  ~ScrollWaiter() {}
-
-  void WaitForScrollChange(gfx::Vector2dF target_offset) {
-    while (target_offset != host_view_->GetLastScrollOffset())
-      base::RunLoop().RunUntilIdle();
-  }
-
- private:
-  content::RenderWidgetHostView* host_view_;
-};
-
-}  // namespace
-
 // Tests that scrolls bubble from guest to embedder.
 // Create two test instances, one where the guest body is scrollable and the
 // other where the body is not scrollable: fast-path scrolling will generate
@@ -3963,6 +3935,8 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTest,
     SendMessageToGuestAndWait("set_overflow_hidden", "overflow_is_hidden");
 
   content::WebContents* embedder_contents = GetEmbedderWebContents();
+  content::RenderFrameSubmissionObserver embedder_frame_observer(
+      embedder_contents);
 
   std::vector<content::WebContents*> guest_web_contents_list;
   GetGuestViewManager()->WaitForNumGuestsCreated(1u);
@@ -3970,6 +3944,7 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTest,
   ASSERT_EQ(1u, guest_web_contents_list.size());
 
   content::WebContents* guest_contents = guest_web_contents_list[0];
+  content::RenderFrameSubmissionObserver guest_frame_observer(guest_contents);
 
   gfx::Rect embedder_rect = embedder_contents->GetContainerBounds();
   gfx::Rect guest_rect = guest_contents->GetContainerBounds();
@@ -3979,11 +3954,10 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTest,
   embedder_rect.set_x(0);
   embedder_rect.set_y(0);
 
-  // Send scroll gesture to embedder & verify.
-  content::RenderWidgetHostView* embedder_host_view =
-      embedder_contents->GetRenderWidgetHostView();
-  EXPECT_EQ(gfx::Vector2dF(), embedder_host_view->GetLastScrollOffset());
+  gfx::Vector2dF default_offset;
+  embedder_frame_observer.WaitForScrollOffset(default_offset);
 
+  // Send scroll gesture to embedder & verify.
   // Make sure wheel events don't get filtered.
   float scroll_magnitude = 15.f;
 
@@ -3996,8 +3970,6 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTest,
 
     gfx::Vector2dF expected_offset(0.f, scroll_magnitude);
 
-    ScrollWaiter waiter(embedder_host_view);
-
     content::SimulateMouseEvent(embedder_contents,
                                 blink::WebInputEvent::kMouseMove,
                                 embedder_scroll_location);
@@ -4005,12 +3977,11 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTest,
                                      embedder_scroll_location,
                                      gfx::Vector2d(0, -scroll_magnitude),
                                      blink::WebMouseWheelEvent::kPhaseBegan);
-    waiter.WaitForScrollChange(expected_offset);
+
+    embedder_frame_observer.WaitForScrollOffset(expected_offset);
   }
 
-  content::RenderWidgetHostView* guest_host_view =
-      guest_contents->GetRenderWidgetHostView();
-  EXPECT_EQ(gfx::Vector2dF(), guest_host_view->GetLastScrollOffset());
+  guest_frame_observer.WaitForScrollOffset(default_offset);
 
   // Send scroll gesture to guest and verify embedder scrolls.
   // Perform a scroll gesture of the same magnitude, but in the opposite
@@ -4022,7 +3993,6 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTest,
   {
     gfx::Point guest_scroll_location(guest_rect.x() + guest_rect.width() / 2,
                                      guest_rect.y());
-    ScrollWaiter waiter(embedder_host_view);
 
     content::SimulateMouseEvent(embedder_contents,
                                 blink::WebInputEvent::kMouseMove,
@@ -4030,8 +4000,7 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTest,
     content::SimulateMouseWheelEvent(embedder_contents, guest_scroll_location,
                                      gfx::Vector2d(0, scroll_magnitude),
                                      blink::WebMouseWheelEvent::kPhaseChanged);
-
-    waiter.WaitForScrollChange(gfx::Vector2dF());
+    embedder_frame_observer.WaitForScrollOffset(default_offset);
   }
 }
 
@@ -4065,6 +4034,8 @@ IN_PROC_BROWSER_TEST_F(WebViewGuestScrollLatchingTest,
   LoadAppWithGuest("web_view/scrollable_embedder_and_guest");
 
   content::WebContents* embedder_contents = GetEmbedderWebContents();
+  content::RenderFrameSubmissionObserver embedder_frame_observer(
+      embedder_contents);
 
   std::vector<content::WebContents*> guest_web_contents_list;
   GetGuestViewManager()->WaitForNumGuestsCreated(1u);
@@ -4072,29 +4043,27 @@ IN_PROC_BROWSER_TEST_F(WebViewGuestScrollLatchingTest,
   ASSERT_EQ(1u, guest_web_contents_list.size());
 
   content::WebContents* guest_contents = guest_web_contents_list[0];
+  content::RenderFrameSubmissionObserver guest_frame_observer(guest_contents);
   content::RenderWidgetHostView* guest_host_view =
       guest_contents->GetRenderWidgetHostView();
 
-  content::RenderWidgetHostView* embedder_host_view =
-      embedder_contents->GetRenderWidgetHostView();
-  ASSERT_EQ(gfx::Vector2dF(), guest_host_view->GetLastScrollOffset());
-  ASSERT_EQ(gfx::Vector2dF(), embedder_host_view->GetLastScrollOffset());
+  gfx::Vector2dF default_offset;
+  guest_frame_observer.WaitForScrollOffset(default_offset);
+  embedder_frame_observer.WaitForScrollOffset(default_offset);
 
-  gfx::Point guest_scroll_location(1, 1);
-  gfx::Point guest_scroll_location_in_root =
-      guest_host_view->TransformPointToRootCoordSpace(guest_scroll_location);
+  gfx::PointF guest_scroll_location(1, 1);
+  gfx::PointF guest_scroll_location_in_root =
+      guest_host_view->TransformPointToRootCoordSpaceF(guest_scroll_location);
 
   // When the guest is already scrolled to the top, scroll up so that we bubble
   // scroll.
   blink::WebGestureEvent scroll_begin(
       blink::WebGestureEvent::kGestureScrollBegin,
       blink::WebInputEvent::kNoModifiers,
-      blink::WebInputEvent::GetStaticTimeStampForTests());
-  scroll_begin.source_device = blink::kWebGestureDeviceTouchpad;
-  scroll_begin.x = guest_scroll_location.x();
-  scroll_begin.y = guest_scroll_location.y();
-  scroll_begin.global_x = guest_scroll_location_in_root.x();
-  scroll_begin.global_y = guest_scroll_location_in_root.y();
+      blink::WebInputEvent::GetStaticTimeStampForTests(),
+      blink::kWebGestureDeviceTouchpad);
+  scroll_begin.SetPositionInWidget(guest_scroll_location);
+  scroll_begin.SetPositionInScreen(guest_scroll_location_in_root);
   scroll_begin.data.scroll_begin.delta_x_hint = 0;
   scroll_begin.data.scroll_begin.delta_y_hint = 5;
   content::SimulateGestureEvent(guest_contents, scroll_begin,
@@ -4113,12 +4082,10 @@ IN_PROC_BROWSER_TEST_F(WebViewGuestScrollLatchingTest,
   blink::WebGestureEvent scroll_update(
       blink::WebGestureEvent::kGestureScrollUpdate,
       blink::WebInputEvent::kNoModifiers,
-      blink::WebInputEvent::GetStaticTimeStampForTests());
-  scroll_update.source_device = scroll_begin.source_device;
-  scroll_update.x = scroll_begin.x;
-  scroll_update.y = scroll_begin.y;
-  scroll_update.global_x = scroll_begin.global_x;
-  scroll_update.global_y = scroll_begin.global_y;
+      blink::WebInputEvent::GetStaticTimeStampForTests(),
+      scroll_begin.SourceDevice());
+  scroll_update.SetPositionInWidget(scroll_begin.PositionInWidget());
+  scroll_update.SetPositionInScreen(scroll_begin.PositionInScreen());
   scroll_update.data.scroll_update.delta_x =
       scroll_begin.data.scroll_begin.delta_x_hint;
   scroll_update.data.scroll_update.delta_y =
@@ -4128,7 +4095,12 @@ IN_PROC_BROWSER_TEST_F(WebViewGuestScrollLatchingTest,
   update_waiter.Wait();
   update_waiter.Reset();
 
-  ASSERT_EQ(gfx::Vector2dF(), guest_host_view->GetLastScrollOffset());
+  // TODO(jonross): This test is only waiting on InputEventAckWaiter, but has an
+  // implicit wait on frame submission. InputEventAckWaiter needs to be updated
+  // to support VizDisplayCompositor, when it is, it should be tied to frame
+  // tokens which will allow for synchronizing with frame submission for further
+  // verifying metadata (crbug.com/812012)
+  guest_frame_observer.WaitForScrollOffset(default_offset);
 
   // Now we switch directions and scroll down. The guest can scroll in this
   // direction, but since we're bubbling, the guest should not consume this.
@@ -4137,7 +4109,7 @@ IN_PROC_BROWSER_TEST_F(WebViewGuestScrollLatchingTest,
                                 ui::LatencyInfo(ui::SourceEventType::WHEEL));
   update_waiter.Wait();
 
-  EXPECT_EQ(gfx::Vector2dF(), guest_host_view->GetLastScrollOffset());
+  guest_frame_observer.WaitForScrollOffset(default_offset);
 }
 
 INSTANTIATE_TEST_CASE_P(WebViewScrollBubbling,
@@ -4251,6 +4223,8 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTouchTest,
     SendMessageToGuestAndWait("set_overflow_hidden", "overflow_is_hidden");
 
   content::WebContents* embedder_contents = GetEmbedderWebContents();
+  content::RenderFrameSubmissionObserver embedder_frame_observer(
+      embedder_contents);
 
   std::vector<content::WebContents*> guest_web_contents_list;
   GetGuestViewManager()->WaitForNumGuestsCreated(1u);
@@ -4258,6 +4232,7 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTouchTest,
   ASSERT_EQ(1u, guest_web_contents_list.size());
 
   content::WebContents* guest_contents = guest_web_contents_list[0];
+  content::RenderFrameSubmissionObserver guest_frame_observer(guest_contents);
 
   gfx::Rect embedder_rect = embedder_contents->GetContainerBounds();
   gfx::Rect guest_rect = guest_contents->GetContainerBounds();
@@ -4267,11 +4242,10 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTouchTest,
   embedder_rect.set_x(0);
   embedder_rect.set_y(0);
 
-  // Send scroll gesture to embedder & verify.
-  content::RenderWidgetHostView* embedder_host_view =
-      embedder_contents->GetRenderWidgetHostView();
-  EXPECT_EQ(gfx::Vector2dF(), embedder_host_view->GetLastScrollOffset());
+  gfx::Vector2dF default_offset;
+  embedder_frame_observer.WaitForScrollOffset(default_offset);
 
+  // Send scroll gesture to embedder & verify.
   float gesture_distance = 15.f;
   {
     // Scroll the embedder from a position in the embedder that is not over
@@ -4286,14 +4260,11 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTouchTest,
         embedder_contents, embedder_scroll_location,
         gfx::Vector2dF(0, -gesture_distance));
 
-    ScrollWaiter waiter(embedder_host_view);
-
-    waiter.WaitForScrollChange(expected_offset);
+    embedder_frame_observer.WaitForScrollOffset(expected_offset);
   }
 
-  content::RenderWidgetHostView* guest_host_view =
-      guest_contents->GetRenderWidgetHostView();
-  EXPECT_EQ(gfx::Vector2dF(), guest_host_view->GetLastScrollOffset());
+  // Check that the guest has not scrolled.
+  guest_frame_observer.WaitForScrollOffset(default_offset);
 
   // Send scroll gesture to guest and verify embedder scrolls.
   // Perform a scroll gesture of the same magnitude, but in the opposite
@@ -4303,13 +4274,11 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTouchTest,
     gfx::Point guest_scroll_location(guest_rect.width() / 2,
                                      guest_rect.height() / 2);
 
-    ScrollWaiter waiter(embedder_host_view);
-
     content::SimulateGestureScrollSequence(guest_contents,
                                            guest_scroll_location,
                                            gfx::Vector2dF(0, gesture_distance));
 
-    waiter.WaitForScrollChange(gfx::Vector2dF());
+    embedder_frame_observer.WaitForScrollOffset(default_offset);
   }
 }
 
@@ -4340,6 +4309,8 @@ IN_PROC_BROWSER_TEST_P(WebViewScrollGuestContentTest,
   LoadAppWithGuest("web_view/scrollable_embedder_and_guest");
 
   content::WebContents* embedder_contents = GetEmbedderWebContents();
+  content::RenderFrameSubmissionObserver embedder_frame_observer(
+      embedder_contents);
 
   std::vector<content::WebContents*> guest_web_contents_list;
   GetGuestViewManager()->WaitForNumGuestsCreated(1u);
@@ -4347,18 +4318,16 @@ IN_PROC_BROWSER_TEST_P(WebViewScrollGuestContentTest,
   ASSERT_EQ(1u, guest_web_contents_list.size());
 
   content::WebContents* guest_contents = guest_web_contents_list[0];
-  content::RenderWidgetHostView* guest_host_view =
-      guest_contents->GetRenderWidgetHostView();
+  content::RenderFrameSubmissionObserver guest_frame_observer(guest_contents);
 
   gfx::Rect embedder_rect = embedder_contents->GetContainerBounds();
   gfx::Rect guest_rect = guest_contents->GetContainerBounds();
   guest_rect.set_x(guest_rect.x() - embedder_rect.x());
   guest_rect.set_y(guest_rect.y() - embedder_rect.y());
 
-  content::RenderWidgetHostView* embedder_host_view =
-      embedder_contents->GetRenderWidgetHostView();
-  EXPECT_EQ(gfx::Vector2dF(), guest_host_view->GetLastScrollOffset());
-  EXPECT_EQ(gfx::Vector2dF(), embedder_host_view->GetLastScrollOffset());
+  gfx::Vector2dF default_offset;
+  guest_frame_observer.WaitForScrollOffset(default_offset);
+  embedder_frame_observer.WaitForScrollOffset(default_offset);
 
   gfx::Point guest_scroll_location(guest_rect.width() / 2, 0);
 
@@ -4366,30 +4335,27 @@ IN_PROC_BROWSER_TEST_P(WebViewScrollGuestContentTest,
   {
     gfx::Vector2dF expected_offset(0.f, gesture_distance);
 
-    ScrollWaiter waiter(guest_host_view);
-
     content::SimulateGestureScrollSequence(
         guest_contents, guest_scroll_location,
         gfx::Vector2dF(0, -gesture_distance));
 
-    waiter.WaitForScrollChange(expected_offset);
+    guest_frame_observer.WaitForScrollOffset(expected_offset);
   }
-  EXPECT_EQ(gfx::Vector2dF(), embedder_host_view->GetLastScrollOffset());
+
+  embedder_frame_observer.WaitForScrollOffset(default_offset);
 
   // Use fling gesture to scroll back, velocity should be big enough to scroll
   // content back.
   float fling_velocity = 300.f;
   {
-    ScrollWaiter waiter(guest_host_view);
-
     content::SimulateGestureFlingSequence(
         guest_contents, guest_scroll_location,
         gfx::Vector2dF(0, fling_velocity));
 
-    waiter.WaitForScrollChange(gfx::Vector2dF());
+    guest_frame_observer.WaitForScrollOffset(default_offset);
   }
 
-  EXPECT_EQ(gfx::Vector2dF(), embedder_host_view->GetLastScrollOffset());
+  embedder_frame_observer.WaitForScrollOffset(default_offset);
 }
 
 #if defined(USE_AURA)
@@ -4404,6 +4370,8 @@ IN_PROC_BROWSER_TEST_P(WebViewScrollGuestContentTest,
   LoadAppWithGuest("web_view/scrollable_embedder_and_guest");
 
   content::WebContents* embedder_contents = GetEmbedderWebContents();
+  content::RenderFrameSubmissionObserver embedder_frame_observer(
+      embedder_contents);
 
   std::vector<content::WebContents*> guest_web_contents_list;
   GetGuestViewManager()->WaitForNumGuestsCreated(1u);
@@ -4411,8 +4379,7 @@ IN_PROC_BROWSER_TEST_P(WebViewScrollGuestContentTest,
   ASSERT_EQ(1u, guest_web_contents_list.size());
 
   content::WebContents* guest_contents = guest_web_contents_list[0];
-  content::RenderWidgetHostView* guest_host_view =
-      guest_contents->GetRenderWidgetHostView();
+  content::RenderFrameSubmissionObserver guest_frame_observer(guest_contents);
 
   gfx::Rect embedder_rect = embedder_contents->GetContainerBounds();
   gfx::Rect guest_rect = guest_contents->GetContainerBounds();
@@ -4421,8 +4388,9 @@ IN_PROC_BROWSER_TEST_P(WebViewScrollGuestContentTest,
 
   content::RenderWidgetHostView* embedder_host_view =
       embedder_contents->GetRenderWidgetHostView();
-  EXPECT_EQ(gfx::Vector2dF(), guest_host_view->GetLastScrollOffset());
-  EXPECT_EQ(gfx::Vector2dF(), embedder_host_view->GetLastScrollOffset());
+  gfx::Vector2dF default_offset;
+  guest_frame_observer.WaitForScrollOffset(default_offset);
+  embedder_frame_observer.WaitForScrollOffset(default_offset);
 
   // If we scroll the guest, the OverscrollController for the
   // RenderWidgetHostViewAura should see that the scroll was consumed.

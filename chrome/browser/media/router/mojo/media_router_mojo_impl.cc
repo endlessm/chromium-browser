@@ -11,7 +11,6 @@
 #include "base/bind.h"
 #include "base/guid.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/observer_list.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
@@ -194,16 +193,26 @@ void MediaRouterMojoImpl::CreateRoute(
     return;
   }
 
+  if (IsTabMirroringMediaSource(MediaSource(source_id))) {
+    // Ensure the CastRemotingConnector is created before mirroring starts.
+    CastRemotingConnector::Get(web_contents);
+  }
+
   MediaRouterMetrics::RecordMediaSinkType(sink->icon_type());
   MediaRouteProviderId provider_id = sink->provider_id();
+
   // This is a hack to ensure the extension handles the CreateRoute call until
   // the CastMediaRouteProvider supports it.
-  // TODO(crbug.com/698940): Remove this hack when CastMediaRouteProvider
+  // TODO(crbug.com/698940): Remove check for Cast when CastMediaRouteProvider
   // supports route management.
-  if (provider_id == MediaRouteProviderId::CAST)
+  // TODO(https://crbug.com/808720): Remove check for DIAL when in-browser DIAL
+  // MRP is fully implemented.
+  if (provider_id == MediaRouteProviderId::CAST ||
+      provider_id == MediaRouteProviderId::DIAL) {
     provider_id = MediaRouteProviderId::EXTENSION;
+  }
 
-  int tab_id = SessionTabHelper::IdForTab(web_contents);
+  int tab_id = SessionTabHelper::IdForTab(web_contents).id();
   std::string presentation_id = MediaRouterBase::CreatePresentationId();
   auto callback = base::BindOnce(
       &MediaRouterMojoImpl::RouteResponseReceived, weak_factory_.GetWeakPtr(),
@@ -236,7 +245,7 @@ void MediaRouterMojoImpl::JoinRoute(
     return;
   }
 
-  int tab_id = SessionTabHelper::IdForTab(web_contents);
+  int tab_id = SessionTabHelper::IdForTab(web_contents).id();
   auto callback = base::BindOnce(
       &MediaRouterMojoImpl::RouteResponseReceived, weak_factory_.GetWeakPtr(),
       presentation_id, *provider_id, incognito, std::move(callbacks), true);
@@ -263,7 +272,7 @@ void MediaRouterMojoImpl::ConnectRouteByRouteId(
     return;
   }
 
-  int tab_id = SessionTabHelper::IdForTab(web_contents);
+  int tab_id = SessionTabHelper::IdForTab(web_contents).id();
   std::string presentation_id = MediaRouterBase::CreatePresentationId();
   auto callback = base::BindOnce(
       &MediaRouterMojoImpl::RouteResponseReceived, weak_factory_.GetWeakPtr(),
@@ -608,8 +617,9 @@ bool MediaRouterMojoImpl::RegisterMediaSinksObserver(
   // no need to call MRPs.
   if (is_new_query) {
     for (const auto& provider : media_route_providers_) {
-      if (sink_availability_.IsAvailableForProvider(provider.first))
+      if (sink_availability_.IsAvailableForProvider(provider.first)) {
         provider.second->StartObservingMediaSinks(source_id);
+      }
     }
   }
   return true;
@@ -633,8 +643,9 @@ void MediaRouterMojoImpl::UnregisterMediaSinksObserver(
     // Only ask MRPs to stop observing media sinks if there are sinks available.
     // Otherwise, the MRPs would have discarded the queries already.
     for (const auto& provider : media_route_providers_) {
-      if (sink_availability_.IsAvailableForProvider(provider.first))
+      if (sink_availability_.IsAvailableForProvider(provider.first)) {
         provider.second->StopObservingMediaSinks(source_id);
+      }
     }
     sinks_queries_.erase(source_id);
   }
@@ -889,7 +900,7 @@ void MediaRouterMojoImpl::OnMediaRemoterCreated(
     media::mojom::MirrorServiceRemotingSourceRequest source_request) {
   DVLOG_WITH_INSTANCE(1) << __func__ << ": tab_id = " << tab_id;
 
-  auto it = remoting_sources_.find(tab_id);
+  auto it = remoting_sources_.find(SessionID::FromSerializedValue(tab_id));
   if (it == remoting_sources_.end()) {
     LOG(WARNING) << __func__
                  << ": No registered remoting source for tab_id = " << tab_id;

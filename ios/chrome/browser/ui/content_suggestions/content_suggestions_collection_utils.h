@@ -11,11 +11,14 @@ namespace content_suggestions {
 
 extern const CGFloat kSearchFieldHeight;
 
+extern const int kSearchFieldBackgroundColor;
+
 // Returns the maximum number of tiles fitting in |availableWidth|, limited to
 // 4.
 NSUInteger numberOfTilesForWidth(CGFloat availableWidth);
 // Returns the spacing between tiles, based on the device.
-CGFloat spacingBetweenTiles();
+CGFloat horizontalSpacingBetweenTiles();
+CGFloat verticalSpacingBetweenTiles();
 
 // Returns x-offset in order to have the tiles centered in a view with a
 // |width|.
@@ -51,6 +54,10 @@ void configureVoiceSearchButton(UIButton* voiceSearchButton,
 
 // Returns the nearest ancestor of |view| that is kind of |aClass|.
 UIView* nearestAncestor(UIView* view, Class aClass);
+
+// Helper methods to support RxR for UIRefreshPhase1 and IpadIdiom pre-Refresh.
+BOOL IsRegularXRegularSizeClass(id<UITraitEnvironment> environment);
+BOOL IsRegularXRegularSizeClass();
 
 }  // namespace content_suggestions
 

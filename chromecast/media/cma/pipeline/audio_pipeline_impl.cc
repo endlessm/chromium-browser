@@ -16,6 +16,7 @@
 #include "chromecast/media/cma/pipeline/cdm_decryptor.h"
 #include "chromecast/public/media/decoder_config.h"
 #include "chromecast/public/media/media_capabilities_shlib.h"
+#include "chromecast/public/media/media_pipeline_backend.h"
 #include "media/base/audio_decoder_config.h"
 
 namespace chromecast {
@@ -24,16 +25,10 @@ namespace media {
 namespace {
 const size_t kMaxAudioFrameSize = 32 * 1024;
 
-bool ShouldUseSoftwareDecoder(const AudioConfig& config) {
-  // If the config isn't supported by the backend natively, we'll use software
-  // decoder to support it.
-  return !MediaCapabilitiesShlib::IsSupportedAudioConfig(config);
-}
 }
 
-AudioPipelineImpl::AudioPipelineImpl(
-    MediaPipelineBackend::AudioDecoder* decoder,
-    const AvPipelineClient& client)
+AudioPipelineImpl::AudioPipelineImpl(CmaBackend::AudioDecoder* decoder,
+                                     const AvPipelineClient& client)
     : AvPipelineImpl(decoder, client), audio_decoder_(decoder) {
   DCHECK(audio_decoder_);
 }
@@ -85,15 +80,14 @@ const EncryptionScheme& AudioPipelineImpl::GetEncryptionScheme(
 }
 
 std::unique_ptr<StreamDecryptor> AudioPipelineImpl::CreateDecryptor() {
-  // TODO(yucliu): Enable it on devices that support multiroom.
+  bool clear_buffer_needed = audio_decoder_->RequiresDecryption();
   if (audio_config_.encryption_scheme.is_encrypted() &&
-      MediaPipelineBackend::CreateAudioDecryptor &&
-      ShouldUseSoftwareDecoder(audio_config_)) {
+      MediaPipelineBackend::CreateAudioDecryptor && clear_buffer_needed) {
     CMALOG(kLogControl) << __func__ << " Create backend decryptor for audio.";
     return std::make_unique<BackendDecryptor>(audio_config_.encryption_scheme);
   }
 
-  return std::make_unique<CdmDecryptor>();
+  return std::make_unique<CdmDecryptor>(clear_buffer_needed);
 }
 
 void AudioPipelineImpl::UpdateStatistics() {
@@ -102,7 +96,7 @@ void AudioPipelineImpl::UpdateStatistics() {
 
   // TODO(mbjorge): Give Statistics a default constructor when the
   // next system update happens. b/32802298
-  MediaPipelineBackend::AudioDecoder::Statistics audio_stats = {};
+  CmaBackend::AudioDecoder::Statistics audio_stats = {};
   audio_decoder_->GetStatistics(&audio_stats);
 
   ::media::PipelineStatistics current_stats;

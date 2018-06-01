@@ -8,7 +8,7 @@
 #include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/browser_context.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "ui/base/ui_features.h"
 
 #if defined(OS_ANDROID) || BUILDFLAG(ENABLE_EXTENSIONS)
@@ -16,6 +16,10 @@
 #include "components/prefs/pref_service.h"
 #include "components/user_prefs/user_prefs.h"
 #endif  // defined(OS_ANDROID) || BUILDFLAG(ENABLE_EXTENSIONS)
+
+#if !defined(OS_ANDROID)
+#include "components/prefs/pref_registry_simple.h"
+#endif
 
 namespace media_router {
 
@@ -33,7 +37,7 @@ const base::Feature kCastMediaRouteProvider{"CastMediaRouteProvider",
 
 // Controls if local media casting is enabled.
 const base::Feature kEnableCastLocalMedia{"EnableCastLocalMedia",
-                                          base::FEATURE_DISABLED_BY_DEFAULT};
+                                          base::FEATURE_ENABLED_BY_DEFAULT};
 #endif
 
 #if defined(OS_ANDROID) || BUILDFLAG(ENABLE_EXTENSIONS)
@@ -41,7 +45,7 @@ namespace {
 const PrefService::Preference* GetMediaRouterPref(
     content::BrowserContext* context) {
   return user_prefs::UserPrefs::Get(context)->FindPreference(
-      prefs::kEnableMediaRouter);
+      ::prefs::kEnableMediaRouter);
 }
 }  // namespace
 #endif  // defined(OS_ANDROID) || BUILDFLAG(ENABLE_EXTENSIONS)
@@ -65,6 +69,28 @@ bool MediaRouterEnabled(content::BrowserContext* context) {
 }
 
 #if !defined(OS_ANDROID)
+void RegisterLocalStatePrefs(PrefRegistrySimple* registry) {
+  registry->RegisterBooleanPref(prefs::kMediaRouterCastAllowAllIPs, false,
+                                PrefRegistry::PUBLIC);
+}
+
+const base::Feature kCastAllowAllIPsFeature{"CastAllowAllIPs",
+                                            base::FEATURE_DISABLED_BY_DEFAULT};
+
+bool GetCastAllowAllIPsPref(PrefService* pref_service) {
+  auto* pref = pref_service->FindPreference(prefs::kMediaRouterCastAllowAllIPs);
+
+  // Only use the pref value if it is set from a mandatory policy.
+  bool allow_all_ips = false;
+  if (pref->IsManaged() && !pref->IsDefaultValue()) {
+    CHECK(pref->GetValue()->GetAsBoolean(&allow_all_ips));
+  } else {
+    allow_all_ips = base::FeatureList::IsEnabled(kCastAllowAllIPsFeature);
+  }
+
+  return allow_all_ips;
+}
+
 // Returns true if browser side DIAL sink query is enabled.
 bool DialSinkQueryEnabled() {
   return base::FeatureList::IsEnabled(kEnableDialSinkQuery);
@@ -93,6 +119,6 @@ bool PresentationReceiverWindowEnabled() {
   return true;
 #endif
 }
-#endif
+#endif  // !defined(OS_ANDROID)
 
 }  // namespace media_router

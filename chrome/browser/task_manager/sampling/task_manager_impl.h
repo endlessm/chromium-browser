@@ -46,9 +46,6 @@ class TaskManagerImpl : public TaskManagerInterface,
   base::Time GetStartTime(TaskId task_id) const override;
   base::TimeDelta GetCpuTime(TaskId task_id) const override;
   int64_t GetMemoryFootprintUsage(TaskId task_id) const override;
-  int64_t GetPhysicalMemoryUsage(TaskId task_id) const override;
-  int64_t GetPrivateMemoryUsage(TaskId task_id) const override;
-  int64_t GetSharedMemoryUsage(TaskId task_id) const override;
   int64_t GetSwappedMemoryUsage(TaskId task_id) const override;
   int64_t GetGpuMemoryUsage(TaskId task_id,
                             bool* has_duplicates) const override;
@@ -71,7 +68,7 @@ class TaskManagerImpl : public TaskManagerInterface,
   const base::ProcessHandle& GetProcessHandle(TaskId task_id) const override;
   const base::ProcessId& GetProcessId(TaskId task_id) const override;
   Task::Type GetType(TaskId task_id) const override;
-  int GetTabId(TaskId task_id) const override;
+  SessionID GetTabId(TaskId task_id) const override;
   int GetChildProcessUniqueId(TaskId task_id) const override;
   void GetTerminationStatus(TaskId task_id,
                             base::TerminationStatus* out_status,

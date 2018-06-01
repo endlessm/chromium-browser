@@ -30,6 +30,7 @@ import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.download.DownloadMetrics.DownloadOpenSource;
 import org.chromium.chrome.browser.download.ui.BackendProvider;
 import org.chromium.chrome.browser.download.ui.DownloadHistoryAdapter;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationDelegateImpl;
@@ -39,6 +40,7 @@ import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.components.feature_engagement.EventConstants;
 import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.components.offline_items_collection.ContentId;
+import org.chromium.components.offline_items_collection.FailState;
 import org.chromium.components.offline_items_collection.LegacyHelpers;
 import org.chromium.components.offline_items_collection.PendingState;
 import org.chromium.content.browser.BrowserStartupController;
@@ -447,7 +449,8 @@ public class DownloadManagerService
                 removeFromDownloadProgressMap = notificationUpdateScheduled;
                 break;
             case DOWNLOAD_STATUS_FAILED:
-                mDownloadNotifier.notifyDownloadFailed(info);
+                // TODO(cmsy): Use correct FailState.
+                mDownloadNotifier.notifyDownloadFailed(info, FailState.CANNOT_DOWNLOAD);
                 Log.w(TAG, "Download failed: " + info.getFilePath());
                 onDownloadFailed(info.getFileName(), DownloadManager.ERROR_UNKNOWN);
                 break;
@@ -507,7 +510,8 @@ public class DownloadManagerService
                             info, result.first, result.second, isSupportedMimeType);
                     broadcastDownloadSuccessful(info);
                 } else {
-                    mDownloadNotifier.notifyDownloadFailed(info);
+                    // TODO(cmsy): Use correct FailState.
+                    mDownloadNotifier.notifyDownloadFailed(info, FailState.CANNOT_DOWNLOAD);
                     // TODO(qinmin): get the failure message from native.
                     onDownloadFailed(info.getFileName(), DownloadManager.ERROR_UNKNOWN);
                 }
@@ -568,7 +572,8 @@ public class DownloadManagerService
                     download.getDownloadInfo(), download.getSystemDownloadId());
             return;
         }
-        openDownloadedContent(download.getDownloadInfo(), download.getSystemDownloadId());
+        openDownloadedContent(download.getDownloadInfo(), download.getSystemDownloadId(),
+                DownloadMetrics.AUTO_OPEN);
     }
 
     /**
@@ -811,11 +816,12 @@ public class DownloadManagerService
     }
 
     /** See {@link #openDownloadedContent(Context, String, boolean, boolean, String, long)}. */
-    protected void openDownloadedContent(final DownloadInfo downloadInfo, final long downloadId) {
+    protected void openDownloadedContent(final DownloadInfo downloadInfo, final long downloadId,
+            @DownloadOpenSource int source) {
         openDownloadedContent(mContext, downloadInfo.getFilePath(),
                 isSupportedMimeType(downloadInfo.getMimeType()), downloadInfo.isOffTheRecord(),
                 downloadInfo.getDownloadGuid(), downloadId, downloadInfo.getOriginalUrl(),
-                downloadInfo.getReferrer());
+                downloadInfo.getReferrer(), source);
     }
 
     /**
@@ -830,11 +836,12 @@ public class DownloadManagerService
      * @param downloadId          ID of the download item in DownloadManager.
      * @param originalUrl         The original url of the downloaded file.
      * @param referrer            Referrer of the downloaded file.
+     * @param source              The source that tries to open the download.
      */
     protected static void openDownloadedContent(final Context context, final String filePath,
             final boolean isSupportedMimeType, final boolean isOffTheRecord,
             final String downloadGuid, final long downloadId, final String originalUrl,
-            final String referrer) {
+            final String referrer, @DownloadOpenSource int source) {
         new AsyncTask<Void, Void, Intent>() {
             @Override
             public Intent doInBackground(Void... params) {
@@ -856,6 +863,10 @@ public class DownloadManagerService
                 if (didLaunchIntent && hasDownloadManagerService()) {
                     DownloadManagerService.getDownloadManagerService().updateLastAccessTime(
                             downloadGuid, isOffTheRecord);
+                    DownloadManager manager =
+                            (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
+                    String mimeType = manager.getMimeTypeForDownloadedFile(downloadId);
+                    DownloadMetrics.recordDownloadOpen(source, mimeType);
                 }
             }
         }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
@@ -1054,8 +1065,10 @@ public class DownloadManagerService
 
     @CalledByNative
     void onResumptionFailed(String downloadGuid) {
+        // TODO(cmsy): Use correct FailState.
         mDownloadNotifier.notifyDownloadFailed(
-                new DownloadInfo.Builder().setDownloadGuid(downloadGuid).build());
+                new DownloadInfo.Builder().setDownloadGuid(downloadGuid).build(),
+                FailState.CANNOT_DOWNLOAD);
         removeDownloadProgress(downloadGuid);
         recordDownloadResumption(UMA_DOWNLOAD_RESUMPTION_FAILED);
         recordDownloadFinishedUMA(DOWNLOAD_STATUS_FAILED, downloadGuid, 0);

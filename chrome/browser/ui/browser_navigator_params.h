@@ -197,19 +197,8 @@ struct NavigateParams {
     RESPECT,
     // Ignore path when finding existing tab, navigate to new URL.
     IGNORE_AND_NAVIGATE,
-    // Ignore path when finding existing tab, don't navigate tab.
-    IGNORE_AND_STAY_PUT,
   };
   PathBehavior path_behavior = RESPECT;
-
-  // What to do with the ref component of the URL for singleton navigations.
-  enum RefBehavior {
-    // Two URLs with differing refs are same.
-    IGNORE_REF,
-    // Two URLs with differing refs are different.
-    RESPECT_REF,
-  };
-  RefBehavior ref_behavior = IGNORE_REF;
 
 #if !defined(OS_ANDROID)
   // [in]  Specifies a Browser object where the navigation could occur or the
@@ -252,6 +241,10 @@ struct NavigateParams {
   // attribute, |suggested_filename| will contain the (possibly empty) value of
   // that attribute.
   base::Optional<std::string> suggested_filename;
+
+  // Indicates that the navigation should happen in an pwa window if
+  // possible, i.e. if the is a PWA installed for the target URL.
+  bool open_pwa_window_if_possible = false;
 
  private:
   NavigateParams();

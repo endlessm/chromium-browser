@@ -46,7 +46,7 @@ class ThreadTimesKeySilkCases(_ThreadTimes):
   def Name(cls):
     return 'thread_times.key_silk_cases'
 
-
+@benchmark.Owner(emails=['vmiura@chromium.org', 'sadrul@chromium.org'])
 class ThreadTimesKeyHitTestCases(_ThreadTimes):
   """Measure timeline metrics while performing smoothness action on key hit
   testing cases."""
@@ -121,6 +121,7 @@ class ThreadTimesKeyIdlePowerCases(_ThreadTimes):
     return 'per_frame' not in name and 'mean_frame' not in name
 
 
+@benchmark.Owner(emails=['vmiura@chromium.org', 'sadrul@chromium.org'])
 class ThreadTimesKeyNoOpCases(_ThreadTimes):
   """Measures timeline metrics for common interactions and behaviors that should
   have minimal cost. The metrics are per-second rather than per-frame."""
@@ -138,7 +139,7 @@ class ThreadTimesKeyNoOpCases(_ThreadTimes):
     return 'per_frame' not in name and 'mean_frame' not in name
 
 
-@benchmark.Owner(emails=['tdresser@chromium.org'])
+@benchmark.Owner(emails=['bokan@chromium.org', 'nzolghadr@chromium.org'])
 class ThreadTimesToughScrollingCases(_ThreadTimes):
   """Measure timeline metrics while performing smoothness action on tough
   scrolling cases."""

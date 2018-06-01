@@ -23,14 +23,15 @@ include_rules = [
   "+courgette",
   "+device/base",
   "+device/bluetooth",
+  "+device/fido",
   "+device/geolocation",
   "+device/media_transfer_protocol",
   "+device/usb",
-  "+device/vr/features/features.h",
+  "+device/vr/buildflags/buildflags.h",
   "+extensions/browser",
   "+extensions/common",
   "+extensions/components/javascript_dialog_extensions_client",
-  "+extensions/features",
+  "+extensions/buildflags",
   "+extensions/grit",
   "+extensions/test",
   "+google/cacheinvalidation",  # Sync invalidation API protobuf files.
@@ -45,6 +46,7 @@ include_rules = [
   "+media/capture",
   "+media/midi",  # For midi switches
   "+media/mojo",  # For mojo media services.
+  "+media/renderers",
   "+ppapi/c",  # For various types.
   "+ppapi/host",
   "+ppapi/proxy",
@@ -74,6 +76,8 @@ include_rules = [
   "+services/ui/common",
   "+services/ui/public",
   "+services/ui/service.h",
+  "+services/video_capture/public",
+  "+services/viz/privileged",
   "+skia/ext",
   "+third_party/boringssl/src/include",
   "+third_party/crashpad",
@@ -86,6 +90,10 @@ include_rules = [
   "-ash",
   "+ash/public",
   "+ash/components/quick_launch/public/mojom",
+
+  # The message center may not exist, or may run out of process (in mash).
+  "-ui/message_center",
+  "+ui/message_center/public",
 
   # chrome only needs switches from cc. All usage of the compositor is from
   # content. Definitely don't include generic stuff from cc/base here, if this
@@ -131,48 +139,49 @@ include_rules = [
   # No inclusion of WebKit from the browser, other than the ones in
   # WebKit/public/{mojom,common}, or the ones that are strictly enum/POD,
   # header-only types, and some selected common code.
-  "-third_party/WebKit",
-  "+third_party/WebKit/public/common",
-  "+third_party/WebKit/public/mojom",
-  "+third_party/WebKit/public/platform/WebCache.h",
-  "+third_party/WebKit/public/platform/WebDisplayMode.h",
-  "+third_party/WebKit/public/platform/WebLoadingBehaviorFlag.h",
-  "+third_party/WebKit/public/platform/WebGestureEvent.h",
-  "+third_party/WebKit/public/platform/WebInputEvent.h",
-  "+third_party/WebKit/public/platform/WebMouseEvent.h",
-  "+third_party/WebKit/public/platform/WebMouseWheelEvent.h",
-  "+third_party/WebKit/public/platform/WebReferrerPolicy.h",
-  "+third_party/WebKit/public/platform/WebSecurityStyle.h",
-  "+third_party/WebKit/public/platform/WebSuddenTerminationDisablerType.h",
-  "+third_party/WebKit/public/platform/modules/notifications/WebNotificationConstants.h",
-  "+third_party/WebKit/public/platform/modules/remoteplayback/WebRemotePlaybackAvailability.h",
-  "+third_party/WebKit/public/platform/modules/screen_orientation/WebScreenOrientationLockType.h",
-  "+third_party/WebKit/public/public_features.h",
-  "+third_party/WebKit/public/web/WebContextMenuData.h",
-  "+third_party/WebKit/public/web/WebFindOptions.h",
-  "+third_party/WebKit/public/web/WebMediaPlayerAction.h",
-  "+third_party/WebKit/public/web/WebPluginAction.h",
-  "+third_party/WebKit/public/web/WebPresentationReceiverFlags.h",
-  "+third_party/WebKit/public/web/WebTextDirection.h",
-  "+third_party/WebKit/public/web/WebTriggeringEventInfo.h",
+  "-third_party/blink",
+  "+third_party/blink/public/common",
+  "+third_party/blink/public/mojom",
+  "+third_party/blink/public/platform/web_cache.h",
+  "+third_party/blink/public/platform/web_display_mode.h",
+  "+third_party/blink/public/platform/web_loading_behavior_flag.h",
+  "+third_party/blink/public/platform/web_gesture_event.h",
+  "+third_party/blink/public/platform/web_input_event.h",
+  "+third_party/blink/public/platform/web_mouse_event.h",
+  "+third_party/blink/public/platform/web_mouse_wheel_event.h",
+  "+third_party/blink/public/platform/web_referrer_policy.h",
+  "+third_party/blink/public/platform/web_security_style.h",
+  "+third_party/blink/public/platform/web_sudden_termination_disabler_type.h",
+  "+third_party/blink/public/platform/modules/notifications/web_notification_constants.h",
+  "+third_party/blink/public/platform/modules/remoteplayback/web_remote_playback_availability.h",
+  "+third_party/blink/public/platform/modules/screen_orientation/web_screen_orientation_lock_type.h",
+  "+third_party/blink/public/public_buildflags.h",
+  "+third_party/blink/public/web/web_context_menu_data.h",
+  "+third_party/blink/public/web/web_find_options.h",
+  "+third_party/blink/public/web/web_media_player_action.h",
+  "+third_party/blink/public/web/web_plugin_action.h",
+  "+third_party/blink/public/web/web_presentation_receiver_flags.h",
+  "+third_party/blink/public/web/web_text_direction.h",
+  "+third_party/blink/public/web/web_triggering_event_info.h",
 
   # Allow mojo generated files in WebKit. These files use STL types and
   # don't use WTF types.
-  "+third_party/WebKit/public/platform/web_feature.mojom.h",
-  "+third_party/WebKit/public/platform/media_engagement.mojom.h",
-  "+third_party/WebKit/public/platform/modules/app_banner/app_banner.mojom.h",
-  "+third_party/WebKit/public/platform/modules/budget_service/budget_service.mojom.h",
-  "+third_party/WebKit/public/platform/modules/insecure_input/insecure_input_service.mojom.h",
-  "+third_party/WebKit/public/platform/modules/installation/installation.mojom.h",
-  "+third_party/WebKit/public/platform/modules/installedapp/installed_app_provider.mojom.h",
-  "+third_party/WebKit/public/platform/modules/payments/payment_app.mojom.h",
-  "+third_party/WebKit/public/platform/modules/payments/payment_request.mojom.h",
-  "+third_party/WebKit/public/platform/modules/permissions/permission_status.mojom.h",
-  "+third_party/WebKit/public/platform/modules/presentation/presentation.mojom.h",
-  "+third_party/WebKit/public/platform/modules/webshare/webshare.mojom.h",
-  "+third_party/WebKit/public/platform/oom_intervention.mojom.h",
-  "+third_party/WebKit/public/platform/site_engagement.mojom.h",
-  "+third_party/WebKit/public/web/window_features.mojom.h",
+  "+third_party/blink/public/platform/autoplay.mojom.h",
+  "+third_party/blink/public/platform/web_feature.mojom.h",
+  "+third_party/blink/public/platform/modules/app_banner/app_banner.mojom.h",
+  "+third_party/blink/public/platform/modules/budget_service/budget_service.mojom.h",
+  "+third_party/blink/public/platform/modules/insecure_input/insecure_input_service.mojom.h",
+  "+third_party/blink/public/platform/modules/installation/installation.mojom.h",
+  "+third_party/blink/public/platform/modules/installedapp/installed_app_provider.mojom.h",
+  "+third_party/blink/public/platform/modules/payments/payment_app.mojom.h",
+  "+third_party/blink/public/platform/modules/payments/payment_request.mojom.h",
+  "+third_party/blink/public/platform/modules/permissions/permission_status.mojom.h",
+  "+third_party/blink/public/platform/modules/presentation/presentation.mojom.h",
+  "+third_party/blink/public/platform/modules/webauth/authenticator.mojom.h",
+  "+third_party/blink/public/platform/modules/webshare/webshare.mojom.h",
+  "+third_party/blink/public/platform/oom_intervention.mojom.h",
+  "+third_party/blink/public/platform/site_engagement.mojom.h",
+  "+third_party/blink/public/web/window_features.mojom.h",
 
   # The following restrictions are for ChromeOS and in particular mus/mash where
   # Ozone does not run in process. If the linux build transitions to Ozone then
@@ -197,6 +206,10 @@ include_rules = [
 ]
 
 specific_include_rules = {
+  # TODO(mash): see bugs 768439 and 768395.
+  "exo_parts\.cc": [
+    "+ash/shell.h",
+  ],
   # TODO(mash): Remove. http://crbug.com/678705
   "fullscreen_chromeos\.cc": [
     "+ash/root_window_controller.h",
@@ -204,5 +217,10 @@ specific_include_rules = {
   ],
   "display_info_provider_chromeos_unittest.cc": [
     "+ui/events/devices/touch_device_transform.h"
-  ]
+  ],
+  # TODO(estade): the message center is initialized and shut down here, but it
+  # should be the responsibility of code in chrome/browser/notifications/
+  "browser_process_impl.cc": [
+    "+ui/message_center/message_center.h",
+  ],
 }

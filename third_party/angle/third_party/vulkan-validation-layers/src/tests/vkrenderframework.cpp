@@ -218,8 +218,7 @@ void VkRenderFramework::InitFramework(PFN_vkDebugReportCallbackEXT dbgFunction, 
             m_DestroyDebugReportCallback =
                 (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(this->inst, "vkDestroyDebugReportCallbackEXT");
             ASSERT_NE(m_DestroyDebugReportCallback, (PFN_vkDestroyDebugReportCallbackEXT)NULL)
-                << "Did not get function pointer for "
-                   "DestroyDebugReportCallback";
+                << "Did not get function pointer for DestroyDebugReportCallback";
             m_DebugReportMessage = (PFN_vkDebugReportMessageEXT)vkGetInstanceProcAddr(this->inst, "vkDebugReportMessageEXT");
             ASSERT_NE(m_DebugReportMessage, (PFN_vkDebugReportMessageEXT)NULL)
                 << "Did not get function pointer for DebugReportMessage";
@@ -508,10 +507,12 @@ VkDeviceObj::VkDeviceObj(uint32_t id, VkPhysicalDevice obj, std::vector<const ch
     queue_props = phy().queue_properties();
 }
 
-uint32_t VkDeviceObj::QueueFamilyWithoutCapabilities(VkQueueFlags capabilities) {
-    // Find a queue family without desired capabilities
+uint32_t VkDeviceObj::QueueFamilyMatching(VkQueueFlags with, VkQueueFlags without, bool all_bits) {
+    // Find a queue family with and without desired capabilities
     for (uint32_t i = 0; i < queue_props.size(); i++) {
-        if ((queue_props[i].queueFlags & capabilities) == 0 && (queue_props[i].queueCount > 0)) {
+        auto flags = queue_props[i].queueFlags;
+        bool matches = all_bits ? (flags & with) == with : (flags & with) != 0;
+        if (matches && ((flags & without) == 0) && (queue_props[i].queueCount > 0)) {
             return i;
         }
     }
@@ -713,7 +714,7 @@ void VkImageObj::ImageMemoryBarrier(VkCommandBufferObj *cmd_buf, VkImageAspectFl
                                     VkImageLayout image_layout) {
     // TODO: Mali device crashing with VK_REMAINING_MIP_LEVELS
     const VkImageSubresourceRange subresourceRange =
-        subresource_range(aspect, 0, /*VK_REMAINING_MIP_LEVELS*/ 1, 0, 1/*VK_REMAINING_ARRAY_LAYERS*/);
+        subresource_range(aspect, 0, /*VK_REMAINING_MIP_LEVELS*/ 1, 0, 1 /*VK_REMAINING_ARRAY_LAYERS*/);
     VkImageMemoryBarrier barrier;
     barrier = image_memory_barrier(output_mask, input_mask, Layout(), image_layout, subresourceRange);
 
@@ -859,7 +860,8 @@ bool VkImageObj::IsCompatible(const VkImageUsageFlags usages, const VkFormatFeat
 }
 
 void VkImageObj::InitNoLayout(uint32_t const width, uint32_t const height, uint32_t const mipLevels, VkFormat const format,
-                              VkFlags const usage, VkImageTiling const requested_tiling, VkMemoryPropertyFlags const reqs) {
+                              VkFlags const usage, VkImageTiling const requested_tiling, VkMemoryPropertyFlags const reqs,
+                              const std::vector<uint32_t> *queue_families) {
     VkFormatProperties image_fmt;
     VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL;
 
@@ -892,6 +894,13 @@ void VkImageObj::InitNoLayout(uint32_t const width, uint32_t const height, uint3
     imageCreateInfo.tiling = tiling;
     imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
+    // Automatically set sharing mode etc. based on queue family information
+    if (queue_families && (queue_families->size() > 1)) {
+        imageCreateInfo.sharingMode = VK_SHARING_MODE_CONCURRENT;
+        imageCreateInfo.queueFamilyIndexCount = static_cast<uint32_t>(queue_families->size());
+        imageCreateInfo.pQueueFamilyIndices = queue_families->data();
+    }
+
     Layout(imageCreateInfo.initialLayout);
     imageCreateInfo.usage = usage;
 
@@ -899,8 +908,9 @@ void VkImageObj::InitNoLayout(uint32_t const width, uint32_t const height, uint3
 }
 
 void VkImageObj::Init(uint32_t const width, uint32_t const height, uint32_t const mipLevels, VkFormat const format,
-                      VkFlags const usage, VkImageTiling const requested_tiling, VkMemoryPropertyFlags const reqs) {
-    InitNoLayout(width, height, mipLevels, format, usage, requested_tiling, reqs);
+                      VkFlags const usage, VkImageTiling const requested_tiling, VkMemoryPropertyFlags const reqs,
+                      const std::vector<uint32_t> *queue_families) {
+    InitNoLayout(width, height, mipLevels, format, usage, requested_tiling, reqs, queue_families);
 
     VkImageLayout newLayout;
     if (usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
@@ -1381,7 +1391,7 @@ void VkCommandBufferObj::ClearAllBuffers(const vector<VkImageObj *> &color_objs,
     subrange.levelCount = 1;  // VK_REMAINING_MIP_LEVELS;
     subrange.baseArrayLayer = 0;
     // TODO: Mesa crashing with VK_REMAINING_ARRAY_LAYERS
-    subrange.layerCount = 1; // VK_REMAINING_ARRAY_LAYERS;
+    subrange.layerCount = 1;  // VK_REMAINING_ARRAY_LAYERS;
 
     const VkImageLayout clear_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 

@@ -40,12 +40,12 @@ import org.chromium.blink_public.web.WebInputEventType;
 import org.chromium.blink_public.web.WebTextInputMode;
 import org.chromium.content.browser.WindowEventObserver;
 import org.chromium.content.browser.picker.InputDialogContainer;
-import org.chromium.content.browser.webcontents.WebContentsUserData;
-import org.chromium.content.browser.webcontents.WebContentsUserData.UserDataFactory;
+import org.chromium.content.browser.webcontents.WebContentsImpl;
 import org.chromium.content_public.browser.ImeAdapter;
 import org.chromium.content_public.browser.ImeEventObserver;
 import org.chromium.content_public.browser.InputMethodManagerWrapper;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.content_public.browser.WebContents.UserDataFactory;
 import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.base.ime.TextInputType;
 
@@ -99,7 +99,7 @@ public class ImeAdapterImpl implements ImeAdapter, WindowEventObserver {
     // ResultReceiver in the InputMethodService (IME app) gets gc'ed.
     private ShowKeyboardResultReceiver mShowKeyboardResultReceiver;
 
-    private final WebContents mWebContents;
+    private final WebContentsImpl mWebContents;
     private View mContainerView;
 
     // This holds the information necessary for constructing CursorAnchorInfo, and notifies to
@@ -172,8 +172,8 @@ public class ImeAdapterImpl implements ImeAdapter, WindowEventObserver {
      */
     public static ImeAdapterImpl create(
             WebContents webContents, View containerView, InputMethodManagerWrapper wrapper) {
-        ImeAdapterImpl imeAdapter = WebContentsUserData.fromWebContents(
-                webContents, ImeAdapterImpl.class, UserDataFactoryLazyHolder.INSTANCE);
+        ImeAdapterImpl imeAdapter = webContents.getOrSetUserData(
+                ImeAdapterImpl.class, UserDataFactoryLazyHolder.INSTANCE);
         assert imeAdapter != null && !imeAdapter.initialized();
         imeAdapter.init(containerView, wrapper);
         return imeAdapter;
@@ -191,7 +191,7 @@ public class ImeAdapterImpl implements ImeAdapter, WindowEventObserver {
      *         {@link #create()} is not called yet.
      */
     public static ImeAdapterImpl fromWebContents(WebContents webContents) {
-        return WebContentsUserData.fromWebContents(webContents, ImeAdapterImpl.class, null);
+        return webContents.getOrSetUserData(ImeAdapterImpl.class, null);
     }
 
     /**
@@ -207,7 +207,7 @@ public class ImeAdapterImpl implements ImeAdapter, WindowEventObserver {
      * @param webContents WebContents instance.
      */
     public ImeAdapterImpl(WebContents webContents) {
-        mWebContents = webContents;
+        mWebContents = (WebContentsImpl) webContents;
     }
 
     /**
@@ -535,10 +535,6 @@ public class ImeAdapterImpl implements ImeAdapter, WindowEventObserver {
         }
     }
 
-    public Rect getFocusPreOSKViewportRect() {
-        return mFocusPreOSKViewportRect;
-    }
-
     @CalledByNative
     private void updateAfterViewSizeChanged() {
         // Execute a delayed form focus operation because the OSK was brought up earlier.
@@ -553,9 +549,18 @@ public class ImeAdapterImpl implements ImeAdapter, WindowEventObserver {
                 }
                 // Zero the rect to prevent the above operation from issuing the delayed
                 // form focus event.
-                mFocusPreOSKViewportRect.setEmpty();
+                cancelRequestToScrollFocusedEditableNodeIntoView();
             }
         }
+    }
+
+    @CalledByNative
+    private void updateOnTouchDown() {
+        cancelRequestToScrollFocusedEditableNodeIntoView();
+    }
+
+    public void cancelRequestToScrollFocusedEditableNodeIntoView() {
+        mFocusPreOSKViewportRect.setEmpty();
     }
 
     @Override

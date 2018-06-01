@@ -17,7 +17,7 @@
 #include "chrome/browser/extensions/chrome_extension_function_details.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/resource_coordinator/tab_manager.h"
+#include "chrome/browser/resource_coordinator/tab_lifecycle_unit_external.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -101,10 +101,10 @@ int GetTabIdForExtensions(const WebContents* web_contents) {
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
   if (browser && !ExtensionTabUtil::BrowserSupportsTabs(browser))
     return -1;
-  return SessionTabHelper::IdForTab(web_contents);
+  return SessionTabHelper::IdForTab(web_contents).id();
 }
 
-ExtensionTabUtil::Delegate* g_delegate = nullptr;
+ExtensionTabUtil::Delegate* g_extension_tab_util_delegate = nullptr;
 
 }  // namespace
 
@@ -305,7 +305,7 @@ int ExtensionTabUtil::GetWindowIdOfTabStripModel(
 }
 
 int ExtensionTabUtil::GetTabId(const WebContents* web_contents) {
-  return SessionTabHelper::IdForTab(web_contents);
+  return SessionTabHelper::IdForTab(web_contents).id();
 }
 
 std::string ExtensionTabUtil::GetTabStatusText(bool is_loading) {
@@ -313,7 +313,7 @@ std::string ExtensionTabUtil::GetTabStatusText(bool is_loading) {
 }
 
 int ExtensionTabUtil::GetWindowIdOfTab(const WebContents* web_contents) {
-  return SessionTabHelper::IdForWindowContainingTab(web_contents);
+  return SessionTabHelper::IdForWindowContainingTab(web_contents).id();
 }
 
 // static
@@ -352,10 +352,13 @@ std::unique_ptr<api::tabs::Tab> ExtensionTabUtil::CreateTabObject(
   tab_object->highlighted = tab_strip && tab_strip->IsTabSelected(tab_index);
   tab_object->pinned = tab_strip && tab_strip->IsTabPinned(tab_index);
   tab_object->audible = std::make_unique<bool>(contents->WasRecentlyAudible());
+  auto* tab_lifeycle_unit_external =
+      resource_coordinator::TabLifecycleUnitExternal::FromWebContents(contents);
   tab_object->discarded =
-      g_browser_process->GetTabManager()->IsTabDiscarded(contents);
+      tab_lifeycle_unit_external && tab_lifeycle_unit_external->IsDiscarded();
   tab_object->auto_discardable =
-      g_browser_process->GetTabManager()->IsTabAutoDiscardable(contents);
+      !tab_lifeycle_unit_external ||
+      tab_lifeycle_unit_external->IsAutoDiscardable();
   tab_object->muted_info = CreateMutedInfo(contents);
   tab_object->incognito = contents->GetBrowserContext()->IsOffTheRecord();
   gfx::Size contents_size = contents->GetContainerBounds().size();
@@ -476,8 +479,8 @@ std::unique_ptr<api::tabs::MutedInfo> ExtensionTabUtil::CreateMutedInfo(
 void ExtensionTabUtil::SetPlatformDelegate(Delegate* delegate) {
   // Allow setting it only once (also allow reset to nullptr, but then take
   // special care to free it).
-  CHECK(!g_delegate || !delegate);
-  g_delegate = delegate;
+  CHECK(!g_extension_tab_util_delegate || !delegate);
+  g_extension_tab_util_delegate = delegate;
 }
 
 // static
@@ -507,8 +510,9 @@ void ExtensionTabUtil::ScrubTabForExtension(const Extension* extension,
     tab->title.reset();
     tab->fav_icon_url.reset();
   }
-  if (g_delegate)
-    g_delegate->ScrubTabForExtension(extension, contents, tab);
+  if (g_extension_tab_util_delegate)
+    g_extension_tab_util_delegate->ScrubTabForExtension(extension, contents,
+                                                        tab);
 }
 
 bool ExtensionTabUtil::GetTabStripModel(const WebContents* web_contents,
@@ -567,7 +571,7 @@ bool ExtensionTabUtil::GetTabById(int tab_id,
       TabStripModel* target_tab_strip = target_browser->tab_strip_model();
       for (int i = 0; i < target_tab_strip->count(); ++i) {
         WebContents* target_contents = target_tab_strip->GetWebContentsAt(i);
-        if (SessionTabHelper::IdForTab(target_contents) == tab_id) {
+        if (SessionTabHelper::IdForTab(target_contents).id() == tab_id) {
           if (browser)
             *browser = target_browser;
           if (tab_strip)
@@ -723,7 +727,7 @@ bool ExtensionTabUtil::OpenOptionsPage(const Extension* extension,
   // options page to close a page that might be open to extension content.
   // However, if the options page opens inside the chrome://extensions page, we
   // can override an existing page.
-  // Note: default ref behavior is IGNORE_REF, which is correct.
+  // Note: ref behavior is to ignore.
   params.path_behavior = open_in_tab ? NavigateParams::RESPECT
                                      : NavigateParams::IGNORE_AND_NAVIGATE;
   params.url = url_to_navigate;

@@ -6,7 +6,6 @@
 #include <string>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -36,7 +35,8 @@ namespace {
 // events with "getKeyEventReport()" function. It has two magic keys: pressing
 // "S" to enter fullscreen mode; pressing "X" to indicate the end of all the
 // keys (see FinishTestAndVerifyResult() function).
-constexpr char kFullscreenKeyboardLockHTML[] = "/fullscreen_keyboardlock.html";
+constexpr char kFullscreenKeyboardLockHTML[] =
+    "/fullscreen_keyboardlock/fullscreen_keyboardlock.html";
 
 // On MacOSX command key is used for most of the shortcuts, so replace it with
 // control to reduce the complexity of comparison of the results.
@@ -495,9 +495,17 @@ IN_PROC_BROWSER_TEST_F(
   ASSERT_NO_FATAL_FAILURE(FinishTestAndVerifyResult());
 }
 
+#if defined(OS_MACOSX)
+// Triggers a DCHECK in MacViews: http://crbug.com/823478
+#define MAYBE_KeyEventsShouldBeConsumedByWebPageInJsFullscreenExceptForF11 \
+    DISABLED_KeyEventsShouldBeConsumedByWebPageInJsFullscreenExceptForF11
+#else
+#define MAYBE_KeyEventsShouldBeConsumedByWebPageInJsFullscreenExceptForF11 \
+    KeyEventsShouldBeConsumedByWebPageInJsFullscreenExceptForF11
+#endif
 IN_PROC_BROWSER_TEST_F(
     BrowserCommandControllerInteractiveTest,
-    KeyEventsShouldBeConsumedByWebPageInJsFullscreenExceptForF11) {
+    MAYBE_KeyEventsShouldBeConsumedByWebPageInJsFullscreenExceptForF11) {
   ASSERT_NO_FATAL_FAILURE(StartFullscreenLockPage());
 
   ASSERT_NO_FATAL_FAILURE(SendJsFullscreenShortcutAndWait());

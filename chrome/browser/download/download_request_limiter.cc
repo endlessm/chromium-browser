@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/stl_util.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/download/download_permission_request.h"
@@ -223,9 +224,8 @@ void DownloadRequestLimiter::TabDownloadState::PromptUserForDownload(
   if (is_showing_prompt())
     return;
 
-  if (vr::VrTabHelper::IsInVr(web_contents_)) {
-    vr::VrTabHelper::UISuppressed(vr::UiSuppressedElement::kDownloadPermission);
-
+  if (vr::VrTabHelper::IsUiSuppressedInVr(
+          web_contents_, vr::UiSuppressedElement::kDownloadPermission)) {
     // Permission request UI cannot currently be rendered binocularly in VR
     // mode, so we suppress the UI and return cancelled to inform the caller
     // that the request will not progress. crbug.com/736568

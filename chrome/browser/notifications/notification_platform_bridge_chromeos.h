@@ -12,6 +12,7 @@
 #include "base/macros.h"
 #include "chrome/browser/notifications/notification_platform_bridge.h"
 #include "chrome/browser/notifications/profile_notification.h"
+#include "components/keyed_service/core/keyed_service_shutdown_notifier.h"
 
 // The interface that a NotificationPlatformBridge uses to pass back information
 // and interactions from the native notification system. TODO(estade): this
@@ -55,16 +56,12 @@ class NotificationPlatformBridgeChromeOs
 
   // NotificationPlatformBridge:
   void Display(NotificationHandler::Type notification_type,
-               const std::string& profile_id,
-               bool is_incognito,
+               Profile* profile,
                const message_center::Notification& notification,
                std::unique_ptr<NotificationCommon::Metadata> metadata) override;
-  void Close(const std::string& profile_id,
-             const std::string& notification_id) override;
-  void GetDisplayed(
-      const std::string& profile_id,
-      bool incognito,
-      const GetDisplayedNotificationsCallback& callback) const override;
+  void Close(Profile* profile, const std::string& notification_id) override;
+  void GetDisplayed(Profile* profile,
+                    GetDisplayedNotificationsCallback callback) const override;
   void SetReadyCallback(NotificationBridgeReadyCallback callback) override;
 
   // NotificationPlatformBridgeDelegate:
@@ -78,8 +75,15 @@ class NotificationPlatformBridgeChromeOs
   void DisableNotification(const std::string& id) override;
 
  private:
+  // Gets the ProfileNotification for the given identifier which has been
+  // mutated to uniquely identify the profile. This may return null if the
+  // notification has already been closed due to profile shutdown. Ash may
+  // asynchronously inform |this| of actions on notificationafter their
+  // associated profile has already been destroyed.
   ProfileNotification* GetProfileNotification(
       const std::string& profile_notification_id);
+
+  void OnProfileDestroying(Profile* profile);
 
   std::unique_ptr<NotificationPlatformBridge> impl_;
 
@@ -88,6 +92,10 @@ class NotificationPlatformBridgeChromeOs
   // the permuted ID.
   std::map<std::string, std::unique_ptr<ProfileNotification>>
       active_notifications_;
+
+  std::map<Profile*,
+           std::unique_ptr<KeyedServiceShutdownNotifier::Subscription>>
+      profile_shutdown_subscriptions_;
 
   DISALLOW_COPY_AND_ASSIGN(NotificationPlatformBridgeChromeOs);
 };

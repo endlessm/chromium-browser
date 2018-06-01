@@ -7,11 +7,12 @@ package org.chromium.chrome.browser.vr_shell;
 import static org.chromium.chrome.browser.vr_shell.VrTestFramework.PAGE_LOAD_TIMEOUT_S;
 import static org.chromium.chrome.browser.vr_shell.VrTestFramework.POLL_CHECK_INTERVAL_LONG_MS;
 import static org.chromium.chrome.browser.vr_shell.VrTestFramework.POLL_TIMEOUT_LONG_MS;
+import static org.chromium.chrome.browser.vr_shell.VrTestFramework.POLL_TIMEOUT_SHORT_MS;
 import static org.chromium.chrome.test.util.ChromeRestriction.RESTRICTION_TYPE_DEVICE_DAYDREAM;
 import static org.chromium.chrome.test.util.ChromeRestriction.RESTRICTION_TYPE_VIEWER_DAYDREAM;
 
-import android.os.SystemClock;
 import android.support.test.filters.MediumTest;
+import android.support.v7.widget.RecyclerView;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -23,6 +24,7 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.history.HistoryPage;
 import org.chromium.chrome.browser.vr_shell.rules.ChromeTabbedActivityVrTestRule;
 import org.chromium.chrome.browser.vr_shell.util.VrTransitionUtils;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
@@ -35,6 +37,7 @@ import org.chromium.content_public.browser.ContentViewCore;
 import org.chromium.content_public.browser.WebContents;
 
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * End-to-end tests for Daydream controller input while in the VR browser.
@@ -49,10 +52,25 @@ public class VrShellControllerInputTest {
     public ChromeTabbedActivityVrTestRule mVrTestRule = new ChromeTabbedActivityVrTestRule();
 
     private VrTestFramework mVrTestFramework;
+    private EmulatedVrController mController;
 
     @Before
     public void setUp() throws Exception {
         mVrTestFramework = new VrTestFramework(mVrTestRule);
+        VrTransitionUtils.forceEnterVr();
+        VrTransitionUtils.waitForVrEntry(POLL_TIMEOUT_LONG_MS);
+        mController = new EmulatedVrController(mVrTestRule.getActivity());
+        mController.recenterView();
+    }
+
+    private void waitForPageToBeScrollable(final ContentViewCore cvc) {
+        CriteriaHelper.pollUiThread(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                return cvc.computeVerticalScrollRange() > cvc.getContainerView().getHeight()
+                        && cvc.computeHorizontalScrollRange() > cvc.getContainerView().getWidth();
+            }
+        }, POLL_TIMEOUT_LONG_MS, POLL_CHECK_INTERVAL_LONG_MS);
     }
 
     /**
@@ -62,56 +80,119 @@ public class VrShellControllerInputTest {
     @Test
     @MediumTest
     public void testControllerScrolling() throws InterruptedException {
-        // Load page in VR and make sure the controller is pointed at the content quad
         mVrTestRule.loadUrl(
                 VrTestFramework.getHtmlTestFile("test_controller_scrolling"), PAGE_LOAD_TIMEOUT_S);
-        VrTransitionUtils.forceEnterVr();
-        VrTransitionUtils.waitForVrEntry(POLL_TIMEOUT_LONG_MS);
-        EmulatedVrController controller = new EmulatedVrController(mVrTestRule.getActivity());
-        final ContentViewCore cvc =
-                mVrTestRule.getActivity().getActivityTab().getActiveContentViewCore();
         final WebContents wc = mVrTestRule.getActivity().getActivityTab().getWebContents();
         Coordinates coord = Coordinates.createFor(wc);
-        controller.recenterView();
-
-        // Wait for the page to be scrollable
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return cvc.computeVerticalScrollRange() > cvc.getContainerView().getHeight()
-                        && cvc.computeHorizontalScrollRange() > cvc.getContainerView().getWidth();
-            }
-        }, POLL_TIMEOUT_LONG_MS, POLL_CHECK_INTERVAL_LONG_MS);
+        waitForPageToBeScrollable(
+                mVrTestRule.getActivity().getActivityTab().getActiveContentViewCore());
 
         // Test that scrolling down works
-        int startScrollPoint = coord.getScrollXPixInt();
+        int startScrollPoint = coord.getScrollYPixInt();
         // Arbitrary, but valid values to scroll smoothly
         int scrollSteps = 20;
         int scrollSpeed = 60;
-        controller.scroll(EmulatedVrController.ScrollDirection.DOWN, scrollSteps, scrollSpeed);
+        mController.scroll(EmulatedVrController.ScrollDirection.DOWN, scrollSteps, scrollSpeed,
+                /* fling */ false);
         // We need this second scroll down, otherwise the horizontal scrolling becomes flaky
+        // This actually seems to not be an issue in this test case anymore, but still occurs in
+        // the fling scroll test, so keep around here as an extra precaution.
         // TODO(bsheedy): Figure out why this is the case
-        controller.scroll(EmulatedVrController.ScrollDirection.DOWN, scrollSteps, scrollSpeed);
+        mController.scroll(EmulatedVrController.ScrollDirection.DOWN, scrollSteps, scrollSpeed,
+                /* fling */ false);
         int endScrollPoint = coord.getScrollYPixInt();
         Assert.assertTrue("Controller was able to scroll down", startScrollPoint < endScrollPoint);
 
         // Test that scrolling up works
         startScrollPoint = endScrollPoint;
-        controller.scroll(EmulatedVrController.ScrollDirection.UP, scrollSteps, scrollSpeed);
+        mController.scroll(EmulatedVrController.ScrollDirection.UP, scrollSteps, scrollSpeed,
+                /* fling */ false);
         endScrollPoint = coord.getScrollYPixInt();
         Assert.assertTrue("Controller was able to scroll up", startScrollPoint > endScrollPoint);
 
         // Test that scrolling right works
         startScrollPoint = coord.getScrollXPixInt();
-        controller.scroll(EmulatedVrController.ScrollDirection.RIGHT, scrollSteps, scrollSpeed);
+        mController.scroll(EmulatedVrController.ScrollDirection.RIGHT, scrollSteps, scrollSpeed,
+                /* fling */ false);
         endScrollPoint = coord.getScrollXPixInt();
         Assert.assertTrue("Controller was able to scroll right", startScrollPoint < endScrollPoint);
 
         // Test that scrolling left works
         startScrollPoint = endScrollPoint;
-        controller.scroll(EmulatedVrController.ScrollDirection.LEFT, scrollSteps, scrollSpeed);
+        mController.scroll(EmulatedVrController.ScrollDirection.LEFT, scrollSteps, scrollSpeed,
+                /* fling */ false);
         endScrollPoint = coord.getScrollXPixInt();
         Assert.assertTrue("Controller was able to scroll left", startScrollPoint > endScrollPoint);
+    }
+
+    /**
+     * Verifies that fling scrolling works on the Daydream controller's touchpad.
+     */
+    @Test
+    @MediumTest
+    public void testControllerFlingScrolling() throws InterruptedException {
+        mVrTestRule.loadUrl(
+                VrTestFramework.getHtmlTestFile("test_controller_scrolling"), PAGE_LOAD_TIMEOUT_S);
+        final WebContents wc = mVrTestRule.getActivity().getActivityTab().getWebContents();
+        Coordinates coord = Coordinates.createFor(wc);
+        waitForPageToBeScrollable(
+                mVrTestRule.getActivity().getActivityTab().getActiveContentViewCore());
+
+        // Arbitrary, but valid values to trigger fling scrolling
+        int scrollSteps = 2;
+        int scrollSpeed = 40;
+
+        // Test fling scrolling down
+        mController.scroll(EmulatedVrController.ScrollDirection.DOWN, scrollSteps, scrollSpeed,
+                /* fling */ true);
+        final AtomicInteger endScrollPoint = new AtomicInteger(coord.getScrollYPixInt());
+        // Check that we continue to scroll past wherever we were when we let go of the touchpad
+        CriteriaHelper.pollInstrumentationThread(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                return coord.getScrollYPixInt() > endScrollPoint.get();
+            }
+        }, POLL_TIMEOUT_SHORT_MS, POLL_CHECK_INTERVAL_LONG_MS);
+        mController.cancelFlingScroll();
+
+        // Test fling scrolling up
+        mController.scroll(EmulatedVrController.ScrollDirection.UP, scrollSteps, scrollSpeed,
+                /* fling */ true);
+        endScrollPoint.set(coord.getScrollYPixInt());
+        CriteriaHelper.pollInstrumentationThread(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                return coord.getScrollYPixInt() < endScrollPoint.get();
+            }
+        }, POLL_TIMEOUT_SHORT_MS, POLL_CHECK_INTERVAL_LONG_MS);
+        mController.cancelFlingScroll();
+        // Horizontal scrolling becomes flaky if the scroll bar is at the top when we try to scroll
+        // horizontally, so scroll down a bit to ensure that isn't the case.
+        mController.scroll(EmulatedVrController.ScrollDirection.DOWN, 10, 60,
+                /* fling */ false);
+
+        // Test fling scrolling right
+        mController.scroll(EmulatedVrController.ScrollDirection.RIGHT, scrollSteps, scrollSpeed,
+                /* fling */ true);
+        endScrollPoint.set(coord.getScrollXPixInt());
+        CriteriaHelper.pollInstrumentationThread(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                return coord.getScrollXPixInt() > endScrollPoint.get();
+            }
+        }, POLL_TIMEOUT_SHORT_MS, POLL_CHECK_INTERVAL_LONG_MS);
+        mController.cancelFlingScroll();
+
+        // Test fling scrolling left
+        mController.scroll(EmulatedVrController.ScrollDirection.LEFT, scrollSteps, scrollSpeed,
+                /* fling */ true);
+        endScrollPoint.set(coord.getScrollXPixInt());
+        CriteriaHelper.pollInstrumentationThread(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                return coord.getScrollXPixInt() < endScrollPoint.get();
+            }
+        }, POLL_TIMEOUT_SHORT_MS, POLL_CHECK_INTERVAL_LONG_MS);
     }
 
     /**
@@ -121,22 +202,63 @@ public class VrShellControllerInputTest {
     @Test
     @MediumTest
     public void testControllerClicksRegisterOnWebpage() throws InterruptedException {
-        // Load page in VR and make sure the controller is pointed at the content quad
         mVrTestRule.loadUrl(
                 VrTestFramework.getHtmlTestFile("test_controller_clicks_register_on_webpage"),
                 PAGE_LOAD_TIMEOUT_S);
-        VrTransitionUtils.forceEnterVr();
-        VrTransitionUtils.waitForVrEntry(POLL_TIMEOUT_LONG_MS);
-        EmulatedVrController controller = new EmulatedVrController(mVrTestRule.getActivity());
-        controller.recenterView();
 
-        // pressReleaseTouchpadButton() appears to be flaky for clicking on things, as sometimes
-        // it happens too fast for Chrome to register. So, manually press and release with a delay
-        controller.sendClickButtonToggleEvent();
-        SystemClock.sleep(50);
-        controller.sendClickButtonToggleEvent();
+        mController.performControllerClick();
         ChromeTabUtils.waitForTabPageLoaded(mVrTestRule.getActivity().getActivityTab(),
                 VrTestFramework.getHtmlTestFile("test_navigation_2d_page"));
+    }
+
+    /*
+     * Verifies that swiping up/down on the Daydream controller's touchpad
+     * scrolls a native page while in the VR browser.
+     */
+    @Test
+    @MediumTest
+    public void testControllerScrollingNative() throws InterruptedException {
+        VrTransitionUtils.forceEnterVr();
+        VrTransitionUtils.waitForVrEntry(POLL_TIMEOUT_LONG_MS);
+        // Fill history with enough items to scroll
+        mVrTestRule.loadUrl(
+                VrTestFramework.getHtmlTestFile("test_navigation_2d_page"), PAGE_LOAD_TIMEOUT_S);
+        mVrTestRule.loadUrl(
+                VrTestFramework.getHtmlTestFile("test_controller_scrolling"), PAGE_LOAD_TIMEOUT_S);
+        mVrTestRule.loadUrl(
+                VrTestFramework.getHtmlTestFile("generic_webvr_page"), PAGE_LOAD_TIMEOUT_S);
+        mVrTestRule.loadUrl(
+                VrTestFramework.getHtmlTestFile("test_navigation_webvr_page"), PAGE_LOAD_TIMEOUT_S);
+        mVrTestRule.loadUrl(
+                VrTestFramework.getHtmlTestFile("test_webvr_autopresent"), PAGE_LOAD_TIMEOUT_S);
+        mVrTestRule.loadUrl(
+                VrTestFramework.getHtmlTestFile("generic_webxr_page"), PAGE_LOAD_TIMEOUT_S);
+        mVrTestRule.loadUrl(
+                VrTestFramework.getHtmlTestFile("test_gamepad_button"), PAGE_LOAD_TIMEOUT_S);
+
+        mVrTestRule.loadUrl("chrome://history", PAGE_LOAD_TIMEOUT_S);
+
+        RecyclerView recyclerView =
+                ((HistoryPage) (mVrTestRule.getActivity().getActivityTab().getNativePage()))
+                        .getHistoryManagerForTesting()
+                        .getRecyclerViewForTests();
+
+        // Test that scrolling down works
+        int startScrollPoint = recyclerView.computeVerticalScrollOffset();
+        // Arbitrary, but valid values to scroll smoothly
+        int scrollSteps = 20;
+        int scrollSpeed = 60;
+        mController.scroll(EmulatedVrController.ScrollDirection.DOWN, scrollSteps, scrollSpeed,
+                /* fling */ false);
+        int endScrollPoint = recyclerView.computeVerticalScrollOffset();
+        Assert.assertTrue("Controller was able to scroll down", startScrollPoint < endScrollPoint);
+
+        // Test that scrolling up works
+        startScrollPoint = endScrollPoint;
+        mController.scroll(EmulatedVrController.ScrollDirection.UP, scrollSteps, scrollSpeed,
+                /* fling */ false);
+        endScrollPoint = recyclerView.computeVerticalScrollOffset();
+        Assert.assertTrue("Controller was able to scroll up", startScrollPoint > endScrollPoint);
     }
 
     /**
@@ -149,16 +271,13 @@ public class VrShellControllerInputTest {
     public void testAppButtonExitsFullscreen() throws InterruptedException, TimeoutException {
         mVrTestFramework.loadUrlAndAwaitInitialization(
                 VrTestFramework.getHtmlTestFile("test_navigation_2d_page"), PAGE_LOAD_TIMEOUT_S);
-        VrTransitionUtils.forceEnterVr();
-        VrTransitionUtils.waitForVrEntry(POLL_TIMEOUT_LONG_MS);
         // Enter fullscreen
         DOMUtils.clickNode(mVrTestFramework.getFirstTabCvc(), "fullscreen",
                 false /* goThroughRootAndroidView */);
         VrTestFramework.waitOnJavaScriptStep(mVrTestFramework.getFirstTabWebContents());
         Assert.assertTrue(DOMUtils.isFullscreen(mVrTestFramework.getFirstTabWebContents()));
 
-        EmulatedVrController controller = new EmulatedVrController(mVrTestRule.getActivity());
-        controller.pressReleaseAppButton();
+        mController.pressReleaseAppButton();
         CriteriaHelper.pollInstrumentationThread(new Criteria() {
             @Override
             public boolean isSatisfied() {

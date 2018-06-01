@@ -287,14 +287,13 @@ public class NewTabPageView
         mSearchBoxView = mNewTabPageLayout.findViewById(R.id.search_box);
         if (SuggestionsConfig.useModernLayout()) {
             mSearchBoxView.setBackgroundResource(R.drawable.modern_toolbar_background);
+            mSearchBoxView.getLayoutParams().height =
+                    getResources().getDimensionPixelSize(R.dimen.ntp_search_box_height_modern);
+
             if (!DeviceFormFactor.isTablet()) {
-                mSearchBoxView.getLayoutParams().height = getResources().getDimensionPixelSize(
-                        R.dimen.modern_toolbar_background_size);
                 mSearchBoxBoundsLateralInset = getResources().getDimensionPixelSize(
                         R.dimen.ntp_search_box_bounds_lateral_inset_modern);
             } else {
-                mSearchBoxView.getLayoutParams().height =
-                        getResources().getDimensionPixelSize(R.dimen.toolbar_height_no_shadow);
                 GradientDrawable background = (GradientDrawable) mSearchBoxView.getBackground();
                 background.setCornerRadius(mSearchBoxView.getLayoutParams().height / 2.f);
             }
@@ -317,8 +316,7 @@ public class NewTabPageView
         // Set up snippets
         NewTabPageAdapter newTabPageAdapter =
                 new NewTabPageAdapter(mManager, mNewTabPageLayout, /* logoView = */ null, mUiConfig,
-                        offlinePageBridge, mContextMenuManager, /* tileGroupDelegate = */ null,
-                        /* suggestionsCarousel = */ null);
+                        offlinePageBridge, mContextMenuManager, /* tileGroupDelegate = */ null);
         newTabPageAdapter.refreshSuggestions();
         mRecyclerView.setAdapter(newTabPageAdapter);
         mRecyclerView.getLinearLayoutManager().scrollToPosition(scrollPosition);
@@ -364,6 +362,8 @@ public class NewTabPageView
             }
         });
 
+        initializeShortcuts();
+
         mInitialized = true;
 
         TraceEvent.end(TAG + ".initialize()");
@@ -387,7 +387,8 @@ public class NewTabPageView
         final TextView searchBoxTextView =
                 (TextView) mSearchBoxView.findViewById(R.id.search_box_text);
         String hintText = getResources().getString(R.string.search_or_type_web_address);
-        if (!DeviceFormFactor.isTablet() || SuggestionsConfig.useModernLayout()) {
+        if (!DeviceFormFactor.isNonMultiDisplayContextOnTablet(getContext())
+                || SuggestionsConfig.useModernLayout()) {
             searchBoxTextView.setHint(hintText);
         } else {
             searchBoxTextView.setContentDescription(hintText);
@@ -1064,5 +1065,20 @@ public class NewTabPageView
     private void onDestroy() {
         mTab.getWindowAndroid().removeContextMenuCloseListener(mContextMenuManager);
         VrShellDelegate.unregisterVrModeObserver(this);
+    }
+
+    private void initializeShortcuts() {
+        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.NTP_SHORTCUTS)) return;
+
+        ViewGroup shortcuts =
+                (ViewGroup) mRecyclerView.getAboveTheFoldView().findViewById(R.id.shortcuts);
+        shortcuts.setVisibility(View.VISIBLE);
+
+        shortcuts.findViewById(R.id.bookmarks_button)
+                .setOnClickListener(view -> mManager.getNavigationDelegate().navigateToBookmarks());
+
+        shortcuts.findViewById(R.id.downloads_button)
+                .setOnClickListener(
+                        view -> mManager.getNavigationDelegate().navigateToDownloadManager());
     }
 }

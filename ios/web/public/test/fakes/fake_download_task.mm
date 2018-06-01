@@ -17,7 +17,10 @@ FakeDownloadTask::FakeDownloadTask(const GURL& original_url,
                                    const std::string& mime_type)
     : original_url_(original_url), mime_type_(mime_type), identifier_(@"") {}
 
-FakeDownloadTask::~FakeDownloadTask() = default;
+FakeDownloadTask::~FakeDownloadTask() {
+  for (auto& observer : observers_)
+    observer.OnDownloadDestroyed(this);
+}
 
 DownloadTask::State FakeDownloadTask::GetState() const {
   return state_;
@@ -87,6 +90,10 @@ base::string16 FakeDownloadTask::GetSuggestedFilename() const {
   return suggested_file_name_;
 }
 
+bool FakeDownloadTask::HasPerformedBackgroundDownload() const {
+  return has_performed_background_download_;
+}
+
 void FakeDownloadTask::AddObserver(DownloadTaskObserver* observer) {
   DCHECK(!observers_.HasObserver(observer));
   observers_.AddObserver(observer);
@@ -147,6 +154,10 @@ void FakeDownloadTask::SetSuggestedFilename(
     const base::string16& suggested_file_name) {
   suggested_file_name_ = suggested_file_name;
   OnDownloadUpdated();
+}
+
+void FakeDownloadTask::SetPerformedBackgroundDownload(bool flag) {
+  has_performed_background_download_ = flag;
 }
 
 void FakeDownloadTask::OnDownloadUpdated() {

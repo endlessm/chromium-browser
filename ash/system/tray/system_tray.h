@@ -26,9 +26,11 @@ class SystemBubbleWrapper;
 class SystemTrayItem;
 class TrayAccessibility;
 class TrayAudio;
+class TrayBluetooth;
 class TrayCapsLock;
 class TrayCast;
 class TrayEnterprise;
+class TrayIME;
 class TrayNetwork;
 class TrayNightLight;
 class TrayScale;
@@ -38,6 +40,7 @@ class TraySystemInfo;
 class TrayTiles;
 class TrayTracing;
 class TrayUpdate;
+class TrayVPN;
 class WebNotificationTray;
 
 // There are different methods for creating bubble views.
@@ -119,6 +122,16 @@ class ASH_EXPORT SystemTray : public TrayBackgroundView {
 
   // Returns TrayAudio object if present or null otherwise.
   TrayAudio* GetTrayAudio() const;
+  // Returns TrayNetwork object if present or null otherwise.
+  TrayNetwork* GetTrayNetwork() const;
+  // Returns TrayBluetooth object if present or null otherwise.
+  TrayBluetooth* GetTrayBluetooth() const;
+  // Returns TrayAccessibility object if present or null otherwise.
+  TrayAccessibility* GetTrayAccessibility() const;
+  // Returns TrayVPN object if present or null otherwise.
+  TrayVPN* GetTrayVPN() const;
+  // Returns TrayIME object if present or null otherwise.
+  TrayIME* GetTrayIME() const;
 
   // Determines if it's ok to switch away from the currently active user. Screen
   // casting may block this (or at least throw up a confirmation dialog). Calls
@@ -214,10 +227,13 @@ class ASH_EXPORT SystemTray : public TrayBackgroundView {
   // These objects are not owned by this class.
   TrayAccessibility* tray_accessibility_ = nullptr;
   TrayAudio* tray_audio_ = nullptr;
+  TrayBluetooth* tray_bluetooth_ = nullptr;
   TrayCapsLock* tray_caps_lock_ = nullptr;
   TrayCast* tray_cast_ = nullptr;
   TrayEnterprise* tray_enterprise_ = nullptr;
+  TrayIME* tray_ime_ = nullptr;
   TrayNetwork* tray_network_ = nullptr;
+  TrayVPN* tray_vpn_ = nullptr;
   TrayTiles* tray_tiles_ = nullptr;
   TrayScale* tray_scale_ = nullptr;
   TraySessionLengthLimit* tray_session_length_limit_ = nullptr;

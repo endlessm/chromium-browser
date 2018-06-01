@@ -37,6 +37,7 @@ from chromite.lib import portage_util
 from chromite.lib import retry_util
 from chromite.lib import timeout_util
 from chromite.lib import tree_status
+from chromite.lib.paygen import filelib
 from chromite.scripts import pushimage
 
 site_config = config_lib.GetConfig()
@@ -170,9 +171,12 @@ def WipeOldOutput(buildroot):
   osutils.RmDir(image_dir, ignore_missing=True, sudo=True)
 
 
-def MakeChroot(buildroot, replace, use_sdk, chrome_root=None, extra_env=None):
+def MakeChroot(buildroot, replace, use_sdk, chrome_root=None, extra_env=None,
+               use_image=False):
   """Wrapper around make_chroot."""
   cmd = ['cros_sdk', '--buildbot-log-version']
+  if not use_image:
+    cmd.append('--nouse-image')
   cmd.append('--create' if use_sdk else '--bootstrap')
 
   if replace:
@@ -544,54 +548,50 @@ def GetFirmwareVersions(buildroot, board):
   else:
     return FirmwareVersions(None, None, None, None, None)
 
-def RunCrosConfigHost(buildroot, boardroot, args):
+def RunCrosConfigHost(buildroot, board, args, log_output=True):
   """Run the cros_config_host tool in the buildroot
 
   Args:
     buildroot: The buildroot of the current build.
-    boardroot: The board sysroot.
+    board: The board the build is for.
     args: List of arguments to pass.
+    log_output: Whether to log the output of the cros_config_host.
 
   Returns:
     Output of the tool
   """
   tool = os.path.join(buildroot, constants.DEFAULT_CHROOT_DIR, 'usr', 'bin',
-                      'cros_config_host_py')
+                      'cros_config_host')
   if not os.path.isfile(tool):
     return None
   tool = path_util.ToChrootPath(tool)
 
   config_fname = os.path.join(
-      boardroot,
+      cros_build_lib.GetSysroot(board),
       'usr',
       'share',
       'chromeos-config',
-      'config.dtb')
+      'yaml',
+      'config.yaml')
   if not os.path.isfile(config_fname):
     config_fname = os.path.join(
-        boardroot,
+        cros_build_lib.GetSysroot(board),
         'usr',
         'share',
         'chromeos-config',
-        'yaml',
-        'private-files.yaml')
-
-  if not os.path.isfile(config_fname):
-    return None
-  result = cros_build_lib.RunCommand([tool, '-c', config_fname] + args,
-                                     enter_chroot=True,
-                                     capture_output=True,
-                                     log_output=True,
-                                     cwd=buildroot,
-                                     error_code_ok=True)
+        'config.dtb')
+  result = cros_build_lib.RunCommand(
+      [tool, '-c', config_fname] + args,
+      enter_chroot=True, capture_output=True, log_output=log_output,
+      cwd=buildroot, error_code_ok=True)
   if result.returncode:
     # Show the output for debugging purposes.
     if 'No such file or directory' not in result.error:
-      print('cros_config_host_py failed: %s\n' % result.error, file=sys.stderr)
+      print('cros_config_host failed: %s\n' % result.error, file=sys.stderr)
     return None
   return result.output.strip().splitlines()
 
-def GetModels(buildroot, boardroot):
+def GetModels(buildroot, board, log_output=True):
   """Obtain a list of models supported by a unified board
 
   This ignored whitelabel models since GoldenEye has no specific support for
@@ -599,13 +599,15 @@ def GetModels(buildroot, boardroot):
 
   Args:
     buildroot: The buildroot of the current build.
-    boardroot: The board sysroot.
+    board: The board the build is for.
+    log_output: Whether to log the output of the cros_config_host invocation.
 
   Returns:
     A list of models supported by this board, if it is a unified build; None,
     if it is not a unified build.
   """
-  return RunCrosConfigHost(buildroot, boardroot, ['list-models'])
+  return RunCrosConfigHost(
+      buildroot, board, ['list-models'], log_output=log_output)
 
 def BuildImage(buildroot, board, images_to_build, version=None,
                builder_path=None, rootfs_verification=True, extra_env=None,
@@ -964,6 +966,9 @@ def _GetRunSuiteArgs(
   Returns:
     A list of args for run_suite
   """
+
+  # HACK(pwang): Delete this once better solution is out.
+  board = board.replace('-arcnext', '')
   args = ['--build', build, '--board', board]
 
   if model:
@@ -1651,6 +1656,33 @@ def GenerateDebugTarball(buildroot, board, archive_path, gdb_symbols,
   os.chmod(debug_tarball, 0o644)
 
   return os.path.basename(debug_tarball)
+
+
+def GenerateUploadJSON(filepath, archive_path, uploaded):
+  """Generate upload.json file given a set of filenames.
+
+  The JSON is a dictionary keyed by filename, with entries for size, and hashes.
+
+  Args:
+    filepath: complete output filepath as string.
+    archive_path: location of files.
+    uploaded: file with list of uploaded filepaths, relative to archive_path.
+  """
+  utcnow = datetime.datetime.utcnow
+  start = utcnow()
+
+  result = {}
+  files = osutils.ReadFile(uploaded).splitlines()
+  for f in files:
+    path = os.path.join(archive_path, f)
+    # Ignore directories.
+    if os.path.isdir(path):
+      continue
+    size = os.path.getsize(path)
+    sha1, sha256 = filelib.ShaSums(path)
+    result[f] = {'size': size, 'sha1': sha1, 'sha256': sha256}
+  osutils.WriteFile(filepath, json.dumps(result, indent=2, sort_keys=True))
+  logging.info('GenerateUploadJSON completed in %s.', utcnow() - start)
 
 
 def GenerateHtmlIndex(index, files, title='Index', url_base=None):

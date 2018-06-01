@@ -23,6 +23,7 @@
 #include "base/values.h"
 #include "base/version.h"
 #include "base/win/registry.h"
+#include "base/win/shortcut.h"
 #include "base/win/windows_version.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
@@ -33,6 +34,7 @@
 #include "chrome/installer/util/google_update_constants.h"
 #include "chrome/installer/util/installation_state.h"
 #include "chrome/installer/util/l10n_string_util.h"
+#include "chrome/installer/util/shell_util.h"
 #include "chrome/installer/util/util_constants.h"
 #include "chrome/installer/util/work_item_list.h"
 
@@ -278,6 +280,49 @@ bool InstallUtil::IsFirstRunSentinelPresent() {
 }
 
 // static
+bool InstallUtil::IsStartMenuShortcutWithActivatorGuidInstalled() {
+  BrowserDistribution* dist = BrowserDistribution::GetDistribution();
+  base::FilePath shortcut_path;
+
+  if (!ShellUtil::GetShortcutPath(
+          ShellUtil::SHORTCUT_LOCATION_START_MENU_ROOT, dist,
+          install_static::IsSystemInstall() ? ShellUtil::SYSTEM_LEVEL
+                                            : ShellUtil::CURRENT_USER,
+          &shortcut_path)) {
+    return false;
+  }
+
+  shortcut_path =
+      shortcut_path.Append(dist->GetShortcutName() + installer::kLnkExt);
+  if (!base::PathExists(shortcut_path))
+    return false;
+
+  base::win::ShortcutProperties properties;
+  base::win::ResolveShortcutProperties(
+      shortcut_path,
+      base::win::ShortcutProperties::PROPERTIES_TOAST_ACTIVATOR_CLSID,
+      &properties);
+
+  return ::IsEqualCLSID(properties.toast_activator_clsid,
+                        install_static::GetToastActivatorClsid());
+}
+
+// static
+base::string16 InstallUtil::GetToastActivatorRegistryPath() {
+  // CLSID has a string format of "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}",
+  // which contains 38 characters. The length is 39 to make space for the
+  // string terminator.
+  constexpr int kGuidLength = 39;
+  base::string16 guid_string;
+  if (::StringFromGUID2(install_static::GetToastActivatorClsid(),
+                        base::WriteInto(&guid_string, kGuidLength),
+                        kGuidLength) != kGuidLength) {
+    return base::string16();
+  }
+  return L"Software\\Classes\\CLSID\\" + guid_string;
+}
+
+// static
 bool InstallUtil::GetEULASentinelFilePath(base::FilePath* path) {
   base::FilePath user_data_dir;
   if (!PathService::Get(chrome::DIR_USER_DATA, &user_data_dir))
@@ -458,7 +503,7 @@ base::Version InstallUtil::GetDowngradeVersion(
     bool system_install,
     const BrowserDistribution* dist) {
   DCHECK(dist);
-  base::win::RegKey key;
+  RegKey key;
   base::string16 downgrade_version;
   if (key.Open(system_install ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER,
                dist->GetStateKey().c_str(),
@@ -491,6 +536,70 @@ void InstallUtil::AddUpdateDowngradeVersionItem(
         root, dist->GetStateKey(), KEY_WOW64_32KEY, kRegDowngradeVersion,
         base::ASCIIToUTF16(current_version->GetString()), true);
   }
+}
+
+// static
+void InstallUtil::GetMachineLevelUserCloudPolicyEnrollmentTokenRegistryPath(
+    std::wstring* key_path,
+    std::wstring* value_name) {
+  // This token applies to all installs on the machine, even though only a
+  // system install can set it.  This is to prevent users from doing a user
+  // install of chrome to get around policies.
+  *key_path = L"SOFTWARE\\Policies\\";
+  install_static::AppendChromeInstallSubDirectory(
+      install_static::InstallDetails::Get().mode(), false /* !include_suffix */,
+      key_path);
+  *value_name = L"MachineLevelUserCloudPolicyEnrollmentToken";
+}
+
+// static
+void InstallUtil::GetMachineLevelUserCloudPolicyDMTokenRegistryPath(
+    std::wstring* key_path,
+    std::wstring* value_name) {
+  // This token applies to all installs on the machine, even though only a
+  // system install can set it.  This is to prevent users from doing a user
+  // install of chrome to get around policies.
+  *key_path = L"SOFTWARE\\";
+  install_static::AppendChromeInstallSubDirectory(
+      install_static::InstallDetails::Get().mode(), false /* !include_suffix */,
+      key_path);
+  key_path->append(L"\\Enrollment");
+  *value_name = L"dmtoken";
+}
+
+// static
+std::wstring InstallUtil::GetMachineLevelUserCloudPolicyEnrollmentToken() {
+  // Because chrome needs to know if machine level user cloud policies must be
+  // initialized even before the entire policy service is brought up, this
+  // helper function exists to directly read the token from the system policies.
+  //
+  // Putting the enrollment token in the system policy area is a convenient
+  // way for administrators to enroll chrome throughout their fleet by pushing
+  // this token via SCCM.
+  // TODO(rogerta): This may not be the best place for the helpers dealing with
+  // the enrollment and/or DM tokens.  See crbug.com/823852 for details.
+  std::wstring key_path;
+  std::wstring value_name;
+  GetMachineLevelUserCloudPolicyEnrollmentTokenRegistryPath(&key_path,
+                                                            &value_name);
+
+  RegKey key;
+  LONG result = key.Open(HKEY_LOCAL_MACHINE, key_path.c_str(), KEY_READ);
+  if (result != ERROR_SUCCESS) {
+    LOG(ERROR) << "Unable to create registry key HKLM\\" << key_path
+               << " for reading result=" << result;
+    return std::wstring();
+  }
+
+  std::wstring value;
+  result = key.ReadValue(value_name.c_str(), &value);
+  if (result != ERROR_SUCCESS) {
+    LOG(ERROR) << "Unable to read registry value HKLM\\" << key_path
+               << "\\" << value_name << " for writing result=" << result;
+    return std::wstring();
+  }
+
+  return value;
 }
 
 InstallUtil::ProgramCompare::ProgramCompare(const base::FilePath& path_to_match)

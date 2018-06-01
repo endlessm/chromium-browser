@@ -4,6 +4,10 @@
 
 #import "ios/chrome/browser/ui/download/download_manager_view_controller.h"
 
+#import <UIKit/UIKit.h>
+
+#import "ios/chrome/browser/ui/download/download_manager_state_view.h"
+#import "ios/chrome/browser/ui/download/radial_progress_view.h"
 #include "testing/gtest_mac.h"
 #include "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
@@ -32,6 +36,8 @@ TEST_F(DownloadManagerViewControllerTest, NotStartedWithLongFileName) {
               view_controller_.statusLabel.text);
   EXPECT_NSEQ(@"Download", [view_controller_.actionButton
                                titleForState:UIControlStateNormal]);
+  EXPECT_EQ(kDownloadManagerStateNotStarted, view_controller_.stateIcon.state);
+  EXPECT_TRUE(view_controller_.progressView.hidden);
 }
 
 // Tests label and button titles with kDownloadManagerStateNotStarted state
@@ -45,6 +51,8 @@ TEST_F(DownloadManagerViewControllerTest,
   EXPECT_NSEQ(@"file.zip - 1.05 GB", view_controller_.statusLabel.text);
   EXPECT_NSEQ(@"Download", [view_controller_.actionButton
                                titleForState:UIControlStateNormal]);
+  EXPECT_EQ(kDownloadManagerStateNotStarted, view_controller_.stateIcon.state);
+  EXPECT_TRUE(view_controller_.progressView.hidden);
 }
 
 // Tests label and button hidden state with kDownloadManagerStateInProgress
@@ -53,9 +61,13 @@ TEST_F(DownloadManagerViewControllerTest, InProgressWithLongFileName) {
   view_controller_.state = kDownloadManagerStateInProgress;
   view_controller_.fileName = @"longfilenamesolongthatitbarelyfitwidthlimit";
   view_controller_.countOfBytesExpectedToReceive = 10 * 1024;
+  view_controller_.progress = 0.0f;
 
   EXPECT_NSEQ(@"Downloading… Zero KB/10 KB", view_controller_.statusLabel.text);
   EXPECT_TRUE(view_controller_.actionButton.hidden);
+  EXPECT_EQ(kDownloadManagerStateInProgress, view_controller_.stateIcon.state);
+  EXPECT_FALSE(view_controller_.progressView.hidden);
+  EXPECT_EQ(0.0f, view_controller_.progressView.progress);
 }
 
 // Tests label and button hidden state with kDownloadManagerStateInProgress
@@ -66,20 +78,26 @@ TEST_F(DownloadManagerViewControllerTest,
   view_controller_.fileName = @"file.zip";
   view_controller_.countOfBytesReceived = 900;
   view_controller_.countOfBytesExpectedToReceive = -1;
+  view_controller_.progress = 0.9f;
 
   EXPECT_NSEQ(@"Downloading… 900 bytes", view_controller_.statusLabel.text);
   EXPECT_TRUE(view_controller_.actionButton.hidden);
+  EXPECT_EQ(kDownloadManagerStateInProgress, view_controller_.stateIcon.state);
+  EXPECT_FALSE(view_controller_.progressView.hidden);
+  EXPECT_EQ(0.9f, view_controller_.progressView.progress);
 }
 
-// Tests label and button titles with kDownloadManagerStateSuceeded state.
+// Tests label and button titles with kDownloadManagerStateSucceeded state.
 TEST_F(DownloadManagerViewControllerTest, SuceededWithWithLongFileName) {
-  view_controller_.state = kDownloadManagerStateSuceeded;
+  view_controller_.state = kDownloadManagerStateSucceeded;
   view_controller_.fileName = @"file.txt";
   view_controller_.countOfBytesReceived = 1024;
 
   EXPECT_NSEQ(@"file.txt", view_controller_.statusLabel.text);
   EXPECT_NSEQ(@"Open in…", [view_controller_.actionButton
                                titleForState:UIControlStateNormal]);
+  EXPECT_EQ(kDownloadManagerStateSucceeded, view_controller_.stateIcon.state);
+  EXPECT_TRUE(view_controller_.progressView.hidden);
 }
 
 // Tests label and button titles with kDownloadManagerStateFailed state.
@@ -91,6 +109,8 @@ TEST_F(DownloadManagerViewControllerTest, Failed) {
   EXPECT_NSEQ(@"Couldn't Download", view_controller_.statusLabel.text);
   EXPECT_NSEQ(@"Try Again", [view_controller_.actionButton
                                 titleForState:UIControlStateNormal]);
+  EXPECT_EQ(kDownloadManagerStateFailed, view_controller_.stateIcon.state);
+  EXPECT_TRUE(view_controller_.progressView.hidden);
 }
 
 // Tests that tapping close button calls downloadManagerViewControllerDidClose:.
@@ -131,7 +151,7 @@ TEST_F(DownloadManagerViewControllerTest, OpenIn) {
   OCMExpect([delegate downloadManagerViewController:view_controller_
                    presentOpenInMenuWithLayoutGuide:[OCMArg any]]);
 
-  view_controller_.state = kDownloadManagerStateSuceeded;
+  view_controller_.state = kDownloadManagerStateSucceeded;
   view_controller_.delegate = delegate;
   [view_controller_.actionButton
       sendActionsForControlEvents:UIControlEventTouchUpInside];

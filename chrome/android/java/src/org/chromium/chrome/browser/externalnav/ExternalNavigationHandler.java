@@ -230,9 +230,8 @@ public class ExternalNavigationHandler {
         // to Chrome.  This check should happen for reloads, navigations, etc..., which is why
         // it occurs before the subsequent blocks.
         if (params.getUrl().startsWith(UrlConstants.FILE_URL_SHORT_PREFIX)
-                && mDelegate.shouldRequestFileAccess(params.getUrl(), params.getTab())) {
-            mDelegate.startFileIntent(
-                    intent, params.getReferrerUrl(), params.getTab(),
+                && mDelegate.shouldRequestFileAccess(params.getUrl())) {
+            mDelegate.startFileIntent(intent, params.getReferrerUrl(),
                     params.shouldCloseContentsOnOverrideUrlLoadingAndLaunchIntent());
             if (DEBUG) Log.i(TAG, "OVERRIDE_WITH_ASYNC_ACTION: Requesting filesystem access");
             return OverrideUrlLoadingResult.OVERRIDE_WITH_ASYNC_ACTION;
@@ -259,12 +258,10 @@ public class ExternalNavigationHandler {
             if (handler.shouldStayInChrome(isExternalProtocol)
                     || handler.shouldNotOverrideUrlLoading()) {
                 // http://crbug.com/659301: Handle redirects to Instant Apps out of Custom Tabs.
-                if (handler.isFromCustomTabIntent()
-                        && !isExternalProtocol
-                        && incomingIntentRedirect
+                if (handler.isFromCustomTabIntent() && !isExternalProtocol && incomingIntentRedirect
                         && !handler.shouldNavigationTypeStayInChrome()
-                        && mDelegate.maybeLaunchInstantApp(params.getTab(), params.getUrl(),
-                                params.getReferrerUrl(), true)) {
+                        && mDelegate.maybeLaunchInstantApp(
+                                   params.getUrl(), params.getReferrerUrl(), true)) {
                     if (DEBUG) {
                         Log.i(TAG, "OVERRIDE_WITH_EXTERNAL_INTENT: Launching redirect to "
                                 + "an instant app");
@@ -339,7 +336,7 @@ public class ExternalNavigationHandler {
         // pairing code URL, since these match the current tab with a device (Chromecast
         // or similar) it is supposed to be controlling. Using a different application
         // that isn't expecting this (in particular YouTube) doesn't work.
-        if (params.getUrl().matches(".*youtube\\.com.*[?&]pairingCode=.*")) {
+        if (params.getUrl().matches(".*youtube\\.com(\\/.*)?\\?(.+&)?pairingCode=[^&].+")) {
             if (DEBUG) Log.i(TAG, "NO_OVERRIDE: YouTube URL with a pairing code");
             return OverrideUrlLoadingResult.NO_OVERRIDE;
         }
@@ -439,31 +436,15 @@ public class ExternalNavigationHandler {
         // startActivityIfNeeded or startActivity.
         if (!isExternalProtocol) {
             if (mDelegate.countSpecializedHandlers(resolvingInfos) == 0) {
-                if (incomingIntentRedirect && mDelegate.maybeLaunchInstantApp(
-                        params.getTab(), params.getUrl(), params.getReferrerUrl(), true)) {
+                if (incomingIntentRedirect
+                        && mDelegate.maybeLaunchInstantApp(
+                                   params.getUrl(), params.getReferrerUrl(), true)) {
                     if (DEBUG) Log.i(TAG, "OVERRIDE_WITH_EXTERNAL_INTENT: Instant Apps redirect");
                     return OverrideUrlLoadingResult.OVERRIDE_WITH_EXTERNAL_INTENT;
                 } else if (linkNotFromIntent && !params.isIncognito()
-                        && mDelegate.maybeLaunchInstantApp(params.getTab(), params.getUrl(),
-                                params.getReferrerUrl(), false)) {
+                        && mDelegate.maybeLaunchInstantApp(
+                                   params.getUrl(), params.getReferrerUrl(), false)) {
                     if (DEBUG) Log.i(TAG, "OVERRIDE_WITH_EXTERNAL_INTENT: Instant Apps link");
-                    return OverrideUrlLoadingResult.OVERRIDE_WITH_EXTERNAL_INTENT;
-                }
-
-                // For normal links in a webapp, launch a CCT when a user navigates to a link which
-                // is outside of the webapp's scope. This is the preferred handling for when a user
-                // navigates outside of a webapp's scope. The benefit of showing out-of-scope web
-                // content in a CCT is that the state of the in-scope page (e.g. scroll position) is
-                // preserved and is available when the user closes the CCT. This enables the state
-                // of the twitter.com web page to be preserved when a user taps an out-of-scope
-                // link. WebappActivity has fallback behavior for cases that a CCT is not launched
-                // (e.g. JS navigation when PWA is in the background). The fallback behavior changes
-                // the appearance of the WebappActivity to make it look like a CCT.
-                if (webappScopePolicyDirective
-                        == WebappScopePolicy.NavigationDirective.LAUNCH_CCT) {
-                    mDelegate.launchCctForWebappUrl(params.getUrl(),
-                            params.shouldCloseContentsOnOverrideUrlLoadingAndLaunchIntent());
-                    if (DEBUG) Log.i(TAG, "OVERRIDE_WITH_EXTERNAL_INTENT: Launch CCT");
                     return OverrideUrlLoadingResult.OVERRIDE_WITH_EXTERNAL_INTENT;
                 }
 
@@ -511,8 +492,7 @@ public class ExternalNavigationHandler {
 
         boolean isDirectInstantAppsIntent =
                 isExternalProtocol && InstantAppsHandler.isIntentToInstantApp(intent);
-        boolean shouldProxyForInstantApps = isDirectInstantAppsIntent
-                && mDelegate.isSerpReferrer(params.getTab());
+        boolean shouldProxyForInstantApps = isDirectInstantAppsIntent && mDelegate.isSerpReferrer();
         if (shouldProxyForInstantApps) {
             RecordHistogram.recordEnumeratedHistogram("Android.InstantApps.DirectInstantAppsIntent",
                     AIA_INTENT_SERP, AIA_INTENT_BOUNDARY);
@@ -674,8 +654,7 @@ public class ExternalNavigationHandler {
             params.getRedirectHandler().setShouldNotOverrideUrlLoadingUntilNewUrlLoading();
         }
         if (DEBUG) Log.i(TAG, "OVERRIDE: clobberCurrentTab called");
-        return mDelegate.clobberCurrentTab(
-                browserFallbackUrl, params.getReferrerUrl(), params.getTab());
+        return mDelegate.clobberCurrentTab(browserFallbackUrl, params.getReferrerUrl());
     }
 
     /**

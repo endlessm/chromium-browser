@@ -18,11 +18,11 @@ class BrowserView;
 class BrowserNonClientFrameView : public views::NonClientFrameView,
                                   public ProfileAttributesStorage::Observer {
  public:
-  // The padding on the left, right, and bottom of the avatar icon.
-  static constexpr int kAvatarIconPadding = 4;
-
   BrowserNonClientFrameView(BrowserFrame* frame, BrowserView* browser_view);
   ~BrowserNonClientFrameView() override;
+
+  // Returns the padding on the left, right, and bottom of the avatar icon.
+  static int GetAvatarIconPadding();
 
   BrowserView* browser_view() const { return browser_view_; }
   BrowserFrame* frame() const { return frame_; }
@@ -69,16 +69,19 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
 
   // Returns the profile switcher button, if this frame has any, nullptr if it
   // doesn't.
-  views::View* GetProfileSwitcherView() const;
-
-  // Returns the hosted app menu, asserts that it is present.
-  virtual views::View* GetHostedAppMenuView();
+  views::Button* GetProfileSwitcherButton() const;
 
   // Provided for mus. Updates the client-area of the WindowTreeHostMus.
   virtual void UpdateClientArea();
 
   // Provided for mus to update the minimum window size property.
   virtual void UpdateMinimumSize();
+
+  // Distance between the leading edge of the NonClientFrameView and the tab
+  // strip.
+  // TODO: Consider refactoring and unifying tabstrip bounds calculations.
+  // https://crbug.com/820485.
+  virtual int GetTabStripLeftInset() const;
 
   // Overriden from views::View.
   void ChildPreferredSizeChanged(views::View* child) override;
@@ -138,6 +141,9 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
 
   // Draws a taskbar icon if avatars are enabled, erases it otherwise.
   void UpdateTaskbarDecoration();
+
+  // Returns true if |profile_indicator_icon_| should be shown.
+  bool ShouldShowProfileIndicatorIcon() const;
 
   // The frame that hosts this view.
   BrowserFrame* frame_;

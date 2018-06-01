@@ -46,7 +46,8 @@
 #include "components/safe_browsing/browser/browser_url_loader_throttle.h"
 #include "components/safe_browsing/browser/mojo_safe_browsing_impl.h"
 #include "components/safe_browsing/features.h"
-#include "components/spellcheck/spellcheck_build_features.h"
+#include "components/services/heap_profiling/public/mojom/constants.mojom.h"
+#include "components/spellcheck/spellcheck_buildflags.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
@@ -155,10 +156,12 @@ void AwContentsMessageFilter::OnShouldOverrideUrlLoading(
   AwContentsClientBridge* client =
       AwContentsClientBridge::FromID(process_id_, render_frame_id);
   if (client) {
-    *ignore_navigation = client->ShouldOverrideUrlLoading(
-        url, has_user_gesture, is_redirect, is_main_frame);
-    // If the shouldOverrideUrlLoading call caused a java exception we should
-    // always return immediately here!
+    if (!client->ShouldOverrideUrlLoading(url, has_user_gesture, is_redirect,
+                                          is_main_frame, ignore_navigation)) {
+      // If the shouldOverrideUrlLoading call caused a java exception we should
+      // always return immediately here!
+      return;
+    }
   } else {
     LOG(WARNING) << "Failed to find the associated render view host for url: "
                  << url;
@@ -198,13 +201,14 @@ AwBrowserContext* AwContentBrowserClient::GetAwBrowserContext() {
 }
 
 AwContentBrowserClient::AwContentBrowserClient() : net_log_(new net::NetLog()) {
-  frame_interfaces_.AddInterface(
-      base::Bind(&autofill::ContentAutofillDriverFactory::BindAutofillDriver));
+  frame_interfaces_.AddInterface(base::BindRepeating(
+      &autofill::ContentAutofillDriverFactory::BindAutofillDriver));
   // Although WebView does not support password manager feature, renderer code
   // could still request this interface, so we register a dummy binder which
   // just drops the incoming request, to avoid the 'Failed to locate a binder
   // for interface' error log..
-  frame_interfaces_.AddInterface(base::Bind(&DummyBindPasswordManagerDriver));
+  frame_interfaces_.AddInterface(
+      base::BindRepeating(&DummyBindPasswordManagerDriver));
   sniff_file_urls_ = AwSettings::GetAllowSniffingFileUrls();
 }
 
@@ -543,6 +547,8 @@ std::unique_ptr<base::Value> AwContentBrowserClient::GetServiceManifestOverlay(
     id = IDR_AW_BROWSER_MANIFEST_OVERLAY;
   else if (name == content::mojom::kRendererServiceName)
     id = IDR_AW_RENDERER_MANIFEST_OVERLAY;
+  else if (name == content::mojom::kUtilityServiceName)
+    id = IDR_AW_UTILITY_MANIFEST_OVERLAY;
   if (id == -1)
     return nullptr;
 
@@ -569,10 +575,10 @@ void AwContentBrowserClient::ExposeInterfacesToRenderer(
     content::ResourceContext* resource_context =
         render_process_host->GetBrowserContext()->GetResourceContext();
     registry->AddInterface(
-        base::Bind(
+        base::BindRepeating(
             &safe_browsing::MojoSafeBrowsingImpl::MaybeCreate,
             render_process_host->GetID(), resource_context,
-            base::Bind(
+            base::BindRepeating(
                 &AwContentBrowserClient::GetSafeBrowsingUrlCheckerDelegate,
                 base::Unretained(this))),
         BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
@@ -635,17 +641,20 @@ bool AwContentBrowserClient::ShouldOverrideUrlLoading(
     bool has_user_gesture,
     bool is_redirect,
     bool is_main_frame,
-    ui::PageTransition transition) {
+    ui::PageTransition transition,
+    bool* ignore_navigation) {
+  *ignore_navigation = false;
+
   // Only GETs can be overridden.
   if (request_method != "GET")
-    return false;
+    return true;
 
   bool application_initiated =
       browser_initiated || transition & ui::PAGE_TRANSITION_FORWARD_BACK;
 
   // Don't offer application-initiated navigations unless it's a redirect.
   if (application_initiated && !is_redirect)
-    return false;
+    return true;
 
   // For HTTP schemes, only top-level navigations can be overridden. Similarly,
   // WebView Classic lets app override only top level about:blank navigations.
@@ -657,27 +666,27 @@ bool AwContentBrowserClient::ShouldOverrideUrlLoading(
   if (!is_main_frame &&
       (gurl.SchemeIs(url::kHttpScheme) || gurl.SchemeIs(url::kHttpsScheme) ||
        gurl.SchemeIs(url::kAboutScheme)))
-    return false;
+    return true;
 
   WebContents* web_contents =
       WebContents::FromFrameTreeNodeId(frame_tree_node_id);
   if (web_contents == nullptr)
-    return false;
+    return true;
   AwContentsClientBridge* client_bridge =
       AwContentsClientBridge::FromWebContents(web_contents);
   if (client_bridge == nullptr)
-    return false;
+    return true;
 
   base::string16 url = base::UTF8ToUTF16(gurl.possibly_invalid_spec());
-  return client_bridge->ShouldOverrideUrlLoading(url, has_user_gesture,
-                                                 is_redirect, is_main_frame);
+  return client_bridge->ShouldOverrideUrlLoading(
+      url, has_user_gesture, is_redirect, is_main_frame, ignore_navigation);
 }
 
 bool AwContentBrowserClient::ShouldCreateTaskScheduler() {
   return g_should_create_task_scheduler;
 }
 
-content::ResourceDispatcherHostLoginDelegate*
+scoped_refptr<content::LoginDelegate>
 AwContentBrowserClient::CreateLoginDelegate(
     net::AuthChallengeInfo* auth_info,
     content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
@@ -686,8 +695,29 @@ AwContentBrowserClient::CreateLoginDelegate(
     bool first_auth_attempt,
     const base::Callback<void(const base::Optional<net::AuthCredentials>&)>&
         auth_required_callback) {
-  return new AwLoginDelegate(auth_info, web_contents_getter, first_auth_attempt,
-                             auth_required_callback);
+  return base::MakeRefCounted<AwLoginDelegate>(auth_info, web_contents_getter,
+                                               first_auth_attempt,
+                                               auth_required_callback);
+}
+
+bool AwContentBrowserClient::HandleExternalProtocol(
+    const GURL& url,
+    content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
+    int child_id,
+    content::NavigationUIData* navigation_data,
+    bool is_main_frame,
+    ui::PageTransition page_transition,
+    bool has_user_gesture) {
+  // The AwURLRequestJobFactory implementation should ensure this method never
+  // gets called.
+  NOTREACHED();
+  return false;
+}
+
+void AwContentBrowserClient::RegisterOutOfProcessServices(
+    OutOfProcessServiceMap* services) {
+  (*services)[heap_profiling::mojom::kServiceName] =
+      base::ASCIIToUTF16("Heap Profiling Service");
 }
 
 // static

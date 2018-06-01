@@ -10,7 +10,6 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "chrome/test/chromedriver/chrome/devtools_event_listener.h"
@@ -460,7 +459,10 @@ Status DevToolsClientImpl::ProcessEvent(const internal::InspectorEvent& event) {
           kUnknownError,
           "missing sessionId in Target.receivedMessageFromTarget event");
     if (children_.count(session_id) == 0)
-      return Status(kUnknownError, "unknown sessionId");
+      // ChromeDriver only cares about iframe targets. If we don't know about
+      // this sessionId, then it must be of a different target type and should
+      // be ignored.
+      return Status(kOk);
     DevToolsClientImpl* child = children_[session_id];
     std::string message;
     if (!event.params->GetString("message", &message))
@@ -530,8 +532,10 @@ Status DevToolsClientImpl::EnsureListenersNotifiedOfEvent() {
     unnotified_event_listeners_.pop_front();
     Status status = listener->OnEvent(
         this, unnotified_event_->method, *unnotified_event_->params);
-    if (status.IsError())
+    if (status.IsError()) {
+      unnotified_event_listeners_.clear();
       return status;
+    }
   }
   return Status(kOk);
 }

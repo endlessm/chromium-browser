@@ -63,14 +63,22 @@ namespace {
 
   static QualType getType(APValue::LValueBase B) {
     if (!B) return QualType();
-    if (const ValueDecl *D = B.dyn_cast<const ValueDecl*>())
+    if (const ValueDecl *D = B.dyn_cast<const ValueDecl*>()) {
       // FIXME: It's unclear where we're supposed to take the type from, and
-      // this actually matters for arrays of unknown bound. Using the type of
-      // the most recent declaration isn't clearly correct in general. Eg:
+      // this actually matters for arrays of unknown bound. Eg:
       //
       // extern int arr[]; void f() { extern int arr[3]; };
       // constexpr int *p = &arr[1]; // valid?
-      return cast<ValueDecl>(D->getMostRecentDecl())->getType();
+      //
+      // For now, we take the array bound from the most recent declaration.
+      for (auto *Redecl = cast<ValueDecl>(D->getMostRecentDecl()); Redecl;
+           Redecl = cast_or_null<ValueDecl>(Redecl->getPreviousDecl())) {
+        QualType T = Redecl->getType();
+        if (!T->isIncompleteArrayType())
+          return T;
+      }
+      return D->getType();
+    }
 
     const Expr *Base = B.get<const Expr*>();
 
@@ -133,7 +141,11 @@ namespace {
 
     E = E->IgnoreParens();
     // If we're doing a variable assignment from e.g. malloc(N), there will
-    // probably be a cast of some kind. Ignore it.
+    // probably be a cast of some kind. In exotic cases, we might also see a
+    // top-level ExprWithCleanups. Ignore them either way.
+    if (const auto *EC = dyn_cast<ExprWithCleanups>(E))
+      E = EC->getSubExpr()->IgnoreParens();
+
     if (const auto *Cast = dyn_cast<CastExpr>(E))
       E = Cast->getSubExpr()->IgnoreParens();
 
@@ -4383,6 +4395,7 @@ static bool HandleConstructorCall(const Expr *E, const LValue &This,
 #endif
   for (const auto *I : Definition->inits()) {
     LValue Subobject = This;
+    LValue SubobjectParent = This;
     APValue *Value = &Result;
 
     // Determine the subobject to initialize.
@@ -4413,7 +4426,8 @@ static bool HandleConstructorCall(const Expr *E, const LValue &This,
     } else if (IndirectFieldDecl *IFD = I->getIndirectMember()) {
       // Walk the indirect field decl's chain to find the object to initialize,
       // and make sure we've initialized every step along it.
-      for (auto *C : IFD->chain()) {
+      auto IndirectFieldChain = IFD->chain();
+      for (auto *C : IndirectFieldChain) {
         FD = cast<FieldDecl>(C);
         CXXRecordDecl *CD = cast<CXXRecordDecl>(FD->getParent());
         // Switch the union field if it differs. This happens if we had
@@ -4429,6 +4443,10 @@ static bool HandleConstructorCall(const Expr *E, const LValue &This,
             *Value = APValue(APValue::UninitStruct(), CD->getNumBases(),
                              std::distance(CD->field_begin(), CD->field_end()));
         }
+        // Store Subobject as its parent before updating it for the last element
+        // in the chain.
+        if (C == IndirectFieldChain.back())
+          SubobjectParent = Subobject;
         if (!HandleLValueMember(Info, I->getInit(), Subobject, FD))
           return false;
         if (CD->isUnion())
@@ -4440,10 +4458,16 @@ static bool HandleConstructorCall(const Expr *E, const LValue &This,
       llvm_unreachable("unknown base initializer kind");
     }
 
+    // Need to override This for implicit field initializers as in this case
+    // This refers to innermost anonymous struct/union containing initializer,
+    // not to currently constructed class.
+    const Expr *Init = I->getInit();
+    ThisOverrideRAII ThisOverride(*Info.CurrentCall, &SubobjectParent,
+                                  isa<CXXDefaultInitExpr>(Init));
     FullExpressionRAII InitScope(Info);
-    if (!EvaluateInPlace(*Value, Info, Subobject, I->getInit()) ||
-        (FD && FD->isBitField() && !truncateBitfieldValue(Info, I->getInit(),
-                                                          *Value, FD))) {
+    if (!EvaluateInPlace(*Value, Info, Subobject, Init) ||
+        (FD && FD->isBitField() &&
+         !truncateBitfieldValue(Info, Init, *Value, FD))) {
       // If we're checking for a potential constant expression, evaluate all
       // initializers even if some of them fail.
       if (!Info.noteFailure())
@@ -5451,9 +5475,8 @@ static bool getBytesReturnedByAllocSizeCall(const ASTContext &Ctx,
                                             llvm::APInt &Result) {
   const AllocSizeAttr *AllocSize = getAllocSizeAttr(Call);
 
-  // alloc_size args are 1-indexed, 0 means not present.
-  assert(AllocSize && AllocSize->getElemSizeParam() != 0);
-  unsigned SizeArgNo = AllocSize->getElemSizeParam() - 1;
+  assert(AllocSize && AllocSize->getElemSizeParam().isValid());
+  unsigned SizeArgNo = AllocSize->getElemSizeParam().getASTIndex();
   unsigned BitsInSizeT = Ctx.getTypeSize(Ctx.getSizeType());
   if (Call->getNumArgs() <= SizeArgNo)
     return false;
@@ -5471,14 +5494,13 @@ static bool getBytesReturnedByAllocSizeCall(const ASTContext &Ctx,
   if (!EvaluateAsSizeT(Call->getArg(SizeArgNo), SizeOfElem))
     return false;
 
-  if (!AllocSize->getNumElemsParam()) {
+  if (!AllocSize->getNumElemsParam().isValid()) {
     Result = std::move(SizeOfElem);
     return true;
   }
 
   APSInt NumberOfElems;
-  // Argument numbers start at 1
-  unsigned NumArgNo = AllocSize->getNumElemsParam() - 1;
+  unsigned NumArgNo = AllocSize->getNumElemsParam().getASTIndex();
   if (!EvaluateAsSizeT(Call->getArg(NumArgNo), NumberOfElems))
     return false;
 
@@ -10421,7 +10443,7 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
   case Expr::DeclRefExprClass: {
     if (isa<EnumConstantDecl>(cast<DeclRefExpr>(E)->getDecl()))
       return NoDiag();
-    const ValueDecl *D = dyn_cast<ValueDecl>(cast<DeclRefExpr>(E)->getDecl());
+    const ValueDecl *D = cast<DeclRefExpr>(E)->getDecl();
     if (Ctx.getLangOpts().CPlusPlus &&
         D && IsConstNonVolatile(D->getType())) {
       // Parameter variables are never constants.  Without this check,

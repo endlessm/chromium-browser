@@ -4,26 +4,45 @@
 
 #include "chrome/browser/notifications/notification_platform_bridge_chromeos.h"
 
+#include "base/callback_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/notifications/chrome_ash_message_center_client.h"
+#include "chrome/browser/notifications/notification_display_service_factory.h"
 #include "chrome/browser/notifications/notification_display_service_impl.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/app_icon_loader.h"
+#include "components/keyed_service/content/browser_context_keyed_service_shutdown_notifier_factory.h"
 #include "ui/gfx/image/image.h"
 
 namespace {
 
-// TODO(estade): remove this function. NotificationPlatformBridge should either
-// get Profile* pointers or, longer term, all profile management should be moved
-// up a layer to NativeNotificationDisplayService.
-Profile* GetProfileFromId(const std::string& profile_id, bool incognito) {
-  ProfileManager* manager = g_browser_process->profile_manager();
-  Profile* profile =
-      manager->GetProfile(manager->user_data_dir().AppendASCII(profile_id));
-  return incognito ? profile->GetOffTheRecordProfile() : profile;
-}
+// This class informs NotificationPlatformBridgeChromeOs, which is a singleton,
+// when a profile is being destroyed. This allows the bridge to notify
+// delegates/handlers of the close and remove the notification before the
+// profile is destroyed (otherwise Ash might asynchronously notify the bridge of
+// operations on a notification associated with a profile that has already been
+// destroyed).
+class ProfileShutdownNotifier
+    : public BrowserContextKeyedServiceShutdownNotifierFactory {
+ public:
+  static ProfileShutdownNotifier* GetInstance() {
+    return base::Singleton<ProfileShutdownNotifier>::get();
+  }
+
+ private:
+  friend struct base::DefaultSingletonTraits<ProfileShutdownNotifier>;
+
+  ProfileShutdownNotifier()
+      : BrowserContextKeyedServiceShutdownNotifierFactory(
+            "NotificationDisplayService") {
+    DependsOn(NotificationDisplayServiceFactory::GetInstance());
+  }
+  ~ProfileShutdownNotifier() override {}
+
+  DISALLOW_COPY_AND_ASSIGN(ProfileShutdownNotifier);
+};
 
 }  // namespace
 
@@ -45,33 +64,45 @@ NotificationPlatformBridgeChromeOs::~NotificationPlatformBridgeChromeOs() {}
 
 void NotificationPlatformBridgeChromeOs::Display(
     NotificationHandler::Type notification_type,
-    const std::string& profile_id,
-    bool is_incognito,
+    Profile* profile,
     const message_center::Notification& notification,
     std::unique_ptr<NotificationCommon::Metadata> metadata) {
+  if (profile_shutdown_subscriptions_.find(profile) ==
+      profile_shutdown_subscriptions_.end()) {
+    profile_shutdown_subscriptions_[profile] =
+        ProfileShutdownNotifier::GetInstance()->Get(profile)->Subscribe(
+            base::BindRepeating(
+                &NotificationPlatformBridgeChromeOs::OnProfileDestroying,
+                base::Unretained(this), profile));
+  }
+
   auto active_notification = std::make_unique<ProfileNotification>(
-      GetProfileFromId(profile_id, is_incognito), notification,
-      notification_type);
-  impl_->Display(NotificationHandler::Type::MAX, std::string(), false,
+      profile, notification, notification_type);
+  impl_->Display(NotificationHandler::Type::MAX, nullptr /* profile */,
                  active_notification->notification(), std::move(metadata));
 
   std::string profile_notification_id =
       active_notification->notification().id();
+  active_notifications_.erase(profile_notification_id);
   active_notifications_.emplace(profile_notification_id,
                                 std::move(active_notification));
 }
 
 void NotificationPlatformBridgeChromeOs::Close(
-    const std::string& profile_id,
+    Profile* profile,
     const std::string& notification_id) {
-  impl_->Close(profile_id, notification_id);
+  // TODO(estade): we need |is_incognito| here.
+  const std::string profile_notification_id =
+      ProfileNotification::GetProfileNotificationId(
+          notification_id, NotificationUIManager::GetProfileID(profile));
+
+  impl_->Close(nullptr, profile_notification_id);
 }
 
 void NotificationPlatformBridgeChromeOs::GetDisplayed(
-    const std::string& profile_id,
-    bool incognito,
-    const GetDisplayedNotificationsCallback& callback) const {
-  impl_->GetDisplayed(profile_id, incognito, callback);
+    Profile* profile,
+    GetDisplayedNotificationsCallback callback) const {
+  impl_->GetDisplayed(profile, std::move(callback));
 }
 
 void NotificationPlatformBridgeChromeOs::SetReadyCallback(
@@ -83,7 +114,8 @@ void NotificationPlatformBridgeChromeOs::HandleNotificationClosed(
     const std::string& id,
     bool by_user) {
   auto iter = active_notifications_.find(id);
-  DCHECK(iter != active_notifications_.end());
+  if (iter == active_notifications_.end())
+    return;
   ProfileNotification* notification = iter->second.get();
 
   if (notification->type() == NotificationHandler::Type::TRANSIENT) {
@@ -101,8 +133,12 @@ void NotificationPlatformBridgeChromeOs::HandleNotificationClosed(
 void NotificationPlatformBridgeChromeOs::HandleNotificationClicked(
     const std::string& id) {
   ProfileNotification* notification = GetProfileNotification(id);
+  if (!notification)
+    return;
+
   if (notification->type() == NotificationHandler::Type::TRANSIENT) {
-    notification->notification().delegate()->Click();
+    notification->notification().delegate()->Click(base::nullopt,
+                                                   base::nullopt);
   } else {
     NotificationDisplayServiceImpl::GetForProfile(notification->profile())
         ->ProcessNotificationOperation(
@@ -118,13 +154,11 @@ void NotificationPlatformBridgeChromeOs::HandleNotificationButtonClicked(
     int button_index,
     const base::Optional<base::string16>& reply) {
   ProfileNotification* notification = GetProfileNotification(id);
+  if (!notification)
+    return;
+
   if (notification->type() == NotificationHandler::Type::TRANSIENT) {
-    if (reply) {
-      notification->notification().delegate()->ButtonClickWithReply(
-          button_index, *reply);
-    } else {
-      notification->notification().delegate()->ButtonClick(button_index);
-    }
+    notification->notification().delegate()->Click(button_index, reply);
   } else {
     NotificationDisplayServiceImpl::GetForProfile(notification->profile())
         ->ProcessNotificationOperation(
@@ -137,6 +171,9 @@ void NotificationPlatformBridgeChromeOs::HandleNotificationButtonClicked(
 void NotificationPlatformBridgeChromeOs::
     HandleNotificationSettingsButtonClicked(const std::string& id) {
   ProfileNotification* notification = GetProfileNotification(id);
+  if (!notification)
+    return;
+
   if (notification->type() == NotificationHandler::Type::TRANSIENT) {
     notification->notification().delegate()->SettingsClick();
   } else {
@@ -152,6 +189,9 @@ void NotificationPlatformBridgeChromeOs::
 void NotificationPlatformBridgeChromeOs::DisableNotification(
     const std::string& id) {
   ProfileNotification* notification = GetProfileNotification(id);
+  if (!notification)
+    return;
+
   DCHECK_NE(NotificationHandler::Type::TRANSIENT, notification->type());
   NotificationDisplayServiceImpl::GetForProfile(notification->profile())
       ->ProcessNotificationOperation(NotificationCommon::DISABLE_PERMISSION,
@@ -164,6 +204,20 @@ void NotificationPlatformBridgeChromeOs::DisableNotification(
 ProfileNotification* NotificationPlatformBridgeChromeOs::GetProfileNotification(
     const std::string& profile_notification_id) {
   auto iter = active_notifications_.find(profile_notification_id);
-  DCHECK(iter != active_notifications_.end());
+  if (iter == active_notifications_.end())
+    return nullptr;
   return iter->second.get();
+}
+
+void NotificationPlatformBridgeChromeOs::OnProfileDestroying(Profile* profile) {
+  std::list<std::string> ids_to_close;
+  for (const auto& iter : active_notifications_) {
+    if (iter.second->profile() == profile)
+      ids_to_close.push_back(iter.second->notification().id());
+  }
+
+  for (auto id : ids_to_close)
+    HandleNotificationClosed(id, false);
+
+  profile_shutdown_subscriptions_.erase(profile);
 }

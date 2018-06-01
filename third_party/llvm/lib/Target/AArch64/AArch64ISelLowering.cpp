@@ -38,13 +38,11 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/MachineValueType.h"
 #include "llvm/CodeGen/RuntimeLibcalls.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/CodeGen/TargetCallingConv.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
-#include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
@@ -62,6 +60,7 @@
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Use.h"
 #include "llvm/IR/Value.h"
+#include "llvm/IR/ValueTypes.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CodeGen.h"
@@ -70,6 +69,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/KnownBits.h"
+#include "llvm/Support/MachineValueType.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
@@ -3976,16 +3976,77 @@ AArch64TargetLowering::LowerELFGlobalTLSAddress(SDValue Op,
   return DAG.getNode(ISD::ADD, DL, PtrVT, ThreadBase, TPOff);
 }
 
+SDValue
+AArch64TargetLowering::LowerWindowsGlobalTLSAddress(SDValue Op,
+                                                    SelectionDAG &DAG) const {
+  assert(Subtarget->isTargetWindows() && "Windows specific TLS lowering");
+
+  SDValue Chain = DAG.getEntryNode();
+  EVT PtrVT = getPointerTy(DAG.getDataLayout());
+  SDLoc DL(Op);
+
+  SDValue TEB = DAG.getRegister(AArch64::X18, MVT::i64);
+
+  // Load the ThreadLocalStoragePointer from the TEB
+  // A pointer to the TLS array is located at offset 0x58 from the TEB.
+  SDValue TLSArray =
+      DAG.getNode(ISD::ADD, DL, PtrVT, TEB, DAG.getIntPtrConstant(0x58, DL));
+  TLSArray = DAG.getLoad(PtrVT, DL, Chain, TLSArray, MachinePointerInfo());
+  Chain = TLSArray.getValue(1);
+
+  // Load the TLS index from the C runtime;
+  // This does the same as getAddr(), but without having a GlobalAddressSDNode.
+  // This also does the same as LOADgot, but using a generic i32 load,
+  // while LOADgot only loads i64.
+  SDValue TLSIndexHi =
+      DAG.getTargetExternalSymbol("_tls_index", PtrVT, AArch64II::MO_PAGE);
+  SDValue TLSIndexLo = DAG.getTargetExternalSymbol(
+      "_tls_index", PtrVT, AArch64II::MO_PAGEOFF | AArch64II::MO_NC);
+  SDValue ADRP = DAG.getNode(AArch64ISD::ADRP, DL, PtrVT, TLSIndexHi);
+  SDValue TLSIndex =
+      DAG.getNode(AArch64ISD::ADDlow, DL, PtrVT, ADRP, TLSIndexLo);
+  TLSIndex = DAG.getLoad(MVT::i32, DL, Chain, TLSIndex, MachinePointerInfo());
+  Chain = TLSIndex.getValue(1);
+
+  // The pointer to the thread's TLS data area is at the TLS Index scaled by 8
+  // offset into the TLSArray.
+  TLSIndex = DAG.getNode(ISD::ZERO_EXTEND, DL, PtrVT, TLSIndex);
+  SDValue Slot = DAG.getNode(ISD::SHL, DL, PtrVT, TLSIndex,
+                             DAG.getConstant(3, DL, PtrVT));
+  SDValue TLS = DAG.getLoad(PtrVT, DL, Chain,
+                            DAG.getNode(ISD::ADD, DL, PtrVT, TLSArray, Slot),
+                            MachinePointerInfo());
+  Chain = TLS.getValue(1);
+
+  const GlobalAddressSDNode *GA = cast<GlobalAddressSDNode>(Op);
+  const GlobalValue *GV = GA->getGlobal();
+  SDValue TGAHi = DAG.getTargetGlobalAddress(
+      GV, DL, PtrVT, 0, AArch64II::MO_TLS | AArch64II::MO_HI12);
+  SDValue TGALo = DAG.getTargetGlobalAddress(
+      GV, DL, PtrVT, 0,
+      AArch64II::MO_TLS | AArch64II::MO_PAGEOFF | AArch64II::MO_NC);
+
+  // Add the offset from the start of the .tls section (section base).
+  SDValue Addr =
+      SDValue(DAG.getMachineNode(AArch64::ADDXri, DL, PtrVT, TLS, TGAHi,
+                                 DAG.getTargetConstant(0, DL, MVT::i32)),
+              0);
+  Addr = DAG.getNode(AArch64ISD::ADDlow, DL, PtrVT, Addr, TGALo);
+  return Addr;
+}
+
 SDValue AArch64TargetLowering::LowerGlobalTLSAddress(SDValue Op,
                                                      SelectionDAG &DAG) const {
   const GlobalAddressSDNode *GA = cast<GlobalAddressSDNode>(Op);
-  if (DAG.getTarget().Options.EmulatedTLS)
+  if (DAG.getTarget().useEmulatedTLS())
     return LowerToTLSEmulatedModel(GA, DAG);
 
   if (Subtarget->isTargetDarwin())
     return LowerDarwinGlobalTLSAddress(Op, DAG);
   if (Subtarget->isTargetELF())
     return LowerELFGlobalTLSAddress(Op, DAG);
+  if (Subtarget->isTargetWindows())
+    return LowerWindowsGlobalTLSAddress(Op, DAG);
 
   llvm_unreachable("Unexpected platform trying to use TLS");
 }
@@ -6339,8 +6400,8 @@ static SDValue tryAdvSIMDModImm16(unsigned NewOp, SDValue Op, SelectionDAG &DAG,
 
       if (LHS)
         Mov = DAG.getNode(NewOp, dl, MovTy, *LHS,
-                                DAG.getConstant(Value, dl, MVT::i32),
-                                DAG.getConstant(Shift, dl, MVT::i32));
+                          DAG.getConstant(Value, dl, MVT::i32),
+                          DAG.getConstant(Shift, dl, MVT::i32));
       else
         Mov = DAG.getNode(NewOp, dl, MovTy,
                           DAG.getConstant(Value, dl, MVT::i32),
@@ -6463,14 +6524,13 @@ SDValue AArch64TargetLowering::LowerVectorAND(SDValue Op,
         (NewOp = tryAdvSIMDModImm16(AArch64ISD::BICi, Op, DAG,
                                     DefBits, &LHS)))
       return NewOp;
-    else {
-      DefBits = ~UndefBits;
-      if ((NewOp = tryAdvSIMDModImm32(AArch64ISD::BICi, Op, DAG,
-                                      DefBits, &LHS)) ||
-          (NewOp = tryAdvSIMDModImm16(AArch64ISD::BICi, Op, DAG,
-                                      DefBits, &LHS)))
-        return NewOp;
-    }
+
+    UndefBits = ~UndefBits;
+    if ((NewOp = tryAdvSIMDModImm32(AArch64ISD::BICi, Op, DAG,
+                                    UndefBits, &LHS)) ||
+        (NewOp = tryAdvSIMDModImm16(AArch64ISD::BICi, Op, DAG,
+                                    UndefBits, &LHS)))
+      return NewOp;
   }
 
   // We can always fall back to a non-immediate AND.
@@ -6584,9 +6644,9 @@ SDValue AArch64TargetLowering::LowerVectorOR(SDValue Op,
       return Res;
   }
 
-  SDValue LHS = Op.getOperand(0);
   EVT VT = Op.getValueType();
 
+  SDValue LHS = Op.getOperand(0);
   BuildVectorSDNode *BVN =
       dyn_cast<BuildVectorSDNode>(Op.getOperand(1).getNode());
   if (!BVN) {
@@ -6607,14 +6667,12 @@ SDValue AArch64TargetLowering::LowerVectorOR(SDValue Op,
         (NewOp = tryAdvSIMDModImm16(AArch64ISD::ORRi, Op, DAG,
                                     DefBits, &LHS)))
       return NewOp;
-    else {
-      DefBits = UndefBits;
-      if ((NewOp = tryAdvSIMDModImm32(AArch64ISD::ORRi, Op, DAG,
-                                      DefBits, &LHS)) ||
-          (NewOp = tryAdvSIMDModImm16(AArch64ISD::ORRi, Op, DAG,
-                                      DefBits, &LHS)))
-        return NewOp;
-    }
+
+    if ((NewOp = tryAdvSIMDModImm32(AArch64ISD::ORRi, Op, DAG,
+                                    UndefBits, &LHS)) ||
+        (NewOp = tryAdvSIMDModImm16(AArch64ISD::ORRi, Op, DAG,
+                                    UndefBits, &LHS)))
+      return NewOp;
   }
 
   // We can always fall back to a non-immediate OR.
@@ -6645,25 +6703,13 @@ static SDValue NormalizeBuildVector(SDValue Op,
   return DAG.getBuildVector(VT, dl, Ops);
 }
 
-SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
-                                                 SelectionDAG &DAG) const {
-  SDLoc dl(Op);
+static SDValue ConstantBuildVector(SDValue Op, SelectionDAG &DAG) {
   EVT VT = Op.getValueType();
 
-  Op = NormalizeBuildVector(Op, DAG);
-  BuildVectorSDNode *BVN = cast<BuildVectorSDNode>(Op.getNode());
   APInt DefBits(VT.getSizeInBits(), 0);
   APInt UndefBits(VT.getSizeInBits(), 0);
+  BuildVectorSDNode *BVN = cast<BuildVectorSDNode>(Op.getNode());
   if (resolveBuildVector(BVN, DefBits, UndefBits)) {
-    // Certain magic vector constants (used to express things like NOT
-    // and NEG) are passed through unmodified.  This allows codegen patterns
-    // for these operations to match.  Special-purpose patterns will lower
-    // these immediates to MOVI if it proves necessary.
-    uint64_t DefVal = DefBits.zextOrTrunc(64).getZExtValue();
-    if (DefBits.getHiBits(64) == DefBits.getLoBits(64) &&
-        VT.isInteger() && (DefVal == 0 || DefVal == UINT64_MAX))
-      return Op;
-
     SDValue NewOp;
     if ((NewOp = tryAdvSIMDModImm64(AArch64ISD::MOVIedit, Op, DAG, DefBits)) ||
         (NewOp = tryAdvSIMDModImm32(AArch64ISD::MOVIshift, Op, DAG, DefBits)) ||
@@ -6695,6 +6741,34 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
       return NewOp;
   }
 
+  return SDValue();
+}
+
+SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
+                                                 SelectionDAG &DAG) const {
+  EVT VT = Op.getValueType();
+
+  // Try to build a simple constant vector.
+  Op = NormalizeBuildVector(Op, DAG);
+  if (VT.isInteger()) {
+    // Certain vector constants, used to express things like logical NOT and
+    // arithmetic NEG, are passed through unmodified.  This allows special
+    // patterns for these operations to match, which will lower these constants
+    // to whatever is proven necessary.
+    BuildVectorSDNode *BVN = cast<BuildVectorSDNode>(Op.getNode());
+    if (BVN->isConstant())
+      if (ConstantSDNode *Const = BVN->getConstantSplatNode()) {
+        unsigned BitSize = VT.getVectorElementType().getSizeInBits();
+        APInt Val(BitSize,
+                  Const->getAPIntValue().zextOrTrunc(BitSize).getZExtValue());
+        if (Val.isNullValue() || Val.isAllOnesValue())
+          return Op;
+      }
+  }
+
+  if (SDValue V = ConstantBuildVector(Op, DAG))
+    return V;
+
   // Scan through the operands to find some interesting properties we can
   // exploit:
   //   1) If only one value is used, we can use a DUP, or
@@ -6706,16 +6780,21 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
   //             select the values we'll be overwriting for the non-constant
   //             lanes such that we can directly materialize the vector
   //             some other way (MOVI, e.g.), we can be sneaky.
+  //   5) if all operands are EXTRACT_VECTOR_ELT, check for VUZP.
+  SDLoc dl(Op);
   unsigned NumElts = VT.getVectorNumElements();
   bool isOnlyLowElement = true;
   bool usesOnlyOneValue = true;
   bool usesOnlyOneConstantValue = true;
   bool isConstant = true;
+  bool AllLanesExtractElt = true;
   unsigned NumConstantLanes = 0;
   SDValue Value;
   SDValue ConstantValue;
   for (unsigned i = 0; i < NumElts; ++i) {
     SDValue V = Op.getOperand(i);
+    if (V.getOpcode() != ISD::EXTRACT_VECTOR_ELT)
+      AllLanesExtractElt = false;
     if (V.isUndef())
       continue;
     if (i > 0)
@@ -6746,6 +6825,67 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
     DEBUG(dbgs() << "LowerBUILD_VECTOR: only low element used, creating 1 "
                     "SCALAR_TO_VECTOR node\n");
     return DAG.getNode(ISD::SCALAR_TO_VECTOR, dl, VT, Value);
+  }
+
+  if (AllLanesExtractElt) {
+    SDNode *Vector = nullptr;
+    bool Even = false;
+    bool Odd = false;
+    // Check whether the extract elements match the Even pattern <0,2,4,...> or
+    // the Odd pattern <1,3,5,...>.
+    for (unsigned i = 0; i < NumElts; ++i) {
+      SDValue V = Op.getOperand(i);
+      const SDNode *N = V.getNode();
+      if (!isa<ConstantSDNode>(N->getOperand(1)))
+        break;
+      SDValue N0 = N->getOperand(0);
+
+      // All elements are extracted from the same vector.
+      if (!Vector) {
+        Vector = N0.getNode();
+        // Check that the type of EXTRACT_VECTOR_ELT matches the type of
+        // BUILD_VECTOR.
+        if (VT.getVectorElementType() !=
+            N0.getValueType().getVectorElementType())
+          break;
+      } else if (Vector != N0.getNode()) {
+        Odd = false;
+        Even = false;
+        break;
+      }
+
+      // Extracted values are either at Even indices <0,2,4,...> or at Odd
+      // indices <1,3,5,...>.
+      uint64_t Val = N->getConstantOperandVal(1);
+      if (Val == 2 * i) {
+        Even = true;
+        continue;
+      }
+      if (Val - 1 == 2 * i) {
+        Odd = true;
+        continue;
+      }
+
+      // Something does not match: abort.
+      Odd = false;
+      Even = false;
+      break;
+    }
+    if (Even || Odd) {
+      SDValue LHS =
+          DAG.getNode(ISD::EXTRACT_SUBVECTOR, dl, VT, SDValue(Vector, 0),
+                      DAG.getConstant(0, dl, MVT::i64));
+      SDValue RHS =
+          DAG.getNode(ISD::EXTRACT_SUBVECTOR, dl, VT, SDValue(Vector, 0),
+                      DAG.getConstant(NumElts, dl, MVT::i64));
+
+      if (Even && !Odd)
+        return DAG.getNode(AArch64ISD::UZP1, dl, DAG.getVTList(VT, VT), LHS,
+                           RHS);
+      if (Odd && !Even)
+        return DAG.getNode(AArch64ISD::UZP2, dl, DAG.getVTList(VT, VT), LHS,
+                           RHS);
+    }
   }
 
   // Use DUP for non-constant splats. For f32 constant splats, reduce to
@@ -6799,16 +6939,23 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
   // is better than the default, which will perform a separate initialization
   // for each lane.
   if (NumConstantLanes > 0 && usesOnlyOneConstantValue) {
-    SDValue Val = DAG.getNode(AArch64ISD::DUP, dl, VT, ConstantValue);
+    // Firstly, try to materialize the splat constant.
+    SDValue Vec = DAG.getSplatBuildVector(VT, dl, ConstantValue),
+            Val = ConstantBuildVector(Vec, DAG);
+    if (!Val) {
+      // Otherwise, materialize the constant and splat it.
+      Val = DAG.getNode(AArch64ISD::DUP, dl, VT, ConstantValue);
+      DAG.ReplaceAllUsesWith(Vec.getNode(), &Val);
+    }
+
     // Now insert the non-constant lanes.
     for (unsigned i = 0; i < NumElts; ++i) {
       SDValue V = Op.getOperand(i);
       SDValue LaneIdx = DAG.getConstant(i, dl, MVT::i64);
-      if (!isa<ConstantSDNode>(V) && !isa<ConstantFPSDNode>(V)) {
+      if (!isa<ConstantSDNode>(V) && !isa<ConstantFPSDNode>(V))
         // Note that type legalization likely mucked about with the VT of the
         // source operand, so we may have to convert it here before inserting.
         Val = DAG.getNode(ISD::INSERT_VECTOR_ELT, dl, VT, Val, V, LaneIdx);
-      }
     }
     return Val;
   }
@@ -7373,6 +7520,19 @@ AArch64TargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
   unsigned Align = cast<ConstantSDNode>(Op.getOperand(2))->getZExtValue();
   EVT VT = Node->getValueType(0);
 
+  if (DAG.getMachineFunction().getFunction().hasFnAttribute(
+          "no-stack-arg-probe")) {
+    SDValue SP = DAG.getCopyFromReg(Chain, dl, AArch64::SP, MVT::i64);
+    Chain = SP.getValue(1);
+    SP = DAG.getNode(ISD::SUB, dl, MVT::i64, SP, Size);
+    if (Align)
+      SP = DAG.getNode(ISD::AND, dl, VT, SP.getValue(0),
+                       DAG.getConstant(-(uint64_t)Align, dl, VT));
+    Chain = DAG.getCopyToReg(Chain, dl, AArch64::SP, SP);
+    SDValue Ops[2] = {SP, Chain};
+    return DAG.getMergeValues(Ops, dl);
+  }
+
   Chain = DAG.getCALLSEQ_START(Chain, 0, 0, dl);
 
   Chain = LowerWindowsDYNAMIC_STACKALLOC(Op, Chain, Size, DAG);
@@ -7380,13 +7540,10 @@ AArch64TargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
   SDValue SP = DAG.getCopyFromReg(Chain, dl, AArch64::SP, MVT::i64);
   Chain = SP.getValue(1);
   SP = DAG.getNode(ISD::SUB, dl, MVT::i64, SP, Size);
-  Chain = DAG.getCopyToReg(Chain, dl, AArch64::SP, SP);
-
-  if (Align) {
+  if (Align)
     SP = DAG.getNode(ISD::AND, dl, VT, SP.getValue(0),
                      DAG.getConstant(-(uint64_t)Align, dl, VT));
-    Chain = DAG.getCopyToReg(Chain, dl, AArch64::SP, SP);
-  }
+  Chain = DAG.getCopyToReg(Chain, dl, AArch64::SP, SP);
 
   Chain = DAG.getCALLSEQ_END(Chain, DAG.getIntPtrConstant(0, dl, true),
                              DAG.getIntPtrConstant(0, dl, true), SDValue(), dl);
@@ -7498,6 +7655,33 @@ bool AArch64TargetLowering::getTgtMemIntrinsic(IntrinsicInfo &Info,
   }
 
   return false;
+}
+
+bool AArch64TargetLowering::shouldReduceLoadWidth(SDNode *Load,
+                                                  ISD::LoadExtType ExtTy,
+                                                  EVT NewVT) const {
+  // If we're reducing the load width in order to avoid having to use an extra
+  // instruction to do extension then it's probably a good idea.
+  if (ExtTy != ISD::NON_EXTLOAD)
+    return true;
+  // Don't reduce load width if it would prevent us from combining a shift into
+  // the offset.
+  MemSDNode *Mem = dyn_cast<MemSDNode>(Load);
+  assert(Mem);
+  const SDValue &Base = Mem->getBasePtr();
+  if (Base.getOpcode() == ISD::ADD &&
+      Base.getOperand(1).getOpcode() == ISD::SHL &&
+      Base.getOperand(1).hasOneUse() &&
+      Base.getOperand(1).getOperand(1).getOpcode() == ISD::Constant) {
+    // The shift can be combined if it matches the size of the value being
+    // loaded (and so reducing the width would make it not match).
+    uint64_t ShiftAmount = Base.getOperand(1).getConstantOperandVal(1);
+    uint64_t LoadBytes = Mem->getMemoryVT().getSizeInBits()/8;
+    if (ShiftAmount == Log2_32(LoadBytes))
+      return false;
+  }
+  // We have no reason to disallow reducing the load width, so allow it.
+  return true;
 }
 
 // Truncations from 64-bit GPR to 32-bit GPR is free.
@@ -8112,6 +8296,14 @@ bool AArch64TargetLowering::shouldConvertConstantLoadToIntImm(const APInt &Imm,
   unsigned Shift = (63 - LZ) / 16;
   // MOVZ is free so return true for one or fewer MOVK.
   return Shift < 3;
+}
+
+bool AArch64TargetLowering::isExtractSubvectorCheap(EVT ResVT, EVT SrcVT,
+                                                    unsigned Index) const {
+  if (!isOperationLegalOrCustom(ISD::EXTRACT_SUBVECTOR, ResVT))
+    return false;
+
+  return (Index == 0 || Index == ResVT.getVectorNumElements());
 }
 
 /// Turn vector tests of the signbit in the form of:

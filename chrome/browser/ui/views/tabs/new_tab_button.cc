@@ -12,9 +12,10 @@
 #include "chrome/browser/ui/views/feature_promos/new_tab_promo_bubble_view.h"
 #include "chrome/browser/ui/views/tabs/browser_tab_strip_controller.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
+#include "chrome/grit/theme_resources.h"
 #include "components/feature_engagement/buildflags.h"
 #include "third_party/skia/include/core/SkColorFilter.h"
-#include "third_party/skia/include/effects/SkBlurMaskFilter.h"
+#include "third_party/skia/include/core/SkMaskFilter.h"
 #include "third_party/skia/include/effects/SkLayerDrawLooper.h"
 #include "third_party/skia/include/pathops/SkPathOps.h"
 #include "ui/base/default_theme_provider.h"
@@ -45,6 +46,8 @@ constexpr int kButtonCornerRadius = 12;
 
 constexpr int kDistanceBetweenIcons = 6;
 
+constexpr int kStrokeThickness = 1;
+
 sk_sp<SkDrawLooper> CreateShadowDrawLooper(SkColor color) {
   SkLayerDrawLooper::Builder looper_builder;
   looper_builder.addLayer();
@@ -55,16 +58,26 @@ sk_sp<SkDrawLooper> CreateShadowDrawLooper(SkColor color) {
   layer_info.fColorMode = SkBlendMode::kDst;
   layer_info.fOffset.set(0, 1);
   SkPaint* layer_paint = looper_builder.addLayer(layer_info);
-  layer_paint->setMaskFilter(SkBlurMaskFilter::Make(
-      kNormal_SkBlurStyle, 0.5, SkBlurMaskFilter::kHighQuality_BlurFlag));
+  layer_paint->setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, 0.5));
   layer_paint->setColorFilter(
       SkColorFilter::MakeModeFilter(color, SkBlendMode::kSrcIn));
   return looper_builder.detach();
 }
 
-// Returns true if the touch-optimized UI is enabled.
-bool IsTouchOptimized() {
-  return ui::MaterialDesignController::IsTouchOptimizedUiEnabled();
+// Returns the ID of the resource that should be used for the button fill if
+// any. |has_custom_image| will be set to true if the images of either the
+// tab, the frame background, (or the toolbar if |is_touch_ui| is true) have
+// been customized.
+int GetButtonFillResourceIdIfAny(const TabStrip* tab_strip,
+                                 const ui::ThemeProvider* theme_provider,
+                                 bool is_touch_ui,
+                                 bool* has_custom_image) {
+  if (!is_touch_ui)
+    return tab_strip->GetBackgroundResourceId(has_custom_image);
+
+  constexpr int kTouchBackgroundId = IDR_THEME_TOOLBAR;
+  *has_custom_image = theme_provider->HasCustomImage(kTouchBackgroundId);
+  return kTouchBackgroundId;
 }
 
 }  // namespace
@@ -79,7 +92,7 @@ NewTabButton::NewTabButton(TabStrip* tab_strip, views::ButtonListener* listener)
                               ui::EF_MIDDLE_MOUSE_BUTTON);
 #endif
 
-  if (IsTouchOptimized()) {
+  if (ui::MaterialDesignController::IsTouchOptimizedUiEnabled()) {
     // Initialize the ink drop mode for a ripple highlight on button press.
     ink_drop_container_ = new views::InkDropContainerView();
     AddChildView(ink_drop_container_);
@@ -105,7 +118,7 @@ int NewTabButton::GetTopOffset() {
 
   // In touch-optimized UI, the button is placed vertically exactly in the
   // center of the tabstrip.
-  if (IsTouchOptimized())
+  if (ui::MaterialDesignController::IsTouchOptimizedUiEnabled())
     return extra_vertical_space / 2;
 
   // In the non-touch-optimized UI, the new tab button is placed at a fixed
@@ -221,9 +234,11 @@ void NewTabButton::PaintButtonContents(gfx::Canvas* canvas) {
 
   // Fill.
   SkPath fill;
-  const bool is_touch_ui = IsTouchOptimized();
+  const bool is_touch_ui =
+      ui::MaterialDesignController::IsTouchOptimizedUiEnabled();
   if (is_touch_ui) {
     fill = GetTouchOptimizedButtonPath(0 /* button_y */, scale,
+                                       false /* extend_to_top */,
                                        true /* for_fill */);
   } else {
     // Non-touch optimized fill.
@@ -317,7 +332,7 @@ void NewTabButton::PaintButtonContents(gfx::Canvas* canvas) {
 void NewTabButton::Layout() {
   ImageButton::Layout();
 
-  if (IsTouchOptimized()) {
+  if (ui::MaterialDesignController::IsTouchOptimizedUiEnabled()) {
     // If icons are not initialized, initialize them now. Icons are always
     // initialized together so it's enough to check the |plus_icon_|.
     if (plus_icon_.isNull())
@@ -332,7 +347,7 @@ void NewTabButton::Layout() {
 void NewTabButton::OnThemeChanged() {
   ImageButton::OnThemeChanged();
 
-  if (!IsTouchOptimized())
+  if (!ui::MaterialDesignController::IsTouchOptimizedUiEnabled())
     return;
 
   InitButtonIcons();
@@ -381,8 +396,9 @@ void NewTabButton::GetBorderPath(float button_y,
                                  float scale,
                                  bool extend_to_top,
                                  SkPath* path) const {
-  if (IsTouchOptimized()) {
-    *path = GetTouchOptimizedButtonPath(button_y, scale, false /* for_fill */);
+  if (ui::MaterialDesignController::IsTouchOptimizedUiEnabled()) {
+    *path = GetTouchOptimizedButtonPath(button_y, scale, extend_to_top,
+                                        false /* for_fill */);
     return;
   }
 
@@ -434,18 +450,25 @@ void NewTabButton::PaintFill(bool pressed,
   // For unpressed buttons, draw the fill and its shadow.
   // Note that for touch-optimized UI, we always draw the fill since the button
   // has a flat design with no hover highlight.
-  const bool is_touch_ui = IsTouchOptimized();
+  const bool is_touch_ui =
+      ui::MaterialDesignController::IsTouchOptimizedUiEnabled();
   if (is_touch_ui || !pressed) {
     // First we compute the background image coordinates and scale, in case we
     // need to draw a custom background image.
     const ui::ThemeProvider* tp = GetThemeProvider();
     bool custom_image;
-    const int bg_id = tab_strip_->GetBackgroundResourceId(&custom_image);
+    const int bg_id = GetButtonFillResourceIdIfAny(tab_strip_, tp, is_touch_ui,
+                                                   &custom_image);
     if (custom_image && !new_tab_promo_observer_.IsObservingSources()) {
-      // For custom tab backgrounds the background starts at the top of the tab
-      // strip. Otherwise the background starts at the top of the frame.
-      const int offset_y =
+      // For non-touch, the background starts at |background_offset_| unless
+      // there's a custom tab background image, which starts at the top of
+      // the tabstrip (which is also the top of this button, i.e. y = 0).
+      const int non_touch_offset_y =
           tp->HasCustomImage(bg_id) ? 0 : background_offset_.y();
+      // For touch, the background matches the active tab background
+      // positioning in Tab::PaintTab().
+      const int offset_y =
+          is_touch_ui ? -GetLayoutInsets(TAB).top() : non_touch_offset_y;
       // The new tab background is mirrored in RTL mode, but the theme
       // background should never be mirrored. Mirror it here to compensate.
       float x_scale = 1.0f;
@@ -507,11 +530,14 @@ SkColor NewTabButton::GetButtonFillColor() const {
 
   const ui::ThemeProvider* theme_provider = GetThemeProvider();
   DCHECK(theme_provider);
-  return theme_provider->GetColor(ThemeProperties::COLOR_BACKGROUND_TAB);
+  return theme_provider->GetColor(
+      ui::MaterialDesignController::IsTouchOptimizedUiEnabled()
+          ? ThemeProperties::COLOR_TOOLBAR
+          : ThemeProperties::COLOR_BACKGROUND_TAB);
 }
 
 void NewTabButton::InitButtonIcons() {
-  DCHECK(IsTouchOptimized());
+  DCHECK(ui::MaterialDesignController::IsTouchOptimizedUiEnabled());
 
   const ui::ThemeProvider* theme_provider = GetThemeProvider();
   DCHECK(theme_provider);
@@ -526,31 +552,41 @@ void NewTabButton::InitButtonIcons() {
 
 SkPath NewTabButton::GetTouchOptimizedButtonPath(float button_y,
                                                  float scale,
+                                                 bool extend_to_top,
                                                  bool for_fill) const {
-  DCHECK(IsTouchOptimized());
+  DCHECK(ui::MaterialDesignController::IsTouchOptimizedUiEnabled());
 
   const float radius = kButtonCornerRadius * scale;
   const float rect_width =
       2 * radius +
       (is_incognito_ ? scale * (incognito_icon_.width() + kDistanceBetweenIcons)
                      : 0);
+
   const SkRect button_rect =
       SkRect::MakeXYWH(0, button_y, rect_width, 2 * radius);
-
   SkRRect rrect = SkRRect::MakeRectXY(button_rect, radius, radius);
   // Inset by 1px for a fill path to give room for the stroke to show up. The
   // stroke width is 1px regardless of the device scale factor.
   if (for_fill)
-    rrect.inset(1, 1);
+    rrect.inset(kStrokeThickness, kStrokeThickness);
 
   SkPath path;
   path.addRRect(rrect, SkPath::kCW_Direction);
+
+  if (extend_to_top) {
+    SkPath extension_path;
+    extension_path.addRect(
+        SkRect::MakeXYWH(0, 0, rect_width, button_y + radius),
+        SkPath::kCW_Direction);
+    Op(path, extension_path, kUnion_SkPathOp, &path);
+  }
+
   path.close();
   return path;
 }
 
 void NewTabButton::UpdateInkDropBaseColor() {
-  DCHECK(IsTouchOptimized());
+  DCHECK(ui::MaterialDesignController::IsTouchOptimizedUiEnabled());
 
   set_ink_drop_base_color(color_utils::BlendTowardOppositeLuma(
       GetButtonFillColor(), SK_AlphaOPAQUE));

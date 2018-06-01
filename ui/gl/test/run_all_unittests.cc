@@ -6,7 +6,6 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/test/launcher/unit_test_launcher.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/test/test_suite.h"
@@ -124,7 +123,6 @@ int main(int argc, char** argv) {
   GlTestSuite test_suite(argc, argv);
 
   return base::LaunchUnitTests(
-      argc,
-      argv,
-      base::Bind(&GlTestSuite::Run, base::Unretained(&test_suite)));
+      argc, argv,
+      base::BindOnce(&GlTestSuite::Run, base::Unretained(&test_suite)));
 }

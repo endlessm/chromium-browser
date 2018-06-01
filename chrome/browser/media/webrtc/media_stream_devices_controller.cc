@@ -9,7 +9,6 @@
 
 #include "base/callback_helpers.h"
 #include "base/feature_list.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -37,7 +36,7 @@
 #include "content/public/common/media_stream_request.h"
 #include "content/public/common/origin_util.h"
 #include "extensions/common/constants.h"
-#include "third_party/WebKit/public/mojom/feature_policy/feature_policy.mojom.h"
+#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom.h"
 
 #if defined(OS_ANDROID)
 #include <vector>
@@ -139,22 +138,28 @@ void MediaStreamDevicesController::RequestPermissions(
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
   std::vector<ContentSettingsType> content_settings_types;
 
-  if (controller->ShouldRequestAudio())
-    content_settings_types.push_back(CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC);
-  if (controller->ShouldRequestVideo())
-    content_settings_types.push_back(CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA);
-
   PermissionManager* permission_manager = PermissionManager::Get(profile);
-  bool will_prompt_for_audio =
-      permission_manager
-          ->GetPermissionStatusForFrame(CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC,
-                                        rfh, request.security_origin)
-          .content_setting == CONTENT_SETTING_ASK;
-  bool will_prompt_for_video = permission_manager
-                                   ->GetPermissionStatusForFrame(
-                                       CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA,
-                                       rfh, request.security_origin)
-                                   .content_setting == CONTENT_SETTING_ASK;
+  bool will_prompt_for_audio = false;
+  bool will_prompt_for_video = false;
+
+  if (controller->ShouldRequestAudio()) {
+    content_settings_types.push_back(CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC);
+    will_prompt_for_audio =
+        permission_manager->GetPermissionStatusForFrame(
+                                CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC,
+                                rfh,
+                                request.security_origin).content_setting ==
+        CONTENT_SETTING_ASK;
+  }
+  if (controller->ShouldRequestVideo()) {
+    content_settings_types.push_back(CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA);
+    will_prompt_for_video =
+        permission_manager->GetPermissionStatusForFrame(
+                                CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA,
+                                rfh,
+                                request.security_origin).content_setting ==
+        CONTENT_SETTING_ASK;
+  }
 
   permission_manager->RequestPermissions(
       content_settings_types, rfh, request.security_origin,
@@ -172,28 +177,24 @@ void MediaStreamDevicesController::RequestAndroidPermissionsIfNeeded(
     bool did_prompt_for_video,
     const std::vector<ContentSetting>& responses) {
 #if defined(OS_ANDROID)
-  if (did_prompt_for_audio || did_prompt_for_video) {
-    // If the user was already prompted for mic/camera, we would have requested
-    // Android permission at that point.
-    // TODO(raymes): If we (for example) prompt the user for mic, but camera
-    // has been previously granted, we may return an ALLOW result for camera
-    // even if the Android permission isn't present. See crbug.com/775372.
-    controller->PromptAnsweredGroupedRequest(responses);
-    return;
-  }
-
   // If either audio or video was previously allowed and Chrome no longer has
   // the necessary permissions, show a infobar to attempt to address this
   // mismatch.
   std::vector<ContentSettingsType> content_settings_types;
   // The audio setting will always be the first one in the vector, if it was
   // requested.
-  if (controller->ShouldRequestAudio() &&
+  // If the user was already prompted for mic (|did_prompt_for_audio| flag), we
+  // would have requested Android permission at that point.
+  if (!did_prompt_for_audio &&
+      controller->ShouldRequestAudio() &&
       responses.front() == CONTENT_SETTING_ALLOW) {
     content_settings_types.push_back(CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC);
   }
 
-  if (controller->ShouldRequestVideo() &&
+  // If the user was already prompted for camera (|did_prompt_for_video| flag),
+  // we would have requested Android permission at that point.
+  if (!did_prompt_for_video &&
+      controller->ShouldRequestVideo() &&
       responses.back() == CONTENT_SETTING_ALLOW) {
     content_settings_types.push_back(CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA);
   }

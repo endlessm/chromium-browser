@@ -18,9 +18,6 @@ using AuthenticateUserCallback =
 // to ash.
 class LoginScreenClient : public ash::mojom::LoginScreenClient {
  public:
-  LoginScreenClient();
-  ~LoginScreenClient() override;
-
   // Handles method calls coming from ash into chrome.
   class Delegate {
    public:
@@ -42,13 +39,24 @@ class LoginScreenClient : public ash::mojom::LoginScreenClient {
     // fail if a hander for lock screen apps focus has not been set.
     virtual bool HandleFocusLockScreenApps(bool reverse) = 0;
     virtual void HandleLoginAsGuest() = 0;
+    virtual void HandleLaunchPublicSession(const AccountId& account_id,
+                                           const std::string& locale,
+                                           const std::string& input_method) = 0;
 
    private:
     DISALLOW_COPY_AND_ASSIGN(Delegate);
   };
 
+  LoginScreenClient();
+  ~LoginScreenClient() override;
   static bool HasInstance();
   static LoginScreenClient* Get();
+
+  // Set the object which will handle calls coming from ash.
+  void SetDelegate(Delegate* delegate);
+
+  // Returns an object which can be used to make calls to ash.
+  ash::mojom::LoginScreenPtr& login_screen();
 
   // ash::mojom::LoginScreenClient:
   void AuthenticateUser(
@@ -69,33 +77,11 @@ class LoginScreenClient : public ash::mojom::LoginScreenClient {
   void OnMaxIncorrectPasswordAttempted(const AccountId& account_id) override;
   void FocusLockScreenApps(bool reverse) override;
   void ShowGaiaSignin() override;
-
-  // Wrappers around the mojom::LockScreen interface.
-  void ShowLockScreen(ash::mojom::LoginScreen::ShowLockScreenCallback on_shown);
-  void ShowLoginScreen(
-      ash::mojom::LoginScreen::ShowLoginScreenCallback on_shown);
-  void ShowErrorMessage(int32_t login_attempts,
-                        const std::string& error_text,
-                        const std::string& help_link_text,
-                        int32_t help_topic_id);
-  void ClearErrors();
-  void ShowUserPodCustomIcon(const AccountId& account_id,
-                             ash::mojom::EasyUnlockIconOptionsPtr icon);
-  void HideUserPodCustomIcon(const AccountId& account_id);
-  void SetAuthType(const AccountId& account_id,
-                   proximity_auth::mojom::AuthType auth_type,
-                   const base::string16& initial_value);
-  void LoadUsers(std::vector<ash::mojom::LoginUserInfoPtr> users_list,
-                 bool show_guest);
-  void SetPinEnabledForUser(const AccountId& account_id, bool is_enabled);
-  void HandleFocusLeavingLockScreenApps(bool reverse);
-  void SetDevChannelInfo(const std::string& os_version_label_text,
-                         const std::string& enterprise_info_text,
-                         const std::string& bluetooth_name);
-  void IsReadyForPassword(
-      ash::mojom::LoginScreen::IsReadyForPasswordCallback callback);
-
-  void SetDelegate(Delegate* delegate);
+  void OnRemoveUserWarningShown() override;
+  void RemoveUser(const AccountId& account_id) override;
+  void LaunchPublicSession(const AccountId& account_id,
+                           const std::string& locale,
+                           const std::string& input_method) override;
 
  private:
   // Lock screen mojo service in ash.

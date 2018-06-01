@@ -16,8 +16,6 @@
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ui/ash/launcher/app_window_launcher_controller.h"
 #include "chrome/browser/ui/ash/launcher/arc_app_shelf_id.h"
-#include "chrome/browser/ui/ash/tablet_mode_client.h"
-#include "chrome/browser/ui/ash/tablet_mode_client_observer.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "ui/aura/env_observer.h"
 #include "ui/aura/window_observer.h"
@@ -35,7 +33,6 @@ class Profile;
 class ArcAppWindowLauncherController : public AppWindowLauncherController,
                                        public aura::EnvObserver,
                                        public aura::WindowObserver,
-                                       public TabletModeClientObserver,
                                        public ArcAppListPrefs::Observer,
                                        public arc::ArcSessionManager::Observer {
  public:
@@ -61,9 +58,6 @@ class ArcAppWindowLauncherController : public AppWindowLauncherController,
                          aura::Window* gained_active,
                          aura::Window* lost_active) override;
 
-  // TabletModeClient:
-  void OnTabletModeToggled(bool enabled) override;
-
   // ArcAppListPrefs::Observer:
   void OnAppReadyChanged(const std::string& app_id, bool ready) override;
   void OnAppRemoved(const std::string& app_id) override;
@@ -76,9 +70,9 @@ class ArcAppWindowLauncherController : public AppWindowLauncherController,
       const std::string& label,
       const std::vector<uint8_t>& icon_png_data) override;
   void OnTaskDestroyed(int task_id) override;
-  void OnTaskOrientationLockRequested(
+  void OnTaskOrientationLockRequestedDeprecated(
       int32_t task_id,
-      const arc::mojom::OrientationLock orientation_lock) override;
+      const arc::mojom::OrientationLockDeprecated orientation_lock) override;
   void OnTaskSetActive(int32_t task_id) override;
 
   int active_task_id() const { return active_task_id_; }
@@ -126,7 +120,6 @@ class ArcAppWindowLauncherController : public AppWindowLauncherController,
   ShelfGroupToAppControllerMap app_shelf_group_to_controller_map_;
   std::vector<aura::Window*> observed_windows_;
   Profile* observed_profile_ = nullptr;
-  ScopedObserver<TabletModeClient, TabletModeClientObserver> tablet_observer_;
 
   // The time when the ARC OptIn management check was started. This happens
   // right after user agrees the ToS or in some cases for managed user when ARC

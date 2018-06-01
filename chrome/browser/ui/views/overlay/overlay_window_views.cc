@@ -4,17 +4,63 @@
 
 #include "chrome/browser/ui/views/overlay/overlay_window_views.h"
 
+#include <memory>
+
+#include "base/memory/ptr_util.h"
 #include "chrome/grit/generated_resources.h"
+#include "content/public/browser/picture_in_picture_window_controller.h"
+#include "media/base/video_util.h"
+#include "ui/base/hit_test.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
-#include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
+#include "ui/views/window/non_client_view.h"
 
 // static
-std::unique_ptr<OverlayWindow> OverlayWindow::Create() {
-  return base::WrapUnique(new OverlayWindowViews());
+std::unique_ptr<content::OverlayWindow> content::OverlayWindow::Create(
+    content::PictureInPictureWindowController* controller) {
+  return base::WrapUnique(new OverlayWindowViews(controller));
 }
+
+namespace {
+const int kBorderThickness = 1;
+const int kResizeAreaCornerSize = 16;
+}  // namespace
+
+// OverlayWindow implementation of NonClientFrameView.
+class OverlayWindowFrameView : public views::NonClientFrameView {
+ public:
+  OverlayWindowFrameView() = default;
+  ~OverlayWindowFrameView() override = default;
+
+  // views::NonClientFrameView:
+  gfx::Rect GetBoundsForClientView() const override { return bounds(); }
+  gfx::Rect GetWindowBoundsForClientBounds(
+      const gfx::Rect& client_bounds) const override {
+    return bounds();
+  }
+  int NonClientHitTest(const gfx::Point& point) override {
+    // Outside of the window bounds, do nothing.
+    if (!bounds().Contains(point))
+      return HTNOWHERE;
+
+    // Allow dragging the border of the window to resize. Within the bounds of
+    // the window, allow dragging to reposition the window.
+    int window_component = GetHTComponentForFrame(
+        point, kBorderThickness, kBorderThickness, kResizeAreaCornerSize,
+        kResizeAreaCornerSize, GetWidget()->widget_delegate()->CanResize());
+    return (window_component == HTNOWHERE) ? HTCAPTION : window_component;
+  }
+  void GetWindowMask(const gfx::Size& size, gfx::Path* window_mask) override {}
+  void ResetWindowControls() override {}
+  void UpdateWindowIcon() override {}
+  void UpdateWindowTitle() override {}
+  void SizeConstraintsChanged() override {}
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(OverlayWindowFrameView);
+};
 
 // OverlayWindow implementation of WidgetDelegate.
 class OverlayWindowWidgetDelegate : public views::WidgetDelegate {
@@ -26,14 +72,21 @@ class OverlayWindowWidgetDelegate : public views::WidgetDelegate {
   ~OverlayWindowWidgetDelegate() override = default;
 
   // views::WidgetDelegate:
-  bool CanResize() const override { return false; }
+  bool CanResize() const override { return true; }
   ui::ModalType GetModalType() const override { return ui::MODAL_TYPE_SYSTEM; }
   base::string16 GetWindowTitle() const override {
+    // While the window title is not shown on the window itself, it is used to
+    // identify the window on the system tray.
     return l10n_util::GetStringUTF16(IDS_PICTURE_IN_PICTURE_TITLE_TEXT);
   }
+  bool ShouldShowWindowTitle() const override { return false; }
   void DeleteDelegate() override { delete this; }
   views::Widget* GetWidget() override { return widget_; }
   const views::Widget* GetWidget() const override { return widget_; }
+  views::NonClientFrameView* CreateNonClientFrameView(
+      views::Widget* widget) override {
+    return new OverlayWindowFrameView();
+  }
 
  private:
   // Owns OverlayWindowWidgetDelegate.
@@ -42,66 +95,82 @@ class OverlayWindowWidgetDelegate : public views::WidgetDelegate {
   DISALLOW_COPY_AND_ASSIGN(OverlayWindowWidgetDelegate);
 };
 
-OverlayWindowViews::OverlayWindowViews() {
-  widget_.reset(new views::Widget());
+OverlayWindowViews::OverlayWindowViews(
+    content::PictureInPictureWindowController* controller)
+    : controller_(controller) {
+  views::Widget::InitParams params(views::Widget::InitParams::TYPE_WINDOW);
+  params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+  params.bounds = CalculateAndUpdateBounds();
+  params.keep_on_top = true;
+  params.visible_on_all_workspaces = true;
+  params.remove_standard_frame = true;
+
+  // Set WidgetDelegate for more control over |widget_|.
+  params.delegate = new OverlayWindowWidgetDelegate(this);
+
+  Init(params);
 }
 
 OverlayWindowViews::~OverlayWindowViews() = default;
 
-void OverlayWindowViews::Init() {
-  views::Widget::InitParams params(
-      views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
-  params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-
-  // These bounds are arbitrary. See OverlayWindowWidget for specified
-  // constraints. The initial positioning is on the bottom right quadrant
-  // of the primary display work area.
-  // The size is a temporary placeholder while video size is currently unused.
-  // This should also use the display of the initiating WebContents.
-  // http://crbug/726621
-  gfx::Size size(500, 300);
+gfx::Rect OverlayWindowViews::CalculateAndUpdateBounds() {
   gfx::Rect work_area =
       display::Screen::GetScreen()->GetPrimaryDisplay().work_area();
-  int window_diff_width = work_area.width() - size.width();
-  int window_diff_height = work_area.height() - size.height();
+
+  // Upper bound size of the window is 50% of the display width and height.
+  max_size_ = gfx::Size(work_area.width() / 2, work_area.height() / 2);
+
+  // Lower bound size of the window is a fixed value to allow for minimal sizes
+  // on UI affordances, such as buttons. This is currently a placeholder value.
+  min_size_ = gfx::Size(144, 100);
+
+  // Initial size of the window is always 20% of the display width and height,
+  // constrained by the min and max sizes. Only explicitly update this the first
+  // time |current_size_| is being calculated.
+  // Once |current_size_| is calculated at least once, it should stay within the
+  // bounds of |min_size_| and |max_size_|.
+  if (current_size_.IsEmpty()) {
+    current_size_ = gfx::Size(work_area.width() / 5, work_area.height() / 5);
+    current_size_.set_width(std::min(
+        max_size_.width(), std::max(min_size_.width(), current_size_.width())));
+    current_size_.set_height(
+        std::min(max_size_.height(),
+                 std::max(min_size_.height(), current_size_.height())));
+  }
+
+  // Determine the window size by fitting |natural_size_| within
+  // |current_size_|, keeping to |natural_size_|'s aspect ratio.
+  if (!natural_size_.IsEmpty())
+    current_size_ =
+        media::ScaleSizeToFitWithinTarget(natural_size_, current_size_);
+
+  // The initial positioning is on the bottom right quadrant
+  // of the primary display work area.
+  int window_diff_width = work_area.width() - current_size_.width();
+  int window_diff_height = work_area.height() - current_size_.height();
+
   // Keep a margin distance of 2% the average of the two window size
   // differences, keeping the margins consistent.
   int buffer = (window_diff_width + window_diff_height) / 2 * 0.02;
-  params.bounds = gfx::Rect(
+  return gfx::Rect(
       gfx::Point(window_diff_width - buffer, window_diff_height - buffer),
-      size);
-
-  params.keep_on_top = true;
-  params.visible_on_all_workspaces = true;
-
-  // Set WidgetDelegate for more control over |widget_|.
-  params.delegate = new OverlayWindowWidgetDelegate(widget_.get());
-
-  widget_->Init(params);
+      current_size_);
 }
 
 bool OverlayWindowViews::IsActive() const {
-  return widget_->IsActive();
+  return views::Widget::IsActive();
 }
 
 void OverlayWindowViews::Show() {
-  widget_->Show();
-}
-
-void OverlayWindowViews::Hide() {
-  widget_->Hide();
+  views::Widget::Show();
 }
 
 void OverlayWindowViews::Close() {
-  widget_->Close();
+  views::Widget::Close();
 }
 
-void OverlayWindowViews::Activate() {
-  widget_->Activate();
-}
-
-bool OverlayWindowViews::IsVisible() {
-  return widget_->IsVisible();
+bool OverlayWindowViews::IsVisible() const {
+  return views::Widget::IsVisible();
 }
 
 bool OverlayWindowViews::IsAlwaysOnTop() const {
@@ -109,13 +178,39 @@ bool OverlayWindowViews::IsAlwaysOnTop() const {
 }
 
 ui::Layer* OverlayWindowViews::GetLayer() {
-  return widget_->GetLayer();
-}
-
-gfx::NativeWindow OverlayWindowViews::GetNativeWindow() const {
-  return widget_->GetNativeWindow();
+  return views::Widget::GetLayer();
 }
 
 gfx::Rect OverlayWindowViews::GetBounds() const {
-  return widget_->GetRestoredBounds();
+  return views::Widget::GetRestoredBounds();
+}
+
+void OverlayWindowViews::UpdateVideoSize(const gfx::Size& natural_size) {
+  DCHECK(!natural_size.IsEmpty());
+  natural_size_ = natural_size;
+
+  // Update the views::Widget bounds to adhere to sizing spec.
+  SetBounds(CalculateAndUpdateBounds());
+}
+
+gfx::Size OverlayWindowViews::GetMinimumSize() const {
+  return min_size_;
+}
+
+gfx::Size OverlayWindowViews::GetMaximumSize() const {
+  return max_size_;
+}
+
+void OverlayWindowViews::OnNativeWidgetWorkspaceChanged() {
+  // TODO(apacible): Update sizes and maybe resize the current
+  // Picture-in-Picture window. Currently, switching between workspaces on linux
+  // does not trigger this function. http://crbug.com/819673
+}
+
+void OverlayWindowViews::OnMouseEvent(ui::MouseEvent* event) {
+  if (event->IsOnlyLeftMouseButton() &&
+      event->type() == ui::ET_MOUSE_RELEASED) {
+    controller_->TogglePlayPause();
+    event->SetHandled();
+  }
 }

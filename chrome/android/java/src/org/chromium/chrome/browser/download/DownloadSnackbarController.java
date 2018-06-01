@@ -61,7 +61,8 @@ public class DownloadSnackbarController implements SnackbarManager.SnackbarContr
                 mContext.startActivity(new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS)
                                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             } else {
-                manager.openDownloadedContent(download.downloadInfo, download.systemDownloadId);
+                manager.openDownloadedContent(download.downloadInfo, download.systemDownloadId,
+                        DownloadMetrics.SNACK_BAR);
             }
         } else {
             OfflineContentAggregatorNotificationBridgeUiFactory.instance().openItem(
@@ -93,7 +94,7 @@ public class DownloadSnackbarController implements SnackbarManager.SnackbarContr
         if (getSnackbarManager() == null) return;
         Snackbar snackbar;
         if (getActivity() instanceof CustomTabActivity) {
-            String packageLabel = BuildInfo.getPackageLabel();
+            String packageLabel = BuildInfo.getInstance().hostPackageLabel;
             snackbar = Snackbar.make(mContext.getString(R.string.download_succeeded_message,
                     downloadInfo.getFileName(), packageLabel),
                     this, Snackbar.TYPE_NOTIFICATION, Snackbar.UMA_DOWNLOAD_SUCCEEDED);

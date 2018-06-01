@@ -21,7 +21,7 @@
 #include "content/public/browser/payment_app_provider.h"
 #include "content/public/browser/web_contents.h"
 #include "jni/ServiceWorkerPaymentAppBridge_jni.h"
-#include "third_party/WebKit/public/platform/modules/payments/payment_app.mojom.h"
+#include "third_party/blink/public/platform/modules/payments/payment_app.mojom.h"
 #include "ui/gfx/android/java_bitmap.h"
 
 namespace {
@@ -97,7 +97,7 @@ void OnGotAllPaymentApps(
             ? nullptr
             : gfx::ConvertToJavaBitmap(app_info.second->icon.get()),
         ToJavaArrayOfStrings(env, app_info.second->enabled_methods),
-        jcapabilities,
+        app_info.second->has_explicitly_verified_methods, jcapabilities,
         ToJavaArrayOfStrings(env, preferred_related_application_ids),
         jweb_contents, jcallback);
   }
@@ -107,7 +107,10 @@ void OnGotAllPaymentApps(
         env, ConvertUTF8ToJavaString(env, installable_app.second->name),
         ConvertUTF8ToJavaString(env, installable_app.second->sw_js_url),
         ConvertUTF8ToJavaString(env, installable_app.second->sw_scope),
-        installable_app.second->sw_use_cache, nullptr /* icon */,
+        installable_app.second->sw_use_cache,
+        installable_app.second->icon == nullptr
+            ? nullptr
+            : gfx::ConvertToJavaBitmap(installable_app.second->icon.get()),
         ConvertUTF8ToJavaString(env, installable_app.first.spec()),
         jweb_contents, jcallback);
   }
@@ -308,6 +311,7 @@ static void JNI_ServiceWorkerPaymentAppBridge_GetAllPaymentApps(
     const JavaParamRef<jclass>& jcaller,
     const JavaParamRef<jobject>& jweb_contents,
     const JavaParamRef<jobjectArray>& jmethod_data,
+    jboolean jmay_crawl_for_installable_payment_apps,
     const JavaParamRef<jobject>& jcallback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
@@ -320,6 +324,7 @@ static void JNI_ServiceWorkerPaymentAppBridge_GetAllPaymentApps(
           Profile::FromBrowserContext(web_contents->GetBrowserContext()),
           ServiceAccessType::EXPLICIT_ACCESS),
       ConvertPaymentMethodDataFromJavaToNative(env, jmethod_data),
+      jmay_crawl_for_installable_payment_apps,
       base::BindOnce(&OnGotAllPaymentApps,
                      ScopedJavaGlobalRef<jobject>(env, jweb_contents),
                      ScopedJavaGlobalRef<jobject>(env, jcallback)),
@@ -458,24 +463,28 @@ static void JNI_ServiceWorkerPaymentAppBridge_InstallAndInvokePaymentApp(
     const JavaParamRef<jobjectArray>& jmodifiers,
     const JavaParamRef<jobject>& jcallback,
     const JavaParamRef<jstring>& japp_name,
+    const JavaParamRef<jobject>& jicon,
     const JavaParamRef<jstring>& jsw_js_url,
     const JavaParamRef<jstring>& jsw_scope,
     jboolean juse_cache,
-    const JavaParamRef<jobjectArray>& jmethod_names) {
+    const JavaParamRef<jstring>& jmethod) {
   content::WebContents* web_contents =
       content::WebContents::FromJavaWebContents(jweb_contents);
 
-  std::vector<std::string> enabled_methods;
-  base::android::AppendJavaStringArrayToStringVector(env, jmethod_names,
-                                                     &enabled_methods);
+  SkBitmap icon_bitmap;
+  if (jicon) {
+    icon_bitmap = gfx::CreateSkBitmapFromJavaBitmap(gfx::JavaBitmap(jicon));
+  }
+
   content::PaymentAppProvider::GetInstance()->InstallAndInvokePaymentApp(
       web_contents,
       ConvertPaymentRequestEventDataFromJavaToNative(
           env, jtop_level_origin, jpayment_request_origin, jpayment_request_id,
           jmethod_data, jtotal, jmodifiers),
-      ConvertJavaStringToUTF8(env, japp_name),
+      ConvertJavaStringToUTF8(env, japp_name), icon_bitmap,
       ConvertJavaStringToUTF8(env, jsw_js_url),
-      ConvertJavaStringToUTF8(env, jsw_scope), juse_cache, enabled_methods,
+      ConvertJavaStringToUTF8(env, jsw_scope), juse_cache,
+      ConvertJavaStringToUTF8(env, jmethod),
       base::BindOnce(&OnPaymentAppInvoked,
                      ScopedJavaGlobalRef<jobject>(env, jweb_contents),
                      ScopedJavaGlobalRef<jobject>(env, jcallback)));

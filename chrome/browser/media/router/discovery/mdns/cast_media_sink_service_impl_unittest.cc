@@ -73,7 +73,8 @@ class CastMediaSinkServiceImplTest : public ::testing::Test {
         media_sink_service_impl_(mock_sink_discovered_cb_.Get(),
                                  &observer_,
                                  mock_cast_socket_service_.get(),
-                                 discovery_network_monitor_.get()) {
+                                 discovery_network_monitor_.get(),
+                                 /* allow_all_ips */ false) {
     mock_cast_socket_service_->SetTaskRunnerForTest(mock_time_task_runner_);
   }
 
@@ -569,6 +570,7 @@ TEST_F(CastMediaSinkServiceImplTest, TestOnDialSinkAdded) {
   cast_channel::MockCastSocket socket2;
   socket1.set_id(1);
   socket2.set_id(2);
+  socket2.SetAudioOnly(true);
 
   // Channel 1, 2 opened.
   EXPECT_CALL(*mock_cast_socket_service_,
@@ -590,7 +592,16 @@ TEST_F(CastMediaSinkServiceImplTest, TestOnDialSinkAdded) {
   media_sink_service_impl_.OnDialSinkAdded(dial_sink2);
   base::RunLoop().RunUntilIdle();
   // Verify sink content.
-  EXPECT_EQ(2u, media_sink_service_impl_.current_sinks_map_.size());
+  const auto& sinks_map = media_sink_service_impl_.current_sinks_map_;
+  EXPECT_EQ(2u, sinks_map.size());
+
+  auto sink_it = sinks_map.find(ip_endpoint1);
+  ASSERT_TRUE(sink_it != sinks_map.end());
+  EXPECT_EQ(SinkIconType::CAST, sink_it->second.sink().icon_type());
+
+  sink_it = sinks_map.find(ip_endpoint2);
+  ASSERT_TRUE(sink_it != sinks_map.end());
+  EXPECT_EQ(SinkIconType::CAST_AUDIO, sink_it->second.sink().icon_type());
 }
 
 TEST_F(CastMediaSinkServiceImplTest, TestOnDialSinkAddedSkipsIfNonCastDevice) {

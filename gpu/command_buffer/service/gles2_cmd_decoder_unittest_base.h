@@ -23,12 +23,12 @@
 #include "gpu/command_buffer/service/gles2_cmd_decoder.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder_mock.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder_passthrough.h"
+#include "gpu/command_buffer/service/gles2_query_manager.h"
 #include "gpu/command_buffer/service/gpu_preferences.h"
 #include "gpu/command_buffer/service/gpu_tracer.h"
 #include "gpu/command_buffer/service/image_manager.h"
 #include "gpu/command_buffer/service/mailbox_manager_impl.h"
 #include "gpu/command_buffer/service/program_manager.h"
-#include "gpu/command_buffer/service/query_manager.h"
 #include "gpu/command_buffer/service/renderbuffer_manager.h"
 #include "gpu/command_buffer/service/sampler_manager.h"
 #include "gpu/command_buffer/service/service_discardable_manager.h"
@@ -47,6 +47,7 @@ namespace gpu {
 namespace gles2 {
 
 class MemoryTracker;
+class MockCopyTextureResourceManager;
 
 class GLES2DecoderTestBase : public ::testing::TestWithParam<bool>,
                              public DecoderClient {
@@ -365,6 +366,14 @@ class GLES2DecoderTestBase : public ::testing::TestWithParam<bool>,
                     GLenum type,
                     uint32_t shared_memory_id,
                     uint32_t shared_memory_offset);
+  void DoCopyTexImage2D(GLenum target,
+                        GLint level,
+                        GLenum internal_format,
+                        GLint x,
+                        GLint y,
+                        GLsizei width,
+                        GLsizei height,
+                        GLint border);
   void DoRenderbufferStorage(
       GLenum target, GLenum internal_format, GLenum actual_format,
       GLsizei width, GLsizei height, GLenum error);
@@ -797,6 +806,8 @@ class GLES2DecoderTestBase : public ::testing::TestWithParam<bool>,
   scoped_refptr<ContextGroup> group_;
   MockGLStates gl_states_;
   base::MessageLoop message_loop_;
+
+  MockCopyTextureResourceManager* copy_texture_manager_;  // not owned
 };
 
 class GLES2DecoderWithShaderTestBase : public GLES2DecoderTestBase {

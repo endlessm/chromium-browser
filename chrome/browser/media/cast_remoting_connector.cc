@@ -13,11 +13,12 @@
 #include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
-#include "chrome/browser/media/cast_remoting_sender.h"
 #include "chrome/browser/media/router/media_router.h"
 #include "chrome/browser/media/router/media_router_factory.h"
+#include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/common/chrome_features.h"
+#include "components/mirroring/browser/cast_remoting_sender.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -39,9 +40,9 @@ class CastRemotingConnector::RemotingBridge : public media::mojom::Remoter {
                  CastRemotingConnector* connector)
       : source_(std::move(source)), connector_(connector) {
     DCHECK(connector_);
-    source_.set_connection_error_handler(base::Bind(
-        &RemotingBridge::Stop, base::Unretained(this),
-        RemotingStopReason::SOURCE_GONE));
+    source_.set_connection_error_handler(
+        base::BindOnce(&RemotingBridge::Stop, base::Unretained(this),
+                       RemotingStopReason::SOURCE_GONE));
     connector_->RegisterBridge(this);
   }
 
@@ -129,8 +130,10 @@ CastRemotingConnector* CastRemotingConnector::Get(
   if (!connector) {
     // TODO(xjz): Use TabAndroid::GetAndroidId() to get the tab ID when support
     // remoting on Android.
-    const SessionID::id_type tab_id = SessionTabHelper::IdForTab(contents);
-    if (tab_id == -1)
+    const SessionID tab_id = SessionTabHelper::IdForTab(contents);
+    if (!tab_id.is_valid())
+      return nullptr;
+    if (!media_router::MediaRouterEnabled(contents->GetBrowserContext()))
       return nullptr;
     connector = new CastRemotingConnector(
         media_router::MediaRouterFactory::GetApiForBrowserContext(
@@ -157,7 +160,7 @@ void CastRemotingConnector::CreateMediaRemoter(
 }
 
 CastRemotingConnector::CastRemotingConnector(media_router::MediaRouter* router,
-                                             int32_t tab_id)
+                                             SessionID tab_id)
     : media_router_(router),
       tab_id_(tab_id),
       active_bridge_(nullptr),
@@ -190,10 +193,10 @@ void CastRemotingConnector::ConnectToService(
   VLOG(2) << __func__;
 
   binding_.Bind(std::move(source_request));
-  binding_.set_connection_error_handler(base::Bind(
+  binding_.set_connection_error_handler(base::BindOnce(
       &CastRemotingConnector::OnMirrorServiceStopped, base::Unretained(this)));
   remoter_ = std::move(remoter);
-  remoter_.set_connection_error_handler(base::Bind(
+  remoter_.set_connection_error_handler(base::BindOnce(
       &CastRemotingConnector::OnMirrorServiceStopped, base::Unretained(this)));
 }
 
@@ -324,16 +327,16 @@ void CastRemotingConnector::OnDataStreamsStarted(
   }
 
   if (audio_sender_request.is_pending() && audio_stream_id > -1) {
-    cast::CastRemotingSender::FindAndBind(
+    mirroring::CastRemotingSender::FindAndBind(
         audio_stream_id, std::move(audio_pipe), std::move(audio_sender_request),
-        base::Bind(&CastRemotingConnector::OnDataSendFailed,
-                   weak_factory_.GetWeakPtr()));
+        base::BindOnce(&CastRemotingConnector::OnDataSendFailed,
+                       weak_factory_.GetWeakPtr()));
   }
   if (video_sender_request.is_pending() && video_stream_id > -1) {
-    cast::CastRemotingSender::FindAndBind(
+    mirroring::CastRemotingSender::FindAndBind(
         video_stream_id, std::move(video_pipe), std::move(video_sender_request),
-        base::Bind(&CastRemotingConnector::OnDataSendFailed,
-                   weak_factory_.GetWeakPtr()));
+        base::BindOnce(&CastRemotingConnector::OnDataSendFailed,
+                       weak_factory_.GetWeakPtr()));
   }
 }
 

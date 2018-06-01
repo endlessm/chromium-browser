@@ -21,23 +21,19 @@
 #include "components/nacl/common/buildflags.h"
 #include "components/rappor/public/interfaces/rappor_recorder.mojom.h"
 #include "components/safe_browsing/common/safe_browsing.mojom.h"
-#include "components/spellcheck/spellcheck_build_features.h"
+#include "components/spellcheck/spellcheck_buildflags.h"
 #include "content/public/renderer/content_renderer_client.h"
 #include "content/public/renderer/render_thread.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "ipc/ipc_channel_proxy.h"
-#include "media/media_features.h"
-#include "ppapi/features/features.h"
-#include "printing/features/features.h"
+#include "media/media_buildflags.h"
+#include "ppapi/buildflags/buildflags.h"
+#include "printing/buildflags/buildflags.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "services/service_manager/public/cpp/local_interface_provider.h"
 #include "services/service_manager/public/cpp/service.h"
 #include "v8/include/v8.h"
-
-#if defined (OS_CHROMEOS)
-#include "chrome/renderer/leak_detector/leak_detector_remote_client.h"
-#endif
 
 #if defined(OS_WIN)
 #include "chrome/common/conflicts/module_event_sink_win.mojom.h"
@@ -52,6 +48,7 @@ class PrescientNetworkingDispatcher;
 #if BUILDFLAG(ENABLE_SPELLCHECK)
 class SpellCheck;
 #endif
+class ThreadProfiler;
 
 namespace content {
 class BrowserPluginDelegate;
@@ -142,9 +139,15 @@ class ChromeContentRendererClient
       std::string* error_html,
       base::string16* error_description) override;
 
+  void GetErrorDescription(const blink::WebURLRequest& failed_request,
+                           const blink::WebURLError& error,
+                           base::string16* error_description) override;
+
   void DeferMediaLoad(content::RenderFrame* render_frame,
                       bool has_played_media_before,
                       const base::Closure& closure) override;
+  void PostIOThreadCreated(
+      base::SingleThreadTaskRunner* io_thread_task_runner) override;
   void PostCompositorThreadCreated(
       base::SingleThreadTaskRunner* compositor_thread_task_runner) override;
   bool RunIdleHandlerWhenWidgetsHidden() override;
@@ -156,11 +159,12 @@ class ChromeContentRendererClient
                   bool is_initial_navigation,
                   bool is_server_redirect,
                   bool* send_referrer) override;
-  bool WillSendRequest(
-      blink::WebLocalFrame* frame,
-      ui::PageTransition transition_type,
-      const blink::WebURL& url,
-      GURL* new_url) override;
+  void WillSendRequest(blink::WebLocalFrame* frame,
+                       ui::PageTransition transition_type,
+                       const blink::WebURL& url,
+                       const url::Origin* initiator_origin,
+                       GURL* new_url,
+                       bool* attach_same_site_cookies) override;
   bool IsPrefetchOnly(content::RenderFrame* render_frame,
                       const blink::WebURLRequest& request) override;
   unsigned long long VisitedLinkHash(const char* canonical_url,
@@ -171,13 +175,13 @@ class ChromeContentRendererClient
       const content::RenderFrame* render_frame,
       blink::mojom::PageVisibilityState* override_state) override;
   bool IsExternalPepperPlugin(const std::string& module_name) override;
+  bool IsOriginIsolatedPepperPlugin(const base::FilePath& plugin_path) override;
   std::unique_ptr<blink::WebSocketHandshakeThrottle>
   CreateWebSocketHandshakeThrottle() override;
   std::unique_ptr<blink::WebSpeechSynthesizer> OverrideSpeechSynthesizer(
       blink::WebSpeechSynthesizerClient* client) override;
   bool ShouldReportDetailedMessageForSource(
       const base::string16& source) const override;
-  bool ShouldGatherSiteIsolationStats() const override;
   std::unique_ptr<blink::WebContentSettingsClient>
   CreateWorkerContentSettingsClient(
       content::RenderFrame* render_frame) override;
@@ -191,6 +195,7 @@ class ChromeContentRendererClient
   bool IsPluginAllowedToUseCompositorAPI(const GURL& url) override;
   content::BrowserPluginDelegate* CreateBrowserPluginDelegate(
       content::RenderFrame* render_frame,
+      const content::WebPluginInfo& info,
       const std::string& mime_type,
       const GURL& original_url) override;
   void RecordRappor(const std::string& metric,
@@ -279,6 +284,10 @@ class ChromeContentRendererClient
                                 std::string* error_html,
                                 base::string16* error_description);
 
+  void GetErrorDescriptionInternal(const blink::WebURLRequest& failed_request,
+                                   const error_page::Error& error,
+                                   base::string16* error_description);
+
   // Time at which this object was created. This is very close to the time at
   // which the RendererMain function was entered.
   base::TimeTicks main_entry_time_;
@@ -294,6 +303,9 @@ class ChromeContentRendererClient
 #endif
 
   service_manager::Connector* GetConnector();
+
+  // Used to profile main thread.
+  std::unique_ptr<ThreadProfiler> main_thread_profiler_;
 
   rappor::mojom::RapporRecorderPtr rappor_recorder_;
 
@@ -322,10 +334,6 @@ class ChromeContentRendererClient
 #if BUILDFLAG(ENABLE_PLUGINS)
   std::set<std::string> allowed_camera_device_origins_;
   std::set<std::string> allowed_compositor_origins_;
-#endif
-
-#if defined(OS_CHROMEOS)
-  std::unique_ptr<LeakDetectorRemoteClient> leak_detector_remote_client_;
 #endif
 
 #if defined(OS_WIN)

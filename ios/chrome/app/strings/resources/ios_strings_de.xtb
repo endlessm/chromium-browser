@@ -137,6 +137,7 @@ Einige Websites reagieren möglicherweise auf die Anfrage, indem sie Anzeigen ei
 <translation id="3393920035788932672">Pop-ups erlaubt</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> Min.</translation>
 <translation id="3448016392200048164">Geteilte Ansicht</translation>
+<translation id="3469166899695866866">Download beenden?</translation>
 <translation id="3474624961160222204">Als "<ph name="NAME" />" fortfahren</translation>
 <translation id="3474649192738347024">Formulare ausgefüllt</translation>
 <translation id="3478058380795961209">Ablaufmonat</translation>
@@ -159,6 +160,7 @@ Einige Websites reagieren möglicherweise auf die Anfrage, indem sie Anzeigen ei
 <translation id="3789841737615482174">Installieren</translation>
 <translation id="385051799172605136">Zurück</translation>
 <translation id="3897092660631435901">Menü</translation>
+<translation id="3915450441834151894">Websiteinformationen</translation>
 <translation id="3928666092801078803">Daten zusammenführen</translation>
 <translation id="3950820424414687140">Anmelden</translation>
 <translation id="3963231839620026525">Neuer Inkognito-Tab</translation>
@@ -167,6 +169,7 @@ Einige Websites reagieren möglicherweise auf die Anfrage, indem sie Anzeigen ei
 <translation id="4002066346123236978">Titel</translation>
 <translation id="4038354071007134711">Keine App zum Öffnen der Datei auf diesem Gerät</translation>
 <translation id="4049507953662678203">Überprüfen Sie Ihre Netzwerkverbindung und versuchen Sie es noch einmal.</translation>
+<translation id="4084682180776658562">Lesezeichen</translation>
 <translation id="411254640334432676">Fehler beim Download</translation>
 <translation id="4121993058175073134">Zum Senden von Exportdaten E-Mail-Konto in App "Einstellungen" konfigurieren</translation>
 <translation id="4124987746317609294">Zeitraum</translation>
@@ -191,6 +194,7 @@ Einige Websites reagieren möglicherweise auf die Anfrage, indem sie Anzeigen ei
 <translation id="4536418791685807335">Melden Sie sich noch einmal an.</translation>
 <translation id="457386861538956877">Mehr...</translation>
 <translation id="461440297010471931">Mit Google suchen</translation>
+<translation id="4619615317237390068">Tabs von anderen Geräten</translation>
 <translation id="4620246317052452550">Seiten, die Sie gelesen haben</translation>
 <translation id="4636930964841734540">Info</translation>
 <translation id="4659667755519643272">Tab-Wechsler starten</translation>
@@ -221,6 +225,7 @@ Ihre Daten sind mit Ihrer Synchronisierungspassphrase verschlüsselt. Geben Sie 
 <translation id="5197255632782567636">Internet</translation>
 <translation id="5228579091201413441">Synchronisierung aktivieren</translation>
 <translation id="5244474230056479698">Mit <ph name="EMAIL" /> synchronisieren</translation>
+<translation id="527973086555161537">Öffnet einen Tab zum anonymen Surfen im Web.</translation>
 <translation id="5300589172476337783">Anzeigen</translation>
 <translation id="5317780077021120954">Speichern</translation>
 <translation id="5327248766486351172">Name</translation>
@@ -319,6 +324,7 @@ Ihre Daten wurden am <ph name="TIME" /> mit Ihrer Synchronisierungspassphrase ve
 <translation id="6914783257214138813">Ihre Passwörter sind für jeden zugänglich, der die exportierte Passwortdatei aufrufen kann.</translation>
 <translation id="6945221475159498467">Auswählen</translation>
 <translation id="6973630695168034713">Ordner</translation>
+<translation id="6979158407327259162">Google Drive</translation>
 <translation id="7004499039102548441">Zuletzt geöffnete Tabs</translation>
 <translation id="7006788746334555276">Inhaltseinstellungen</translation>
 <translation id="7029809446516969842">Passwörter</translation>
@@ -370,16 +376,20 @@ Ihre Daten wurden am <ph name="TIME" /> mit Ihrer Synchronisierungspassphrase ve
 <translation id="7971521879845308059">Pop-ups blockieren</translation>
 <translation id="7982789257301363584">Netzwerk</translation>
 <translation id="8019783059653722575">Dadurch können Sie Fotos speichern und hochladen.</translation>
+<translation id="802154636333426148">Downloadfehler</translation>
 <translation id="8023878949384262191">Maximiert den Abschnitt</translation>
 <translation id="8059533439631660104">Abschnitt minimieren</translation>
 <translation id="806745655614357130">Daten getrennt halten</translation>
+<translation id="8073670137947914548">Download abgeschlossen</translation>
 <translation id="8076014560081431679">Gespeicherte Website-Einstellungen werden nicht gelöscht und können möglicherweise Ihre Surfgewohnheiten wiedergeben. <ph name="BEGIN_LINK" />Weitere Informationen<ph name="END_LINK" /></translation>
 <translation id="8080028325999236607">Alle Tabs schließen</translation>
+<translation id="8114753159095730575">Dateidownload verfügbar. Optionen stehen unten auf dem Bildschirm zur Verfügung.</translation>
 <translation id="8205564605687841303">Abbrechen</translation>
 <translation id="8225985093977202398">Bilder &amp; Dateien im Cache</translation>
 <translation id="8261506727792406068">Löschen</translation>
 <translation id="8272426682713568063">Kreditkarten</translation>
 <translation id="8281781826761538115">Standard: <ph name="DEFAULT_LOCALE" /></translation>
+<translation id="8328777765163860529">Alle schließen</translation>
 <translation id="8381750437846184350">Festlegen, wie Google Ihren Browserverlauf nutzt, um die Suche, Werbung und andere Google-Dienste zu personalisieren</translation>
 <translation id="842017693807136194">Angemeldet mit</translation>
 <translation id="8428045167754449968">Stadt/Ort</translation>
@@ -422,7 +432,6 @@ Ihre Daten wurden am <ph name="TIME" /> mit Ihrer Synchronisierungspassphrase ve
 <translation id="9083392325882095631">1 Element</translation>
 <translation id="9100610230175265781">Passphrase erforderlich</translation>
 <translation id="9148126808321036104">Erneut anmelden</translation>
-<translation id="915371508759614899">Download abbrechen?</translation>
 <translation id="9157836665414082580">Dialogfelder unterdrücken</translation>
 <translation id="9188680907066685419">Von verwaltetem Konto abmelden</translation>
 <translation id="9203116392574189331">Handoff</translation>

@@ -16,8 +16,8 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_process_host.h"
-#include "extensions/features/features.h"
-#include "ppapi/features/features.h"
+#include "extensions/buildflags/buildflags.h"
+#include "ppapi/buildflags/buildflags.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "extensions/browser/process_map.h"
@@ -36,6 +36,15 @@ ChromeStabilityMetricsProvider::ChromeStabilityMetricsProvider(
       helper_(local_state) {
   BrowserChildProcessObserver::Add(this);
 
+  registrar_.Add(this, content::NOTIFICATION_LOAD_START,
+                 content::NotificationService::AllSources());
+  registrar_.Add(this, content::NOTIFICATION_RENDERER_PROCESS_CLOSED,
+                 content::NotificationService::AllSources());
+  registrar_.Add(this, content::NOTIFICATION_RENDER_WIDGET_HOST_HANG,
+                 content::NotificationService::AllSources());
+  registrar_.Add(this, content::NOTIFICATION_RENDERER_PROCESS_CREATED,
+                 content::NotificationService::AllSources());
+
 #if defined(OS_ANDROID)
   auto* crash_manager = breakpad::CrashDumpManager::GetInstance();
   DCHECK(crash_manager);
@@ -44,26 +53,14 @@ ChromeStabilityMetricsProvider::ChromeStabilityMetricsProvider(
 }
 
 ChromeStabilityMetricsProvider::~ChromeStabilityMetricsProvider() {
+  registrar_.RemoveAll();
   BrowserChildProcessObserver::Remove(this);
 }
 
 void ChromeStabilityMetricsProvider::OnRecordingEnabled() {
-  registrar_.Add(this,
-                 content::NOTIFICATION_LOAD_START,
-                 content::NotificationService::AllSources());
-  registrar_.Add(this,
-                 content::NOTIFICATION_RENDERER_PROCESS_CLOSED,
-                 content::NotificationService::AllSources());
-  registrar_.Add(this,
-                 content::NOTIFICATION_RENDER_WIDGET_HOST_HANG,
-                 content::NotificationService::AllSources());
-  registrar_.Add(this,
-                 content::NOTIFICATION_RENDERER_PROCESS_CREATED,
-                 content::NotificationService::AllSources());
 }
 
 void ChromeStabilityMetricsProvider::OnRecordingDisabled() {
-  registrar_.RemoveAll();
 }
 
 void ChromeStabilityMetricsProvider::ProvideStabilityMetrics(

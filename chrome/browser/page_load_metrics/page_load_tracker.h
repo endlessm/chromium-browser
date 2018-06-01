@@ -169,7 +169,8 @@ class PageLoadTracker : public PageLoadMetricsUpdateDispatcher::Client {
 
   // PageLoadMetricsUpdateDispatcher::Client implementation:
   void OnTimingChanged() override;
-  void OnSubFrameTimingChanged(const mojom::PageLoadTiming& timing) override;
+  void OnSubFrameTimingChanged(content::RenderFrameHost* rfh,
+                               const mojom::PageLoadTiming& timing) override;
   void OnMainFrameMetadataChanged() override;
   void OnSubframeMetadataChanged() override;
   void UpdateFeaturesUsage(
@@ -270,12 +271,6 @@ class PageLoadTracker : public PageLoadMetricsUpdateDispatcher::Client {
   void MediaStartedPlaying(
       const content::WebContentsObserver::MediaPlayerInfo& video_type,
       bool is_in_main_frame);
-
-  // Invoked on navigations where a navigation delay was added by the
-  // DelayNavigationThrottle. This is a temporary method that will be removed
-  // once the experiment is complete.
-  void OnNavigationDelayComplete(base::TimeDelta scheduled_delay,
-                                 base::TimeDelta actual_delay);
 
   // Informs the observers that the event corresponding to |event_key| has
   // occurred.

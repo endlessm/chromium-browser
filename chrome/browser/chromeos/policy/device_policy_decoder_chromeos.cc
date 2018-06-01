@@ -1006,11 +1006,13 @@ void DecodeGenericPolicies(const em::ChromeDeviceSettingsProto& policy,
   if (policy.has_unaffiliated_arc_allowed()) {
     const em::UnaffiliatedArcAllowedProto& container(
         policy.unaffiliated_arc_allowed());
-    policies->Set(
-        key::kUnaffiliatedArcAllowed, POLICY_LEVEL_MANDATORY,
-        POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD,
-        std::make_unique<base::Value>(container.unaffiliated_arc_allowed()),
-        nullptr);
+    if (container.has_unaffiliated_arc_allowed()) {
+      policies->Set(
+          key::kUnaffiliatedArcAllowed, POLICY_LEVEL_MANDATORY,
+          POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD,
+          std::make_unique<base::Value>(container.unaffiliated_arc_allowed()),
+          nullptr);
+    }
   }
 
   if (policy.has_device_user_policy_loopback_processing_mode()) {
@@ -1049,11 +1051,13 @@ void DecodeGenericPolicies(const em::ChromeDeviceSettingsProto& policy,
   if (policy.has_virtual_machines_allowed()) {
     const em::VirtualMachinesAllowedProto& container(
         policy.virtual_machines_allowed());
-    policies->Set(
-        key::kVirtualMachinesAllowed, POLICY_LEVEL_MANDATORY,
-        POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD,
-        std::make_unique<base::Value>(container.virtual_machines_allowed()),
-        nullptr);
+    if (container.has_virtual_machines_allowed()) {
+      policies->Set(
+          key::kVirtualMachinesAllowed, POLICY_LEVEL_MANDATORY,
+          POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD,
+          std::make_unique<base::Value>(container.virtual_machines_allowed()),
+          nullptr);
+    }
   }
 
   if (policy.has_device_machine_password_change_rate()) {

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
@@ -19,6 +20,7 @@
 #include "ui/gfx/native_widget_types.h"
 
 #if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/apps/intent_helper/apps_navigation_types.h"
 #include "chrome/browser/chromeos/arc/intent_helper/arc_navigation_throttle.h"
 #include "url/gurl.h"
 #endif  // OS_CHROMEOS
@@ -101,9 +103,11 @@ gfx::NativeWindow ShowWebDialog(gfx::NativeView parent,
 // Returns the created window.
 // See ash/public/cpp/shell_window_ids.h for |container_id| values. The window
 // is destroyed when it is closed. See also chrome::ShowWebDialog().
+// |is_minimal_style| means whether the title area of the dialog should be hide.
 gfx::NativeWindow ShowWebDialogInContainer(int container_id,
                                            content::BrowserContext* context,
-                                           ui::WebDialogDelegate* delegate);
+                                           ui::WebDialogDelegate* delegate,
+                                           bool is_minimal_style = false);
 #endif  // defined(OS_CHROMEOS)
 
 // Shows the create chrome app shortcut dialog box.
@@ -155,7 +159,7 @@ void ShowUpdateChromeDialogViews(gfx::NativeWindow parent);
 #if defined(TOOLKIT_VIEWS)
 
 // Creates a toolkit-views based LoginHandler (e.g. HTTP-Auth dialog).
-LoginHandler* CreateLoginHandlerViews(
+scoped_refptr<LoginHandler> CreateLoginHandlerViews(
     net::AuthChallengeInfo* auth_info,
     content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
     const base::Callback<void(const base::Optional<net::AuthCredentials>&)>&
@@ -310,14 +314,16 @@ void ShowChromeCleanerRebootPrompt(
 
 #if defined(OS_CHROMEOS)
 
-// This callback informs the package name of the app selected by the user, along
-// with the reason why the Bubble was closed. The string param must have a valid
-// package name, except when the CloseReason is ERROR or DIALOG_DEACTIVATED, for
-// these cases we return a dummy value which won't be used at all and has no
-// significance.
+// This callback informs the launch name and type of the app selected by the
+// user, along with the reason why the Bubble was closed and whether the
+// decision should be persisted. When the reason is ERROR or DIALOG_DEACTIVATED,
+// the values of the launch name, app type, and persistence boolean are all
+// ignored.
 using IntentPickerResponse =
-    base::Callback<void(const std::string&,
-                        arc::ArcNavigationThrottle::CloseReason)>;
+    base::OnceCallback<void(const std::string&,
+                            chromeos::AppType,
+                            chromeos::IntentPickerCloseReason,
+                            bool should_persist)>;
 
 // TODO(djacobo): Decide whether or not refactor as base::RepeatableCallback.
 // Return a pointer to the IntentPickerBubbleView::ShowBubble method, which in
@@ -328,9 +334,9 @@ using IntentPickerResponse =
 using BubbleShowPtr =
     views::Widget* (*)(views::View*,
                        content::WebContents*,
-                       const std::vector<arc::ArcNavigationThrottle::AppInfo>&,
+                       std::vector<chromeos::IntentPickerAppInfo>,
                        bool disable_display_in_chrome,
-                       const IntentPickerResponse&);
+                       IntentPickerResponse);
 
 BubbleShowPtr ShowIntentPickerBubble();
 

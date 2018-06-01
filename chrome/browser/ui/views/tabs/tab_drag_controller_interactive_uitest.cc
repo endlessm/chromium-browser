@@ -38,6 +38,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "chrome/test/views/scoped_macviews_browser_mode.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_service.h"
@@ -52,6 +53,7 @@
 
 #if defined(USE_AURA)
 #include "ui/aura/client/aura_constants.h"
+#include "ui/aura/env.h"
 #include "ui/aura/test/test_window_delegate.h"
 #include "ui/aura/test/test_windows.h"
 #include "ui/aura/window_targeter.h"
@@ -212,6 +214,16 @@ void TabDragControllerTest::SetWindowFinderForTabStrip(
     std::unique_ptr<WindowFinder> window_finder) {
   ASSERT_TRUE(tab_strip->drag_controller_.get());
   tab_strip->drag_controller_->window_finder_ = std::move(window_finder);
+}
+
+void TabDragControllerTest::SetUp() {
+#if defined(USE_AURA)
+  // This needs to be disabled as it can interfere with when events are
+  // processed. In particular if input throttling is turned on, then when an
+  // event ack runs the event may not have been processed.
+  aura::Env::set_initial_throttle_input_on_resize_for_testing(false);
+#endif
+  InProcessBrowserTest::SetUp();
 }
 
 void TabDragControllerTest::SetUpCommandLine(base::CommandLine* command_line) {
@@ -461,13 +473,11 @@ class DetachToBrowserTabDragControllerTest
     return true;
   }
 
-  bool DragInputToNotifyWhenDone(int x,
-                                 int y,
-                                 const base::Closure& task) {
+  bool DragInputToNotifyWhenDone(int x, int y, base::OnceClosure task) {
     if (input_source() == INPUT_SOURCE_MOUSE)
-      return ui_controls::SendMouseMoveNotifyWhenDone(x, y, task);
+      return ui_controls::SendMouseMoveNotifyWhenDone(x, y, std::move(task));
 #if defined(OS_CHROMEOS)
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, task);
+    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(task));
     event_generator_->MoveTouch(gfx::Point(x, y));
 #else
     NOTREACHED();
@@ -542,6 +552,8 @@ class DetachToBrowserTabDragControllerTest
   Browser* browser() const { return InProcessBrowserTest::browser(); }
 
  private:
+  test::ScopedMacViewsBrowserMode views_mode_{true};
+
 #if defined(OS_CHROMEOS)
   std::unique_ptr<ui::test::EventGenerator> event_generator_;
 #endif
@@ -2375,9 +2387,9 @@ class DetachToBrowserInSeparateDisplayAndCancelTabDragControllerTest
   }
 
   bool DragTabAndExecuteTaskWhenDone(const gfx::Point& position,
-                                     const base::Closure& task) {
-    return ui_controls::SendMouseMoveNotifyWhenDone(
-        position.x(), position.y(), task);
+                                     base::Closure task) {
+    return ui_controls::SendMouseMoveNotifyWhenDone(position.x(), position.y(),
+                                                    std::move(task));
   }
 
   void QuitWhenNotDragging() {

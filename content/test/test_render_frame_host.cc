@@ -30,10 +30,10 @@
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_response_headers.h"
-#include "third_party/WebKit/public/common/frame/frame_policy.h"
-#include "third_party/WebKit/public/platform/WebMixedContentContextType.h"
-#include "third_party/WebKit/public/platform/modules/bluetooth/web_bluetooth.mojom.h"
-#include "third_party/WebKit/public/web/WebTreeScopeType.h"
+#include "third_party/blink/public/common/frame/frame_policy.h"
+#include "third_party/blink/public/platform/modules/bluetooth/web_bluetooth.mojom.h"
+#include "third_party/blink/public/platform/web_mixed_content_context_type.h"
+#include "third_party/blink/public/web/web_tree_scope_type.h"
 #include "ui/base/page_transition_types.h"
 
 namespace content {
@@ -65,6 +65,8 @@ class TestRenderFrameHost::NavigationInterceptor
       const RequestNavigationParams& request_params,
       network::mojom::URLLoaderClientEndpointsPtr url_loader_client_endpoints,
       std::unique_ptr<URLLoaderFactoryBundleInfo> subresource_loader_factories,
+      base::Optional<std::vector<mojom::TransferrableURLLoaderPtr>>
+          subresource_overrides,
       mojom::ControllerServiceWorkerInfoPtr controller_service_worker,
       const base::UnguessableToken& devtools_navigation_token) override {
     frame_host_->GetProcess()->set_did_frame_commit_navigation(true);
@@ -72,7 +74,8 @@ class TestRenderFrameHost::NavigationInterceptor
         head, body_url, common_params, request_params,
         std::move(url_loader_client_endpoints),
         std::move(subresource_loader_factories),
-        std::move(controller_service_worker), devtools_navigation_token);
+        std::move(subresource_overrides), std::move(controller_service_worker),
+        devtools_navigation_token);
   }
 
   void CommitSameDocumentNavigation(
@@ -521,14 +524,14 @@ void TestRenderFrameHost::SendRendererInitiatedNavigationRequest(
             false /* is_form_submission */, GURL() /* searchable_form_url */,
             std::string() /* searchable_form_encoding */, url::Origin(),
             GURL() /* client_side_redirect_url */,
-            nullptr /* devtools_initiator_info */);
+            base::nullopt /* devtools_initiator_info */);
     CommonNavigationParams common_params;
     common_params.url = url;
     common_params.referrer = Referrer(GURL(), blink::kWebReferrerPolicyDefault);
     common_params.transition = ui::PAGE_TRANSITION_LINK;
     common_params.navigation_type = FrameMsg_Navigate_Type::DIFFERENT_DOCUMENT;
     common_params.has_user_gesture = has_user_gesture;
-    BeginNavigation(common_params, std::move(begin_params));
+    BeginNavigation(common_params, std::move(begin_params), nullptr);
   }
 }
 

@@ -7,7 +7,6 @@
 #include "ash/public/cpp/vector_icons/vector_icons.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
-#include "base/memory/ptr_util.h"
 #include "base/task_scheduler/post_task.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/hats/hats_dialog.h"
@@ -156,13 +155,9 @@ bool HatsNotificationController::ShouldShowSurveyToProfile(Profile* profile) {
   return true;
 }
 
-// message_center::NotificationDelegate override:
-void HatsNotificationController::Click() {
-  ButtonClick(0 /* unused */);
-}
-
-// message_center::NotificationDelegate override:
-void HatsNotificationController::ButtonClick(int /* button_index */) {
+void HatsNotificationController::Click(
+    const base::Optional<int>& button_index,
+    const base::Optional<base::string16>& reply) {
   UpdateLastInteractionTime();
 
   // The dialog deletes itslef on close.

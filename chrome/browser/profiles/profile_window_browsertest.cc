@@ -117,7 +117,6 @@ class ProfileWindowBrowserTest : public InProcessBrowserTest {
   ~ProfileWindowBrowserTest() override {}
 
   Browser* OpenGuestBrowser();
-  void CloseBrowser(Browser* browser);
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ProfileWindowBrowserTest);
@@ -130,7 +129,7 @@ Browser* ProfileWindowBrowserTest::OpenGuestBrowser() {
   // does incomplete initialization that would lead to
   // SystemUrlRequestContextGetter being leaked.
   content::WindowedNotificationObserver browser_creation_observer(
-      chrome::NOTIFICATION_BROWSER_WINDOW_READY,
+      chrome::NOTIFICATION_BROWSER_OPENED,
       content::NotificationService::AllSources());
   profiles::SwitchToGuestProfile(ProfileManager::CreateCallback());
 
@@ -152,14 +151,6 @@ Browser* ProfileWindowBrowserTest::OpenGuestBrowser() {
       TemplateURLServiceFactory::GetForProfile(guest));
 
   return browser;
-}
-
-void ProfileWindowBrowserTest::CloseBrowser(Browser* browser) {
-  content::WindowedNotificationObserver window_close_observer(
-      chrome::NOTIFICATION_BROWSER_CLOSED,
-      content::Source<Browser>(browser));
-  browser->window()->Close();
-  window_close_observer.Wait();
 }
 
 IN_PROC_BROWSER_TEST_F(ProfileWindowBrowserTest, OpenGuestBrowser) {
@@ -205,7 +196,7 @@ IN_PROC_BROWSER_TEST_F(ProfileWindowBrowserTest, GuestClearsCookies) {
   cookie = content::GetCookies(guest_profile, url);
   EXPECT_EQ("cookie1", cookie);
 
-  CloseBrowser(guest_browser);
+  CloseBrowserSynchronously(guest_browser);
 
   // Closing the browser has removed the cookie.
   cookie = content::GetCookies(guest_profile, url);

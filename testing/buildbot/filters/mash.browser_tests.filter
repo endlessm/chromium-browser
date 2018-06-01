@@ -11,13 +11,7 @@
 -InitiallyRestored/AcceleratorCommandsFullscreenBrowserTest.*
 -InitiallyRestored/AcceleratorCommandsPlatformAppFullscreenBrowserTest.*
 
-# ChromeVoxPanel directly calls into ash to set panel height.
-# http://crbug.com/628655
--AccessibilityManagerTest.*
--PolicyTest.ScreenMagnifierTypeFull
--PolicyTest.ScreenMagnifierTypeNone
--PolicyTest.UnifiedDesktopEnabledByDefault
--UserTypeInstantiation/AccessibilityManagerUserTypeTest.*
+# Volume adjustment fails.
 -WizardControllerTest.*ChromeVox
 
 # Login constructs ash::FocusRingController and KeyboardDrivenOobeKeyHandler,
@@ -48,6 +42,7 @@
 # Direct access to ash window frames, tablet mode, overview mode, etc.
 -BrowserNonClientFrameViewAshBackButtonTest.*
 -BrowserNonClientFrameViewAshTest.*
+-ExtensionUninstallDialogViewBrowserTest.BookmarkAppWindowAshCrash
 -HostedAppNonClientFrameViewAshTest.*
 -ImmersiveModeControllerAshHostedAppBrowserTest.*
 
@@ -76,6 +71,8 @@
 # aura::CrashInFlightChange::ChangeFailed() when searching PDF.
 -ChromeFindRequestManagerTest.*
 -PDFExtensionTest.*
+-PDFExtensionHitTestTest.*
+-PDFExtensionLoadTest.*
 
 # Need screenshot support. http://crbug.com/754899
 -ChromeScreenshotGrabberBrowserTest.*
@@ -107,6 +104,16 @@
 # ash::Shell access for LogoutConfirmationController
 -DeviceLocalAccountTest.*
 
+# ash::PowerStatus access. https://crbug.com/770866.
+-PowerHandlerTest.*
+
+# DBusThreadManager initialized for testing in chrome is not recognized as
+# initialized in window manager service. https://crbug.com/830816.
+-PowerPolicyInSessionBrowserTest.AllowScreenWakeLocks
+-PowerPolicyInSessionBrowserTest.SetLegacyUserPolicy
+-PowerPolicyInSessionBrowserTest.SetUserPolicy
+-PowerPolicyLoginScreenBrowserTest.SetDevicePolicy
+
 # TODO: Very slow (>25 seconds) and occasional timeouts.
 -ExecuteScriptApiTest/DestructiveScriptTest.*
 
@@ -128,6 +135,9 @@
 -ForceMaximizePolicyFalseTest.*
 -PolicyDisplayRotationDefault/DisplayRotationBootTest.*
 -PolicyDisplayRotationDefault/DisplayRotationDefaultTest.*
+
+# ash::Shell::display_manager() to get display state.
+-PolicyTest.UnifiedDesktopEnabledByDefault
 
 # Failures JS-side.
 -GalleryBrowserTest.*
@@ -168,6 +178,8 @@
 # CalledOnValidSequence() from SchedulerWorkerDelegate::OnMainExit
 -LoginScreenDefaultPolicyInSessionBrowsertest.*
 -LoginScreenDefaultPolicyLoginScreenBrowsertest.*
+-PolicyTest.ScreenMagnifierTypeFull
+-PolicyTest.ScreenMagnifierTypeNone
 
 # Crashes in pre-login phase, probably MagnificationManager not created.
 -MagnificationManagerTest.*
@@ -175,9 +187,8 @@
 # OutputProtection problems:
 # interface_endpoint_client.cc(32) Check failed: !is_valid. The callback passed to OutputProtection::QueryStatus() was never run.
 # binder_registry.h(89) Failed to locate a binder for interface: display::mojom::OutputProtection
--Mojo/ECKEncryptedMediaTest.*
+-ECKEncryptedMediaTest.OutputProtectionTest
 -OutOfProcessPPAPITest.*
--Pepper/ECKEncryptedMediaTest.*
 
 # ash::FocusRingController::SetVisible() from LoginDisplayHostWebUI.
 -MultiAuthEnrollmentScreenTest.*
@@ -234,13 +245,13 @@
 -TaskManagerUtilityProcessBrowserTest.*
 
 # ash::Shell access in test.
--TrayAccessibilityLoginScreenTest.*
 -TrayAccessibilityTestInstance/TrayAccessibilityTest.*
 
 # chromeos::UserAddingScreenImpl::Cancel() uses ash::Shell to enable system tray.
 -UserAddingScreenTest.*
 
 # Virtual keyboard not supported.
+-AccessibilityManagerLoginTest.ResumeSavedPref
 -DefaultKeyboardExtensionBrowserTest.*
 -KeyboardEndToEndTest.*
 -KioskVirtualKeyboardTest.*
@@ -275,6 +286,69 @@
 -WindowOpenApiTest.RemoveLockedFullscreenFromWindow
 -WindowOpenApiTest.RemoveLockedFullscreenFromWindowWithoutPermission
 
+# Flaky segfaults: https://crbug.com/818147
+-ExtensionApiTest.BookmarkManager
+
+# Depends on chrome/browser/media/webrtc; CHECKs in ash::Shell::Get()
+# https://crbug.com/723880
+-MediaRouterIntegrationBrowserTest.*
+-MediaRouterIntegrationOneUABrowserTest.*
+-MediaRouterIntegrationOneUANoReceiverBrowserTest.*
+
 # Segfaults after massive recursion setting ash::kWindowStateTypeKey:
 # crbug.com/824458
 -PresentationReceiverWindowViewBrowserTest.ChromeOSHardwareFullscreenButton
+
+# RenderFrameMetadata observation not supported: https://crbug.com/820974
+-WebViewGuestScrollLatchingTest.ScrollLatchingPreservedInGuests
+-WebViewScrollGuestContent/WebViewScrollGuestContentTest.OverscrollControllerSeesConsumedScrollsInGuest/0
+
+# Viz is not supported, https://crbug.com/827327
+-MSE_ClearKey/EncryptedMediaTest.*
+-MSE_ExternalClearKey/EncryptedMediaTest.*
+-EncryptedMediaTestExperimentalCdmInterface.*
+-AudioPlayerBrowserTestInGuestMode.OpenAudioOnDownloads
+-AutoplayExtensionBrowserTest.AutoplayAllowed
+-MediaEngagementBrowserTest.*
+-MediaEngagementAutoplayBrowserTest.*
+-UnifiedAutoplayBrowserTest.*
+-AutoplayPolicyTest.*
+-ECKEncryptedMediaTest.*
+-ExtensionResourceRequestPolicyTest.Audio
+-ExtensionResourceRequestPolicyTest.Video
+-DeferredMediaBrowserTest.BackgroundMediaIsDeferred
+-DeclarativeNetRequestResourceTypeBrowserTest.Test1/0
+-VideoPlayerBrowserTestInGuestMode.OpenSingleVideoOnDownloads
+-IsolatedAppTest.SubresourceCookieIsolation
+-PageLoadMetricsBrowserTest.*
+-SRC_ExternalClearKey/EncryptedMediaTest.*
+-MultiProfileFileManagerBrowserTest.BasicDownloads
+-ChromeRenderProcessHostBackgroundingTest.ProcessPriorityAfterAudioStopsOnNotVisibleTab
+-ChromeRenderProcessHostBackgroundingTest.ProcessPriorityAfterAudioStartsFromBackgroundTab
+-ChromeRenderProcessHostBackgroundingTest.ProcessPriorityAfterStoppedAudio
+-DirectoryTreeContextMenu/FileManagerBrowserTest.*
+-RestoreGeometry/FileManagerBrowserTest.*
+-OpenAudioFiles/FileManagerBrowserTest.*
+-Delete/FileManagerBrowserTest.*
+-SortColumns/FileManagerBrowserTest.*
+-KeyboardOperations/FileManagerBrowserTest.*
+-Transfer/FileManagerBrowserTest.*
+-GenericTask/FileManagerBrowserTest.*
+-ShowGridView/FileManagerBrowserTest.*
+-Providers/FileManagerBrowserTest.*
+-OpenFileDialog/FileManagerBrowserTest.*
+-FileDisplay/FileManagerBrowserTest.*
+-ExecuteDefaultTaskOnDownloads/FileManagerBrowserTest.*
+-OpenFileDialog/FileManagerBrowserTest.*
+-GearMenu/FileManagerBrowserTest.Test/3
+-GearMenu/FileManagerBrowserTest.Test/0
+-TabindexFocusDownloads/FileManagerBrowserTestWithLegacyEventDispatch.Test/0
+-TabindexFocusDownloads/FileManagerBrowserTestWithLegacyEventDispatch.Test/1
+-DeclarativeNetRequestResourceTypeBrowserTest.Test1/1
+-DeclarativeNetRequestResourceTypeBrowserTest.Test2/0
+-DeclarativeNetRequestResourceTypeBrowserTest.Test2/1
+-MediaEngagementSessionRestoreBrowserTest.RestoredSession_Playback_MEI
+-AutoplayExtensionBrowserTest.*
+
+# https://crbug.com/843760: webm in <object> triggers RegisterFrameSinkId crash
+-*SavePageOriginalVsSavedComparisonTest.CrossSiteObject*

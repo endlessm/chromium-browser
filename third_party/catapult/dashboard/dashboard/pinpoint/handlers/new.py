@@ -6,9 +6,13 @@ import json
 import webapp2
 
 from dashboard.api import api_auth
+from dashboard.common import namespaced_stored_object
 from dashboard.pinpoint.models import change
 from dashboard.pinpoint.models import job as job_module
 from dashboard.pinpoint.models import quest as quest_module
+
+
+_BOT_CONFIGURATIONS = 'bot_configurations'
 
 
 _ERROR_BUG_ID = 'Bug ID must be an integer.'
@@ -22,27 +26,39 @@ class New(webapp2.RequestHandler):
     try:
       self._CreateJob()
     except (api_auth.ApiAuthException, KeyError, TypeError, ValueError) as e:
-      self._WriteErrorMessage(e.message)
+      self.response.set_status(400)
+      self.response.out.write(json.dumps({'error': e.message}))
 
-  def _WriteErrorMessage(self, message):
-    self.response.out.write(json.dumps({'error': message}))
-
+  @api_auth.Authorize
   def _CreateJob(self):
     """Start a new Pinpoint job."""
-    auto_explore = _ParseBool(self.request.get('auto_explore'))
-    bug_id = self.request.get('bug_id')
+    # "configuration" is a special argument that maps to a list of preset
+    # arguments. Pull any arguments from the specified "configuration", if any.
+    configuration = self.request.get('configuration')
+    if configuration:
+      configurations = namespaced_stored_object.Get(_BOT_CONFIGURATIONS)
+      arguments = configurations[configuration]
+    else:
+      arguments = {}
+    # Override the configuration arguments with the API-provided arguments.
+    arguments.update(self.request.params.mixed())
 
     # Validate arguments and convert them to canonical internal representation.
-    quests = _GenerateQuests(self.request.params)
-    bug_id = _ValidateBugId(bug_id)
-    changes = _ValidateChanges(self.request.params)
-    tags = _ValidateTags(self.request.get('tags'))
+    auto_explore = _ParseBool(arguments.get('auto_explore'))
+    comparison_mode = _ValidateComparisonMode(arguments.get('comparison_mode'))
+    quests = _GenerateQuests(arguments)
+    bug_id = _ValidateBugId(arguments.get('bug_id'))
+    changes = _ValidateChanges(arguments)
+    user = _ValidateUser(arguments)
+    tags = _ValidateTags(arguments.get('tags'))
 
     # Create job.
     job = job_module.Job.New(
         arguments=self.request.params.mixed(),
         quests=quests,
         auto_explore=auto_explore,
+        comparison_mode=comparison_mode,
+        user=user,
         bug_id=bug_id,
         tags=tags)
 
@@ -65,6 +81,17 @@ class New(webapp2.RequestHandler):
 
 def _ParseBool(value):
   return value == '1' or value.lower() == 'true'
+
+
+def _ValidateComparisonMode(comparison_mode):
+  if not comparison_mode:
+    return None
+  if comparison_mode == 'functional':
+    return job_module.ComparisonMode.FUNCTIONAL
+  if comparison_mode == 'performance':
+    return job_module.ComparisonMode.PERFORMANCE
+  raise ValueError('`comparison_mode` should be "functional", '
+                   '"performance", or None. Got "%s".' % comparison_mode)
 
 
 def _ValidateTags(tags):
@@ -100,14 +127,14 @@ def _ValidateChanges(arguments):
 
   change_1 = {
       'commits': [{
-          'repository': arguments.get('start_repository'),
+          'repository': arguments.get('repository'),
           'git_hash': arguments.get('start_git_hash')
       }],
   }
 
   change_2 = {
       'commits': [{
-          'repository': arguments.get('end_repository'),
+          'repository': arguments.get('repository'),
           'git_hash': arguments.get('end_git_hash')
       }]
   }
@@ -116,6 +143,10 @@ def _ValidateChanges(arguments):
     change_2['patch'] = arguments.get('patch')
 
   return (change.Change.FromDict(change_1), change.Change.FromDict(change_2))
+
+
+def _ValidateUser(arguments):
+  return arguments.get('user') or api_auth.Email()
 
 
 def _GenerateQuests(arguments):
@@ -133,10 +164,10 @@ def _GenerateQuests(arguments):
   """
   target = arguments.get('target')
   if target in ('telemetry_perf_tests', 'telemetry_perf_webview_tests'):
-    quest_classes = (quest_module.FindIsolate, quest_module.RunTest,
+    quest_classes = (quest_module.FindIsolate, quest_module.RunTelemetryTest,
                      quest_module.ReadHistogramsJsonValue)
   else:
-    quest_classes = (quest_module.FindIsolate, quest_module.RunTest,
+    quest_classes = (quest_module.FindIsolate, quest_module.RunGTest,
                      quest_module.ReadGraphJsonValue)
 
   quests = []

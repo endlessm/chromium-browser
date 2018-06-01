@@ -38,6 +38,9 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
     # Conformance expectations
     # ========================
 
+    self.Fail('conformance/misc/webgl-specific-stencil-settings.html',
+        bug=806557)
+
     # Need to fix test, which uses a bad interpretation of the spec
     self.Fail('conformance/offscreencanvas/offscreencanvas-resize.html',
         bug=754733)
@@ -57,10 +60,12 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
         ['nvidia'], bug=772651)
 
     # All platforms.
-    self.Flaky('conformance2/query/occlusion-query.html', bug=603168)
     self.Fail('conformance2/glsl3/tricky-loop-conditions.html', bug=483282)
     self.Fail('conformance2/glsl3/array-length-side-effects.html',
         bug=2142) # angle bug ID
+    self.Fail('conformance2/attribs/' +
+        'gl-bindAttribLocation-aliasing-inactive.html',
+        bug=829541)
 
     # This test needs to be rewritten to measure its expected
     # performance; it's currently too flaky even on release bots.
@@ -88,12 +93,12 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
         'texturelodoffset.html',
         bug=794335)
 
+    self.Fail('conformance2/sync/sync-webgl-specific.html',
+        ['mac', 'win'], bug=818336)
     self.Fail('conformance2/textures/misc/copy-texture-image-same-texture.html',
         ['mac', 'linux'], bug=809233)
     self.Fail('conformance2/textures/misc/copy-texture-image-same-texture.html',
         ['win', 'nvidia', 'opengl'], bug=809594)
-    self.Fail('conformance2/transform_feedback/simultaneous_binding.html',
-        bug=696345)
     self.Fail('conformance2/uniforms/' +
         'incompatible-texture-type-for-sampler.html',
         bug=809237)
@@ -223,14 +228,97 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
     self.Fail('conformance2/rendering/' +
         'blitframebuffer-srgb-and-linear-drawbuffers.html',
         ['win', 'nvidia', 'opengl'], bug=2355) # ANGLE bug ID
+    self.Fail('conformance2/rendering/clipping-wide-points.html',
+        ['win', 'nvidia', 'opengl'], bug=828572)
+    self.Skip('conformance2/rendering/blitframebuffer-size-overflow.html',
+        ['win', 'nvidia', 'opengl'], bug=830046)
+
+    self.Flaky('deqp/functional/gles3/transformfeedback/*',
+        ['win', ('nvidia', 0x1cb3), 'opengl'], bug=822733)
 
     # Win / AMD
     self.Fail('conformance2/rendering/blitframebuffer-stencil-only.html',
         ['win', 'amd', 'd3d11'], bug=483282) # owner:jmadill
 
-    # Keep a separate set of failures for the R7 240, since it can use a new
-    # and updated driver. The older drivers won't ever get fixes from AMD.
-    # Use ['win', ('amd', 0x6613)] for the R7 240 devices.
+    self.Flaky('deqp/functional/gles3/draw/draw_arrays_instanced.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('deqp/functional/gles3/draw/draw_elements.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('deqp/functional/gles3/draw/draw_range_elements.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('deqp/functional/gles3/draw/random.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('deqp/functional/gles3/samplerobject.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('deqp/functional/gles3/textureshadow/' +
+        '2d_array_nearest_mipmap_linear_less.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('conformance/glsl/bugs/logic-inside-block-without-braces.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('conformance/glsl/functions/glsl-function-mod-float.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('conformance/renderbuffers/' +
+        'depth-renderbuffer-initialization.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('conformance/renderbuffers/renderbuffer-initialization.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('conformance2/glsl3/vector-dynamic-indexing.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('conformance2/renderbuffers/' +
+        'multisampled-depth-renderbuffer-initialization.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('conformance2/textures/canvas_sub_rectangle/' +
+        'tex-2d-rgb9_e5-rgb-half_float.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('conformance2/textures/canvas_sub_rectangle/' +
+        'tex-2d-rgb9_e5-rgb-float.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('conformance2/textures/canvas_sub_rectangle/' +
+        'tex-2d-rgb32f-rgb-float.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('conformance2/textures/misc/' +
+        'copy-texture-image-webgl-specific.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('conformance2/textures/webgl_canvas/' +
+        'tex-3d-rgb5_a1-rgba-unsigned_short_5_5_5_1.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('conformance2/textures/webgl_canvas/' +
+        'tex-3d-rg16f-rg-half_float.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+    self.Flaky('conformance2/textures/webgl_canvas/' +
+        'tex-3d-rgba8ui-rgba_integer-unsigned_byte.html',
+        ['win', 'amd', 'd3d11'], bug=828984)
+
+    # Recent AMD drivers seem to have a regression with 3D textures.
+    self.Fail('conformance2/textures/canvas_sub_rectangle/tex-3d-*',
+        ['win', 'amd', 'd3d11'], bug=2424) # ANGLE bug ID
+    self.Fail('conformance2/textures/image/tex-3d-*',
+        ['win', 'amd', 'd3d11'], bug=2424) # ANGLE bug ID
+    self.Fail('conformance2/textures/image_data/tex-3d-*',
+        ['win', 'amd', 'd3d11'], bug=2424) # ANGLE bug ID
+    self.Fail('conformance2/textures/misc/tex-unpack-params.html',
+        ['win', 'amd', 'd3d11'], bug=2424) # ANGLE bug ID
+    self.Fail('conformance2/textures/video/tex-3d-*',
+        ['win', 'amd', 'd3d11'], bug=2424) # ANGLE bug ID
+    self.Fail('deqp/functional/gles3/shadertexturefunction/*',
+        ['win', 'amd', 'd3d11'], bug=2424) # ANGLE bug ID
+    self.Fail('deqp/functional/gles3/texturefiltering/3d_*',
+        ['win', 'amd', 'd3d11'], bug=2424) # ANGLE bug ID
+    self.Fail('deqp/functional/gles3/texturespecification/' +
+        'basic_teximage3d_3d_*',
+        ['win', 'amd', 'd3d11'], bug=2424) # ANGLE bug ID
+    self.Fail('deqp/functional/gles3/texturespecification/' +
+        'basic_texsubimage3d_*',
+        ['win', 'amd', 'd3d11'], bug=2424) # ANGLE bug ID
+    self.Fail('deqp/functional/gles3/texturespecification/' +
+        'teximage3d_pbo_3d*',
+        ['win', 'amd', 'd3d11'], bug=2424) # ANGLE bug ID
+    self.Fail('deqp/functional/gles3/texturespecification/' +
+        'teximage3d_unpack_params.html',
+        ['win', 'amd', 'd3d11'], bug=2424) # ANGLE bug ID
+    self.Fail('deqp/functional/gles3/texturespecification/' +
+        'texsubimage3d_unpack_params.html',
+        ['win', 'amd', 'd3d11'], bug=2424) # ANGLE bug ID
 
     # Have seen this time out. Think it may be because it's currently
     # the first test that runs in the shard, and the browser might not
@@ -337,6 +425,12 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
     self.Fail('deqp/functional/gles3/integerstatequery.html',
         ['passthrough', 'opengl'], bug=602688)
 
+    # These Transform Feedback tests seem flaky on ANGLE/GL.
+    self.Flaky('conformance2/transform_feedback/switching-objects.html',
+        ['passthrough', 'opengl'], bug=696345)
+    self.Flaky('conformance2/transform_feedback/too-small-buffers.html',
+        ['passthrough', 'opengl'], bug=818383)
+
     # Passthrough command decoder / OpenGL / Intel
     self.Fail('conformance2/textures/video/tex-2d-rgb32f-rgb-float.html',
         ['passthrough', 'opengl', 'intel'], bug=602688)
@@ -369,6 +463,8 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
     self.Fail('conformance/textures/image_bitmap_from_video/' +
         'tex-2d-rgb-rgb-unsigned_short_5_6_5.html',
         ['linux', 'passthrough', 'opengl', 'nvidia'], bug=766918)
+    self.Flaky('conformance2/rendering/attrib-type-match.html',
+        ['linux', 'passthrough', 'opengl', 'nvidia'], bug=814905)
     self.Fail('deqp/functional/gles3/shaderoperator/common_functions.html',
         ['linux', 'passthrough', 'opengl', 'nvidia'], bug=793055)
     self.Fail('deqp/functional/gles3/shadercommonfunction.html',
@@ -410,6 +506,9 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
         ['mac', 'nvidia', 'intel'], bug=630800)
     self.Fail('deqp/functional/gles3/fbocompleteness.html',
         ['mac', 'nvidia', 'intel'], bug=630800)
+    self.Fail('deqp/functional/gles3/negativeshaderapi.html',
+        ['mac', 'amd', 'intel'], bug=811614)
+
 
     # Mac Retina NVIDIA
     self.Fail('deqp/functional/gles3/shaderindexing/mat_01.html',
@@ -657,6 +756,8 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
     self.Fail('deqp/functional/gles3/transformfeedback/' +
         'random_separate_triangles.html',
         ['mac', 'amd'], bug=483282)
+    self.Fail('conformance2/transform_feedback/too-small-buffers.html',
+        ['mac', 'amd', 'sierra', 'no_angle'], bug=818383)
 
     self.Flaky('deqp/functional/gles3/shaderindexing/mat_00.html',
         ['mac', 'amd'], bug=751254)
@@ -687,6 +788,8 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
         ['mac', 'no_passthrough', 'intel'], bug=679692)
     self.Fail('deqp/functional/gles3/fbomultisample*',
         ['mac', 'intel'], bug=641209)
+    self.Flaky('deqp/functional/gles3/shaderoperator/common_functions.html',
+        ['mac', 'intel'], bug=820225)
     self.Fail('deqp/functional/gles3/texturefiltering/2d_combinations_01.html',
         ['mac', 'intel'], bug=606074)
     self.Fail('deqp/functional/gles3/texturefiltering/' +
@@ -911,10 +1014,6 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
        ['linux', 'intel'], bug=666384)
     self.Fail('conformance2/textures/misc/tex-3d-mipmap-levels-intel-bug.html',
        ['linux', 'intel'], bug=666384)
-
-    # Fails on Intel Mesa GL 3.3, passes on Intel Mesa GL 4.5.
-    self.Fail('conformance2/misc/views-with-offsets.html',
-        ['linux', 'intel', 'no_angle'], bug=664180)
 
     # Linux Intel with ANGLE only
     self.Fail('deqp/functional/gles3/framebufferblit/conversion_07.html',
@@ -1249,7 +1348,8 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
     self.Fail('conformance2/textures/image_data/' +
         'tex-3d-rgb5_a1-rgba-unsigned_byte.html',
         ['linux', ('amd', 0x6613)], bug=701138)
-
+    self.Fail('conformance2/transform_feedback/switching-objects.html',
+        ['linux', ('amd', 0x6613), 'no_angle'], bug=696345)
     # Conflicting expectations to test that the
     # "Expectations have no collisions" unittest works.
     # page_name = 'conformance/glsl/constructors/glsl-construct-ivec4.html'

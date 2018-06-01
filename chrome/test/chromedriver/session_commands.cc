@@ -11,7 +11,6 @@
 #include "base/callback.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"  // For CHECK macros.
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string_util.h"
 #include "base/synchronization/lock.h"
@@ -964,6 +963,22 @@ Status ExecuteMaximizeWindow(Session* session,
     return status;
 
   return extension->MaximizeWindow();
+}
+
+Status ExecuteMinimizeWindow(Session* session,
+                             const base::DictionaryValue& params,
+                             std::unique_ptr<base::Value>* value) {
+  ChromeDesktopImpl* desktop = NULL;
+  Status status = session->chrome->GetAsDesktop(&desktop);
+  if (status.IsError())
+    return status;
+
+  status = desktop->MinimizeWindow(session->window);
+  if (status.IsError())
+    return status;
+
+  ExecuteGetWindowRect(session, params, value);
+  return Status(kOk);
 }
 
 Status ExecuteFullScreenWindow(Session* session,

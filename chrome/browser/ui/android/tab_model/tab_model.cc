@@ -25,7 +25,8 @@ TabModel::TabModel(Profile* profile, bool is_tabbed_activity)
       live_tab_context_(new AndroidLiveTabContext(this)),
       synced_window_delegate_(
           new browser_sync::SyncedWindowDelegateAndroid(this,
-                                                        is_tabbed_activity)) {
+                                                        is_tabbed_activity)),
+      session_id_(SessionID::NewUnique()) {
   if (profile) {
     // A normal Profile creates an OTR profile if it does not exist when
     // GetOffTheRecordProfile() is called, so we guard it with
@@ -61,11 +62,7 @@ sync_sessions::SyncedWindowDelegate* TabModel::GetSyncedWindowDelegate() const {
   return synced_window_delegate_.get();
 }
 
-SessionID::id_type TabModel::GetSessionId() const {
-  return session_id_.id();
-}
-
-const SessionID& TabModel::SessionId() const {
+SessionID TabModel::GetSessionId() const {
   return session_id_;
 }
 

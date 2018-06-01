@@ -10,8 +10,8 @@
 
 namespace vr {
 
-Rect::Rect() {}
-Rect::~Rect() {}
+Rect::Rect() = default;
+Rect::~Rect() = default;
 
 void Rect::SetColor(SkColor color) {
   SetCenterColor(color);
@@ -41,9 +41,32 @@ void Rect::NotifyClientColorAnimated(SkColor color,
 }
 
 void Rect::Render(UiElementRenderer* renderer, const CameraModel& model) const {
+  float opacity = computed_opacity() * local_opacity_;
+  if (opacity <= 0.f)
+    return;
   renderer->DrawGradientQuad(model.view_proj_matrix * world_space_transform(),
-                             edge_color_, center_color_, computed_opacity(),
-                             size(), corner_radii());
+                             edge_color_, center_color_, opacity, size(),
+                             corner_radii());
+}
+
+void Rect::SetLocalOpacity(float opacity) {
+  animation().TransitionFloatTo(last_frame_time(), LOCAL_OPACITY,
+                                local_opacity_, opacity);
+}
+
+void Rect::NotifyClientFloatAnimated(float value,
+                                     int target_property_id,
+                                     cc::KeyframeModel* keyframe_model) {
+  if (target_property_id == LOCAL_OPACITY) {
+    local_opacity_ = value;
+  } else {
+    UiElement::NotifyClientFloatAnimated(value, target_property_id,
+                                         keyframe_model);
+  }
+}
+
+float Rect::ComputedAndLocalOpacityForTest() const {
+  return computed_opacity() * local_opacity_;
 }
 
 }  // namespace vr

@@ -21,7 +21,7 @@
 #include "chrome/common/buildflags.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "content/public/browser/content_browser_client.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 
 #if !defined(OS_ANDROID)
 #include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
@@ -190,6 +190,9 @@ class ProfileImpl : public Profile {
   void UpdateNameInStorage();
   void UpdateAvatarInStorage();
   void UpdateIsEphemeralInStorage();
+  void UpdateCTPolicy();
+
+  void ScheduleUpdateCTPolicy();
 
   void GetMediaCacheParameters(base::FilePath* cache_path, int* max_size);
 
@@ -282,6 +285,9 @@ class ProfileImpl : public Profile {
   Profile::Delegate* delegate_;
 
   chrome_browser_net::Predictor* predictor_;
+
+  // Used to post schedule CT policy updates
+  base::OneShotTimer ct_policy_update_timer_;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileImpl);
 };

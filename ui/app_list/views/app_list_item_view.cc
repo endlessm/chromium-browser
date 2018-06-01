@@ -21,6 +21,7 @@
 #include "ui/app_list/views/apps_grid_view.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/animation/throb_animation.h"
@@ -298,19 +299,41 @@ void AppListItemView::OnContextMenuModelReceived(
   context_menu_items_ = std::move(menu);
 
   UMA_HISTOGRAM_ENUMERATION("Apps.ContextMenuShowSource.AppGrid", source_type,
-                            ui::MenuSourceType::MENU_SOURCE_TYPE_LAST);
+                            ui::MENU_SOURCE_TYPE_LAST);
 
   if (!apps_grid_view_->IsSelectedView(this))
     apps_grid_view_->ClearAnySelectedView();
-  int run_types = views::MenuRunner::HAS_MNEMONICS |
-                  views::MenuRunner::SEND_GESTURE_EVENTS_TO_OWNER;
+  int run_types = views::MenuRunner::HAS_MNEMONICS;
+
+  if (source_type == ui::MENU_SOURCE_TOUCH)
+    run_types |= views::MenuRunner::SEND_GESTURE_EVENTS_TO_OWNER;
+
+  views::MenuAnchorPosition anchor_position = views::MENU_ANCHOR_TOPLEFT;
+  gfx::Rect anchor_rect = gfx::Rect(point, gfx::Size());
+
+  if (features::IsTouchableAppContextMenuEnabled()) {
+    run_types |= views::MenuRunner::USE_TOUCHABLE_LAYOUT |
+                 views::MenuRunner::FIXED_ANCHOR |
+                 views::MenuRunner::CONTEXT_MENU;
+    anchor_position = views::MENU_ANCHOR_BUBBLE_TOUCHABLE_LEFT;
+    if (source_type == ui::MENU_SOURCE_TOUCH) {
+      // When a context menu is shown by touch, the app icon is temporarily
+      // enlarged, so use the ideal bounds instead of the current bounds for the
+      // anchor rect.
+      anchor_rect = apps_grid_view_->GetIdealBounds(this);
+      // Anchor the menu to the same rect that is used for selection highlight.
+      anchor_rect.ClampToCenteredSize(
+          gfx::Size(kGridSelectedSize, kGridSelectedSize));
+      views::View::ConvertRectToScreen(apps_grid_view_, &anchor_rect);
+    }
+  }
+
   context_menu_runner_.reset(new views::MenuRunner(
       context_menu_model_.get(), run_types,
       base::Bind(&AppListItemView::OnContextMenuClosed,
                  weak_ptr_factory_.GetWeakPtr(), base::TimeTicks::Now())));
-  context_menu_runner_->RunMenuAt(GetWidget(), NULL,
-                                  gfx::Rect(point, gfx::Size()),
-                                  views::MENU_ANCHOR_TOPLEFT, source_type);
+  context_menu_runner_->RunMenuAt(GetWidget(), nullptr, anchor_rect,
+                                  anchor_position, source_type);
 }
 
 void AppListItemView::ShowContextMenuForView(views::View* source,
@@ -320,8 +343,6 @@ void AppListItemView::ShowContextMenuForView(views::View* source,
       item_weak_->id(),
       base::BindOnce(&AppListItemView::OnContextMenuModelReceived,
                      weak_ptr_factory_.GetWeakPtr(), point, source_type));
-
-  source->RequestFocus();
 }
 
 bool AppListItemView::IsCommandIdChecked(int command_id) const {
@@ -376,8 +397,7 @@ void AppListItemView::PaintButtonContents(gfx::Canvas* canvas) {
 
   gfx::Rect rect(GetContentsBounds());
   if (apps_grid_view_->IsSelectedView(this)) {
-    rect.Inset((rect.width() - kGridSelectedSize) / 2,
-               (rect.height() - kGridSelectedSize) / 2);
+    rect.ClampToCenteredSize(gfx::Size(kGridSelectedSize, kGridSelectedSize));
     cc::PaintFlags flags;
     flags.setAntiAlias(true);
     flags.setColor(apps_grid_view_->is_in_folder() ? kFolderGridSelectedColor

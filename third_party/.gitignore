@@ -7,6 +7,8 @@
 /adobe/flash/symbols
 /amd/
 /android_ndk/
+/android_sdk/public/
+/android_sdk/sources/
 /android_protobuf/src
 /android_support_test_runner/lib/
 /android_system_sdk/*.jar
@@ -56,12 +58,13 @@
 /errorprone/lib
 /espresso/lib/
 /eyesfree/src
+/feed/src
 /ffmpeg
 /flac
 /flatbuffers/src
 /fontconfig/src
 /freetype/src
-/fuchsia-sdk
+/fuchsia-sdk/sdk
 /gestures/gestures
 /gles1_conform
 /gles2_conform
@@ -84,6 +87,7 @@
 /gperf
 /guava/lib/
 /hamcrest/lib/
+/harfbuzz-ng/src
 /hunspell_dictionaries
 /icu
 /icu4j/lib/
@@ -121,7 +125,9 @@
 /llvm
 /llvm-allocated-type
 /llvm-bootstrap
+/llvm-bootstrap-install
 /llvm-build
+/llvm-build-tools
 /lss
 /material_design_icons/src
 /mesa/src

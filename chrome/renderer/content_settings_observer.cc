@@ -22,18 +22,18 @@
 #include "content/public/renderer/document_state.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_view.h"
-#include "extensions/features/features.h"
-#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
-#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_registry.h"
-#include "third_party/WebKit/public/platform/URLConversion.h"
-#include "third_party/WebKit/public/platform/WebClientHintsType.h"
-#include "third_party/WebKit/public/platform/WebContentSettingCallbacks.h"
-#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
-#include "third_party/WebKit/public/platform/WebURL.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebFrameClient.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "extensions/buildflags/buildflags.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
+#include "third_party/blink/public/platform/url_conversion.h"
+#include "third_party/blink/public/platform/web_client_hints_type.h"
+#include "third_party/blink/public/platform/web_content_setting_callbacks.h"
+#include "third_party/blink/public/platform/web_security_origin.h"
+#include "third_party/blink/public/platform/web_url.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_frame_client.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_view.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 #include "url/url_constants.h"
@@ -475,7 +475,7 @@ void ContentSettingsObserver::PersistClientHints(
   // this method should not return early if |update_count| is 0.
   std::vector<::blink::mojom::WebClientHintsType> client_hints;
   static constexpr size_t kWebClientHintsCount =
-      static_cast<size_t>(blink::mojom::WebClientHintsType::kLast) + 1;
+      static_cast<size_t>(blink::mojom::WebClientHintsType::kMaxValue) + 1;
   client_hints.reserve(kWebClientHintsCount);
 
   for (size_t i = 0; i < kWebClientHintsCount; ++i) {
@@ -510,15 +510,8 @@ void ContentSettingsObserver::GetAllowedClientHintsFromSource(
   if (content_setting_rules_->client_hints_rules.empty())
     return;
 
-  // Pass the host of the URL of the top webframe.
   client_hints::GetAllowedClientHintsFromSource(
       url,
-      GURL(render_frame()
-               ->GetWebFrame()
-               ->Top()
-               ->GetSecurityOrigin()
-               .ToString()
-               .Ascii()),
       content_setting_rules_->client_hints_rules, client_hints);
 }
 

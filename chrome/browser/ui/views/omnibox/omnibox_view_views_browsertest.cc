@@ -22,6 +22,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
+#include "chrome/test/views/scoped_macviews_browser_mode.h"
 #include "components/omnibox/browser/omnibox_popup_model.h"
 #include "components/omnibox/browser/test_scheme_classifier.h"
 #include "content/public/browser/web_contents.h"
@@ -115,6 +116,8 @@ class OmniboxViewViewsTest : public InProcessBrowserTest {
     chrome::FocusLocationBar(browser());
     ASSERT_TRUE(ui_test_utils::IsViewFocused(browser(), VIEW_ID_OMNIBOX));
   }
+
+  test::ScopedMacViewsBrowserMode views_mode_{true};
 
   DISALLOW_COPY_AND_ASSIGN(OmniboxViewViewsTest);
 };
@@ -260,7 +263,13 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, SelectionClipboard) {
 }
 #endif  // OS_LINUX && !OS_CHROMEOS
 
-IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, SelectAllOnTap) {
+// MacOS does not support touch.
+#if defined(OS_MACOSX)
+#define MAYBE_SelectAllOnTap DISABLED_SelectAllOnTap
+#else
+#define MAYBE_SelectAllOnTap SelectAllOnTap
+#endif
+IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, MAYBE_SelectAllOnTap) {
   OmniboxView* omnibox_view = NULL;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &omnibox_view));
   omnibox_view->SetUserText(base::ASCIIToUTF16("http://www.google.com/"));
@@ -323,7 +332,14 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, SelectAllOnTabToFocus) {
   EXPECT_TRUE(omnibox_view->IsSelectAll());
 }
 
-IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, CloseOmniboxPopupOnTextDrag) {
+#if defined(OS_MACOSX)
+// Focusing or input is not completely working on Mac: http://crbug.com/824418
+#define MAYBE_CloseOmniboxPopupOnTextDrag DISABLED_CloseOmniboxPopupOnTextDrag
+#else
+#define MAYBE_CloseOmniboxPopupOnTextDrag CloseOmniboxPopupOnTextDrag
+#endif
+IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest,
+                       MAYBE_CloseOmniboxPopupOnTextDrag) {
   OmniboxView* omnibox_view = nullptr;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &omnibox_view));
   OmniboxViewViews* omnibox_view_views =
@@ -433,9 +449,17 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, BackgroundIsOpaque) {
   EXPECT_FALSE(view->GetRenderText()->subpixel_rendering_suppressed());
 }
 
+// MacOS does not support touch.
+#if defined(OS_MACOSX)
+#define MAYBE_DeactivateTouchEditingOnExecuteCommand \
+  DISABLED_DeactivateTouchEditingOnExecuteCommand
+#else
+#define MAYBE_DeactivateTouchEditingOnExecuteCommand \
+  DeactivateTouchEditingOnExecuteCommand
+#endif
 // Tests if executing a command hides touch editing handles.
 IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest,
-                       DeactivateTouchEditingOnExecuteCommand) {
+                       MAYBE_DeactivateTouchEditingOnExecuteCommand) {
   OmniboxView* view = NULL;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &view));
   OmniboxViewViews* omnibox_view_views = static_cast<OmniboxViewViews*>(view);

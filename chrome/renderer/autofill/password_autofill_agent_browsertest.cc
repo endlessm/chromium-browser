@@ -31,17 +31,17 @@
 #include "content/public/test/browser_test_utils.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
-#include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/platform/WebVector.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebElement.h"
-#include "third_party/WebKit/public/web/WebFormControlElement.h"
-#include "third_party/WebKit/public/web/WebFormElement.h"
-#include "third_party/WebKit/public/web/WebInputElement.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebNode.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/platform/web_vector.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_element.h"
+#include "third_party/blink/public/web/web_form_control_element.h"
+#include "third_party/blink/public/web/web_form_element.h"
+#include "third_party/blink/public/web/web_input_element.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_node.h"
+#include "third_party/blink/public/web/web_view.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 
 using autofill::FormTracker;
@@ -2792,14 +2792,6 @@ TEST_F(PasswordAutofillAgentTest,
       "  <INPUT type='submit' />"
       "</FORM>";
 
-  const char kFormWithMultipleAnonymousTextFields[] =
-      "<FORM action='http://www.bidule.com'>"
-      "<INPUT type='text' placeholder='username'/>"
-      "<INPUT type='password' placeholder='password'/>"
-      "<INPUT type='text' placeholder='captcha'/>"
-      "<INPUT type='text' placeholder='fakefield'/>"
-      "</FORM>";
-
   const struct {
     const char* html_form;
     bool is_possible_change_password_form;
@@ -2846,10 +2838,6 @@ TEST_F(PasswordAutofillAgentTest,
       {kChangePasswordFormButNoAutocompleteAttribute, true, true,
        kDummyUsernameField, kDummyPasswordField, kAliceUsername, kAlicePassword,
        true, true},
-
-      // Sign-in form with multiple anonymous text fields.
-      {kFormWithMultipleAnonymousTextFields, false, true, kDummyUsernameField,
-       kDummyPasswordField, kAliceUsername, kAlicePassword, true, true},
   };
 
   for (const auto& test_case : test_cases) {

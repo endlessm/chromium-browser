@@ -18,8 +18,6 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/Object/ELF.h"
-#include "llvm/Support/Threading.h"
-#include <mutex>
 
 namespace lld {
 namespace elf {
@@ -79,6 +77,8 @@ public:
   // Translate an offset in the input section to an offset in the output
   // section.
   uint64_t getOffset(uint64_t Offset) const;
+
+  uint64_t getVA(uint64_t Offset) const;
 
 protected:
   SectionBase(Kind SectionKind, StringRef Name, uint64_t Flags,
@@ -249,18 +249,20 @@ public:
 
   // Returns the SectionPiece at a given input section offset.
   SectionPiece *getSectionPiece(uint64_t Offset);
-  const SectionPiece *getSectionPiece(uint64_t Offset) const;
+  const SectionPiece *getSectionPiece(uint64_t Offset) const {
+    return const_cast<MergeInputSection *>(this)->getSectionPiece(Offset);
+  }
 
   SyntheticSection *getParent() const;
+  void initOffsetMap();
 
 private:
   void splitStrings(ArrayRef<uint8_t> A, size_t Size);
   void splitNonStrings(ArrayRef<uint8_t> A, size_t Size);
 
-  mutable llvm::DenseMap<uint32_t, uint32_t> OffsetMap;
-  mutable llvm::once_flag InitOffsetMap;
+  llvm::DenseMap<uint32_t, uint32_t> OffsetMap;
 
-  llvm::DenseSet<uint64_t> LiveOffsets;
+  llvm::DenseSet<uint32_t> LiveOffsets;
 };
 
 struct EhSectionPiece {

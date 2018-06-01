@@ -76,7 +76,7 @@ class MockAutocompleteProviderClient
   MOCK_CONST_METHOD0(GetCurrentVisitTimestamp, base::Time());
   MOCK_CONST_METHOD0(IsOffTheRecord, bool());
   MOCK_CONST_METHOD0(SearchSuggestEnabled, bool());
-  MOCK_CONST_METHOD0(TabSyncEnabledAndUnencrypted, bool());
+  MOCK_CONST_METHOD0(IsTabUploadToGoogleActive, bool());
   MOCK_CONST_METHOD0(IsAuthenticated, bool());
   MOCK_METHOD6(
       Classify,
@@ -90,7 +90,10 @@ class MockAutocompleteProviderClient
                void(history::KeywordID keyword_id, const base::string16& term));
   MOCK_METHOD1(PrefetchImage, void(const GURL& url));
 
-  bool IsTabOpenWithURL(const GURL& url) override { return false; }
+  bool IsTabOpenWithURL(const GURL& url,
+                        const AutocompleteInput* input) override {
+    return false;
+  }
 
   void set_template_url_service(std::unique_ptr<TemplateURLService> service) {
     template_url_service_ = std::move(service);

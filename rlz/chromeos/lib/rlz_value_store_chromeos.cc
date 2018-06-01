@@ -12,10 +12,15 @@
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
+#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/debug_daemon_client.h"
+#include "chromeos/system/statistics_provider.h"
+#include "rlz/lib/financial_ping.h"
 #include "rlz/lib/lib_values.h"
 #include "rlz/lib/recursive_cross_process_lock_posix.h"
 #include "rlz/lib/rlz_lib.h"
@@ -79,12 +84,50 @@ std::string GetKeyName(const std::string& key, Product product) {
   return key + "." + GetProductName(product) + "." + brand;
 }
 
+// Returns true if the |rlz_embargo_end_date| present in VPD has passed
+// compared to the current time.
+bool HasRlzEmbargoEndDatePassed() {
+  chromeos::system::StatisticsProvider* stats =
+      chromeos::system::StatisticsProvider::GetInstance();
+
+  std::string rlz_embargo_end_date;
+  if (!stats->GetMachineStatistic(chromeos::system::kRlzEmbargoEndDateKey,
+                                  &rlz_embargo_end_date)) {
+    // |rlz_embargo_end_date| only exists on new devices that have not yet
+    // launched. When the field doesn't exist, returns true so it's a no-op.
+    return true;
+  }
+  base::Time parsed_time;
+  if (!base::Time::FromUTCString(rlz_embargo_end_date.c_str(), &parsed_time)) {
+    LOG(ERROR) << "|rlz_embargo_end_date| exists but cannot be parsed.";
+    return true;
+  }
+
+  if (parsed_time - base::Time::Now() >=
+      base::TimeDelta::FromDays(
+          RlzValueStoreChromeOS::kRlzEmbargoEndDateGarbageDateThresholdDays)) {
+    // If |rlz_embargo_end_date| is more than this many days in the future,
+    // ignore it. Because it indicates that the device is not connected to an
+    // ntp server in the factory, and its internal clock could be off when the
+    // date is written.
+    return true;
+  }
+
+  return base::Time::Now() > parsed_time;
+}
+
 }  // namespace
+
+const int RlzValueStoreChromeOS::kRlzEmbargoEndDateGarbageDateThresholdDays =
+    14;
+
+const int RlzValueStoreChromeOS::kMaxRetryCount = 3;
 
 RlzValueStoreChromeOS::RlzValueStoreChromeOS(const base::FilePath& store_path)
     : rlz_store_(new base::DictionaryValue),
       store_path_(store_path),
-      read_only_(true) {
+      read_only_(true),
+      weak_ptr_factory_(this) {
   ReadStore();
 }
 
@@ -107,6 +150,14 @@ bool RlzValueStoreChromeOS::WritePingTime(Product product, int64_t time) {
 
 bool RlzValueStoreChromeOS::ReadPingTime(Product product, int64_t* time) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  // TODO(wzang): make sure time is correct (check that npupdate has updated
+  // successfully).
+  if (!HasRlzEmbargoEndDatePassed()) {
+    *time = FinancialPing::GetSystemTimeAsInt64();
+    return true;
+  }
+
   std::string ping_time;
   return rlz_store_->GetString(GetKeyName(kPingTimeKey, product), &ping_time) &&
       base::StringToInt64(ping_time, time);
@@ -120,6 +171,22 @@ bool RlzValueStoreChromeOS::ClearPingTime(Product product) {
 
 bool RlzValueStoreChromeOS::WriteAccessPointRlz(AccessPoint access_point,
                                                 const char* new_rlz) {
+  // If an access point already exists, don't overwrite it.  This is to prevent
+  // writing cohort data for first search which is not needed in Chrome OS.
+  //
+  // There are two possible cases: either the user performs a search before the
+  // first ping is sent on first run, or they do not.  If they do, then
+  // |new_rlz| contain cohorts for install and first search, but they will be
+  // the same.  If they don't, the first time WriteAccessPointRlz() is called
+  // |new_rlz| will contain only install cohort.  The second time it will
+  // contain both install and first search cohorts.  Ignoring the second
+  // means the first search cohort will never be stored.
+  char dummy[kMaxRlzLength + 1];
+  if (ReadAccessPointRlz(access_point, dummy, arraysize(dummy)) &&
+      dummy[0] != 0) {
+    return true;
+  }
+
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   rlz_store_->SetString(
       GetKeyName(kAccessPointKey, access_point), new_rlz);
@@ -164,8 +231,16 @@ bool RlzValueStoreChromeOS::ReadProductEvents(
   events->clear();
   for (size_t i = 0; i < events_list->GetSize(); ++i) {
     std::string event;
-    if (events_list->GetString(i, &event))
+    if (events_list->GetString(i, &event)) {
+      if (event == "CAF" && IsStatefulEvent(product, event.c_str())) {
+        base::Value event_value(event);
+        size_t index;
+        events_list->Remove(event_value, &index);
+        --i;
+        continue;
+      }
       events->push_back(event);
+    }
   }
   return true;
 }
@@ -187,6 +262,11 @@ bool RlzValueStoreChromeOS::ClearAllProductEvents(Product product) {
 bool RlzValueStoreChromeOS::AddStatefulEvent(Product product,
                                              const char* event_rlz) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  if (strcmp(event_rlz, "CAF") == 0) {
+    set_rlz_ping_sent_attempts_ = 0;
+    SetRlzPingSent();
+  }
   return AddValueToList(GetKeyName(kStatefulEventKey, product),
                         std::make_unique<base::Value>(event_rlz));
 }
@@ -194,11 +274,37 @@ bool RlzValueStoreChromeOS::AddStatefulEvent(Product product,
 bool RlzValueStoreChromeOS::IsStatefulEvent(Product product,
                                             const char* event_rlz) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   base::Value event_value(event_rlz);
   base::ListValue* events_list = NULL;
-  return rlz_store_->GetList(GetKeyName(kStatefulEventKey, product),
-                             &events_list) &&
+  const bool event_exists =
+      rlz_store_->GetList(GetKeyName(kStatefulEventKey, product),
+                          &events_list) &&
       events_list->Find(event_value) != events_list->end();
+
+  if (strcmp(event_rlz, "CAF") == 0) {
+    chromeos::system::StatisticsProvider* stats =
+        chromeos::system::StatisticsProvider::GetInstance();
+    std::string should_send_rlz_ping_value;
+    if (stats->GetMachineStatistic(chromeos::system::kShouldSendRlzPingKey,
+                                   &should_send_rlz_ping_value)) {
+      if (should_send_rlz_ping_value ==
+          chromeos::system::kShouldSendRlzPingValueFalse) {
+        return true;
+      }
+      if (!HasRlzEmbargoEndDatePassed())
+        return true;
+
+      DCHECK_EQ(should_send_rlz_ping_value,
+                chromeos::system::kShouldSendRlzPingValueTrue);
+    } else {
+      // If |kShouldSendRlzPingKey| doesn't exist in RW_VPD, treat it in the
+      // same way with the case of |kShouldSendRlzPingValueFalse|.
+      return true;
+    }
+  }
+
+  return event_exists;
 }
 
 bool RlzValueStoreChromeOS::ClearAllStatefulEvents(Product product) {
@@ -265,6 +371,25 @@ bool RlzValueStoreChromeOS::RemoveValueFromList(const std::string& list_name,
   size_t index;
   list_value->Remove(value, &index);
   return true;
+}
+
+void RlzValueStoreChromeOS::SetRlzPingSent() {
+  ++set_rlz_ping_sent_attempts_;
+  chromeos::DBusThreadManager::Get()->GetDebugDaemonClient()->SetRlzPingSent(
+      base::BindOnce(&RlzValueStoreChromeOS::OnSetRlzPingSent,
+                     weak_ptr_factory_.GetWeakPtr()));
+}
+
+void RlzValueStoreChromeOS::OnSetRlzPingSent(bool success) {
+  if (success) {
+    UMA_HISTOGRAM_BOOLEAN("Rlz.SetRlzPingSent", true);
+  } else if (set_rlz_ping_sent_attempts_ >= kMaxRetryCount) {
+    UMA_HISTOGRAM_BOOLEAN("Rlz.SetRlzPingSent", false);
+    LOG(ERROR) << "Setting |should_send_rlz_ping| to 0 failed after "
+               << kMaxRetryCount << " attempts";
+  } else {
+    SetRlzPingSent();
+  }
 }
 
 namespace {

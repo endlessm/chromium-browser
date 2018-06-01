@@ -4,16 +4,37 @@
 
 #include "chrome/browser/ui/views/extensions/extension_dialog.h"
 
+#include "build/build_config.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_view_host.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/test/views/scoped_macviews_browser_mode.h"
 #include "content/public/test/browser_test_utils.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "ui/base/test/ui_controls.h"
 
-using ExtensionDialogUiTest = ExtensionBrowserTest;
+namespace {
 
-IN_PROC_BROWSER_TEST_F(ExtensionDialogUiTest, TabFocusLoop) {
+class ExtensionDialogUiTest : public ExtensionBrowserTest {
+ public:
+  ExtensionDialogUiTest() = default;
+  ~ExtensionDialogUiTest() override = default;
+
+ private:
+  test::ScopedMacViewsBrowserMode views_mode_{true};
+
+  DISALLOW_COPY_AND_ASSIGN(ExtensionDialogUiTest);
+};
+
+}  // namespace
+
+#if defined(OS_MACOSX)
+// Focusing or input is not completely working on Mac: http://crbug.com/824418
+#define MAYBE_TabFocusLoop DISABLED_TabFocusLoop
+#else
+#define MAYBE_TabFocusLoop TabFocusLoop
+#endif
+IN_PROC_BROWSER_TEST_F(ExtensionDialogUiTest, MAYBE_TabFocusLoop) {
   ExtensionTestMessageListener init_listener("ready", false /* will_reply */);
   ExtensionTestMessageListener button1_focus_listener("button1-focused", false);
   ExtensionTestMessageListener button2_focus_listener("button2-focused", false);

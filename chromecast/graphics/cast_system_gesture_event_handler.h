@@ -5,6 +5,7 @@
 #ifndef CHROMECAST_GRAPHICS_CAST_SYSTEM_GESTURE_EVENT_HANDLER_H_
 #define CHROMECAST_GRAPHICS_CAST_SYSTEM_GESTURE_EVENT_HANDLER_H_
 
+#include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "chromecast/graphics/cast_side_swipe_gesture_handler.h"
 #include "ui/events/event_handler.h"
@@ -40,15 +41,16 @@ class CastSystemGestureEventHandler : public ui::EventHandler {
   CastSideSwipeOrigin GetDragPosition(const gfx::Point& point,
                                       const gfx::Rect& screen_bounds) const;
 
-  void OnGestureEvent(ui::GestureEvent* event) override;
+  void OnEvent(ui::Event* event) override;
 
  private:
+  const int gesture_start_width_;
+  const int gesture_start_height_;
+
   aura::Window* root_window_;
   CastSideSwipeOrigin current_swipe_;
 
-  using SwipeGestureHandlersList =
-      std::vector<CastSideSwipeGestureHandlerInterface*>;
-  SwipeGestureHandlersList swipe_gesture_handlers_;
+  base::flat_set<CastSideSwipeGestureHandlerInterface*> swipe_gesture_handlers_;
 
   DISALLOW_COPY_AND_ASSIGN(CastSystemGestureEventHandler);
 };

@@ -20,6 +20,7 @@
 #include "android_webview/common/crash_reporter/crash_keys.h"
 #include "android_webview/gpu/aw_content_gpu_client.h"
 #include "android_webview/renderer/aw_content_renderer_client.h"
+#include "android_webview/utility/aw_content_utility_client.h"
 #include "base/android/apk_assets.h"
 #include "base/android/build_info.h"
 #include "base/command_line.h"
@@ -34,7 +35,7 @@
 #include "components/crash/content/app/breakpad_linux.h"
 #include "components/crash/core/common/crash_key.h"
 #include "components/safe_browsing/android/safe_browsing_api_handler_bridge.h"
-#include "components/spellcheck/spellcheck_build_features.h"
+#include "components/spellcheck/spellcheck_buildflags.h"
 #include "content/public/browser/android/browser_media_player_manager_register.h"
 #include "content/public/browser/browser_main_runner.h"
 #include "content/public/browser/browser_thread.h"
@@ -47,7 +48,7 @@
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "gpu/ipc/gl_in_process_context.h"
 #include "media/base/media_switches.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/events/gesture_detection/gesture_configuration.h"
 
@@ -134,12 +135,19 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
     base::android::RegisterApkAssetWithFileDescriptorStore(
         content::kV8NativesDataDescriptor,
         gin::V8Initializer::GetNativesFilePath());
+#if defined(USE_V8_CONTEXT_SNAPSHOT)
+    gin::V8Initializer::V8SnapshotFileType file_type =
+        gin::V8Initializer::V8SnapshotFileType::kWithAdditionalContext;
+#else
+    gin::V8Initializer::V8SnapshotFileType file_type =
+        gin::V8Initializer::V8SnapshotFileType::kDefault;
+#endif
     base::android::RegisterApkAssetWithFileDescriptorStore(
         content::kV8Snapshot32DataDescriptor,
-        gin::V8Initializer::GetSnapshotFilePath(true));
+        gin::V8Initializer::GetSnapshotFilePath(true, file_type));
     base::android::RegisterApkAssetWithFileDescriptorStore(
         content::kV8Snapshot64DataDescriptor,
-        gin::V8Initializer::GetSnapshotFilePath(false));
+        gin::V8Initializer::GetSnapshotFilePath(false, file_type));
   }
 #endif  // V8_USE_EXTERNAL_STARTUP_DATA
 
@@ -180,7 +188,7 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
   // Used only if the argument filter is enabled in tracing config,
   // as is the case by default in aw_tracing_controller.cc
   base::trace_event::TraceLog::GetInstance()->SetArgumentFilterPredicate(
-      base::Bind(&IsTraceEventArgsWhitelisted));
+      base::BindRepeating(&IsTraceEventArgsWhitelisted));
 
   return false;
 }
@@ -234,11 +242,11 @@ void AwMainDelegate::PreSandboxStartup() {
 
   static ::crash_reporter::CrashKeyString<64> app_name_key(
       crash_keys::kAppPackageName);
-  app_name_key.Set(android_build_info->package_name());
+  app_name_key.Set(android_build_info->host_package_name());
 
   static ::crash_reporter::CrashKeyString<64> app_version_key(
       crash_keys::kAppPackageVersionCode);
-  app_version_key.Set(android_build_info->package_version_code());
+  app_version_key.Set(android_build_info->host_version_code());
 
   static ::crash_reporter::CrashKeyString<8> sdk_int_key(
       crash_keys::kAndroidSdkInt);
@@ -287,13 +295,18 @@ gpu::SyncPointManager* GetSyncPointManager() {
 
 content::ContentGpuClient* AwMainDelegate::CreateContentGpuClient() {
   content_gpu_client_.reset(
-      new AwContentGpuClient(base::Bind(&GetSyncPointManager)));
+      new AwContentGpuClient(base::BindRepeating(&GetSyncPointManager)));
   return content_gpu_client_.get();
 }
 
 content::ContentRendererClient* AwMainDelegate::CreateContentRendererClient() {
   content_renderer_client_.reset(new AwContentRendererClient());
   return content_renderer_client_.get();
+}
+
+content::ContentUtilityClient* AwMainDelegate::CreateContentUtilityClient() {
+  content_utility_client_.reset(new AwContentUtilityClient());
+  return content_utility_client_.get();
 }
 
 }  // namespace android_webview

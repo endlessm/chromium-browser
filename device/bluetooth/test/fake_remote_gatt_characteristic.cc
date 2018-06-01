@@ -62,6 +62,17 @@ std::string FakeRemoteGattCharacteristic::AddFakeDescriptor(
   return it->second->GetIdentifier();
 }
 
+bool FakeRemoteGattCharacteristic::RemoveFakeDescriptor(
+    const std::string& identifier) {
+  auto it = fake_descriptors_.find(identifier);
+  if (it == fake_descriptors_.end()) {
+    return false;
+  }
+
+  fake_descriptors_.erase(it);
+  return true;
+}
+
 void FakeRemoteGattCharacteristic::SetNextReadResponse(
     uint16_t gatt_code,
     const base::Optional<std::vector<uint8_t>>& value) {
@@ -78,6 +89,12 @@ void FakeRemoteGattCharacteristic::SetNextSubscribeToNotificationsResponse(
     uint16_t gatt_code) {
   DCHECK(!next_subscribe_to_notifications_response_);
   next_subscribe_to_notifications_response_.emplace(gatt_code);
+}
+
+void FakeRemoteGattCharacteristic::SetNextUnsubscribeFromNotificationsResponse(
+    uint16_t gatt_code) {
+  DCHECK(!next_unsubscribe_from_notifications_response_);
+  next_unsubscribe_from_notifications_response_.emplace(gatt_code);
 }
 
 bool FakeRemoteGattCharacteristic::AllResponsesConsumed() {
@@ -142,8 +159,8 @@ void FakeRemoteGattCharacteristic::ReadRemoteCharacteristic(
     const ErrorCallback& error_callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::Bind(&FakeRemoteGattCharacteristic::DispatchReadResponse,
-                 weak_ptr_factory_.GetWeakPtr(), callback, error_callback));
+      base::BindOnce(&FakeRemoteGattCharacteristic::DispatchReadResponse,
+                     weak_ptr_factory_.GetWeakPtr(), callback, error_callback));
 }
 
 void FakeRemoteGattCharacteristic::WriteRemoteCharacteristic(
@@ -161,9 +178,19 @@ void FakeRemoteGattCharacteristic::WriteRemoteCharacteristic(
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::Bind(&FakeRemoteGattCharacteristic::DispatchWriteResponse,
-                 weak_ptr_factory_.GetWeakPtr(), callback, error_callback,
-                 value));
+      base::BindOnce(&FakeRemoteGattCharacteristic::DispatchWriteResponse,
+                     weak_ptr_factory_.GetWeakPtr(), callback, error_callback,
+                     value));
+}
+
+bool FakeRemoteGattCharacteristic::WriteWithoutResponse(
+    base::span<const uint8_t> value) {
+  if (properties_ & PROPERTY_WRITE_WITHOUT_RESPONSE) {
+    last_written_value_.emplace(value.begin(), value.end());
+    return true;
+  }
+
+  return false;
 }
 
 void FakeRemoteGattCharacteristic::SubscribeToNotifications(
@@ -172,16 +199,20 @@ void FakeRemoteGattCharacteristic::SubscribeToNotifications(
     const ErrorCallback& error_callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::Bind(&FakeRemoteGattCharacteristic::
-                     DispatchSubscribeToNotificationsResponse,
-                 weak_ptr_factory_.GetWeakPtr(), callback, error_callback));
+      base::BindOnce(&FakeRemoteGattCharacteristic::
+                         DispatchSubscribeToNotificationsResponse,
+                     weak_ptr_factory_.GetWeakPtr(), callback, error_callback));
 }
 
 void FakeRemoteGattCharacteristic::UnsubscribeFromNotifications(
     device::BluetoothRemoteGattDescriptor* ccc_descriptor,
     const base::Closure& callback,
     const ErrorCallback& error_callback) {
-  NOTREACHED();
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&FakeRemoteGattCharacteristic::
+                         DispatchUnsubscribeFromNotificationsResponse,
+                     weak_ptr_factory_.GetWeakPtr(), callback, error_callback));
 }
 
 void FakeRemoteGattCharacteristic::DispatchReadResponse(
@@ -234,6 +265,25 @@ void FakeRemoteGattCharacteristic::DispatchSubscribeToNotificationsResponse(
   DCHECK(next_subscribe_to_notifications_response_);
   uint16_t gatt_code = next_subscribe_to_notifications_response_.value();
   next_subscribe_to_notifications_response_.reset();
+
+  switch (gatt_code) {
+    case mojom::kGATTSuccess:
+      callback.Run();
+      break;
+    case mojom::kGATTInvalidHandle:
+      error_callback.Run(device::BluetoothGattService::GATT_ERROR_FAILED);
+      break;
+    default:
+      NOTREACHED();
+  }
+}
+
+void FakeRemoteGattCharacteristic::DispatchUnsubscribeFromNotificationsResponse(
+    const base::Closure& callback,
+    const ErrorCallback& error_callback) {
+  DCHECK(next_unsubscribe_from_notifications_response_);
+  uint16_t gatt_code = next_unsubscribe_from_notifications_response_.value();
+  next_unsubscribe_from_notifications_response_.reset();
 
   switch (gatt_code) {
     case mojom::kGATTSuccess:

@@ -137,6 +137,10 @@ struct loader_layer_properties {
     struct loader_name_value enable_env_var;
     uint32_t num_component_layers;
     char (*component_layer_names)[MAX_STRING_SIZE];
+    struct {
+        char enumerate_instance_extension_properties[MAX_STRING_SIZE];
+        char enumerate_instance_layer_properties[MAX_STRING_SIZE];
+    } pre_instance_functions;
 };
 
 struct loader_layer_list {
@@ -293,6 +297,12 @@ struct loader_instance {
 #ifdef VK_USE_PLATFORM_ANDROID_KHR
     bool wsi_android_surface_enabled;
 #endif
+#ifdef VK_USE_PLATFORM_MACOS_MVK
+    bool wsi_macos_surface_enabled;
+#endif
+#ifdef VK_USE_PLATFORM_IOS_MVK
+    bool wsi_ios_surface_enabled;
+#endif
     bool wsi_display_enabled;
 };
 
@@ -375,7 +385,9 @@ static inline void loader_init_dispatch(void *obj, const void *data) {
 // Global variables used across files
 extern struct loader_struct loader;
 extern THREAD_LOCAL_DECL struct loader_instance *tls_instance;
+#if defined(_WIN32) && !defined(LOADER_DYNAMIC_LIB)
 extern LOADER_PLATFORM_THREAD_ONCE_DEFINITION(once_init);
+#endif
 extern loader_platform_thread_mutex loader_lock;
 extern loader_platform_thread_mutex loader_json_lock;
 

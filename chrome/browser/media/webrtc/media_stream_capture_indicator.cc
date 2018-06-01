@@ -24,7 +24,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "ui/gfx/image/image_skia.h"
 
 #if !defined(OS_ANDROID)
@@ -238,7 +238,7 @@ MediaStreamCaptureIndicator::~MediaStreamCaptureIndicator() {
   // invoke DoDevicesClosedOnUIThread().  In this case, usage_map_ won't be
   // empty like it should.
   DCHECK(usage_map_.empty() ||
-         !BrowserThread::IsMessageLoopValid(BrowserThread::UI));
+         !BrowserThread::IsThreadInitialized(BrowserThread::UI));
 }
 
 std::unique_ptr<content::MediaStreamUI>

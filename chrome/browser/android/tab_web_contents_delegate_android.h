@@ -56,11 +56,14 @@ class TabWebContentsDelegateAndroid
                            const gfx::RectF& active_rect) override;
   content::JavaScriptDialogManager* GetJavaScriptDialogManager(
       content::WebContents* source) override;
+  void AdjustPreviewsStateForNavigation(
+      content::WebContents* web_contents,
+      content::PreviewsState* previews_state) override;
   void RequestMediaAccessPermission(
       content::WebContents* web_contents,
       const content::MediaStreamRequest& request,
       const content::MediaResponseCallback& callback) override;
-  bool CheckMediaAccessPermission(content::WebContents* web_contents,
+  bool CheckMediaAccessPermission(content::RenderFrameHost* render_frame_host,
                                   const GURL& security_origin,
                                   content::MediaStreamType type) override;
   void SetOverlayMode(bool use_overlay_mode) override;

@@ -10,9 +10,9 @@
 #include <memory>
 #include "components/omnibox/browser/omnibox_view.h"
 #include "components/toolbar/toolbar_model.h"
-#include "ios/chrome/browser/ui/omnibox/omnibox_popup_provider.h"
-#import "ios/chrome/browser/ui/omnibox/omnibox_popup_view_suggestions_delegate.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_text_field_ios.h"
+#include "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_provider.h"
+#import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_view_suggestions_delegate.h"
 
 struct AutocompleteMatch;
 class AutocompleteResult;
@@ -85,7 +85,6 @@ class OmniboxViewIOS : public OmniboxView,
   void Update() override {}
   void EnterKeywordModeForDefaultSearchProvider() override {}
   bool IsSelectAll() const override;
-  bool DeleteAtEndPressed() override;
   void GetSelectionBounds(base::string16::size_type* start,
                           base::string16::size_type* end) const override;
   void SelectAll(bool reversed) override {}

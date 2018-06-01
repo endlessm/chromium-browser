@@ -54,6 +54,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/profile_management_switches.h"
 #include "components/signin/core/browser/signin_manager.h"
+#include "components/signin/core/browser/signin_metrics.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/zoom/zoom_controller.h"
 #include "components/zoom/zoom_event_manager.h"
@@ -69,13 +70,13 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_skia.h"
+#include "ui/gfx/text_elider.h"
 
 #if defined(GOOGLE_CHROME_BUILD)
 #include "base/feature_list.h"
 #endif
 
 #if defined(OS_CHROMEOS)
-#include "ash/shell.h"
 #include "chromeos/chromeos_switches.h"
 #endif
 
@@ -90,6 +91,8 @@ using base::UserMetricsAction;
 using content::WebContents;
 
 namespace {
+
+constexpr size_t kMaxAppNameLength = 30;
 
 #if defined(OS_MACOSX)
 // An empty command used because of a bug in AppKit menus.
@@ -110,22 +113,19 @@ base::string16 GetUpgradeDialogMenuItemName() {
 
 // Returns the appropriate menu label for the IDC_CREATE_HOSTED_APP command.
 base::string16 GetCreateHostedAppMenuItemName(Browser* browser) {
-  bool installable_app = false;
-
-  if (browser->tab_strip_model() &&
-      browser->tab_strip_model()->GetActiveWebContents()) {
-    const banners::AppBannerManager::Installable installable =
-        banners::AppBannerManager::GetInstallable(
-            browser->tab_strip_model()->GetActiveWebContents());
-    if (installable ==
-        banners::AppBannerManager::Installable::INSTALLABLE_YES) {
-      installable_app = true;
+  if (browser->tab_strip_model()) {
+    WebContents* web_contents =
+        browser->tab_strip_model()->GetActiveWebContents();
+    if (web_contents) {
+      base::string16 app_name =
+          banners::AppBannerManager::GetInstallableAppName(web_contents);
+      if (!app_name.empty()) {
+        return l10n_util::GetStringFUTF16(IDS_INSTALL_TO_OS_LAUNCH_SURFACE,
+                                          app_name);
+      }
     }
   }
-
-  return l10n_util::GetStringUTF16(installable_app
-                                       ? IDS_INSTALL_TO_OS_LAUNCH_SURFACE
-                                       : IDS_ADD_TO_OS_LAUNCH_SURFACE);
+  return l10n_util::GetStringUTF16(IDS_ADD_TO_OS_LAUNCH_SURFACE);
 }
 
 }  // namespace
@@ -723,6 +723,9 @@ void AppMenuModel::LogMenuAction(AppMenuAction action_id) {
 // - Learn about the browser and global customisation e.g. settings, help.
 // - Browser relaunch, quit.
 void AppMenuModel::Build() {
+  // Build (and, by extension, Init) should only be called once.
+  DCHECK_EQ(0, GetItemCount());
+
   if (CreateActionToolbarOverflowMenu())
     AddSeparator(ui::UPPER_SEPARATOR);
 
@@ -768,7 +771,18 @@ void AppMenuModel::Build() {
   AddItemWithStringId(IDC_FIND, IDS_FIND);
   if (extensions::util::IsNewBookmarkAppsEnabled() &&
       banners::AppBannerManager::IsExperimentalAppBannersEnabled()) {
-    AddItem(IDC_CREATE_HOSTED_APP, GetCreateHostedAppMenuItemName(browser_));
+    const extensions::Extension* pwa =
+        extensions::util::GetPwaForSecureActiveTab(browser_);
+    if (pwa) {
+      AddItem(
+          IDC_OPEN_IN_PWA_WINDOW,
+          l10n_util::GetStringFUTF16(
+              IDS_OPEN_IN_APP_WINDOW,
+              gfx::TruncateString(base::UTF8ToUTF16(pwa->name()),
+                                  kMaxAppNameLength, gfx::CHARACTER_BREAK)));
+    } else {
+      AddItem(IDC_CREATE_HOSTED_APP, GetCreateHostedAppMenuItemName(browser_));
+    }
   }
 
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -890,8 +904,8 @@ bool AppMenuModel::AddGlobalErrorMenuItems() {
               error->MenuItemIcon());
       menu_items_added = true;
       if (IDC_SHOW_SIGNIN_ERROR == error->MenuItemCommandID()) {
-        base::RecordAction(
-            base::UserMetricsAction("Signin_Impression_FromMenu"));
+        signin_metrics::RecordSigninImpressionUserActionForAccessPoint(
+            signin_metrics::AccessPoint::ACCESS_POINT_MENU);
       }
     }
   }

@@ -44,6 +44,10 @@ class VrTestContext : public vr::UiBrowserInterface {
   void ExitPresent() override;
   void ExitFullscreen() override;
   void NavigateBack() override;
+  void NavigateForward() override;
+  void ReloadTab() override;
+  void OpenNewTab(bool incognito) override;
+  void CloseAllIncognitoTabs() override;
   void ExitCct() override;
   void CloseHostedDialog() override;
   void OnUnsupportedMode(vr::UiUnsupportedMode mode) override;
@@ -53,7 +57,8 @@ class VrTestContext : public vr::UiBrowserInterface {
   void SetVoiceSearchActive(bool active) override;
   void StartAutocomplete(const AutocompleteRequest& request) override;
   void StopAutocomplete() override;
-  void Navigate(GURL gurl) override;
+  void ShowPageInfo() override;
+  void Navigate(GURL gurl, NavigationMethod method) override;
 
   void set_window_size(const gfx::Size& size) { window_size_ = size; }
 
@@ -63,10 +68,12 @@ class VrTestContext : public vr::UiBrowserInterface {
   void CycleWebVrModes();
   void ToggleSplashScreen();
   void CycleOrigin();
+  void CycleIndicators();
   RenderInfo GetRenderInfo() const;
   gfx::Transform ProjectionMatrix() const;
   gfx::Transform ViewProjectionMatrix() const;
-  ControllerModel UpdateController(const RenderInfo& render_info);
+  ControllerModel UpdateController(const RenderInfo& render_info,
+                                   base::TimeTicks current_time);
   gfx::Point3F LaserOrigin() const;
   void LoadAssets();
 
@@ -80,19 +87,21 @@ class VrTestContext : public vr::UiBrowserInterface {
   int last_drag_y_pixels_ = 0;
   gfx::Point last_mouse_point_;
   bool touchpad_pressed_ = false;
+  gfx::PointF touchpad_touch_position_;
 
   float view_scale_factor_ = 1.f;
 
   // This avoids storing a duplicate of the model state here.
   Model* model_;
 
+  bool web_vr_mode_ = false;
+  bool webvr_frames_received_ = false;
   bool fullscreen_ = false;
   bool incognito_ = false;
   bool show_web_vr_splash_screen_ = false;
   bool voice_search_enabled_ = false;
+  bool touching_touchpad_ = false;
   base::TimeTicks page_load_start_;
-
-  ControllerModel last_controller_model_;
 
   std::unique_ptr<TextInputDelegate> text_input_delegate_;
   std::unique_ptr<TestKeyboardDelegate> keyboard_delegate_;

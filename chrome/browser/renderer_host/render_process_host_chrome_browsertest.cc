@@ -22,6 +22,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "content/public/browser/child_process_launcher_utils.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -47,15 +48,7 @@ using content::WebContents;
 namespace {
 
 int RenderProcessHostCount() {
-  content::RenderProcessHost::iterator hosts =
-      content::RenderProcessHost::AllHostsIterator();
-  int count = 0;
-  while (!hosts.IsAtEnd()) {
-    if (hosts.GetCurrentValue()->HasConnection())
-      count++;
-    hosts.Advance();
-  }
-  return count;
+  return content::RenderProcessHost::GetCurrentRenderProcessCountForTesting();
 }
 
 WebContents* FindFirstDevToolsContents() {
@@ -130,9 +123,8 @@ class ChromeRenderProcessHostTest : public ExtensionBrowserTest {
   // Ensures that the backgrounding / foregrounding gets a chance to run.
   void WaitForLauncherThread() {
     base::RunLoop run_loop;
-    content::BrowserThread::PostTaskAndReply(
-        content::BrowserThread::PROCESS_LAUNCHER, FROM_HERE, base::DoNothing(),
-        run_loop.QuitWhenIdleClosure());
+    content::GetProcessLauncherTaskRunner()->PostTaskAndReply(
+        FROM_HERE, base::DoNothing(), run_loop.QuitWhenIdleClosure());
     run_loop.Run();
   }
 
@@ -589,7 +581,7 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest,
   // Kill the renderer process, simulating a crash. This should the ProcessDied
   // method to be called. Alternatively, RenderProcessHost::OnChannelError can
   // be called to directly force a call to ProcessDied.
-  wc1->GetMainFrame()->GetProcess()->Shutdown(-1, true);
+  wc1->GetMainFrame()->GetProcess()->Shutdown(-1);
 
   observer.Wait();
 }

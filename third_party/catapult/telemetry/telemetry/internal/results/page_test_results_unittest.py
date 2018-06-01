@@ -3,8 +3,9 @@
 # found in the LICENSE file.
 
 import os
-import unittest
 import mock
+import StringIO
+import unittest
 
 from py_utils import tempfile_ext
 
@@ -16,7 +17,6 @@ from telemetry.internal.results import chart_json_output_formatter
 from telemetry.internal.results import html_output_formatter
 from telemetry.internal.results import page_test_results
 from telemetry import page as page_module
-from telemetry.testing import stream
 from telemetry.value import histogram
 from telemetry.value import improvement_direction
 from telemetry.value import scalar
@@ -399,7 +399,7 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     self.assertFalse(results.FindAllTraceValues())
 
   def testPrintSummaryDisabledResults(self):
-    output_stream = stream.TestOutputStream()
+    output_stream = StringIO.StringIO()
     output_formatters = []
     benchmark_metadata = benchmark.BenchmarkMetadata(
         'benchmark_name', 'benchmark_description')
@@ -412,7 +412,7 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
         output_formatters=output_formatters, benchmark_enabled=False)
     results.PrintSummary()
     self.assertEquals(
-        output_stream.output_data,
+        output_stream.getvalue(),
         '{\n  \"enabled\": false,\n  ' +
         '\"benchmark_name\": \"benchmark_name\"\n}\n')
 
@@ -492,6 +492,37 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     diag = hs.LookupDiagnostic(original_diagnostic.guid)
     self.assertIsInstance(diag, generic_set.GenericSet)
 
+  def testAddDurationHistogram(self):
+    results = page_test_results.PageTestResults()
+    results.telemetry_info.benchmark_start_epoch = 1234
+    results.telemetry_info.label = 'foo'
+    results.telemetry_info.benchmark_name = 'bar'
+    results.telemetry_info.benchmark_descriptions = 'desc'
+    results.AddDurationHistogram(42)
+
+    histograms = histogram_set.HistogramSet()
+    histograms.ImportDicts(results.AsHistogramDicts())
+    self.assertEqual(len(histograms), 1)
+    hist = histograms.GetFirstHistogram()
+    self.assertEqual(hist.name, 'benchmark_total_duration')
+    self.assertIn(reserved_infos.LABELS.name, hist.diagnostics)
+    self.assertEqual(
+        len(hist.diagnostics[reserved_infos.LABELS.name]), 1)
+    self.assertEqual(
+        hist.diagnostics[reserved_infos.LABELS.name].GetOnlyElement(), 'foo')
+    self.assertIn(reserved_infos.BENCHMARKS.name, hist.diagnostics)
+    self.assertEqual(
+        len(hist.diagnostics[reserved_infos.BENCHMARKS.name]), 1)
+    self.assertEqual(
+        hist.diagnostics[reserved_infos.BENCHMARKS.name].GetOnlyElement(),
+        'bar')
+    self.assertIn(reserved_infos.BENCHMARK_DESCRIPTIONS.name, hist.diagnostics)
+    self.assertEqual(
+        len(hist.diagnostics[reserved_infos.BENCHMARK_DESCRIPTIONS.name]), 1)
+    self.assertEqual(
+        hist.diagnostics[
+            reserved_infos.BENCHMARK_DESCRIPTIONS.name].GetOnlyElement(),
+        'desc')
 
 class PageTestResultsFilterTest(unittest.TestCase):
   def setUp(self):
@@ -536,13 +567,13 @@ class PageTestResultsFilterTest(unittest.TestCase):
         [(v.name, v.page.url) for v in results.all_page_specific_values])
 
   def testFilterValueWithImportHistogramDicts(self):
-    def AcceptValueNamed_a(name, _):
-      return name == 'a'
+    def AcceptValueStartsWith_a(name, _):
+      return name.startswith('a')
     hs = histogram_set.HistogramSet()
     hs.AddHistogram(histogram_module.Histogram('a', 'count'))
     hs.AddHistogram(histogram_module.Histogram('b', 'count'))
     results = page_test_results.PageTestResults(
-        should_add_value=AcceptValueNamed_a)
+        should_add_value=AcceptValueStartsWith_a)
     results.WillRunPage(self.pages[0])
     results.ImportHistogramDicts(hs.AsDicts())
     results.DidRunPage(self.pages[0])
@@ -663,6 +694,8 @@ class PageTestResultsFilterTest(unittest.TestCase):
 
   @mock.patch('py_utils.cloud_storage.Insert')
   def testUploadArtifactsToCloud(self, cloud_storage_insert_patch):
+    cs_path_name = 'https://cs_foo'
+    cloud_storage_insert_patch.return_value = cs_path_name
     with tempfile_ext.NamedTemporaryDirectory(
         prefix='artifact_tests') as tempdir:
 
@@ -682,6 +715,12 @@ class PageTestResultsFilterTest(unittest.TestCase):
           [mock.call('abc', mock.ANY, screenshot1.name),
            mock.call('abc', mock.ANY, log2.name)],
           any_order=True)
+
+      # Assert that the path is now the cloud storage path
+      for _, artifacts in ar.IterTestAndArtifacts():
+        for artifact_type in artifacts:
+          for i, _ in enumerate(artifacts[artifact_type]):
+            self.assertEquals(cs_path_name, artifacts[artifact_type][i])
 
   @mock.patch('py_utils.cloud_storage.Insert')
   def testUploadArtifactsToCloud_withNoOpArtifact(

@@ -58,7 +58,7 @@ def _ProcessTest(test_key):
     logging.error('No sheriff for %s', test_key)
     raise ndb.Return(None)
 
-  config = anomaly_config.GetAnomalyConfigDict(test)
+  config = yield anomaly_config.GetAnomalyConfigDictAsync(test)
   max_num_rows = config.get('max_window_size', DEFAULT_NUM_POINTS)
   rows = yield GetRowsToAnalyzeAsync(test, max_num_rows)
   # If there were no rows fetched, then there's nothing to analyze.
@@ -177,7 +177,7 @@ def _FilterAnomaliesFoundInRef(change_points, test_key, num_rows):
     an anomaly found in the corresponding ref test will be filtered out.
   """
   # Get anomalies for ref build.
-  ref_test = _CorrespondingRefTest(test_key)
+  ref_test = yield _CorrespondingRefTest(test_key)
   if not ref_test:
     raise ndb.Return(change_points[:])
 
@@ -208,15 +208,16 @@ def _FilterAnomaliesFoundInRef(change_points, test_key, num_rows):
   raise ndb.Return(change_points_filtered)
 
 
+@ndb.tasklet
 def _CorrespondingRefTest(test_key):
   """Returns the TestMetadata for the corresponding ref build trace, or None."""
   test_path = utils.TestPath(test_key)
   possible_ref_test_paths = [test_path + '_ref', test_path + '/ref']
   for path in possible_ref_test_paths:
-    ref_test = utils.TestKey(path).get()
+    ref_test = yield utils.TestKey(path).get_async()
     if ref_test:
-      return ref_test
-  return None
+      raise ndb.Return(ref_test)
+  raise ndb.Return(None)
 
 
 def _IsAnomalyInRef(change_point, ref_change_points):

@@ -7,6 +7,7 @@
 #include "base/command_line.h"
 #include "chrome/browser/profiling_host/profiling_process_host.h"
 #include "chrome/common/chrome_switches.h"
+#include "components/services/heap_profiling/public/cpp/settings.h"
 
 ChromeBrowserMainExtraPartsProfiling::ChromeBrowserMainExtraPartsProfiling() =
     default;
@@ -15,21 +16,18 @@ ChromeBrowserMainExtraPartsProfiling::~ChromeBrowserMainExtraPartsProfiling() =
 
 void ChromeBrowserMainExtraPartsProfiling::ServiceManagerConnectionStarted(
     content::ServiceManagerConnection* connection) {
-#if defined(ADDRESS_SANITIZER) || defined(SYZYASAN)
+#if defined(ADDRESS_SANITIZER)
   // Memory sanitizers are using large memory shadow to keep track of memory
   // state. Using memlog and memory sanitizers at the same time is slowing down
   // user experience, causing the browser to be barely responsive. In theory,
   // memlog and memory sanitizers are compatible and can run at the same time.
   (void)connection;  // Unused variable.
 #else
-  profiling::ProfilingProcessHost::Mode mode =
-      profiling::ProfilingProcessHost::GetModeForStartup();
-  if (mode != profiling::ProfilingProcessHost::Mode::kNone) {
-    profiling::ProfilingProcessHost::Start(
-        connection, mode,
-        profiling::ProfilingProcessHost::GetStackModeForStartup(),
-        profiling::ProfilingProcessHost::GetShouldSampleForStartup(),
-        profiling::ProfilingProcessHost::GetSamplingRateForStartup());
+  heap_profiling::Mode mode = heap_profiling::GetModeForStartup();
+  if (mode != heap_profiling::Mode::kNone) {
+    heap_profiling::ProfilingProcessHost::Start(
+        connection, mode, heap_profiling::GetStackModeForStartup(),
+        heap_profiling::GetSamplingRateForStartup(), base::OnceClosure());
   }
 #endif
 }

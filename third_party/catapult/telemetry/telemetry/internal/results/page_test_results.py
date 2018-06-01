@@ -28,6 +28,7 @@ from telemetry.value import trace
 from tracing.value import convert_chart_json
 from tracing.value import histogram
 from tracing.value import histogram_set
+from tracing.value.diagnostics import generic_set
 from tracing.value.diagnostics import reserved_infos
 
 class TelemetryInfo(object):
@@ -46,6 +47,7 @@ class TelemetryInfo(object):
     self._trace_remote_path = None
     self._output_dir = output_dir
     self._trace_local_path = None
+    self._had_failures = None
 
   @property
   def upload_bucket(self):
@@ -113,6 +115,16 @@ class TelemetryInfo(object):
   @property
   def storyset_repeat_counter(self):
     return self._storyset_repeat_counter
+
+  @property
+  def had_failures(self):
+    return self._had_failures
+
+  @had_failures.setter
+  def had_failures(self, had_failures):
+    assert self.had_failures is None, (
+        'had_failures cannot be set more than once')
+    self._had_failures = had_failures
 
   def InterruptBenchmark(self):
     self._benchmark_interrupted = True
@@ -183,6 +195,8 @@ class TelemetryInfo(object):
     d[reserved_infos.STORYSET_REPEATS.name] = [self.storyset_repeat_counter]
     d[reserved_infos.TRACE_START.name] = self.trace_start_ms
     d[reserved_infos.TRACE_URLS.name] = [self.trace_url]
+    if self.had_failures:
+      d[reserved_infos.HAD_FAILURES.name] = [self.had_failures]
     return d
 
 
@@ -415,28 +429,43 @@ class PageTestResults(object):
     hist = histogram.Histogram(
         'benchmark_total_duration', 'ms_smallerIsBetter')
     hist.AddSample(duration_in_milliseconds)
+    # TODO(#4244): Do this generally.
+    hist.diagnostics[reserved_infos.LABELS.name] = generic_set.GenericSet(
+        [self.telemetry_info.label])
+    hist.diagnostics[reserved_infos.BENCHMARKS.name] = generic_set.GenericSet(
+        [self.telemetry_info.benchmark_name])
+    hist.diagnostics[reserved_infos.BENCHMARK_START.name] = histogram.DateRange(
+        self.telemetry_info.benchmark_start_epoch)
+    if self.telemetry_info.benchmark_descriptions:
+      hist.diagnostics[
+          reserved_infos.BENCHMARK_DESCRIPTIONS.name] = generic_set.GenericSet([
+              self.telemetry_info.benchmark_descriptions])
     self._histograms.AddHistogram(hist)
 
   def AddHistogram(self, hist):
+    if self._ShouldAddHistogram(hist):
+      self._histograms.AddHistogram(hist)
+
+  def ImportHistogramDicts(self, histogram_dicts):
+    dicts_to_add = []
+    for d in histogram_dicts:
+      # If there's a type field, it's a diagnostic.
+      if 'type' in d:
+        dicts_to_add.append(d)
+      else:
+        hist = histogram.Histogram.FromDict(d)
+        if self._ShouldAddHistogram(hist):
+          dicts_to_add.append(d)
+    self._histograms.ImportDicts(dicts_to_add)
+
+  def _ShouldAddHistogram(self, hist):
     assert self._current_page_run, 'Not currently running test.'
     is_first_result = (
         self._current_page_run.story not in self._all_stories)
     # TODO(eakuefner): Stop doing this once AddValue doesn't exist
     stat_names = [
         '%s_%s' % (hist.name, s) for  s in hist.statistics_scalars.iterkeys()]
-    if any(self._should_add_value(s, is_first_result) for s in stat_names):
-      self._histograms.AddHistogram(hist)
-
-  def ImportHistogramDicts(self, histogram_dicts):
-    assert self._current_page_run, 'Not currently running test.'
-    is_first_result = (
-        self._current_page_run.story not in self._all_stories)
-    dicts_to_add = []
-    for d in histogram_dicts:
-      # If there's a type field, it's a diagnostic.
-      if 'type' in d or self._should_add_value(d['name'], is_first_result):
-        dicts_to_add.append(d)
-    self._histograms.ImportDicts(dicts_to_add)
+    return any(self._should_add_value(s, is_first_result) for s in stat_names)
 
   def AddValue(self, value):
     assert self._current_page_run, 'Not currently running test.'
@@ -485,11 +514,11 @@ class PageTestResults(object):
     """
     # TODO(#4258): Relax this assertion.
     assert self._current_page_run, 'Not currently running test.'
-    self.current_page_run.SetFailed()
     if isinstance(failure, basestring):
       failure_str = 'Failure recorded: %s' % failure
     else:
       failure_str = ''.join(traceback.format_exception(*failure))
+    self._current_page_run.SetFailed(failure_str)
     self._progress_reporter.DidFail(failure_str)
 
   def Skip(self, reason):
@@ -587,6 +616,7 @@ class PageTestResults(object):
           remote_path = str(uuid.uuid1())
           cloud_url = cloud_storage.Insert(
               bucket, remote_path, abs_artifact_path)
+          artifacts[artifact_type][i] = cloud_url
           sys.stderr.write(
               'Uploading %s of page %s to %s (%d out of %d)\n' %
               (artifact_type, test_name, cloud_url, i + 1,

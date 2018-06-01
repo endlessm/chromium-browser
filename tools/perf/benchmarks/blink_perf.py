@@ -230,6 +230,7 @@ class _BlinkPerfMeasurement(legacy_page_test.LegacyPageTest):
                            'blink_perf.js'), 'r') as f:
       self._blink_perf_js = f.read()
     self._extra_chrome_categories = None
+    self._enable_systrace = None
 
   def WillNavigateToPage(self, page, tab):
     del tab  # unused
@@ -239,8 +240,7 @@ class _BlinkPerfMeasurement(legacy_page_test.LegacyPageTest):
     options.AppendExtraBrowserArgs([
         '--js-flags=--expose_gc',
         '--enable-experimental-web-platform-features',
-        '--autoplay-policy=no-user-gesture-required',
-        '--enable-experimental-canvas-features'
+        '--autoplay-policy=no-user-gesture-required'
     ])
 
   def SetOptions(self, options):
@@ -250,6 +250,8 @@ class _BlinkPerfMeasurement(legacy_page_test.LegacyPageTest):
       options.AppendExtraBrowserArgs('--expose-internals-for-testing')
     if options.extra_chrome_categories:
       self._extra_chrome_categories = options.extra_chrome_categories
+    if options.enable_systrace:
+      self._enable_systrace = True
 
   def _ContinueTestRunWithTracing(self, tab):
     tracing_categories = tab.EvaluateJavaScript(
@@ -263,6 +265,8 @@ class _BlinkPerfMeasurement(legacy_page_test.LegacyPageTest):
     if self._extra_chrome_categories:
       config.chrome_trace_config.category_filter.AddFilterString(
           self._extra_chrome_categories)
+    if self._enable_systrace:
+      config.chrome_trace_config.SetEnableSystrace()
     tab.browser.platform.tracing_controller.StartTracing(config)
     tab.EvaluateJavaScript('testRunner.scheduleTestRun()')
     tab.WaitForJavaScriptCondition('testRunner.isDone')
@@ -356,7 +360,7 @@ class BlinkPerfBindings(_BlinkPerfBenchmark):
   tag = 'bindings'
   subdir = 'Bindings'
 
-@benchmark.Owner(emails=['rune@opera.com'])
+@benchmark.Owner(emails=['futhark@chromium.org'])
 class BlinkPerfCSS(_BlinkPerfBenchmark):
   tag = 'css'
   subdir = 'CSS'
@@ -415,6 +419,15 @@ class BlinkPerfLayout(_BlinkPerfBenchmark):
 class BlinkPerfOWPStorage(_BlinkPerfBenchmark):
   tag = 'owp_storage'
   subdir = 'OWPStorage'
+
+  # This ensures that all blobs >= 20MB will be transported by files.
+  def SetExtraBrowserOptions(self, options):
+    options.AppendExtraBrowserArgs([
+        '--blob-transport-by-file-trigger=307300',
+        '--blob-transport-min-file-size=2048',
+        '--blob-transport-max-file-size=10240',
+        '--blob-transport-shared-memory-max-size=30720'
+    ])
 
 
 @benchmark.Owner(emails=['wangxianzhu@chromium.org'])

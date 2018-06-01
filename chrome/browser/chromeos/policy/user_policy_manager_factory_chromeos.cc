@@ -34,6 +34,7 @@
 #include "chromeos/chromeos_paths.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "components/arc/arc_features.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/cloud/cloud_external_data_manager.h"
@@ -73,6 +74,12 @@ constexpr base::TimeDelta kPolicyRefreshTimeout =
 
 const char kUMAHasPolicyPrefNotMigrated[] =
     "Enterprise.UserPolicyChromeOS.HasPolicyPrefNotMigrated";
+
+void OnUserPolicyFatalError(const AccountId& account_id) {
+  // TODO(emaxx): Add a UMA metric.
+  user_manager::UserManager::Get()->SaveForceOnlineSignin(account_id, true);
+  chrome::AttemptUserExit();
+}
 
 }  // namespace
 
@@ -168,19 +175,26 @@ UserPolicyManagerFactoryChromeOS::CreateManagerForProfile(
       chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
   CHECK(user);
 
-  // User policy exists for enterprise accounts only:
+  // User policy exists for enterprise accounts:
   // - For regular cloud-managed users (those who have a GAIA account), a
   //   |UserCloudPolicyManagerChromeOS| is created here.
   // - For Active Directory managed users, an |ActiveDirectoryPolicyManager|
   //   is created.
   // - For device-local accounts, policy is provided by
   //   |DeviceLocalAccountPolicyService|.
+  // For non-enterprise accounts only for users with type USER_TYPE_CHILD
+  //   |UserCloudPolicyManagerChromeOS| is created here.
   // All other user types do not have user policy.
   const AccountId& account_id = user->GetAccountId();
   const bool is_stub_user =
       user_manager::UserManager::Get()->IsStubAccountId(account_id);
-  if (user->IsSupervised() ||
-      BrowserPolicyConnector::IsNonEnterpriseUser(account_id.GetUserEmail())) {
+  const bool is_child_user_with_enabled_policy =
+      user->GetType() == user_manager::USER_TYPE_CHILD &&
+      base::FeatureList::IsEnabled(arc::kAvailableForChildAccountFeature);
+  if (!is_child_user_with_enabled_policy &&
+      (user->GetType() == user_manager::USER_TYPE_SUPERVISED ||
+       BrowserPolicyConnector::IsNonEnterpriseUser(
+           account_id.GetUserEmail()))) {
     DLOG(WARNING) << "No policy loaded for known non-enterprise user";
     // Mark this profile as not requiring policy.
     user_manager::known_user::SetProfileRequiresPolicy(
@@ -352,10 +366,10 @@ UserPolicyManagerFactoryChromeOS::CreateManagerForProfile(
     store->LoadImmediately();
 
   if (is_active_directory) {
-    std::unique_ptr<ActiveDirectoryPolicyManager> manager =
-        ActiveDirectoryPolicyManager::CreateForUserPolicy(
-            account_id, policy_refresh_timeout,
-            base::BindOnce(&chrome::AttemptUserExit), std::move(store));
+    auto manager = std::make_unique<UserActiveDirectoryPolicyManager>(
+        account_id, policy_refresh_timeout,
+        base::BindOnce(&OnUserPolicyFatalError, account_id), std::move(store),
+        std::move(external_data_manager));
     manager->Init(
         SchemaRegistryServiceFactory::GetForContext(profile)->registry());
 
@@ -367,10 +381,9 @@ UserPolicyManagerFactoryChromeOS::CreateManagerForProfile(
             std::move(store), std::move(external_data_manager),
             component_policy_cache_dir, enforcement_type,
             policy_refresh_timeout,
-            base::BindOnce(&chrome::AttemptUserExit) /* fatal_error_callback */,
-            account_id, base::ThreadTaskRunnerHandle::Get(), io_task_runner);
+            base::BindOnce(&OnUserPolicyFatalError, account_id), account_id,
+            base::ThreadTaskRunnerHandle::Get(), io_task_runner);
 
-    // TODO(tnagel): Enable whitelist for Active Directory.
     bool wildcard_match = false;
     if (connector->IsEnterpriseManaged() &&
         chromeos::CrosSettings::Get()->IsUserWhitelisted(

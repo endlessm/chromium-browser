@@ -343,8 +343,9 @@ class BuildPackagesStageTest(AllConfigsTestCase,
     """Test that firmware versions are extracted correctly for unibuilds."""
 
     def _HookRunCommand(rc):
-      rc.AddCmdResult(partial_mock.ListRegex('cros_config_host_py'),
+      rc.AddCmdResult(partial_mock.In('list-models'),
                       output='reef\npyro\nelectro')
+      rc.AddCmdResult(partial_mock.In('get'), output='key-123')
       rc.AddCmdResult(partial_mock.ListRegex('chromeos-firmwareupdate'),
                       output='''
 Model:        reef
@@ -364,7 +365,6 @@ EC (RW) version: pyro_v1.1.5909-bd1f0c9
 Model:        electro
 BIOS image:
 BIOS version: Google_Reef.9042.87.1
-BIOS (RW) version: Google_Reef.9042.110.0
 EC version:   reef_v1.1.5900-ab1ee51
 EC (RW) version: reef_v1.1.5909-bd1f0c9
 ''')
@@ -376,7 +376,7 @@ EC (RW) version: reef_v1.1.5909-bd1f0c9
     osutils.Touch(update, makedirs=True)
 
     cros_config_host = os.path.join(self.build_root,
-                                    'chroot/usr/bin/cros_config_host_py')
+                                    'chroot/usr/bin/cros_config_host')
     osutils.Touch(cros_config_host, makedirs=True)
 
     self._mock_configurator = _HookRunCommand
@@ -393,17 +393,28 @@ EC (RW) version: reef_v1.1.5909-bd1f0c9
                         reef['main-readwrite-firmware-version'])
       self.assertEquals('reef_v1.1.5909-bd1f0c9',
                         reef['ec-firmware-version'])
+      self.assertEquals('key-123', reef['firmware-key-id'])
 
       self.assertIn('pyro', board_metadata['models'])
       self.assertIn('electro', board_metadata['models'])
       electro = board_metadata['models']['electro']
       self.assertEquals('Google_Reef.9042.87.1',
                         electro['main-readonly-firmware-version'])
+      # Test RW firmware is defaulted to RO version if isn't specified.
+      self.assertEquals('Google_Reef.9042.87.1',
+                        electro['main-readwrite-firmware-version'])
 
   def testUnifiedBuilds(self):
     """Test that unified builds are marked as such."""
-    self.PatchObject(commands, 'GetModels', return_value=['amd64-generic'])
+    def _HookRunCommandCrosConfigHost(rc):
+      rc.AddCmdResult(partial_mock.ListRegex('cros_config_host'),
+                      output='reef')
+
     self._update_metadata = True
+    cros_config_host = os.path.join(self.build_root,
+                                    'chroot/usr/bin/cros_config_host')
+    osutils.Touch(cros_config_host, makedirs=True)
+    self._mock_configurator = _HookRunCommandCrosConfigHost
     self.RunTestsWithBotId('amd64-generic-paladin', options_tests=False)
     self.assertTrue(self._run.attrs.metadata.GetDict()['unibuild'])
 

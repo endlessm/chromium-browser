@@ -8,18 +8,24 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/message_loop/message_loop.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
 #include "components/sync/model/model_error.h"
 #include "components/sync/protocol/entity_metadata.pb.h"
 #include "components/sync/protocol/model_type_state.pb.h"
+#include "components/sync/test/test_matchers.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace syncer {
 
 namespace {
+
+using testing::IsEmpty;
+using testing::Not;
+using testing::SizeIs;
 
 sync_pb::ModelTypeState CreateModelTypeState(const std::string& value) {
   sync_pb::ModelTypeState state;
@@ -97,31 +103,6 @@ class ModelTypeStoreImplTest : public testing::Test {
                                   const sync_pb::ModelTypeState& state) {
     auto write_batch = store->CreateWriteBatch();
     write_batch->GetMetadataChangeList()->UpdateModelTypeState(state);
-
-    base::Optional<ModelError> error;
-    store->CommitWriteBatch(std::move(write_batch),
-                            base::BindOnce(&CaptureError, &error));
-    PumpLoop();
-    ASSERT_FALSE(error) << error->ToString();
-  }
-
-  static void WriteRawMetadata(ModelTypeStore* store,
-                               const std::string& key,
-                               const std::string& raw_metadata) {
-    auto write_batch = store->CreateWriteBatch();
-    store->WriteMetadata(write_batch.get(), key, raw_metadata);
-
-    base::Optional<ModelError> error;
-    store->CommitWriteBatch(std::move(write_batch),
-                            base::BindOnce(&CaptureError, &error));
-    PumpLoop();
-    ASSERT_FALSE(error) << error->ToString();
-  }
-
-  static void WriteRawModelTypeState(ModelTypeStore* store,
-                                     const std::string& raw_model_type_state) {
-    auto write_batch = store->CreateWriteBatch();
-    store->WriteGlobalMetadata(write_batch.get(), raw_model_type_state);
 
     base::Optional<ModelError> error;
     store->CommitWriteBatch(std::move(write_batch),
@@ -255,6 +236,30 @@ TEST_F(ModelTypeStoreImplTest, WriteThenRead) {
                  {{"id1", CreateEntityMetadata("metadata1")}});
 }
 
+// Test that records that DeleteAllDataAndMetadata() deletes everything.
+TEST_F(ModelTypeStoreImplTest, WriteThenDeleteAll) {
+  CreateStore();
+  WriteTestData();
+
+  {
+    std::unique_ptr<ModelTypeStore::RecordList> data_records;
+    std::unique_ptr<MetadataBatch> metadata_batch;
+    ReadStoreContents(store(), &data_records, &metadata_batch);
+    ASSERT_THAT(*data_records, SizeIs(2));
+    ASSERT_THAT(metadata_batch, Not(IsEmptyMetadataBatch()));
+  }
+
+  store()->DeleteAllDataAndMetadata(base::DoNothing());
+
+  {
+    std::unique_ptr<ModelTypeStore::RecordList> data_records;
+    std::unique_ptr<MetadataBatch> metadata_batch;
+    ReadStoreContents(store(), &data_records, &metadata_batch);
+    EXPECT_THAT(*data_records, IsEmpty());
+    EXPECT_THAT(metadata_batch, IsEmptyMetadataBatch());
+  }
+}
+
 // Test that if ModelTypeState is not set then ReadAllMetadata still succeeds
 // and returns entry metadata records.
 TEST_F(ModelTypeStoreImplTest, MissingModelTypeState) {
@@ -277,42 +282,6 @@ TEST_F(ModelTypeStoreImplTest, MissingModelTypeState) {
   ASSERT_FALSE(error) << error->ToString();
   VerifyMetadata(std::move(metadata_batch), sync_pb::ModelTypeState(),
                  {{"id1", CreateEntityMetadata("metadata1")}});
-}
-
-// Tests that unparseable metadata results in an error being set.
-TEST_F(ModelTypeStoreImplTest, CorruptModelTypeState) {
-  CreateStore();
-  WriteTestData();
-
-  // Write a ModelTypeState that can't be parsed.
-  WriteRawModelTypeState(store(), "unparseable");
-
-  base::Optional<ModelError> error;
-  std::unique_ptr<MetadataBatch> metadata_batch;
-  store()->ReadAllMetadata(
-      base::BindOnce(&CaptureErrorAndMetadataBatch, &error, &metadata_batch));
-  PumpLoop();
-  ASSERT_TRUE(error);
-  VerifyMetadata(std::move(metadata_batch), sync_pb::ModelTypeState(),
-                 std::map<std::string, sync_pb::EntityMetadata>());
-}
-
-// Tests that unparseable metadata results in an error being set.
-TEST_F(ModelTypeStoreImplTest, CorruptEntityMetadata) {
-  CreateStore();
-  WriteTestData();
-
-  // Write an EntityMetadata that can't be parsed.
-  WriteRawMetadata(store(), "id", "unparseable");
-
-  base::Optional<ModelError> error;
-  std::unique_ptr<MetadataBatch> metadata_batch;
-  store()->ReadAllMetadata(
-      base::BindOnce(&CaptureErrorAndMetadataBatch, &error, &metadata_batch));
-  PumpLoop();
-  ASSERT_TRUE(error);
-  VerifyMetadata(std::move(metadata_batch), sync_pb::ModelTypeState(),
-                 std::map<std::string, sync_pb::EntityMetadata>());
 }
 
 // Test that when reading data records by id, if one of the ids is missing
@@ -375,6 +344,48 @@ TEST_F(ModelTypeStoreImplTest, TwoStoresWithSharedBackend) {
   EXPECT_THAT(*data_records,
               testing::ElementsAre(RecordMatches("key", "data2")));
   VerifyMetadata(std::move(metadata_batch), state2, {{"key", metadata2}});
+}
+
+// Test that records that DeleteAllDataAndMetadata() does not delete data from
+// another store when the backend is shared.
+TEST_F(ModelTypeStoreImplTest, DeleteAllWithSharedBackend) {
+  std::unique_ptr<ModelTypeStore> store_1;
+  std::unique_ptr<ModelTypeStore> store_2;
+  CreateStoreCaptureReference(AUTOFILL, &store_1);
+  CreateStoreCaptureReference(BOOKMARKS, &store_2);
+
+  const sync_pb::EntityMetadata metadata1 = CreateEntityMetadata("metadata1");
+  const sync_pb::EntityMetadata metadata2 = CreateEntityMetadata("metadata2");
+
+  WriteData(store_1.get(), "key", "data1");
+  WriteMetadata(store_1.get(), "key", metadata1);
+
+  WriteData(store_2.get(), "key", "data2");
+  WriteMetadata(store_2.get(), "key", metadata2);
+
+  {
+    std::unique_ptr<ModelTypeStore::RecordList> data_records;
+    std::unique_ptr<MetadataBatch> metadata_batch;
+    ReadStoreContents(store_1.get(), &data_records, &metadata_batch);
+    ASSERT_THAT(*data_records, SizeIs(1));
+    ASSERT_THAT(metadata_batch, Not(IsEmptyMetadataBatch()));
+    ReadStoreContents(store_2.get(), &data_records, &metadata_batch);
+    ASSERT_THAT(*data_records, SizeIs(1));
+    ASSERT_THAT(metadata_batch, Not(IsEmptyMetadataBatch()));
+  }
+
+  store_2->DeleteAllDataAndMetadata(base::DoNothing());
+
+  {
+    std::unique_ptr<ModelTypeStore::RecordList> data_records;
+    std::unique_ptr<MetadataBatch> metadata_batch;
+    ReadStoreContents(store_1.get(), &data_records, &metadata_batch);
+    EXPECT_THAT(*data_records, SizeIs(1));
+    EXPECT_THAT(metadata_batch, Not(IsEmptyMetadataBatch()));
+    ReadStoreContents(store_2.get(), &data_records, &metadata_batch);
+    EXPECT_THAT(*data_records, IsEmpty());
+    EXPECT_THAT(metadata_batch, IsEmptyMetadataBatch());
+  }
 }
 
 }  // namespace syncer

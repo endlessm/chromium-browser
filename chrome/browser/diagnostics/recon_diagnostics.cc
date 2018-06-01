@@ -14,7 +14,6 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -297,7 +296,7 @@ class VersionTest : public DiagnosticsTest {
       RecordFailure(DIAG_RECON_EMPTY_VERSION, "Empty Version");
       return true;
     }
-    std::string version_modifier = chrome::GetChannelString();
+    std::string version_modifier = chrome::GetChannelName();
     if (!version_modifier.empty())
       current_version += " " + version_modifier;
 #if defined(GOOGLE_CHROME_BUILD)

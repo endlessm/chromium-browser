@@ -16,6 +16,7 @@ static const char* g_ui_element_type_strings[] = {
     "kTypeButtonBackground",
     "kTypeButtonForeground",
     "kTypeButtonHitTarget",
+    "kTypeHostedUiBackplane",
     "kTypeScaledDepthAdjuster",
     "kTypeOmniboxSuggestionBackground",
     "kTypeOmniboxSuggestionLayout",
@@ -36,6 +37,12 @@ static const char* g_ui_element_type_strings[] = {
     "kTypeToastText",
     "kTypeSnackbarButton",
     "kTypeSnackbarDescription",
+    "kTypeCursorBackground",
+    "kTypeCursorForeground",
+    "kTypeOverflowMenuButton",
+    "kTypeOverflowMenuItem",
+    "kTypeTooltip",
+    "kTypeLabel",
 };
 
 static_assert(

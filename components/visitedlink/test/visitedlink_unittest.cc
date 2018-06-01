@@ -14,7 +14,6 @@
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/process/process_handle.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -35,6 +34,7 @@
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_renderer_host.h"
 #include "content/public/test/test_utils.h"
+#include "mojo/public/cpp/bindings/binding_set.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
@@ -121,12 +121,11 @@ class TrackingVisitedLinkEventListener : public VisitedLinkMaster::Listener {
         completely_reset_count_(0),
         add_count_(0) {}
 
-  void NewTable(mojo::SharedBufferHandle table) override {
-    if (table.is_valid()) {
+  void NewTable(base::ReadOnlySharedMemoryRegion* table_region) override {
+    if (table_region->IsValid()) {
       for (std::vector<VisitedLinkSlave>::size_type i = 0;
            i < g_slaves.size(); i++) {
-        g_slaves[i]->UpdateVisitedLinks(
-            table.Clone(mojo::SharedBufferHandle::AccessMode::READ_ONLY));
+        g_slaves[i]->UpdateVisitedLinks(table_region->Duplicate());
       }
     }
   }
@@ -206,8 +205,7 @@ class VisitedLinkTest : public testing::Test {
 
     // Create a slave database.
     VisitedLinkSlave slave;
-    slave.UpdateVisitedLinks(master_->shared_memory().Clone(
-        mojo::SharedBufferHandle::AccessMode::READ_ONLY));
+    slave.UpdateVisitedLinks(master_->mapped_table_memory().region.Duplicate());
     g_slaves.push_back(&slave);
 
     bool found;
@@ -335,8 +333,7 @@ TEST_F(VisitedLinkTest, DeleteAll) {
 
   {
     VisitedLinkSlave slave;
-    slave.UpdateVisitedLinks(master_->shared_memory().Clone(
-        mojo::SharedBufferHandle::AccessMode::READ_ONLY));
+    slave.UpdateVisitedLinks(master_->mapped_table_memory().region.Duplicate());
     g_slaves.push_back(&slave);
 
     // Add the test URLs.
@@ -380,8 +377,7 @@ TEST_F(VisitedLinkTest, Resizing) {
 
   // ...and a slave
   VisitedLinkSlave slave;
-  slave.UpdateVisitedLinks(master_->shared_memory().Clone(
-      mojo::SharedBufferHandle::AccessMode::READ_ONLY));
+  slave.UpdateVisitedLinks(master_->mapped_table_memory().region.Duplicate());
   g_slaves.push_back(&slave);
 
   int32_t used_count = master_->GetUsedCount();
@@ -533,11 +529,11 @@ class VisitCountingContext : public mojom::VisitedLinkNotificationSink {
         add_event_count_(0),
         reset_event_count_(0),
         completely_reset_event_count_(0),
-        new_table_count_(0),
-        binding_(this) {}
+        new_table_count_(0) {}
 
   void Bind(mojo::ScopedMessagePipeHandle handle) {
-    binding_.Bind(mojom::VisitedLinkNotificationSinkRequest(std::move(handle)));
+    binding_.AddBinding(
+        this, mojom::VisitedLinkNotificationSinkRequest(std::move(handle)));
   }
 
   void WaitForUpdate() {
@@ -548,7 +544,7 @@ class VisitCountingContext : public mojom::VisitedLinkNotificationSink {
 
   void WaitForNoUpdate() { binding_.FlushForTesting(); }
 
-  mojo::Binding<mojom::VisitedLinkNotificationSink>& binding() {
+  mojo::BindingSet<mojom::VisitedLinkNotificationSink>& binding() {
     return binding_;
   }
 
@@ -558,7 +554,7 @@ class VisitCountingContext : public mojom::VisitedLinkNotificationSink {
   }
 
   void UpdateVisitedLinks(
-      mojo::ScopedSharedBufferHandle table_handle) override {
+      base::ReadOnlySharedMemoryRegion table_region) override {
     new_table_count_++;
     NotifyUpdate();
   }
@@ -593,7 +589,9 @@ class VisitCountingContext : public mojom::VisitedLinkNotificationSink {
   int new_table_count_;
 
   base::Closure quit_closure_;
-  mojo::Binding<mojom::VisitedLinkNotificationSink> binding_;
+  mojo::BindingSet<mojom::VisitedLinkNotificationSink> binding_;
+
+  DISALLOW_COPY_AND_ASSIGN(VisitCountingContext);
 };
 
 // Stub out as little as possible, borrowing from RenderProcessHost.
@@ -602,7 +600,7 @@ class VisitRelayingRenderProcessHost : public MockRenderProcessHost {
   explicit VisitRelayingRenderProcessHost(
       content::BrowserContext* browser_context,
       VisitCountingContext* context)
-      : MockRenderProcessHost(browser_context), widgets_(0) {
+      : MockRenderProcessHost(browser_context) {
     OverrideBinderForTesting(
         mojom::VisitedLinkNotificationSink::Name_,
         base::Bind(&VisitCountingContext::Bind, base::Unretained(context)));
@@ -618,13 +616,7 @@ class VisitRelayingRenderProcessHost : public MockRenderProcessHost {
         content::NotificationService::NoDetails());
   }
 
-  void WidgetRestored() override { widgets_++; }
-  void WidgetHidden() override { widgets_--; }
-  int VisibleWidgetCount() const override { return widgets_; }
-
  private:
-  int widgets_;
-
   DISALLOW_COPY_AND_ASSIGN(VisitRelayingRenderProcessHost);
 };
 
@@ -846,11 +838,13 @@ TEST_F(VisitedLinkEventsTest, IgnoreRendererCreationFromDifferentContext) {
   VisitRelayingRenderProcessHost different_process_host(&different_context,
                                                         &counting_context);
 
+  size_t old_size = counting_context.binding().size();
   content::NotificationService::current()->Notify(
       content::NOTIFICATION_RENDERER_PROCESS_CREATED,
       content::Source<content::RenderProcessHost>(&different_process_host),
       content::NotificationService::NoDetails());
-  EXPECT_FALSE(counting_context.binding().is_bound());
+  size_t new_size = counting_context.binding().size();
+  EXPECT_EQ(old_size, new_size);
 }
 
 class VisitedLinkCompletelyResetEventTest : public VisitedLinkEventsTest {

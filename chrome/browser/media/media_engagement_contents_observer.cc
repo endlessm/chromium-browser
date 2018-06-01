@@ -16,8 +16,8 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "media/base/media_switches.h"
-#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
-#include "third_party/WebKit/public/platform/media_engagement.mojom.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/platform/autoplay.mojom.h"
 
 #if !defined(OS_ANDROID)
 #include "chrome/browser/ui/browser.h"
@@ -29,9 +29,10 @@ namespace {
 
 void SendEngagementLevelToFrame(const url::Origin& origin,
                                 content::RenderFrameHost* render_frame_host) {
-  blink::mojom::MediaEngagementClientAssociatedPtr client;
+  blink::mojom::AutoplayConfigurationClientAssociatedPtr client;
   render_frame_host->GetRemoteAssociatedInterfaces()->GetInterface(&client);
-  client->SetHasHighMediaEngagement(origin);
+  client->AddAutoplayFlags(origin,
+                           blink::mojom::kAutoplayFlagHighMediaEngagement);
 }
 
 }  // namespace.
@@ -161,9 +162,18 @@ void MediaEngagementContentsObserver::DidFinishNavigation(
   if (session_ && session_->IsSameOriginWith(new_origin))
     return;
 
+  // Only get the opener if the navigation originated from a link.
+  content::WebContents* opener = nullptr;
+  if (ui::PageTransitionCoreTypeIs(navigation_handle->GetPageTransition(),
+                                   ui::PAGE_TRANSITION_LINK) ||
+      ui::PageTransitionCoreTypeIs(navigation_handle->GetPageTransition(),
+                                   ui::PAGE_TRANSITION_RELOAD)) {
+    opener = GetOpener();
+  }
+
   bool was_restored =
       navigation_handle->GetRestoreType() != content::RestoreType::NONE;
-  session_ = GetOrCreateSession(new_origin, GetOpener(), was_restored);
+  session_ = GetOrCreateSession(new_origin, opener, was_restored);
 }
 
 MediaEngagementContentsObserver::PlayerState::PlayerState(base::Clock* clock)
@@ -534,6 +544,7 @@ content::WebContents* MediaEngagementContentsObserver::GetOpener() const {
         browser->tab_strip_model()->GetIndexOfWebContents(web_contents());
     if (index == TabStripModel::kNoTab)
       continue;
+
     // Whether or not the |opener| is null, this is the right tab strip.
     return browser->tab_strip_model()->GetOpenerOfWebContentsAt(index);
   }

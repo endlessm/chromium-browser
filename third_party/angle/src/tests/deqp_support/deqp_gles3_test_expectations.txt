@@ -28,6 +28,10 @@
 998 DEBUG RELEASE : dEQP-GLES3.stress.* = SKIP
 1101 DEBUG RELEASE : dEQP-GLES3.functional.flush_finish.* = SKIP
 
+// Figure out why this caused this regression in Chrome:
+// https://bugs.chromium.org/p/chromium/issues/detail?id=833809#
+2321 DEBUG RELEASE : dEQP-GLES3.functional.state_query.fbo.framebuffer_unspecified_attachment_x_size_rbo = FAIL
+
 // TODO(jmadill): Figure out why these fail on the bots, but not locally.
 1108 WIN : dEQP-GLES3.functional.shaders.struct.local.dynamic_loop_struct_array_fragment = FAIL
 1094 WIN : dEQP-GLES3.functional.shaders.invariance.highp.loop_2 = FAIL
@@ -48,6 +52,18 @@
 //  Temporary entries: they should be removed once the bugs are fixed.
 //
 ////////////////////////////////////////////////////////////////////////////////
+
+// Failures related to using a depth/stencil enabled backbuffer on Windows / NVIDIA.
+2428 D3D11 NVIDIA : dEQP-GLES3.functional.shaders.invariance.highp.common_subexpression_1 = FAIL
+2428 D3D11 NVIDIA : dEQP-GLES3.functional.shaders.invariance.mediump.common_subexpression_1 = FAIL
+2428 D3D11 NVIDIA : dEQP-GLES3.functional.shaders.invariance.lowp.common_subexpression_1 = FAIL
+2428 D3D11 NVIDIA : dEQP-GLES3.functional.fbo.invalidate.default.render_all = SKIP
+2428 D3D11 NVIDIA : dEQP-GLES3.functional.fbo.invalidate.default.render_depth_stencil = SKIP
+2428 D3D11 NVIDIA : dEQP-GLES3.functional.fbo.invalidate.default.bind_depth_stencil = SKIP
+2428 D3D11 NVIDIA : dEQP-GLES3.functional.fbo.invalidate.default.draw_framebuffer_all = SKIP
+2428 D3D11 NVIDIA : dEQP-GLES3.functional.fbo.invalidate.default.read_framebuffer_all = SKIP
+2428 D3D11 NVIDIA : dEQP-GLES3.functional.fbo.invalidate.default.bind_all = SKIP
+2428 D3D11 NVIDIA : dEQP-GLES3.functional.polygon_offset.default_render_with_units = SKIP
 
 // TODO(jmadill): Find why this fails when run in a certain sequence, but not singly.
 1098 WIN : dEQP-GLES3.functional.uniform_api.random.50 = FAIL

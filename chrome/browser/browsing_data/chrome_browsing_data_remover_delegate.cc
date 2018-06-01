@@ -64,6 +64,7 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_compression_stats.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_service.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
+#include "components/device_event_log/device_event_log.h"
 #include "components/domain_reliability/service.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/language/core/browser/url_language_histogram.h"
@@ -79,6 +80,7 @@
 #include "components/search_engines/template_url_service.h"
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/web_cache/browser/web_cache_manager.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/browsing_data_filter_builder.h"
 #include "content/public/browser/plugin_data_remover.h"
 #include "content/public/browser/ssl_host_state_delegate.h"
@@ -86,7 +88,7 @@
 #include "media/mojo/services/video_decode_perf_history.h"
 #include "net/cookies/cookie_store.h"
 #include "net/http/http_transaction_factory.h"
-#include "net/net_features.h"
+#include "net/net_buildflags.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "url/url_util.h"
@@ -123,6 +125,7 @@
 #endif  // defined(OS_CHROMEOS)
 
 #if BUILDFLAG(ENABLE_WEBRTC)
+#include "chrome/browser/media/webrtc/webrtc_event_log_manager.h"
 #include "components/webrtc_logging/browser/log_cleanup.h"
 #include "components/webrtc_logging/browser/log_list.h"
 #endif  // BUILDFLAG(ENABLE_WEBRTC)
@@ -326,8 +329,7 @@ bool DoesOriginMatchEmbedderMask(int origin_type_mask,
 }  // namespace
 
 ChromeBrowsingDataRemoverDelegate::ChromeBrowsingDataRemoverDelegate(
-    BrowserContext* browser_context,
-    history::HistoryService* history_service)
+    BrowserContext* browser_context)
     : profile_(Profile::FromBrowserContext(browser_context)),
 #if BUILDFLAG(ENABLE_PLUGINS)
       flash_lso_helper_(BrowsingDataFlashLSOHelper::Create(browser_context)),
@@ -335,11 +337,7 @@ ChromeBrowsingDataRemoverDelegate::ChromeBrowsingDataRemoverDelegate(
 #if defined(OS_ANDROID)
       webapp_registry_(new WebappRegistry()),
 #endif
-      history_observer_(this),
       weak_ptr_factory_(this) {
-  if (history_service) {
-    history_observer_.Add(history_service);
-  }
 }
 
 ChromeBrowsingDataRemoverDelegate::~ChromeBrowsingDataRemoverDelegate() {}
@@ -354,15 +352,6 @@ ChromeBrowsingDataRemoverDelegate::GetOriginTypeMatcher() const {
   return base::BindRepeating(&DoesOriginMatchEmbedderMask);
 }
 
-void ChromeBrowsingDataRemoverDelegate::OnURLsDeleted(
-    history::HistoryService* history_service,
-    const history::DeletionTimeRange& time_range,
-    bool expired,
-    const history::URLRows& deleted_rows,
-    const std::set<GURL>& favicon_urls) {
-  if (!expired && !profile_->IsGuestSession())
-    browsing_data::RemoveNavigationEntries(profile_, time_range, deleted_rows);
-}
 
 bool ChromeBrowsingDataRemoverDelegate::MayRemoveDownloadHistory() const {
   return profile_->GetPrefs()->GetBoolean(prefs::kAllowDeletingBrowserHistory);
@@ -688,6 +677,8 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
             CreatePendingTaskCompletionClosure());
       }
     }
+
+    device_event_log::Clear(delete_begin_, delete_end_);
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -712,7 +703,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
     base::RecordAction(UserMetricsAction("ClearBrowsingData_Cookies"));
 
     host_content_settings_map_->ClearSettingsForOneTypeWithPredicate(
-        CONTENT_SETTINGS_TYPE_CLIENT_HINTS, base::Time(),
+        CONTENT_SETTINGS_TYPE_CLIENT_HINTS, base::Time(), base::Time::Max(),
         base::BindRepeating(&WebsiteSettingsFilterAdapter, filter));
 
     // Clear the safebrowsing cookies only if time period is for "all time".  It
@@ -762,7 +753,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
         content_settings::ContentSettingsRegistry::GetInstance();
     for (const content_settings::ContentSettingsInfo* info : *registry) {
       host_content_settings_map_->ClearSettingsForOneTypeWithPredicate(
-          info->website_settings_info()->type(), delete_begin_,
+          info->website_settings_info()->type(), delete_begin_, delete_end_,
           HostContentSettingsMap::PatternSourcePredicate());
     }
 #if !defined(OS_ANDROID)
@@ -778,10 +769,27 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
   }
 
   //////////////////////////////////////////////////////////////////////////////
+  // DATA_TYPE_BOOKMARKS
+  if (remove_mask & DATA_TYPE_BOOKMARKS) {
+    auto* bookmark_model = BookmarkModelFactory::GetForBrowserContext(profile_);
+    if (bookmark_model) {
+      if (delete_begin_.is_null() &&
+          (delete_end_.is_null() || delete_end_.is_max())) {
+        bookmark_model->RemoveAllUserBookmarks();
+      } else {
+        // Bookmark deletion is only implemented to remove all data after a
+        // profile deletion. A full implementation would need to traverse the
+        // whole tree and check timestamps against delete_begin and delete_end.
+        NOTIMPLEMENTED();
+      }
+    }
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
   // DATA_TYPE_DURABLE_PERMISSION
   if (remove_mask & DATA_TYPE_DURABLE_PERMISSION) {
     host_content_settings_map_->ClearSettingsForOneTypeWithPredicate(
-        CONTENT_SETTINGS_TYPE_DURABLE_STORAGE, base::Time(),
+        CONTENT_SETTINGS_TYPE_DURABLE_STORAGE, base::Time(), base::Time::Max(),
         base::BindRepeating(&WebsiteSettingsFilterAdapter, filter));
   }
 
@@ -791,7 +799,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
     base::RecordAction(UserMetricsAction("ClearBrowsingData_SiteUsageData"));
 
     host_content_settings_map_->ClearSettingsForOneTypeWithPredicate(
-        CONTENT_SETTINGS_TYPE_SITE_ENGAGEMENT, base::Time(),
+        CONTENT_SETTINGS_TYPE_SITE_ENGAGEMENT, base::Time(), base::Time::Max(),
         base::BindRepeating(&WebsiteSettingsFilterAdapter, filter));
 
     if (MediaEngagementService::IsEnabled()) {
@@ -803,7 +811,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
   if ((remove_mask & DATA_TYPE_SITE_USAGE_DATA) ||
       (remove_mask & DATA_TYPE_HISTORY)) {
     host_content_settings_map_->ClearSettingsForOneTypeWithPredicate(
-        CONTENT_SETTINGS_TYPE_APP_BANNER, base::Time(),
+        CONTENT_SETTINGS_TYPE_APP_BANNER, base::Time(), base::Time::Max(),
         base::BindRepeating(&WebsiteSettingsFilterAdapter, filter));
 
     PermissionDecisionAutoBlocker::GetForProfile(profile_)->RemoveCountsByUrl(
@@ -811,7 +819,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
 
 #if BUILDFLAG(ENABLE_PLUGINS)
     host_content_settings_map_->ClearSettingsForOneTypeWithPredicate(
-        CONTENT_SETTINGS_TYPE_PLUGINS_DATA, base::Time(),
+        CONTENT_SETTINGS_TYPE_PLUGINS_DATA, base::Time(), base::Time::Max(),
         base::Bind(&WebsiteSettingsFilterAdapter, filter));
 #endif
   }
@@ -974,6 +982,18 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
                   IgnoreArgument<
                       offline_pages::OfflinePageModel::DeletePageResult>(
                       CreatePendingTaskCompletionClosure())));
+    }
+#endif
+
+#if BUILDFLAG(ENABLE_WEBRTC)
+    // TODO(crbug.com/829321): Remove null-check.
+    auto* webrtc_event_log_manager = WebRtcEventLogManager::GetInstance();
+    if (webrtc_event_log_manager) {
+      webrtc_event_log_manager->ClearCacheForBrowserContext(
+          profile_, delete_begin_, delete_end_,
+          CreatePendingTaskCompletionClosure());
+    } else {
+      LOG(ERROR) << "WebRtcEventLogManager not instantiated.";
     }
 #endif
   }

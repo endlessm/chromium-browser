@@ -104,7 +104,8 @@ import java.util.List;
 @Config(manifest = Config.NONE, shadows = {CustomShadowAsyncTask.class})
 @DisableFeatures({ChromeFeatureList.NTP_CONDENSED_LAYOUT, ChromeFeatureList.CHROME_HOME,
         ChromeFeatureList.CONTENT_SUGGESTIONS_SCROLL_TO_LOAD,
-        ChromeFeatureList.NTP_ARTICLE_SUGGESTIONS_EXPANDABLE_HEADER})
+        ChromeFeatureList.NTP_ARTICLE_SUGGESTIONS_EXPANDABLE_HEADER,
+        ChromeFeatureList.NTP_SHORTCUTS, ChromeFeatureList.CHROME_DUPLEX})
 public class NewTabPageAdapterTest {
     @Rule
     public DisableHistogramsRule mDisableHistogramsRule = new DisableHistogramsRule();
@@ -1343,7 +1344,7 @@ public class NewTabPageAdapterTest {
         mSource.removeObservers();
         mAdapter = new NewTabPageAdapter(mUiDelegate, mock(View.class), /* logoView = */ null,
                 makeUiConfig(), mOfflinePageBridge, mock(ContextMenuManager.class),
-                /* tileGroupDelegate = */ null, /* suggestionsCarousel = */ null);
+                /* tileGroupDelegate = */ null);
         mAdapter.refreshSuggestions();
     }
 

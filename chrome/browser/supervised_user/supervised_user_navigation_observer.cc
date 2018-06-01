@@ -7,7 +7,6 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/feature_list.h"
-#include "base/memory/ptr_util.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/supervised_user/supervised_user_interstitial.h"
@@ -34,7 +33,9 @@ SupervisedUserNavigationObserver::~SupervisedUserNavigationObserver() {
 
 SupervisedUserNavigationObserver::SupervisedUserNavigationObserver(
     content::WebContents* web_contents)
-    : content::WebContentsObserver(web_contents), weak_ptr_factory_(this) {
+    : content::WebContentsObserver(web_contents),
+      binding_(web_contents, this),
+      weak_ptr_factory_(this) {
   Profile* profile =
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
   supervised_user_service_ =
@@ -48,6 +49,7 @@ void SupervisedUserNavigationObserver::OnRequestBlocked(
     content::WebContents* web_contents,
     const GURL& url,
     supervised_user_error_page::FilteringBehaviorReason reason,
+    int64_t navigation_id,
     const base::Callback<
         void(SupervisedUserNavigationThrottle::CallbackActions)>& callback) {
   SupervisedUserNavigationObserver* navigation_observer =
@@ -60,24 +62,31 @@ void SupervisedUserNavigationObserver::OnRequestBlocked(
     return;
   }
 
-  navigation_observer->OnRequestBlockedInternal(url, reason, callback);
+  navigation_observer->OnRequestBlockedInternal(url, reason, navigation_id,
+                                                callback);
 }
 
 void SupervisedUserNavigationObserver::DidFinishNavigation(
       content::NavigationHandle* navigation_handle) {
+  // With committed interstitials on, if this is a different navigation than the
+  // one that triggered the interstitial, clear is_showing_interstitial_
+  if (is_showing_interstitial_ &&
+      navigation_handle->GetNavigationId() != interstitial_navigation_id_ &&
+      base::FeatureList::IsEnabled(
+          features::kSupervisedUserCommittedInterstitials)) {
+    is_showing_interstitial_ = false;
+  }
+
   // Only filter same page navigations (eg. pushState/popState); others will
   // have been filtered by the NavigationThrottle.
-  if (!navigation_handle->IsSameDocument())
-    return;
-
-  if (!navigation_handle->IsInMainFrame())
-    return;
-
-  url_filter_->GetFilteringBehaviorForURLWithAsyncChecks(
-      web_contents()->GetLastCommittedURL(),
-      base::BindOnce(&SupervisedUserNavigationObserver::URLFilterCheckCallback,
-                     weak_ptr_factory_.GetWeakPtr(),
-                     navigation_handle->GetURL()));
+  if (navigation_handle->IsSameDocument() &&
+      navigation_handle->IsInMainFrame()) {
+    url_filter_->GetFilteringBehaviorForURLWithAsyncChecks(
+        web_contents()->GetLastCommittedURL(),
+        base::BindOnce(
+            &SupervisedUserNavigationObserver::URLFilterCheckCallback,
+            weak_ptr_factory_.GetWeakPtr(), navigation_handle->GetURL()));
+  }
 }
 
 void SupervisedUserNavigationObserver::OnURLFilterChanged() {
@@ -91,6 +100,7 @@ void SupervisedUserNavigationObserver::OnURLFilterChanged() {
 void SupervisedUserNavigationObserver::OnRequestBlockedInternal(
     const GURL& url,
     supervised_user_error_page::FilteringBehaviorReason reason,
+    int64_t navigation_id,
     const base::Callback<
         void(SupervisedUserNavigationThrottle::CallbackActions)>& callback) {
   // TODO(bauerb): Use SaneTime when available.
@@ -128,7 +138,8 @@ void SupervisedUserNavigationObserver::OnRequestBlockedInternal(
 
   // Show the interstitial.
   const bool initial_page_load = true;
-  MaybeShowInterstitial(url, reason, initial_page_load, callback);
+  MaybeShowInterstitial(url, reason, initial_page_load, navigation_id,
+                        callback);
 }
 
 void SupervisedUserNavigationObserver::URLFilterCheckCallback(
@@ -142,13 +153,20 @@ void SupervisedUserNavigationObserver::URLFilterCheckCallback(
 
   if (!is_showing_interstitial_ &&
       behavior == SupervisedUserURLFilter::FilteringBehavior::BLOCK) {
-    // TODO(carlosil): Handle this case for committed interstitials. For this we
-    // will check if the current page is an error page since
-    // is_showing_interstitial_ does not get reset when navigating through the
-    // back button.
+    if (base::FeatureList::IsEnabled(
+            features::kSupervisedUserCommittedInterstitials)) {
+      web_contents()->GetController().Reload(content::ReloadType::NORMAL,
+                                             false);
+      return;
+    }
+    // TODO(carlosil): For now, we pass a 0 as the navigation id causing the
+    // interstitial for the non-committed interstitials case since we don't have
+    // the real id here, this doesn't cause issues since the navigation id is
+    // not used when committed interstitials are not enabled. This will be
+    // removed once committed interstitials are the only code path.
     const bool initial_page_load = false;
     MaybeShowInterstitial(
-        url, reason, initial_page_load,
+        url, reason, initial_page_load, 0,
         base::Callback<void(
             SupervisedUserNavigationThrottle::CallbackActions)>());
   }
@@ -158,8 +176,10 @@ void SupervisedUserNavigationObserver::MaybeShowInterstitial(
     const GURL& url,
     supervised_user_error_page::FilteringBehaviorReason reason,
     bool initial_page_load,
+    int64_t navigation_id,
     const base::Callback<
         void(SupervisedUserNavigationThrottle::CallbackActions)>& callback) {
+  interstitial_navigation_id_ = navigation_id;
   is_showing_interstitial_ = true;
   base::Callback<void(bool)> wrapped_callback =
       base::Bind(&SupervisedUserNavigationObserver::OnInterstitialResult,
@@ -189,4 +209,26 @@ void SupervisedUserNavigationObserver::OnInterstitialResult(
                               kContinueNavigation
                         : SupervisedUserNavigationThrottle::CallbackActions::
                               kCancelNavigation);
+}
+
+void SupervisedUserNavigationObserver::GoBack() {
+  DCHECK(base::FeatureList::IsEnabled(
+      features::kSupervisedUserCommittedInterstitials));
+  if (interstitial_ && is_showing_interstitial_)
+    interstitial_->CommandReceived("\"back\"");
+}
+
+void SupervisedUserNavigationObserver::RequestPermission(
+    RequestPermissionCallback callback) {
+  DCHECK(base::FeatureList::IsEnabled(
+      features::kSupervisedUserCommittedInterstitials));
+  if (interstitial_ && is_showing_interstitial_)
+    interstitial_->RequestPermission(std::move(callback));
+}
+
+void SupervisedUserNavigationObserver::Feedback() {
+  DCHECK(base::FeatureList::IsEnabled(
+      features::kSupervisedUserCommittedInterstitials));
+  if (interstitial_ && is_showing_interstitial_)
+    interstitial_->CommandReceived("\"feedback\"");
 }

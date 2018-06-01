@@ -26,6 +26,7 @@
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
 #include "components/password_manager/core/browser/test_password_store.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
@@ -583,12 +584,21 @@ void PasswordManagerBrowserTestBase::WaitForElementValue(
     const std::string& form_id,
     size_t elements_index,
     const std::string& expected_value) {
+  const std::string element_selector =
+      base::StringPrintf("document.getElementById('%s').elements['%zu']",
+                         form_id.c_str(), elements_index);
+  WaitForJsElementValue(element_selector, expected_value);
+}
+
+void PasswordManagerBrowserTestBase::WaitForJsElementValue(
+    const std::string& element_selector,
+    const std::string& expected_value) {
   const std::string value_check_function = base::StringPrintf(
       "function valueCheck() {"
-      "  var element = document.getElementById('%s').elements['%zu'];"
+      "  var element = %s;"
       "  return element && element.value == '%s';"
       "}",
-      form_id.c_str(), elements_index, expected_value.c_str());
+      element_selector.c_str(), expected_value.c_str());
   const std::string script =
       value_check_function +
       base::StringPrintf(
@@ -596,7 +606,7 @@ void PasswordManagerBrowserTestBase::WaitForElementValue(
           "  /* Spin the event loop with setTimeout. */"
           "  setTimeout(window.domAutomationController.send(%d), 0);"
           "} else {"
-          "  var element = document.getElementById('%s').elements['%zu'];"
+          "  var element = %s;"
           "  if (!element)"
           "    window.domAutomationController.send(%d);"
           "  element.onchange = function() {"
@@ -614,13 +624,13 @@ void PasswordManagerBrowserTestBase::WaitForElementValue(
           "    element.onchange = undefined;"
           "  };"
           "}",
-          RETURN_CODE_OK, form_id.c_str(), elements_index,
-          RETURN_CODE_NO_ELEMENT, RETURN_CODE_OK, RETURN_CODE_WRONG_VALUE);
+          RETURN_CODE_OK, element_selector.c_str(), RETURN_CODE_NO_ELEMENT,
+          RETURN_CODE_OK, RETURN_CODE_WRONG_VALUE);
   int return_value = RETURN_CODE_INVALID;
   ASSERT_TRUE(content::ExecuteScriptWithoutUserGestureAndExtractInt(
       RenderFrameHost(), script, &return_value));
   EXPECT_EQ(RETURN_CODE_OK, return_value)
-      << "form_id = " << form_id << "elements_index=" << elements_index
+      << "element_selector = " << element_selector
       << ", expected_value = " << expected_value;
 }
 

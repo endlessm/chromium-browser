@@ -68,14 +68,15 @@ class PersistentTabRestoreTimeFactory
 class PersistentTabRestoreServiceTest : public ChromeRenderViewHostTestHarness {
  public:
   PersistentTabRestoreServiceTest()
-    : url1_("http://1"),
-      url2_("http://2"),
-      url3_("http://3"),
-      user_agent_override_(
-          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/535.19"
-          " (KHTML, like Gecko) Chrome/18.0.1025.45 Safari/535.19"),
-      time_factory_(NULL) {
-  }
+      : url1_("http://1"),
+        url2_("http://2"),
+        url3_("http://3"),
+        user_agent_override_(
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/535.19"
+            " (KHTML, like Gecko) Chrome/18.0.1025.45 Safari/535.19"),
+        time_factory_(NULL),
+        window_id_(SessionID::FromSerializedValue(1)),
+        tab_id_(SessionID::FromSerializedValue(2)) {}
 
   ~PersistentTabRestoreServiceTest() override {}
 
@@ -142,8 +143,8 @@ class PersistentTabRestoreServiceTest : public ChromeRenderViewHostTestHarness {
   // If |pinned| is true, the tab is marked as pinned in the session service.
   void AddWindowWithOneTabToSessionService(bool pinned) {
     // Create new window / tab IDs so that these remain distinct.
-    window_id_ = SessionID();
-    tab_id_ = SessionID();
+    window_id_ = SessionID::NewUnique();
+    tab_id_ = SessionID::NewUnique();
 
     SessionService* session_service =
         SessionServiceFactory::GetForProfile(profile());
@@ -248,7 +249,7 @@ TEST_F(PersistentTabRestoreServiceTest, Basic) {
   NavigateToIndex(1);
 
   // And check again, but set the user agent override this time.
-  web_contents()->SetUserAgentOverride(user_agent_override_);
+  web_contents()->SetUserAgentOverride(user_agent_override_, false);
   service_->CreateHistoricalTab(live_tab(), -1);
 
   // There should be two entries now.
@@ -301,6 +302,33 @@ TEST_F(PersistentTabRestoreServiceTest, Restore) {
   EXPECT_EQ(2, tab->current_navigation_index);
   EXPECT_EQ(time_factory_->TimeNow().ToInternalValue(),
             tab->timestamp.ToInternalValue());
+}
+
+// Tests restoring a tab with more than gMaxPersistNavigationCount entries.
+TEST_F(PersistentTabRestoreServiceTest, RestoreManyNavigations) {
+  AddThreeNavigations();
+  AddThreeNavigations();
+  AddThreeNavigations();
+
+  // Have the service record the tab.
+  service_->CreateHistoricalTab(live_tab(), -1);
+
+  // Recreate the service and have it load the tabs.
+  RecreateService();
+
+  // One entry should be created.
+  ASSERT_EQ(1U, service_->entries().size());
+
+  // And verify the entry.
+  Entry* entry = service_->entries().front().get();
+  ASSERT_EQ(sessions::TabRestoreService::TAB, entry->type);
+  Tab* tab = static_cast<Tab*>(entry);
+  // Only gMaxPersistNavigationCount + 1 (current navigation) are persisted.
+  ASSERT_EQ(7U, tab->navigations.size());
+  // Check that they are created with correct indices.
+  EXPECT_EQ(0, tab->navigations[0].index());
+  EXPECT_EQ(6, tab->navigations[6].index());
+  EXPECT_EQ(6, tab->current_navigation_index);
 }
 
 // Tests restoring a single pinned tab.

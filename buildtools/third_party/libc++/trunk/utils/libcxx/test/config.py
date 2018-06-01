@@ -463,7 +463,8 @@ class Configuration(object):
         if '__cpp_structured_bindings' not in macros:
             self.config.available_features.add('libcpp-no-structured-bindings')
 
-        if '__cpp_deduction_guides' not in macros:
+        if '__cpp_deduction_guides' not in macros or \
+                int(macros['__cpp_deduction_guides']) < 201611:
             self.config.available_features.add('libcpp-no-deduction-guides')
 
         if self.is_windows:
@@ -509,6 +510,9 @@ class Configuration(object):
             # and so that those tests don't have to be changed to tolerate
             # this insanity.
             self.cxx.compile_flags += ['-DNOMINMAX']
+        additional_flags = self.get_lit_conf('test_compiler_flags')
+        if additional_flags:
+            self.cxx.compile_flags += shlex.split(additional_flags)
 
     def configure_default_compile_flags(self):
         # Try and get the std version from the command line. Fall back to
@@ -793,6 +797,9 @@ class Configuration(object):
                                         self.use_system_cxx_lib]
             if self.is_windows and self.link_shared:
                 self.add_path(self.cxx.compile_env, self.use_system_cxx_lib)
+        additional_flags = self.get_lit_conf('test_linker_flags')
+        if additional_flags:
+            self.cxx.link_flags += shlex.split(additional_flags)
 
     def configure_link_flags_abi_library_path(self):
         # Configure ABI library paths.

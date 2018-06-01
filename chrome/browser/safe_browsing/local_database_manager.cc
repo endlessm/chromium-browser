@@ -35,11 +35,8 @@
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/common/safe_browsing_prefs.h"
 #include "components/safe_browsing/common/safebrowsing_switches.h"
-#include "components/safe_browsing/db/notification_types.h"
 #include "components/safe_browsing/db/util.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/notification_service.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "url/url_constants.h"
 
 using content::BrowserThread;
@@ -514,8 +511,6 @@ bool LocalSafeBrowsingDatabaseManager::CheckBrowseUrl(
   prefix_hits.erase(std::unique(prefix_hits.begin(), prefix_hits.end()),
                     prefix_hits.end());
 
-  UMA_HISTOGRAM_TIMES("SB2.FilterCheck", base::TimeTicks::Now() - start);
-
   if (prefix_hits.empty() && cache_hits.empty())
     return true;  // URL is okay.
 
@@ -660,10 +655,10 @@ void LocalSafeBrowsingDatabaseManager::ResetDatabase() {
 }
 
 void LocalSafeBrowsingDatabaseManager::StartOnIOThread(
-    net::URLRequestContextGetter* request_context_getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const V4ProtocolConfig& config) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  SafeBrowsingDatabaseManager::StartOnIOThread(request_context_getter, config);
+  SafeBrowsingDatabaseManager::StartOnIOThread(url_loader_factory, config);
 
   if (enabled_)
     return;
@@ -695,10 +690,7 @@ void LocalSafeBrowsingDatabaseManager::StopOnIOThread(bool shutdown) {
 void LocalSafeBrowsingDatabaseManager::NotifyDatabaseUpdateFinished(
     bool update_succeeded) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  content::NotificationService::current()->Notify(
-      NOTIFICATION_SAFE_BROWSING_UPDATE_COMPLETE,
-      content::Source<SafeBrowsingDatabaseManager>(this),
-      content::Details<bool>(&update_succeeded));
+  update_complete_callback_list_.Notify();
 }
 
 LocalSafeBrowsingDatabaseManager::QueuedCheck::QueuedCheck(

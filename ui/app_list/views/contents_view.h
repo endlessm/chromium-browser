@@ -33,6 +33,7 @@ class AppListFolderItem;
 class AppListMainView;
 class AppsContainerView;
 class AppsGridView;
+class HorizontalPageContainer;
 class PaginationModel;
 class SearchBoxView;
 class SearchResultAnswerCardView;
@@ -48,7 +49,7 @@ class SearchResultTileItemListView;
 class APP_LIST_EXPORT ContentsView : public views::View,
                                      public PaginationModelObserver {
  public:
-  ContentsView(AppListMainView* app_list_main_view, AppListView* app_list_view);
+  explicit ContentsView(AppListView* app_list_view);
   ~ContentsView() override;
 
   // Initialize the pages of the launcher. Should be called after
@@ -94,9 +95,8 @@ class APP_LIST_EXPORT ContentsView : public views::View,
 
   int NumLauncherPages() const;
 
-  AppsContainerView* apps_container_view() const {
-    return apps_container_view_;
-  }
+  AppsContainerView* GetAppsContainerView();
+
   SearchResultPageView* search_results_page_view() const {
     return search_results_page_view_;
   }
@@ -110,11 +110,14 @@ class APP_LIST_EXPORT ContentsView : public views::View,
   SearchResultListView* search_result_list_view_for_test() const {
     return search_result_list_view_;
   }
+  HorizontalPageContainer* horizontal_page_container() const {
+    return horizontal_page_container_;
+  }
   AppListPage* GetPageView(int index) const;
 
   SearchBoxView* GetSearchBoxView() const;
 
-  AppListMainView* app_list_main_view() const { return app_list_main_view_; }
+  AppListMainView* GetAppListMainView() const;
 
   AppListView* app_list_view() const { return app_list_view_; }
 
@@ -153,6 +156,9 @@ class APP_LIST_EXPORT ContentsView : public views::View,
 
   // Returns the height of current display.
   int GetDisplayHeight() const;
+
+  // Returns the width of the current display.
+  int GetDisplayWidth() const;
 
   // Starts the fade out animation when the app list is closed.
   void FadeOutOnClose(base::TimeDelta animation_duration);
@@ -203,7 +209,7 @@ class APP_LIST_EXPORT ContentsView : public views::View,
   AppListModel* model_ = nullptr;
 
   // Sub-views of the ContentsView. All owned by the views hierarchy.
-  AppsContainerView* apps_container_view_ = nullptr;
+  HorizontalPageContainer* horizontal_page_container_ = nullptr;
   SearchResultPageView* search_results_page_view_ = nullptr;
   SearchResultAnswerCardView* search_result_answer_card_view_ = nullptr;
   SearchResultTileItemListView* search_result_tile_item_list_view_ = nullptr;
@@ -211,9 +217,6 @@ class APP_LIST_EXPORT ContentsView : public views::View,
 
   // The child page views. Owned by the views hierarchy.
   std::vector<AppListPage*> app_list_pages_;
-
-  // Parent view. Owned by the views hierarchy.
-  AppListMainView* app_list_main_view_;
 
   // Owned by the views hierarchy.
   AppListView* const app_list_view_;

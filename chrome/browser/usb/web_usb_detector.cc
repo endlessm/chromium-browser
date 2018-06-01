@@ -17,9 +17,9 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_tab_strip_tracker.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_iterator.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/usb/usb_util.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/url_formatter/elide_url.h"
 #include "components/vector_icons/vector_icons.h"
@@ -83,7 +83,9 @@ GURL GetActiveTabURL() {
 }
 
 void OpenURL(const GURL& url) {
-  GetBrowser()->OpenURL(content::OpenURLParams(
+  chrome::ScopedTabbedBrowserDisplayer browser_displayer(
+      ProfileManager::GetLastUsedProfileAllowedByPolicy());
+  browser_displayer.browser()->OpenURL(content::OpenURLParams(
       url, content::Referrer(), WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui::PAGE_TRANSITION_AUTO_TOPLEVEL, false /* is_renderer_initialized */));
 }
@@ -113,7 +115,8 @@ class WebUsbNotificationDelegate : public TabStripModelObserver,
     }
   }
 
-  void Click() override {
+  void Click(const base::Optional<int>& button_index,
+             const base::Optional<base::string16>& reply) override {
     disposition_ = WEBUSB_NOTIFICATION_CLOSED_CLICKED;
 
     // If the URL is already open, activate that tab.
@@ -212,7 +215,8 @@ void WebUsbDetector::OnDeviceAdded(scoped_refptr<device::UsbDevice> device) {
       message_center::NotifierId(message_center::NotifierId::SYSTEM_COMPONENT,
                                  kNotifierWebUsb),
       rich_notification_data,
-      new WebUsbNotificationDelegate(landing_page, notification_id));
+      base::MakeRefCounted<WebUsbNotificationDelegate>(landing_page,
+                                                       notification_id));
   notification.SetSystemPriority();
   SystemNotificationHelper::GetInstance()->Display(notification);
 }

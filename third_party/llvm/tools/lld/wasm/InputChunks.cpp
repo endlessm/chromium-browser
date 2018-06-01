@@ -23,16 +23,24 @@ using namespace llvm::support::endian;
 using namespace lld;
 using namespace lld::wasm;
 
+StringRef ReloctTypeToString(uint8_t RelocType) {
+  switch (RelocType) {
+#define WASM_RELOC(NAME, REL) case REL: return #NAME;
+#include "llvm/BinaryFormat/WasmRelocs.def"
+#undef WASM_RELOC
+  }
+  llvm_unreachable("unknown reloc type");
+}
+
 std::string lld::toString(const InputChunk *C) {
   return (toString(C->File) + ":(" + C->getName() + ")").str();
 }
 
-uint32_t InputSegment::translateVA(uint32_t Address) const {
-  assert(Address >= startVA() && Address < endVA());
-  int32_t Delta = OutputSeg->StartVA + OutputSegmentOffset - startVA();
-  DEBUG(dbgs() << "translateVA: " << getName() << " Delta=" << Delta
-               << " Address=" << Address << "\n");
-  return Address + Delta;
+StringRef InputChunk::getComdatName() const {
+  uint32_t Index = getComdat();
+  if (Index == UINT32_MAX)
+    return StringRef();
+  return File->getWasmObj()->linkingData().Comdats[Index];
 }
 
 void InputChunk::copyRelocations(const WasmSection &Section) {
@@ -54,14 +62,16 @@ void InputChunk::writeTo(uint8_t *Buf) const {
   if (Relocations.empty())
     return;
 
-  DEBUG(dbgs() << "applyRelocations: count=" << Relocations.size() << "\n");
+  DEBUG(dbgs() << "applying relocations: " << getName()
+               << " count=" << Relocations.size() << "\n");
   int32_t Off = OutputOffset - getInputSectionOffset();
 
   for (const WasmRelocation &Rel : Relocations) {
     uint8_t *Loc = Buf + Rel.Offset + Off;
-    uint64_t Value = File->calcNewValue(Rel);
-
-    DEBUG(dbgs() << "write reloc: type=" << Rel.Type << " index=" << Rel.Index
+    uint32_t Value = File->calcNewValue(Rel);
+    uint32_t ExistingValue;
+    DEBUG(dbgs() << "apply reloc: type=" << ReloctTypeToString(Rel.Type)
+                 << " addend=" << Rel.Addend << " index=" << Rel.Index
                  << " value=" << Value << " offset=" << Rel.Offset << "\n");
 
     switch (Rel.Type) {
@@ -69,19 +79,28 @@ void InputChunk::writeTo(uint8_t *Buf) const {
     case R_WEBASSEMBLY_FUNCTION_INDEX_LEB:
     case R_WEBASSEMBLY_GLOBAL_INDEX_LEB:
     case R_WEBASSEMBLY_MEMORY_ADDR_LEB:
+      ExistingValue = decodeULEB128(Loc);
       encodeULEB128(Value, Loc, 5);
       break;
     case R_WEBASSEMBLY_TABLE_INDEX_SLEB:
     case R_WEBASSEMBLY_MEMORY_ADDR_SLEB:
+      ExistingValue = static_cast<uint32_t>(decodeSLEB128(Loc));
       encodeSLEB128(static_cast<int32_t>(Value), Loc, 5);
       break;
     case R_WEBASSEMBLY_TABLE_INDEX_I32:
     case R_WEBASSEMBLY_MEMORY_ADDR_I32:
+      ExistingValue = static_cast<uint32_t>(read32le(Loc));
       write32le(Loc, Value);
       break;
     default:
       llvm_unreachable("unknown relocation type");
     }
+
+    uint32_t ExpectedValue = File->calcExpectedValue(Rel);
+    if (ExpectedValue != ExistingValue)
+      error("unexpected existing value for " + ReloctTypeToString(Rel.Type) +
+            ": existing=" + Twine(ExistingValue) +
+            " expected=" + Twine(ExpectedValue));
   }
 }
 
@@ -111,14 +130,16 @@ void InputChunk::writeRelocations(raw_ostream &OS) const {
   }
 }
 
-void InputFunction::setOutputIndex(uint32_t Index) {
-  DEBUG(dbgs() << "InputFunction::setOutputIndex: " << getName() << " -> " << Index << "\n");
-  assert(!hasOutputIndex());
-  OutputIndex = Index;
+void InputFunction::setFunctionIndex(uint32_t Index) {
+  DEBUG(dbgs() << "InputFunction::setFunctionIndex: " << getName() << " -> "
+               << Index << "\n");
+  assert(!hasFunctionIndex());
+  FunctionIndex = Index;
 }
 
 void InputFunction::setTableIndex(uint32_t Index) {
-  DEBUG(dbgs() << "InputFunction::setTableIndex: " << getName() << " -> " << Index << "\n");
+  DEBUG(dbgs() << "InputFunction::setTableIndex: " << getName() << " -> "
+               << Index << "\n");
   assert(!hasTableIndex());
   TableIndex = Index;
 }

@@ -44,8 +44,7 @@ public class CastWebContentsService extends Service {
         intent.setExtrasClassLoader(WebContents.class.getClassLoader());
         mInstanceId = intent.getData().getPath();
 
-        WebContents webContents = (WebContents) intent.getParcelableExtra(
-                CastWebContentsComponent.ACTION_EXTRA_WEB_CONTENTS);
+        WebContents webContents = CastWebContentsIntentUtils.getWebContents(intent);
         if (webContents == null) {
             Log.e(TAG, "Received null WebContents in intent.");
             return;
@@ -98,13 +97,12 @@ public class CastWebContentsService extends Service {
         Notification notification = new Notification.Builder(this).build();
         startForeground(CAST_NOTIFICATION_ID, notification);
 
+        mContentView = ContentView.createContentView(this, webContents);
         // TODO(derekjchow): productVersion
-        mContentViewCore = ContentViewCore.create(this, "");
-        mContentView = ContentView.createContentView(this, mContentViewCore);
-        mContentViewCore.initialize(ViewAndroidDelegate.createBasicDelegate(mContentView),
-                mContentView, webContents, mWindow);
+        mContentViewCore = ContentViewCore.create(this, "", webContents,
+                ViewAndroidDelegate.createBasicDelegate(mContentView), mContentView, mWindow);
         // Enable display of current webContents.
-        mContentViewCore.onShow();
+        webContents.onShow();
     }
 
     // Remove the currently displayed webContents. no-op if nothing is being displayed.
@@ -118,7 +116,7 @@ public class CastWebContentsService extends Service {
             mContentViewCore = null;
 
             // Inform CastContentWindowAndroid we're detaching.
-            CastWebContentsComponent.onComponentClosed(this, mInstanceId);
+            CastWebContentsComponent.onComponentClosed(mInstanceId);
         }
     }
 }

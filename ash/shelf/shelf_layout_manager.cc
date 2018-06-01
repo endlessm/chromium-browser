@@ -9,6 +9,8 @@
 #include <vector>
 
 #include "ash/animation/animation_change_type.h"
+#include "ash/app_list/app_list_controller_impl.h"
+#include "ash/app_list/model/app_list_view_state.h"
 #include "ash/keyboard/keyboard_observer_register.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
@@ -32,7 +34,6 @@
 #include "base/i18n/rtl.h"
 #include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/app_list_features.h"
-#include "ui/app_list/presenter/app_list.h"
 #include "ui/app_list/views/app_list_view.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/compositor/layer.h"
@@ -86,6 +87,12 @@ bool IsAppListWindow(const aura::Window* window) {
   return parent && parent->id() == kShellWindowId_AppListContainer;
 }
 
+bool IsTabletModeEnabled() {
+  return Shell::Get()
+      ->tablet_mode_controller()
+      ->IsTabletModeWindowManagerEnabled();
+}
+
 }  // namespace
 
 // ShelfLayoutManager::UpdateShelfObserver -------------------------------------
@@ -132,6 +139,10 @@ bool ShelfLayoutManager::State::IsAddingSecondaryUser() const {
 
 bool ShelfLayoutManager::State::IsScreenLocked() const {
   return session_state == session_manager::SessionState::LOCKED;
+}
+
+bool ShelfLayoutManager::State::IsActiveSessionState() const {
+  return session_state == session_manager::SessionState::ACTIVE;
 }
 
 bool ShelfLayoutManager::State::Equals(const State& other) const {
@@ -214,6 +225,11 @@ void ShelfLayoutManager::LayoutShelfAndUpdateBounds(bool change_work_area) {
 }
 
 void ShelfLayoutManager::LayoutShelf() {
+  // The ShelfWidget may be partially closed (no native widget) during shutdown
+  // so skip layout.
+  if (in_shutdown_)
+    return;
+
   LayoutShelfAndUpdateBounds(true);
 }
 
@@ -230,12 +246,6 @@ ShelfVisibilityState ShelfLayoutManager::CalculateShelfVisibility() {
 }
 
 void ShelfLayoutManager::UpdateVisibilityState() {
-  // Shelf is not available before login.
-  // TODO(crbug.com/701157): Remove this when the login webui fake-shelf is
-  // replaced with views.
-  if (!Shell::Get()->session_controller()->IsActiveUserSessionStarted())
-    return;
-
   // Bail out early after shelf is destroyed.
   aura::Window* shelf_window = shelf_widget_->GetNativeWindow();
   if (in_shutdown_ || !shelf_window)
@@ -244,8 +254,8 @@ void ShelfLayoutManager::UpdateVisibilityState() {
   if (shelf_->ShouldHideOnSecondaryDisplay(state_.session_state)) {
     // Needed to hide system tray on secondary display.
     SetState(SHELF_HIDDEN);
-  } else if ((state_.IsScreenLocked() || state_.IsAddingSecondaryUser())) {
-    // Needed to show system tray on web UI lock screen.
+  } else if (!state_.IsActiveSessionState()) {
+    // Needed to show system tray in non active session state.
     SetState(SHELF_VISIBLE);
   } else if (Shell::Get()->screen_pinning_controller()->IsPinned()) {
     SetState(SHELF_HIDDEN);
@@ -439,6 +449,10 @@ void ShelfLayoutManager::OnVirtualKeyboardStateChanged(
 
 void ShelfLayoutManager::OnAppListVisibilityChanged(bool shown,
                                                     aura::Window* root_window) {
+  // Shell may be under destruction.
+  if (!shelf_widget_ || !shelf_widget_->GetNativeWindow())
+    return;
+
   if (shelf_widget_->GetNativeWindow()->GetRootWindow() != root_window)
     return;
 
@@ -513,8 +527,8 @@ ShelfBackgroundType ShelfLayoutManager::GetShelfBackgroundType() const {
   return SHELF_BACKGROUND_DEFAULT;
 }
 
-void ShelfLayoutManager::SetChromeVoxPanelHeight(int height) {
-  chromevox_panel_height_ = height;
+void ShelfLayoutManager::SetAccessibilityPanelHeight(int height) {
+  accessibility_panel_height_ = height;
   LayoutShelf();
 }
 
@@ -715,8 +729,8 @@ void ShelfLayoutManager::CalculateTargetBounds(const State& state,
   aura::Window* shelf_window = shelf_widget_->GetNativeWindow();
   gfx::Rect available_bounds =
       screen_util::GetDisplayBoundsWithShelf(shelf_window);
-  available_bounds.Inset(0, chromevox_panel_height_ + docked_magnifier_height_,
-                         0, 0);
+  available_bounds.Inset(
+      0, accessibility_panel_height_ + docked_magnifier_height_, 0, 0);
   int shelf_width = PrimaryAxisValue(available_bounds.width(), shelf_size);
   int shelf_height = PrimaryAxisValue(shelf_size, available_bounds.height());
   int bottom_shelf_vertical_offset = available_bounds.bottom() - shelf_height;
@@ -761,8 +775,8 @@ void ShelfLayoutManager::CalculateTargetBounds(const State& state,
 
   // Also push in the work area insets for both the ChromeVox panel and the
   // Docked Magnifier.
-  target_bounds->work_area_insets +=
-      gfx::Insets(chromevox_panel_height_ + docked_magnifier_height_, 0, 0, 0);
+  target_bounds->work_area_insets += gfx::Insets(
+      accessibility_panel_height_ + docked_magnifier_height_, 0, 0, 0);
 
   target_bounds->opacity = ComputeTargetOpacity(state);
   target_bounds->status_opacity =
@@ -1111,12 +1125,12 @@ void ShelfLayoutManager::StartGestureDrag(
     const gfx::Rect shelf_bounds = GetIdealBounds();
     shelf_background_type_before_drag_ = shelf_background_type_;
     gesture_drag_status_ = GESTURE_DRAG_APPLIST_IN_PROGRESS;
-    Shell::Get()->app_list()->Show(
+    Shell::Get()->app_list_controller()->Show(
         display::Screen::GetScreen()
             ->GetDisplayNearestWindow(shelf_widget_->GetNativeWindow())
             .id(),
-        app_list::kSwipeFromShelf);
-    Shell::Get()->app_list()->UpdateYPositionAndOpacity(
+        app_list::kSwipeFromShelf, gesture_in_screen.time_stamp());
+    Shell::Get()->app_list_controller()->UpdateYPositionAndOpacity(
         shelf_bounds.y(), GetAppListBackgroundOpacityOnShelfOpacity());
     launcher_above_shelf_bottom_amount_ =
         shelf_bounds.bottom() - gesture_in_screen.location().y();
@@ -1140,13 +1154,13 @@ void ShelfLayoutManager::UpdateGestureDrag(
     // Dismiss the app list if the shelf changed to vertical alignment during
     // dragging.
     if (!shelf_->IsHorizontalAlignment()) {
-      Shell::Get()->app_list()->Dismiss();
+      Shell::Get()->app_list_controller()->DismissAppList();
       launcher_above_shelf_bottom_amount_ = 0.f;
       gesture_drag_status_ = GESTURE_DRAG_NONE;
       return;
     }
     const gfx::Rect shelf_bounds = GetIdealBounds();
-    Shell::Get()->app_list()->UpdateYPositionAndOpacity(
+    Shell::Get()->app_list_controller()->UpdateYPositionAndOpacity(
         std::min(gesture_in_screen.location().y(), shelf_bounds.y()),
         GetAppListBackgroundOpacityOnShelfOpacity());
     launcher_above_shelf_bottom_amount_ =
@@ -1204,7 +1218,7 @@ void ShelfLayoutManager::CompleteGestureDrag(
   // behavior if there is at least one window visible.
   gesture_drag_status_ = GESTURE_DRAG_COMPLETE_IN_PROGRESS;
   if (shelf_->auto_hide_behavior() != new_auto_hide_behavior &&
-      HasVisibleWindow()) {
+      HasVisibleWindow() && !IsTabletModeEnabled()) {
     shelf_->SetAutoHideBehavior(new_auto_hide_behavior);
   } else {
     UpdateVisibilityState();
@@ -1219,8 +1233,8 @@ void ShelfLayoutManager::CompleteAppListDrag(
   if (gesture_drag_status_ == GESTURE_DRAG_NONE)
     return;
 
-  using app_list::mojom::AppListState;
-  AppListState app_list_state = AppListState::PEEKING;
+  using app_list::AppListViewState;
+  AppListViewState app_list_state = AppListViewState::PEEKING;
   if (gesture_in_screen.type() == ui::ET_SCROLL_FLING_START &&
       fabs(gesture_in_screen.details().velocity_y()) >
           kAppListDragVelocityThreshold) {
@@ -1228,38 +1242,36 @@ void ShelfLayoutManager::CompleteAppListDrag(
     // list if the fling was fast enough and in the correct direction, otherwise
     // close it.
     app_list_state = gesture_in_screen.details().velocity_y() < 0
-                         ? AppListState::FULLSCREEN_ALL_APPS
-                         : AppListState::CLOSED;
+                         ? AppListViewState::FULLSCREEN_ALL_APPS
+                         : AppListViewState::CLOSED;
   } else {
     // Snap the app list to corresponding state according to the snapping
     // thresholds.
-    if (Shell::Get()
-            ->tablet_mode_controller()
-            ->IsTabletModeWindowManagerEnabled()) {
+    if (IsTabletModeEnabled()) {
       app_list_state = launcher_above_shelf_bottom_amount_ >
                                kAppListDragSnapToFullscreenThreshold
-                           ? AppListState::FULLSCREEN_ALL_APPS
-                           : AppListState::CLOSED;
+                           ? AppListViewState::FULLSCREEN_ALL_APPS
+                           : AppListViewState::CLOSED;
     } else {
       if (launcher_above_shelf_bottom_amount_ <=
           kAppListDragSnapToClosedThreshold)
-        app_list_state = AppListState::CLOSED;
+        app_list_state = AppListViewState::CLOSED;
       else if (launcher_above_shelf_bottom_amount_ <=
                kAppListDragSnapToPeekingThreshold)
-        app_list_state = AppListState::PEEKING;
+        app_list_state = AppListViewState::PEEKING;
       else
-        app_list_state = AppListState::FULLSCREEN_ALL_APPS;
+        app_list_state = AppListViewState::FULLSCREEN_ALL_APPS;
     }
   }
 
-  Shell::Get()->app_list()->EndDragFromShelf(app_list_state);
+  Shell::Get()->app_list_controller()->EndDragFromShelf(app_list_state);
 
   gesture_drag_status_ = GESTURE_DRAG_NONE;
 }
 
 void ShelfLayoutManager::CancelGestureDrag() {
   if (gesture_drag_status_ == GESTURE_DRAG_APPLIST_IN_PROGRESS) {
-    Shell::Get()->app_list()->Dismiss();
+    Shell::Get()->app_list_controller()->DismissAppList();
   } else {
     gesture_drag_status_ = GESTURE_DRAG_CANCEL_IN_PROGRESS;
     UpdateVisibilityState();

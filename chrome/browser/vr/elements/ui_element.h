@@ -15,13 +15,15 @@
 #include "cc/animation/animation_target.h"
 #include "cc/animation/transform_operations.h"
 #include "chrome/browser/vr/animation.h"
+#include "chrome/browser/vr/audio_delegate.h"
 #include "chrome/browser/vr/databinding/binding_base.h"
 #include "chrome/browser/vr/elements/corner_radii.h"
 #include "chrome/browser/vr/elements/draw_phase.h"
-#include "chrome/browser/vr/elements/ui_element_iterator.h"
 #include "chrome/browser/vr/elements/ui_element_name.h"
 #include "chrome/browser/vr/elements/ui_element_type.h"
 #include "chrome/browser/vr/model/camera_model.h"
+#include "chrome/browser/vr/model/reticle_model.h"
+#include "chrome/browser/vr/model/sounds.h"
 #include "chrome/browser/vr/target_property.h"
 #include "ui/gfx/geometry/point3_f.h"
 #include "ui/gfx/geometry/quaternion.h"
@@ -56,19 +58,20 @@ enum LayoutAlignment {
 
 struct EventHandlers {
   EventHandlers();
+  EventHandlers(const EventHandlers& other);
   ~EventHandlers();
-  base::Callback<void()> hover_enter;
-  base::Callback<void()> hover_leave;
-  base::Callback<void(const gfx::PointF&)> hover_move;
-  base::Callback<void()> button_down;
-  base::Callback<void()> button_up;
+  base::RepeatingCallback<void()> hover_enter;
+  base::RepeatingCallback<void()> hover_leave;
+  base::RepeatingCallback<void(const gfx::PointF&)> hover_move;
+  base::RepeatingCallback<void()> button_down;
+  base::RepeatingCallback<void()> button_up;
   base::RepeatingCallback<void(bool)> focus_change;
 };
 
 struct HitTestRequest {
   gfx::Point3F ray_origin;
   gfx::Point3F ray_target;
-  float max_distance_to_plane;
+  float max_distance_to_plane = 1000.f;
 };
 
 // The result of performing a hit test.
@@ -109,10 +112,11 @@ class UiElement : public cc::AnimationTarget {
     kUpdatedBindings,
     kUpdatedAnimations,
     kUpdatedComputedOpacity,
-    kUpdatedTexturesAndSizes,
+    kUpdatedSize,
     kUpdatedLayout,
     kUpdatedWorldSpaceTransform,
-    kClean = kUpdatedWorldSpaceTransform,
+    kUpdatedTextures,
+    kClean = kUpdatedTextures,
   };
 
   UiElementName name() const { return name_; }
@@ -127,19 +131,24 @@ class UiElement : public cc::AnimationTarget {
   UiElementType type() const { return type_; }
   void SetType(UiElementType type);
   virtual void OnSetType();
+  UiElement* GetDescendantByType(UiElementType type);
 
   DrawPhase draw_phase() const { return draw_phase_; }
   void SetDrawPhase(DrawPhase draw_phase);
   virtual void OnSetDrawPhase();
 
-  // Returns true if the element needs to be re-drawn.
-  virtual bool PrepareToDraw();
+  void UpdateBindings();
 
   // Returns true if the element has been updated in any visible way.
-  bool DoBeginFrame(const base::TimeTicks& time,
-                    const gfx::Transform& head_pose);
+  bool DoBeginFrame(const gfx::Transform& head_pose);
 
-  // Indicates whether the element should be tested for cursor input.
+  // Returns true if the element has changed size or position, or otherwise
+  // warrants re-rendering the scene.
+  virtual bool PrepareToDraw();
+
+  // Returns true if the element updated its texture.
+  virtual bool UpdateTexture();
+
   bool IsHitTestable() const;
 
   virtual void Render(UiElementRenderer* renderer,
@@ -180,6 +189,7 @@ class UiElement : public cc::AnimationTarget {
 
   // If true, the object has a non-zero opacity.
   bool IsVisible() const;
+
   // For convenience, sets opacity to |opacity_when_visible_|.
   virtual void SetVisible(bool visible);
   virtual void SetVisibleImmediately(bool visible);
@@ -262,6 +272,8 @@ class UiElement : public cc::AnimationTarget {
     computed_opacity_ = computed_opacity;
   }
 
+  virtual float ComputedAndLocalOpacityForTest() const;
+
   LayoutAlignment x_anchoring() const { return x_anchoring_; }
   void set_x_anchoring(LayoutAlignment x_anchoring) {
     DCHECK(x_anchoring == LEFT || x_anchoring == RIGHT || x_anchoring == NONE);
@@ -291,6 +303,11 @@ class UiElement : public cc::AnimationTarget {
     bounds_contain_children_ = bounds_contain_children;
   }
 
+  bool bounds_contain_padding() const { return bounds_contain_padding_; }
+  void set_bounds_contain_padding(bool bounds_contain_padding) {
+    bounds_contain_padding_ = bounds_contain_padding;
+  }
+
   bool contributes_to_parent_bounds() const {
     return contributes_to_parent_bounds_;
   }
@@ -298,11 +315,23 @@ class UiElement : public cc::AnimationTarget {
     contributes_to_parent_bounds_ = value;
   }
 
-  float x_padding() const { return x_padding_; }
-  float y_padding() const { return y_padding_; }
-  void set_padding(float x_padding, float y_padding) {
-    x_padding_ = x_padding;
-    y_padding_ = y_padding;
+  float left_padding() const { return left_padding_; }
+  float right_padding() const { return right_padding_; }
+  float top_padding() const { return top_padding_; }
+  float bottom_padding() const { return bottom_padding_; }
+
+  void set_padding(float x, float y) {
+    left_padding_ = x;
+    right_padding_ = x;
+    top_padding_ = y;
+    bottom_padding_ = y;
+  }
+
+  void set_padding(float left, float top, float right, float bottom) {
+    left_padding_ = left;
+    right_padding_ = right;
+    top_padding_ = top;
+    bottom_padding_ = bottom;
   }
 
   const gfx::Transform& inheritable_transform() const {
@@ -315,6 +344,7 @@ class UiElement : public cc::AnimationTarget {
   const gfx::Transform& world_space_transform() const;
   void set_world_space_transform(const gfx::Transform& transform) {
     world_space_transform_ = transform;
+    world_space_transform_dirty_ = false;
   }
 
   gfx::Transform ComputeTargetWorldSpaceTransform() const;
@@ -332,7 +362,9 @@ class UiElement : public cc::AnimationTarget {
     return bindings_;
   }
 
-  void UpdateBindings();
+  void set_visibility_bindings_depend_on_child_visibility(bool value) {
+    visibility_bindings_depend_on_child_visibility_ = value;
+  }
 
   gfx::Point3F GetCenter() const;
   gfx::Vector3dF GetNormal() const;
@@ -369,7 +401,12 @@ class UiElement : public cc::AnimationTarget {
 
   void AddKeyframeModel(std::unique_ptr<cc::KeyframeModel> keyframe_model);
   void RemoveKeyframeModel(int keyframe_model_id);
+  void RemoveKeyframeModels(int target_property);
   bool IsAnimatingProperty(TargetProperty property) const;
+
+  // Recursive method that sizes and lays out element subtrees. This method may
+  // be overridden by elements that have custom layout requirements.
+  virtual bool SizeAndLayOut();
 
   void DoLayOutChildren();
 
@@ -379,48 +416,33 @@ class UiElement : public cc::AnimationTarget {
   // applies anchoring.
   virtual void LayOutChildren();
 
+  UiElement* FirstLaidOutChild() const;
+  UiElement* LastLaidOutChild() const;
+
   virtual gfx::Transform LocalTransform() const;
   virtual gfx::Transform GetTargetLocalTransform() const;
 
   void UpdateComputedOpacity();
-  void UpdateWorldSpaceTransformRecursive();
+  void UpdateWorldSpaceTransform(bool parent_changed);
 
   std::vector<std::unique_ptr<UiElement>>& children() { return children_; }
   const std::vector<std::unique_ptr<UiElement>>& children() const {
     return children_;
   }
 
-  typedef ForwardUiElementIterator iterator;
-  typedef ConstForwardUiElementIterator const_iterator;
-  typedef ReverseUiElementIterator reverse_iterator;
-  typedef ConstReverseUiElementIterator const_reverse_iterator;
-
-  iterator begin() { return iterator(this); }
-  iterator end() { return iterator(nullptr); }
-  const_iterator begin() const { return const_iterator(this); }
-  const_iterator end() const { return const_iterator(nullptr); }
-
-  reverse_iterator rbegin() { return reverse_iterator(this); }
-  reverse_iterator rend() { return reverse_iterator(nullptr); }
-  const_reverse_iterator rbegin() const { return const_reverse_iterator(this); }
-  const_reverse_iterator rend() const {
-    return const_reverse_iterator(nullptr);
-  }
-
-  void set_update_phase(UpdatePhase phase) { phase_ = phase; }
+  void set_update_phase(UpdatePhase phase) { update_phase_ = phase; }
 
   // This is true for all elements that respect the given view model matrix. If
   // this is ignored (say for head-locked elements that draw in screen space),
   // then this function should return false.
   virtual bool IsWorldPositioned() const;
 
-  bool updated_bindings_this_frame() const {
-    return updated_bindings_this_frame_;
-  }
-
   bool updated_visiblity_this_frame() const {
     return updated_visibility_this_frame_;
   }
+
+  void set_cursor_type(CursorType cursor_type) { cursor_type_ = cursor_type; }
+  CursorType cursor_type() const { return cursor_type_; }
 
   std::string DebugName() const;
 
@@ -443,10 +465,36 @@ class UiElement : public cc::AnimationTarget {
   // change your size based on your old size).
   gfx::SizeF stale_size() const;
 
+  // Set the sounds that play when an applicable handler is executed.  Elements
+  // that override element hover and click methods must manage their own sounds.
+  void SetSounds(Sounds sounds, AudioDelegate* delegate);
+
+  bool resizable_by_layout() { return resizable_by_layout_; }
+  void set_resizable_by_layout(bool resizable) {
+    resizable_by_layout_ = resizable;
+  }
+
+  bool descendants_updated() const { return descendants_updated_; }
+  void set_descendants_updated(bool updated) { descendants_updated_ = updated; }
+
+  base::TimeTicks last_frame_time() const { return last_frame_time_; }
+  void set_last_frame_time(const base::TimeTicks& time) {
+    last_frame_time_ = time;
+  }
+
  protected:
   Animation& animation() { return animation_; }
 
-  base::TimeTicks last_frame_time() const { return last_frame_time_; }
+  virtual const Sounds& GetSounds() const;
+
+  virtual bool ShouldUpdateWorldSpaceTransform(
+      bool parent_transform_changed) const;
+
+  void set_world_space_transform_dirty() {
+    world_space_transform_dirty_ = true;
+  }
+
+  UpdatePhase update_phase() const { return update_phase_; }
 
   EventHandlers event_handlers_;
 
@@ -454,8 +502,11 @@ class UiElement : public cc::AnimationTarget {
   virtual void OnUpdatedWorldSpaceTransform();
 
   // Returns true if the element has been updated in any visible way.
-  virtual bool OnBeginFrame(const base::TimeTicks& time,
-                            const gfx::Transform& head_pose);
+  virtual bool OnBeginFrame(const gfx::Transform& head_pose);
+
+  // If true, the element is either locally visible (independent of its
+  // ancestors), or its animation will cause it to become locally visible.
+  bool IsOrWillBeLocallyVisible() const;
 
   // Valid IDs are non-negative.
   int id_ = -1;
@@ -497,7 +548,10 @@ class UiElement : public cc::AnimationTarget {
   // The computed opacity, incorporating opacity of parent objects.
   float computed_opacity_ = 1.0f;
 
-  // Returns true if the last call to UpdateBindings had any effect.
+  // Returns true if the last call to UpdateBindings had any effect. NB: this
+  // value is *not* updated for all elements in the tree each frame. It is
+  // important to only query this value for elements whose visibility has
+  // changed this frame or will be visible.
   bool updated_bindings_this_frame_ = false;
 
   // Return true if the last call to UpdateComputedOpacity had any effect on
@@ -519,16 +573,18 @@ class UiElement : public cc::AnimationTarget {
   // size to accommodate all descendants, adding in the padding below along the
   // x and y axes.
   bool bounds_contain_children_ = false;
+  bool bounds_contain_padding_ = true;
   bool contributes_to_parent_bounds_ = true;
-  float x_padding_ = 0.0f;
-  float y_padding_ = 0.0f;
+  float left_padding_ = 0.0f;
+  float right_padding_ = 0.0f;
+  float top_padding_ = 0.0f;
+  float bottom_padding_ = 0.0f;
 
   Animation animation_;
 
   DrawPhase draw_phase_ = kPhaseNone;
 
-  // This is the time as of the last call to |Animate|. It is needed when
-  // reversing transitions.
+  // The time of the most recent frame.
   base::TimeTicks last_frame_time_;
 
   // This transform can be used by children to derive position of its parent.
@@ -554,19 +610,41 @@ class UiElement : public cc::AnimationTarget {
   // the translation, but leave the rotation and scale in tact).
   cc::TransformOperations transform_operations_;
 
+  // This is a cached version of the local transform.
+  gfx::Transform local_transform_;
+
   // This is set by the parent and is combined into LocalTransform()
   cc::TransformOperations layout_offset_;
 
   // This is the combined, local to world transform. It includes
   // |inheritable_transform_|, |transform_|, and anchoring adjustments.
   gfx::Transform world_space_transform_;
+  bool world_space_transform_dirty_ = false;
 
   UiElement* parent_ = nullptr;
   std::vector<std::unique_ptr<UiElement>> children_;
 
+  // This is true if a descendant has been added and the total list has not yet
+  // been collected by the scene.
+  bool descendants_updated_ = false;
+
   std::vector<std::unique_ptr<BindingBase>> bindings_;
 
-  UpdatePhase phase_ = kClean;
+  // This value causes us to recurse into our children in DoBeginFrame. This
+  // should not be necessary, but we currently have instances where a parent
+  // node's behavior depends on the visibility of its children.
+  // TODO(crbug.com/829880): remove this once we've simplified our bindings.
+  bool visibility_bindings_depend_on_child_visibility_ = false;
+
+  UpdatePhase update_phase_ = kClean;
+
+  AudioDelegate* audio_delegate_ = nullptr;
+  Sounds sounds_;
+
+  // Indicates that this element may be resized by parent layout elements.
+  bool resizable_by_layout_ = false;
+
+  CursorType cursor_type_ = kCursorDefault;
 
   DISALLOW_COPY_AND_ASSIGN(UiElement);
 };

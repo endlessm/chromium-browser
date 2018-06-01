@@ -77,17 +77,17 @@ bool ProcessLeftRightKeyTraversalForTextfield(views::Textfield* textfield,
   return true;
 }
 
-int GetPreferredIconDimension(SearchResult* search_result) {
-  switch (search_result->display_type()) {
-    case SearchResult::DISPLAY_RECOMMENDATION:  // Falls through.
-    case SearchResult::DISPLAY_TILE:
+int GetPreferredIconDimension(SearchResult::DisplayType display_type) {
+  switch (display_type) {
+    case ash::SearchResultDisplayType::kRecommendation:  // Falls through.
+    case ash::SearchResultDisplayType::kTile:
       return kTileIconSize;
-    case SearchResult::DISPLAY_LIST:
+    case ash::SearchResultDisplayType::kList:
       return kListIconSize;
-    case SearchResult::DISPLAY_NONE:
-    case SearchResult::DISPLAY_CARD:
+    case ash::SearchResultDisplayType::kNone:
+    case ash::SearchResultDisplayType::kCard:
       return 0;
-    case SearchResult::DISPLAY_TYPE_LAST:
+    case ash::SearchResultDisplayType::kLast:
       break;
   }
   NOTREACHED();

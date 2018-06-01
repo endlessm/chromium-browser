@@ -67,7 +67,6 @@ import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.net.test.EmbeddedTestServer;
-import org.chromium.ui.base.DeviceFormFactor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -220,7 +219,7 @@ public class BrowserActionActivityTest {
         Assert.assertEquals(1, mOnFinishNativeInitializationCallback.getCallCount());
 
         Context context = InstrumentationRegistry.getTargetContext();
-        Assert.assertEquals(context.getPackageName(), activity.mCreatorPackageName);
+        Assert.assertEquals(context.getPackageName(), activity.mUntrustedCreatorPackageName);
 
         // Check menu populated correctly.
         List<Pair<Integer, List<ContextMenuItem>>> menus = mItems;
@@ -268,7 +267,7 @@ public class BrowserActionActivityTest {
         Assert.assertEquals(0, mOnFinishNativeInitializationCallback.getCallCount());
 
         Context context = InstrumentationRegistry.getTargetContext();
-        Assert.assertEquals(context.getPackageName(), activity.mCreatorPackageName);
+        Assert.assertEquals(context.getPackageName(), activity.mUntrustedCreatorPackageName);
 
         // Check menu populated correctly that only copy, share and custom items are shown.
         List<Pair<Integer, List<ContextMenuItem>>> menus = mItems;
@@ -450,7 +449,7 @@ public class BrowserActionActivityTest {
 
         // The Intent of the Browser Actions notification should toggle overview mode.
         mActivityTestRule.startActivityCompletely(notificationIntent);
-        if (DeviceFormFactor.isTablet()) {
+        if (mActivityTestRule.getActivity().isTablet()) {
             Assert.assertFalse(
                     mActivityTestRule.getActivity().getLayoutManager().overviewVisible());
         } else {
@@ -562,7 +561,7 @@ public class BrowserActionActivityTest {
         Assert.assertEquals(1, currentModel.index());
 
         // Tab switcher should be shown on phones.
-        if (DeviceFormFactor.isTablet()) {
+        if (mActivityTestRule.getActivity().isTablet()) {
             Assert.assertFalse(
                     mActivityTestRule.getActivity().getLayoutManager().overviewVisible());
         } else {

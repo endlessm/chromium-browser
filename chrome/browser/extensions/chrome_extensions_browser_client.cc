@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/command_line.h"
+#include "base/logging.h"
 #include "base/version.h"
 #include "build/build_config.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
@@ -138,6 +139,7 @@ content::BrowserContext* ChromeExtensionsBrowserClient::GetOffTheRecordContext(
 
 content::BrowserContext* ChromeExtensionsBrowserClient::GetOriginalContext(
     content::BrowserContext* context) {
+  DCHECK(context);
   return static_cast<Profile*>(context)->GetOriginalProfile();
 }
 
@@ -271,7 +273,7 @@ bool ChromeExtensionsBrowserClient::DidVersionUpdate(
   }
 
   std::string current_version_str = version_info::GetVersionNumber();
-  base::Version current_version(current_version_str);
+  const base::Version& current_version = version_info::GetVersion();
   pref_service->SetString(pref_names::kLastChromeVersion, current_version_str);
 
   // If there was no version string in prefs, assume we're out of date.
@@ -377,14 +379,10 @@ bool ChromeExtensionsBrowserClient::IsBackgroundUpdateAllowed() {
 
 bool ChromeExtensionsBrowserClient::IsMinBrowserVersionSupported(
     const std::string& min_version) {
-  base::Version browser_version =
-      base::Version(version_info::GetVersionNumber());
+  const base::Version& browser_version = version_info::GetVersion();
   base::Version browser_min_version(min_version);
-  if (browser_version.IsValid() && browser_min_version.IsValid() &&
-      browser_min_version.CompareTo(browser_version) > 0) {
-    return false;
-  }
-  return true;
+  return !browser_version.IsValid() || !browser_min_version.IsValid() ||
+         browser_min_version.CompareTo(browser_version) <= 0;
 }
 
 ExtensionWebContentsObserver*

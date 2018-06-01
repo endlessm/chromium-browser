@@ -182,12 +182,6 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gpu_ipc_service_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
         "test": "gpu_unittests"
       },
       {
@@ -231,6 +225,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "media_service_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "media_unittests"
       },
       {
@@ -244,6 +244,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "midi_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "mojo_core_unittests"
       },
       {
         "swarming": {
@@ -580,12 +586,6 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gpu_ipc_service_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
         "test": "gpu_unittests"
       },
       {
@@ -629,6 +629,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "media_service_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "media_unittests"
       },
       {
@@ -642,6 +648,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "midi_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "mojo_core_unittests"
       },
       {
         "swarming": {
@@ -842,7 +854,7 @@
       {
         "args": [
           "--enable-features=Mash",
-          "--test-launcher-filter-file=../../testing/buildbot/filters/ash_unittests_mash.filter"
+          "--test-launcher-filter-file=../../testing/buildbot/filters/mash.ash_unittests.filter"
         ],
         "name": "mash_ash_unittests",
         "override_isolate_target": "ash_unittests",
@@ -907,6 +919,18 @@
           "--override-use-software-gl-for-tests"
         ],
         "name": "mus_browser_tests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 10
+        },
+        "test": "browser_tests"
+      },
+      {
+        "args": [
+          "--enable-features=VizDisplayCompositor",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/viz.browser_tests.filter"
+        ],
+        "name": "viz_browser_tests",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "shards": 10
@@ -1088,12 +1112,6 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gpu_ipc_service_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
         "test": "gpu_unittests"
       },
       {
@@ -1162,6 +1180,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "midi_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "mojo_core_unittests"
       },
       {
         "swarming": {

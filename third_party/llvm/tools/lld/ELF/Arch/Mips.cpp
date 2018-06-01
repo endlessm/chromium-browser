@@ -50,6 +50,7 @@ template <class ELFT> MIPS<ELFT>::MIPS() {
   DefaultMaxPageSize = 65536;
   GotEntrySize = sizeof(typename ELFT::uint);
   GotPltEntrySize = sizeof(typename ELFT::uint);
+  GotBaseSymInGotPlt = false;
   PltEntrySize = 16;
   PltHeaderSize = 32;
   CopyRel = R_MIPS_COPY;
@@ -331,9 +332,8 @@ void MIPS<ELFT>::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
     return;
   }
 
-  unsigned JrInst =
-      isMipsR6() ? (Config->ZHazardplt ? 0x03200409 : 0x03200009)
-                 : (Config->ZHazardplt ? 0x03200408 : 0x03200008);
+  uint32_t JrInst = isMipsR6() ? (Config->ZHazardplt ? 0x03200409 : 0x03200009)
+                               : (Config->ZHazardplt ? 0x03200408 : 0x03200008);
 
   write32<E>(Buf, 0x3c0f0000);     // lui   $15, %hi(.got.plt entry)
   write32<E>(Buf + 4, 0x8df90000); // l[wd] $25, %lo(.got.plt entry)($15)

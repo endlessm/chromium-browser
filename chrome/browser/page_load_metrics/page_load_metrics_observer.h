@@ -17,8 +17,12 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/resource_type.h"
 #include "net/base/host_port_pair.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
 #include "url/gurl.h"
+
+namespace content {
+class RenderFrameHost;
+}  // namespace content
 
 namespace page_load_metrics {
 
@@ -187,9 +191,9 @@ struct PageLoadExtraInfo {
   // better abstraction. Note that this is an approximation.
   UserInitiatedInfo page_end_user_initiated_info;
 
-  // Total lifetime of the page from the user standoint, starting at navigation
-  // start. The page lifetime ends when the first of the following events
-  // happen:
+  // Total lifetime of the page from the user's standpoint, starting at
+  // navigation start. The page lifetime ends when the first of the following
+  // events happen:
   // * the load of the main resource fails
   // * the page load is stopped
   // * the tab hosting the page is closed
@@ -360,7 +364,9 @@ class PageLoadMetricsObserver {
   // implement one of the On* callbacks, such as OnFirstContentfulPaint or
   // OnDomContentLoadedEventStart. Please email loading-dev@chromium.org if you
   // intend to override this method.
-  virtual void OnTimingUpdate(bool is_subframe,
+  //
+  // If |subframe_rfh| is nullptr, the update took place in the main frame.
+  virtual void OnTimingUpdate(content::RenderFrameHost* subframe_rfh,
                               const mojom::PageLoadTiming& timing,
                               const PageLoadExtraInfo& extra_info) {}
 
@@ -418,12 +424,6 @@ class PageLoadMetricsObserver {
   virtual void MediaStartedPlaying(
       const content::WebContentsObserver::MediaPlayerInfo& video_type,
       bool is_in_main_frame) {}
-
-  // Invoked on navigations where a navigation delay was added by the
-  // DelayNavigationThrottle. This is a temporary method that will be removed
-  // once the experiment is complete.
-  virtual void OnNavigationDelayComplete(base::TimeDelta scheduled_delay,
-                                         base::TimeDelta actual_delay) {}
 
   // Invoked when the UMA metrics subsystem is persisting metrics as the
   // application goes into the background, on platforms where the browser

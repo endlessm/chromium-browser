@@ -306,6 +306,17 @@ void FakeAppInstance::GetRecentAndSuggestedAppsFromPlayStore(
   // Fake Play Store app info
   std::vector<arc::mojom::AppDiscoveryResultPtr> fake_apps;
 
+  // Check if we're fabricating failed query.
+  const std::string kFailedQueryPrefix("FailedQueryWithCode-");
+  ArcPlayStoreSearchRequestState state_code =
+      ArcPlayStoreSearchRequestState::SUCCESS;
+  if (!query.compare(0, kFailedQueryPrefix.size(), kFailedQueryPrefix)) {
+    state_code = static_cast<ArcPlayStoreSearchRequestState>(
+        stoi(query.substr(kFailedQueryPrefix.size())));
+    std::move(callback).Run(state_code, std::move(fake_apps));
+    return;
+  }
+
   // Fake icon data.
   std::string png_data_as_string;
   GetFakeIcon(mojom::ScaleFactor::SCALE_FACTOR_100P, &png_data_as_string);
@@ -337,8 +348,30 @@ void FakeAppInstance::GetRecentAndSuggestedAppsFromPlayStore(
         fake_icon_png_data,                             // icon_png_data
         base::StringPrintf("test.package.%d", i)));     // package_name
   }
-  std::move(callback).Run(ArcPlayStoreSearchRequestState::SUCCESS,
-                          std::move(fake_apps));
+
+  std::move(callback).Run(state_code, std::move(fake_apps));
+}
+
+void FakeAppInstance::GetIcingGlobalQueryResults(
+    const std::string& query,
+    int32_t max_results,
+    GetIcingGlobalQueryResultsCallback callback) {
+  // Fake successful app data search results.
+  std::vector<arc::mojom::AppDataResultPtr> fake_app_data_results;
+  for (int i = 0; i < max_results; ++i) {
+    // Fake icon data.
+    std::string png_data_as_string;
+    GetFakeIcon(mojom::ScaleFactor::SCALE_FACTOR_100P, &png_data_as_string);
+    std::vector<uint8_t> fake_icon_png_data(png_data_as_string.begin(),
+                                            png_data_as_string.end());
+
+    fake_app_data_results.emplace_back(mojom::AppDataResult::New(
+        base::StringPrintf("LaunchIntentUri %d", i),
+        base::StringPrintf("Label %s %d", query.c_str(), i),
+        fake_icon_png_data));
+  }
+  std::move(callback).Run(arc::mojom::AppDataRequestState::REQUEST_SUCCESS,
+                          std::move(fake_app_data_results));
 }
 
 void FakeAppInstance::StartPaiFlow() {

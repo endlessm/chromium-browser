@@ -18,7 +18,7 @@
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/app_icon_loader_delegate.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service.h"
-#include "chrome/browser/ui/ash/app_sync_ui_state_observer.h"
+#include "chrome/browser/ui/app_list/app_sync_ui_state_observer.h"
 #include "chrome/browser/ui/ash/launcher/launcher_app_updater.h"
 #include "chrome/browser/ui/ash/launcher/settings_window_observer.h"
 #include "components/prefs/pref_change_registrar.h"
@@ -27,7 +27,6 @@
 #include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/bindings/interface_ptr_set.h"
 
-class AccountId;
 class AppIconLoader;
 class AppSyncUIState;
 class AppWindowLauncherController;
@@ -40,7 +39,6 @@ class Profile;
 class LauncherControllerHelper;
 
 namespace ash {
-class Shelf;
 class ShelfModel;
 }  // namespace ash
 
@@ -78,10 +76,6 @@ class ChromeLauncherController
 
   // Returns the single ChromeLauncherController instance.
   static ChromeLauncherController* instance() { return instance_; }
-  // TODO(crbug.com/654622): Remove this when tests are fixed.
-  static void set_instance_for_test(ChromeLauncherController* instance) {
-    instance_ = instance;
-  }
 
   ChromeLauncherController(Profile* profile, ash::ShelfModel* model);
   ~ChromeLauncherController() override;
@@ -207,13 +201,6 @@ class ChromeLauncherController
   // Returns the ash::ShelfItemDelegate of BrowserShortcut.
   BrowserShortcutLauncherItemController*
   GetBrowserShortcutLauncherItemController();
-
-  // Check if the shelf visibility (location, visibility) will change with a new
-  // user profile or not. However, since the full visibility calculation of the
-  // shelf cannot be performed here, this is only a probability used for
-  // animation predictions.
-  bool ShelfBoundsChangesProbablyWithUser(ash::Shelf* shelf,
-                                          const AccountId& account_id) const;
 
   // Called when the user profile is fully loaded and ready to switch to.
   void OnUserProfileReadyToSwitch(Profile* profile);

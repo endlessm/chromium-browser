@@ -13,6 +13,7 @@
 #include "remoting/base/chromium_url_request.h"
 #include "remoting/base/telemetry_log_writer.h"
 #include "remoting/base/url_request_context_getter.h"
+#include "remoting/client/oauth_token_getter_proxy.h"
 
 namespace {
 
@@ -30,19 +31,17 @@ ChromotingClientRuntime* ChromotingClientRuntime::GetInstance() {
 ChromotingClientRuntime::ChromotingClientRuntime() {
   base::TaskScheduler::CreateAndStartWithDefaultParams("Remoting");
 
-  if (!base::MessageLoop::current()) {
-    VLOG(1) << "Starting main message loop";
-    ui_loop_.reset(new base::MessageLoopForUI());
+  DCHECK(!base::MessageLoop::current());
+
+  VLOG(1) << "Starting main message loop";
+  ui_loop_.reset(new base::MessageLoopForUI());
 #if defined(OS_ANDROID)
-    // On Android, the UI thread is managed by Java, so we need to attach and
-    // start a special type of message loop to allow Chromium code to run tasks.
-    ui_loop_->Start();
+  // On Android, the UI thread is managed by Java, so we need to attach and
+  // start a special type of message loop to allow Chromium code to run tasks.
+  ui_loop_->Start();
 #elif defined(OS_IOS)
-    base::MessageLoopForUI::current()->Attach();
+  ui_loop_->Attach();
 #endif  // OS_ANDROID, OS_IOS
-  } else {
-    ui_loop_.reset(base::MessageLoopForUI::current());
-  }
 
 #if defined(DEBUG)
   net::URLFetcher::SetIgnoreCertificateRequests(true);
@@ -62,8 +61,6 @@ ChromotingClientRuntime::ChromotingClientRuntime() {
                                                  base::MessageLoop::TYPE_IO);
   url_requester_ =
       new URLRequestContextGetter(network_task_runner_, file_task_runner_);
-
-  CreateLogWriter();
 }
 
 ChromotingClientRuntime::~ChromotingClientRuntime() {
@@ -81,41 +78,21 @@ ChromotingClientRuntime::~ChromotingClientRuntime() {
   }
 }
 
-void ChromotingClientRuntime::SetDelegate(
+void ChromotingClientRuntime::Init(
     ChromotingClientRuntime::Delegate* delegate) {
+  DCHECK(delegate);
+  DCHECK(!delegate_);
   delegate_ = delegate;
-}
-
-void ChromotingClientRuntime::CreateLogWriter() {
-  if (!network_task_runner()->BelongsToCurrentThread()) {
-    network_task_runner()->PostTask(
-        FROM_HERE, base::Bind(&ChromotingClientRuntime::CreateLogWriter,
-                              base::Unretained(this)));
-    return;
-  }
-  log_writer_.reset(new TelemetryLogWriter(
+  log_writer_ = std::make_unique<TelemetryLogWriter>(
       kTelemetryBaseUrl,
-      std::make_unique<ChromiumUrlRequestFactory>(url_requester())));
-  log_writer_->SetAuthClosure(
-      base::Bind(&ChromotingClientRuntime::RequestAuthTokenForLogger,
-                 base::Unretained(this)));
+      std::make_unique<ChromiumUrlRequestFactory>(url_requester()),
+      CreateOAuthTokenGetter());
 }
 
-void ChromotingClientRuntime::RequestAuthTokenForLogger() {
-  if (delegate_) {
-    delegate_->RequestAuthTokenForLogger();
-  } else {
-    DLOG(ERROR) << "ClientRuntime Delegate is null.";
-  }
-}
-
-ChromotingEventLogWriter* ChromotingClientRuntime::log_writer() {
-  DCHECK(network_task_runner()->BelongsToCurrentThread());
-  return log_writer_.get();
-}
-
-OAuthTokenGetter* ChromotingClientRuntime::token_getter() {
-  return delegate_->token_getter();
+std::unique_ptr<OAuthTokenGetter>
+ChromotingClientRuntime::CreateOAuthTokenGetter() {
+  return std::make_unique<OAuthTokenGetterProxy>(
+      delegate_->oauth_token_getter(), ui_task_runner());
 }
 
 }  // namespace remoting

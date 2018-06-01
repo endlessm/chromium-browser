@@ -41,12 +41,12 @@ import org.chromium.android_webview.SafeBrowsingAction;
 import org.chromium.android_webview.test.TestAwContentsClient.OnReceivedError2Helper;
 import org.chromium.android_webview.test.util.GraphicsTestUtils;
 import org.chromium.base.Callback;
-import org.chromium.base.LocaleUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.InMemorySharedPreferences;
 import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.components.safe_browsing.SafeBrowsingApiBridge;
@@ -91,6 +91,9 @@ public class SafeBrowsingTest {
 
     // Used to check which thread a callback is invoked on.
     private volatile boolean mOnUiThread;
+
+    // Used to verify the getSafeBrowsingPrivacyPolicyUrl() API.
+    private volatile Uri mPrivacyPolicyUrl;
 
     // These colors correspond to the body.background attribute in GREEN_HTML_PATH, SAFE_HTML_PATH,
     // MALWARE_HTML_PATH, IFRAME_HTML_PATH, etc. They should only be changed if those values are
@@ -208,7 +211,7 @@ public class SafeBrowsingTest {
         }
     }
 
-    private static class MockAwContents extends AwContents {
+    private static class MockAwContents extends TestAwContents {
         private boolean mCanShowInterstitial;
         private boolean mCanShowBigInterstitial;
 
@@ -654,6 +657,7 @@ public class SafeBrowsingTest {
     @Test
     @SmallTest
     @Feature({"AndroidWebView"})
+    @FlakyTest(message = "crbug/822753")
     public void testSafeBrowsingDontProceedNavigatesBackForSubResource() throws Throwable {
         loadGreenPage();
         final String originalTitle = mActivityTestRule.getTitleOnUiThread(mAwContents);
@@ -999,8 +1003,13 @@ public class SafeBrowsingTest {
     private String appendLocale(String url) throws Exception {
         return Uri.parse(url)
                 .buildUpon()
-                .appendQueryParameter("hl", LocaleUtils.getDefaultLocaleString())
+                .appendQueryParameter("hl", getSafeBrowsingLocaleOnUiThreadForTesting())
                 .toString();
+    }
+
+    private String getSafeBrowsingLocaleOnUiThreadForTesting() throws Exception {
+        return ThreadUtils.runOnUiThreadBlocking(
+                () -> AwContents.getSafeBrowsingLocaleForTesting());
     }
 
     @Test
@@ -1012,7 +1021,7 @@ public class SafeBrowsingTest {
                 Uri.parse("https://transparencyreport.google.com/safe-browsing/search")
                         .buildUpon()
                         .appendQueryParameter("url", responseUrl)
-                        .appendQueryParameter("hl", LocaleUtils.getDefaultLocaleString())
+                        .appendQueryParameter("hl", getSafeBrowsingLocaleOnUiThreadForTesting())
                         .toString();
         loadInterstitialAndClickLink(MALWARE_HTML_PATH, "diagnostic-link", diagnosticUrl);
     }
@@ -1024,7 +1033,7 @@ public class SafeBrowsingTest {
         final String whitepaperUrl =
                 Uri.parse("https://www.google.com/chrome/browser/privacy/whitepaper.html")
                         .buildUpon()
-                        .appendQueryParameter("hl", LocaleUtils.getDefaultLocaleString())
+                        .appendQueryParameter("hl", getSafeBrowsingLocaleOnUiThreadForTesting())
                         .fragment("extendedreport")
                         .toString();
         loadInterstitialAndClickLink(PHISHING_HTML_PATH, "whitepaper-link", whitepaperUrl);
@@ -1037,7 +1046,7 @@ public class SafeBrowsingTest {
         final String privacyPolicyUrl =
                 Uri.parse("https://www.google.com/chrome/browser/privacy/")
                         .buildUpon()
-                        .appendQueryParameter("hl", LocaleUtils.getDefaultLocaleString())
+                        .appendQueryParameter("hl", getSafeBrowsingLocaleOnUiThreadForTesting())
                         .fragment("safe-browsing-policies")
                         .toString();
         loadInterstitialAndClickLink(PHISHING_HTML_PATH, "privacy-link", privacyPolicyUrl);
@@ -1113,10 +1122,41 @@ public class SafeBrowsingTest {
         final Uri privacyPolicyUrl =
                 Uri.parse("https://www.google.com/chrome/browser/privacy/")
                         .buildUpon()
-                        .appendQueryParameter("hl", LocaleUtils.getDefaultLocaleString())
+                        .appendQueryParameter("hl", getSafeBrowsingLocaleOnUiThreadForTesting())
                         .fragment("safe-browsing-policies")
                         .build();
-        Assert.assertEquals(privacyPolicyUrl, AwContentsStatics.getSafeBrowsingPrivacyPolicyUrl());
-        Assert.assertNotNull(AwContentsStatics.getSafeBrowsingPrivacyPolicyUrl());
+        ThreadUtils.runOnUiThreadBlocking(
+                () -> { mPrivacyPolicyUrl = AwContentsStatics.getSafeBrowsingPrivacyPolicyUrl(); });
+        Assert.assertEquals(privacyPolicyUrl, this.mPrivacyPolicyUrl);
+        Assert.assertNotNull(this.mPrivacyPolicyUrl);
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"AndroidWebView"})
+    public void testDestroyWebViewWithInterstitialShowing() throws Throwable {
+        loadPathAndWaitForInterstitial(MALWARE_HTML_PATH);
+        destroyOnMainSync();
+        // As long as we've reached this line without crashing, there should be no bug.
+    }
+
+    private void destroyOnMainSync() throws Exception {
+        // The AwActivityTestRule method invokes AwContents#destroy() on the main thread, but
+        // Awcontents#destroy() posts an asynchronous task itself to destroy natives. Therefore, we
+        // still need to wait for the real work to actually finish.
+        mActivityTestRule.destroyAwContentsOnMainSync(mAwContents);
+        CriteriaHelper.pollUiThread(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                try {
+                    return ThreadUtils.runOnUiThreadBlocking(() -> {
+                        int count_aw_contents = AwContents.getNativeInstanceCount();
+                        return count_aw_contents == 0;
+                    });
+                } catch (Exception e) {
+                    return false;
+                }
+            }
+        });
     }
 }

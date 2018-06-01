@@ -14,11 +14,13 @@
 #import "ios/chrome/browser/ui/authentication/signin_promo_view.h"
 #import "ios/chrome/browser/ui/collection_view/cells/collection_view_switch_item.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_view_controller.h"
+#import "ios/chrome/browser/ui/location_bar/location_bar_steady_view.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_text_field_ios.h"
 #import "ios/chrome/browser/ui/payments/payment_request_edit_view_controller.h"
 #import "ios/chrome/browser/ui/payments/payment_request_error_view_controller.h"
 #import "ios/chrome/browser/ui/payments/payment_request_picker_view_controller.h"
 #import "ios/chrome/browser/ui/payments/payment_request_view_controller.h"
+#import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
 #import "ios/chrome/browser/ui/settings/accounts_collection_view_controller.h"
 #import "ios/chrome/browser/ui/settings/cells/sync_switch_item.h"
 #import "ios/chrome/browser/ui/settings/clear_browsing_data_collection_view_controller.h"
@@ -29,7 +31,6 @@
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_constants.h"
 #import "ios/chrome/browser/ui/toolbar/legacy/toolbar_controller_constants.h"
 #import "ios/chrome/browser/ui/tools_menu/public/tools_menu_constants.h"
-#import "ios/chrome/browser/ui/tools_menu/tools_popup_controller.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
@@ -126,6 +127,10 @@ id<GREYMatcher> CancelButton() {
   return ButtonWithAccessibilityLabelId(IDS_CANCEL);
 }
 
+id<GREYMatcher> CloseButton() {
+  return ButtonWithAccessibilityLabelId(IDS_CLOSE);
+}
+
 id<GREYMatcher> ForwardButton() {
   return ButtonWithAccessibilityLabelId(IDS_ACCNAME_FORWARD);
 }
@@ -144,6 +149,10 @@ id<GREYMatcher> StopButton() {
 
 id<GREYMatcher> Omnibox() {
   return grey_kindOfClass([OmniboxTextFieldIOS class]);
+}
+
+id<GREYMatcher> DefocusedLocationView() {
+  return grey_kindOfClass([LocationBarSteadyView class]);
 }
 
 id<GREYMatcher> PageSecurityInfoButton() {
@@ -165,6 +174,22 @@ id<GREYMatcher> OmniboxContainingText(std::string text) {
             appendText:[NSString
                            stringWithFormat:@"Omnibox contains text \"%@\"",
                                             base::SysUTF8ToNSString(text)]];
+      }];
+  return matcher;
+}
+
+id<GREYMatcher> LocationViewContainingText(std::string text) {
+  GREYElementMatcherBlock* matcher = [GREYElementMatcherBlock
+      matcherWithMatchesBlock:^BOOL(LocationBarSteadyView* element) {
+        return [element.locationLabel.text
+            containsString:base::SysUTF8ToNSString(text)];
+      }
+      descriptionBlock:^void(id<GREYDescription> description) {
+        [description
+            appendText:[NSString
+                           stringWithFormat:
+                               @"LocationBarSteadyView contains text \"%@\"",
+                               base::SysUTF8ToNSString(text)]];
       }];
   return matcher;
 }
@@ -240,8 +265,12 @@ id<GREYMatcher> SettingsMenuButton() {
   return grey_accessibilityID(kToolsMenuSettingsId);
 }
 
+id<GREYMatcher> SettingsDoneButton() {
+  return grey_accessibilityID(kSettingsDoneButtonId);
+}
+
 id<GREYMatcher> ToolsMenuView() {
-  return grey_accessibilityID(kToolsMenuTableViewId);
+  return grey_accessibilityID(kPopupMenuToolsMenuTableViewId);
 }
 
 id<GREYMatcher> OKButton() {
@@ -355,6 +384,18 @@ id<GREYMatcher> BookmarksMenuButton() {
 
 id<GREYMatcher> RecentTabsMenuButton() {
   return grey_accessibilityID(kToolsMenuOtherDevicesId);
+}
+
+id<GREYMatcher> SystemSelectionCallout() {
+  return grey_kindOfClass(NSClassFromString(@"UICalloutBarButton"));
+}
+
+id<GREYMatcher> SystemSelectionCalloutCopyButton() {
+  return grey_accessibilityLabel(@"Copy");
+}
+
+id<GREYMatcher> ContextMenuCopyButton() {
+  return ButtonWithAccessibilityLabelId(IDS_IOS_CONTENT_CONTEXT_COPY);
 }
 
 }  // namespace chrome_test_util

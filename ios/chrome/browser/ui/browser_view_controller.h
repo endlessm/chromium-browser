@@ -15,7 +15,7 @@
 #import "ios/chrome/browser/ui/toolbar/clean/toolbar_coordinator_delegate.h"
 #import "ios/chrome/browser/ui/toolbar/toolbar_owner.h"
 #import "ios/chrome/browser/ui/url_loader.h"
-#import "ios/public/provider/chrome/browser/voice/voice_search_presenter.h"
+#import "ios/public/provider/chrome/browser/voice/logo_animation_controller.h"
 
 @protocol ApplicationCommands;
 @protocol BrowserCommands;
@@ -23,6 +23,7 @@
 @class BrowserViewControllerDependencyFactory;
 class GURL;
 @protocol OmniboxFocuser;
+@protocol PopupMenuCommands;
 @protocol FakeboxFocuser;
 @protocol SnackbarCommands;
 @class Tab;
@@ -36,11 +37,12 @@ class ChromeBrowserState;
 
 // The top-level view controller for the browser UI. Manages other controllers
 // which implement the interface.
-@interface BrowserViewController : UIViewController<SyncPresenter,
-                                                    ToolbarCoordinatorDelegate,
-                                                    ToolbarOwner,
-                                                    UrlLoader,
-                                                    VoiceSearchPresenter>
+@interface BrowserViewController
+    : UIViewController<LogoAnimationControllerOwnerOwner,
+                       SyncPresenter,
+                       ToolbarCoordinatorDelegate,
+                       ToolbarOwner,
+                       UrlLoader>
 
 // Initializes a new BVC from its nib. |model| must not be nil. The
 // webUsageSuspended property for this BVC will be based on |model|, and future
@@ -61,6 +63,7 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint
 @property(nonatomic, readonly) id<ApplicationCommands,
                                   BrowserCommands,
                                   OmniboxFocuser,
+                                  PopupMenuCommands,
                                   FakeboxFocuser,
                                   SnackbarCommands,
                                   ToolbarCommands,
@@ -135,9 +138,8 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint
 // related to showing the previously selected tab.
 - (void)expectNewForegroundTab;
 
-// Shows the voice search UI. |originView|'s center is used for the presentation
-// and dismissal animations of the Voice Search UI. |originView| can be nil.
-- (void)startVoiceSearchWithOriginView:(UIView*)originView;
+// Shows the voice search UI.
+- (void)startVoiceSearch;
 
 // Dismisses all presented views, excluding the omnibox if |dismissOmnibox| is
 // NO, then calls |completion|.

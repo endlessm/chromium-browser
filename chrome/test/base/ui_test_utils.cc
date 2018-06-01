@@ -60,7 +60,6 @@
 #include "content/public/test/download_test_observer.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
-#include "device/geolocation/geolocation_provider.h"
 #include "net/base/filename_util.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/cookies/cookie_constants.h"
@@ -71,15 +70,11 @@
 #include "net/url_request/url_request_context_getter.h"
 #include "services/device/public/mojom/geoposition.mojom.h"
 #include "services/network/public/cpp/resource_request_body.h"
+#include "services/network/public/mojom/cookie_manager.mojom.h"
 #include "ui/gfx/geometry/rect.h"
 
 #if defined(OS_WIN)
 #include <windows.h>
-#endif
-
-#if defined(USE_AURA)
-#include "ash/shell.h"
-#include "ui/aura/window_event_dispatcher.h"
 #endif
 
 using content::NavigationController;
@@ -361,12 +356,6 @@ int FindInPage(WebContents* tab,
 }
 
 void DownloadURL(Browser* browser, const GURL& download_url) {
-  base::ScopedAllowBlockingForTesting allow_blocking;
-  base::ScopedTempDir downloads_directory;
-  ASSERT_TRUE(downloads_directory.CreateUniqueTempDir());
-  browser->profile()->GetPrefs()->SetFilePath(prefs::kDownloadDefaultDirectory,
-                                              downloads_directory.GetPath());
-
   content::DownloadManager* download_manager =
       content::BrowserContext::GetDownloadManager(browser->profile());
   std::unique_ptr<content::DownloadTestObserver> observer(
@@ -402,23 +391,11 @@ Browser* GetBrowserNotInSet(const std::set<Browser*>& excluded_browsers) {
 
 namespace {
 
-void GetCookieListCallback(base::WaitableEvent* event,
-                           net::CookieList* cookies,
-                           const net::CookieList& cookie_list) {
+void GetCookieCallback(base::RepeatingClosure callback,
+                       net::CookieList* cookies,
+                       const net::CookieList& cookie_list) {
   *cookies = cookie_list;
-  event->Signal();
-}
-
-void GetCookiesOnIOThread(
-    const GURL& url,
-    const scoped_refptr<net::URLRequestContextGetter>& context_getter,
-    base::WaitableEvent* event,
-    net::CookieList* cookie_list) {
-  context_getter->GetURLRequestContext()
-      ->cookie_store()
-      ->GetCookieListWithOptionsAsync(
-          url, net::CookieOptions(),
-          base::BindOnce(&GetCookieListCallback, event, cookie_list));
+  callback.Run();
 }
 
 }  // namespace
@@ -429,19 +406,15 @@ void GetCookies(const GURL& url,
                 std::string* value) {
   *value_size = -1;
   if (url.is_valid() && contents) {
-    scoped_refptr<net::URLRequestContextGetter> context_getter =
-        contents->GetMainFrame()
-            ->GetProcess()
-            ->GetStoragePartition()
-            ->GetURLRequestContext();
-    base::WaitableEvent event(base::WaitableEvent::ResetPolicy::MANUAL,
-                              base::WaitableEvent::InitialState::NOT_SIGNALED);
+    base::RunLoop loop;
+    auto* storage_partition =
+        contents->GetMainFrame()->GetProcess()->GetStoragePartition();
+    net::CookieOptions options;
     net::CookieList cookie_list;
-    CHECK(content::BrowserThread::PostTask(
-        content::BrowserThread::IO, FROM_HERE,
-        base::BindOnce(&GetCookiesOnIOThread, url, context_getter, &event,
-                       &cookie_list)));
-    event.Wait();
+    storage_partition->GetCookieManagerForBrowserProcess()->GetCookieList(
+        url, options,
+        base::BindOnce(GetCookieCallback, loop.QuitClosure(), &cookie_list));
+    loop.Run();
 
     *value = net::CanonicalCookie::BuildCookieLine(cookie_list);
     *value_size = static_cast<int>(value->size());
@@ -498,17 +471,6 @@ Browser* BrowserAddedObserver::WaitForSingleNewBrowser() {
   // Ensure that only a single new browser has appeared.
   EXPECT_EQ(original_browsers_.size() + 1, chrome::GetTotalBrowserCount());
   return GetBrowserNotInSet(original_browsers_);
-}
-
-void OverrideGeolocation(double latitude, double longitude) {
-  device::mojom::Geoposition position;
-  position.latitude = latitude;
-  position.longitude = longitude;
-  position.altitude = 0.;
-  position.accuracy = 0.;
-  position.timestamp = base::Time::Now();
-  device::GeolocationProvider::GetInstance()->OverrideLocationForTesting(
-      position);
 }
 
 HistoryEnumerator::HistoryEnumerator(Profile* profile) {

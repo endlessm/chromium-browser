@@ -94,7 +94,6 @@ ExtensionServiceTestBase::ExtensionServiceTestBase()
     return;
   }
   data_dir_ = test_data_dir.AppendASCII("extensions");
-  CrxInstaller::set_connector_for_test(test_data_decoder_service_.connector());
 }
 
 ExtensionServiceTestBase::~ExtensionServiceTestBase() {
@@ -281,6 +280,8 @@ void ExtensionServiceTestBase::ValidateStringPref(
 }
 
 void ExtensionServiceTestBase::SetUp() {
+  // TODO(devlin): Remove this. See https://crbug.com/816679.
+  allow_legacy_extensions_ = Extension::allow_legacy_extensions_for_testing();
   LoadErrorReporter::GetInstance()->ClearErrors();
 }
 
@@ -291,6 +292,7 @@ void ExtensionServiceTestBase::TearDown() {
     if (partition)
       partition->WaitForDeletionTasksForTesting();
   }
+  allow_legacy_extensions_.reset();
 }
 
 void ExtensionServiceTestBase::SetUpTestCase() {

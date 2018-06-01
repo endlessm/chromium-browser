@@ -6,13 +6,17 @@
 
 #import "base/logging.h"
 #include "base/metrics/user_metrics.h"
+#import "ios/chrome/browser/ui/commands/browser_commands.h"
+#import "ios/chrome/browser/ui/popup_menu/popup_menu_flags.h"
 #import "ios/chrome/browser/ui/toolbar/adaptive/adaptive_toolbar_view.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button_factory.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_constants.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tab_grid_button.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tools_menu_button.h"
 #import "ios/chrome/browser/ui/toolbar/public/omnibox_focuser.h"
+#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
 #import "ios/third_party/material_components_ios/src/components/ProgressView/src/MaterialProgressView.h"
 #import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
 
@@ -40,11 +44,16 @@
 
 - (void)updateForSideSwipeSnapshotOnNTP:(BOOL)onNTP {
   self.view.progressBar.hidden = YES;
+  self.view.blur.hidden = YES;
+  self.view.backgroundColor =
+      self.buttonFactory.toolbarConfiguration.backgroundColor;
   // TODO(crbug.com/804850): Have the correct background color for incognito
   // NTP.
 }
 
 - (void)resetAfterSideSwipeSnapshot {
+  self.view.blur.hidden = NO;
+  self.view.backgroundColor = [UIColor clearColor];
 }
 
 #pragma mark - UIViewController
@@ -57,6 +66,17 @@
 - (void)viewDidLoad {
   [super viewDidLoad];
   [self addStandardActionsForAllButtons];
+
+  // Adds the layout guide to the buttons.
+  self.view.toolsMenuButton.guideName = kToolsMenuGuide;
+  self.view.tabGridButton.guideName = kTabSwitcherGuide;
+  self.view.forwardButton.guideName = kForwardButtonGuide;
+  self.view.backButton.guideName = kBackButtonGuide;
+
+  // Add navigation popup menu triggers.
+  [self addLongPressGestureToView:self.view.backButton];
+  [self addLongPressGestureToView:self.view.forwardButton];
+  [self addLongPressGestureToView:self.view.tabGridButton];
 }
 
 - (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
@@ -73,8 +93,7 @@
 #pragma mark - ToolbarConsumer
 
 - (void)setCanGoForward:(BOOL)canGoForward {
-  self.view.forwardLeadingButton.enabled = canGoForward;
-  self.view.forwardTrailingButton.enabled = canGoForward;
+  self.view.forwardButton.enabled = canGoForward;
 }
 
 - (void)setCanGoBack:(BOOL)canGoBack {
@@ -123,13 +142,9 @@
   // No-op, should be handled by the primary toolbar.
 }
 
-- (void)setSearchIcon:(UIImage*)searchIcon {
-  [self.view.omniboxButton setImage:searchIcon forState:UIControlStateNormal];
-}
-
 #pragma mark - NewTabPageControllerDelegate
 
-- (void)setToolbarBackgroundAlpha:(CGFloat)alpha {
+- (void)setToolbarBackgroundToIncognitoNTPColorWithAlpha:(CGFloat)alpha {
   // TODO(crbug.com/803379): Implement that.
 }
 
@@ -150,6 +165,21 @@
            [weakProgressBar setHidden:YES animated:YES completion:nil];
          }
        }];
+}
+
+#pragma mark - TabHistoryUIUpdater
+
+- (void)updateUIForTabHistoryPresentationFrom:(ToolbarButtonType)buttonType {
+  if (buttonType == ToolbarButtonTypeBack) {
+    self.view.backButton.selected = YES;
+  } else {
+    self.view.forwardButton.selected = YES;
+  }
+}
+
+- (void)updateUIForTabHistoryWasDismissed {
+  self.view.backButton.selected = NO;
+  self.view.forwardButton.selected = NO;
 }
 
 #pragma mark - Private
@@ -179,10 +209,12 @@
 
 // Records the use of a button.
 - (IBAction)recordUserMetrics:(id)sender {
+  if (!sender)
+    return;
+
   if (sender == self.view.backButton) {
     base::RecordAction(base::UserMetricsAction("MobileToolbarBack"));
-  } else if (sender == self.view.forwardLeadingButton ||
-             sender == self.view.forwardTrailingButton) {
+  } else if (sender == self.view.forwardButton) {
     base::RecordAction(base::UserMetricsAction("MobileToolbarForward"));
   } else if (sender == self.view.reloadButton) {
     base::RecordAction(base::UserMetricsAction("MobileToolbarReload"));
@@ -200,6 +232,29 @@
     base::RecordAction(base::UserMetricsAction("MobileToolbarOmniboxShortcut"));
   } else {
     NOTREACHED();
+  }
+}
+
+// Adds a LongPressGesture to the |view|, with target on -|handleLongPress:|.
+- (void)addLongPressGestureToView:(UIView*)view {
+  UILongPressGestureRecognizer* navigationHistoryLongPress =
+      [[UILongPressGestureRecognizer alloc]
+          initWithTarget:self
+                  action:@selector(handleLongPress:)];
+  [view addGestureRecognizer:navigationHistoryLongPress];
+}
+
+// Handles the long press on the views.
+- (void)handleLongPress:(UILongPressGestureRecognizer*)gesture {
+  if (gesture.state != UIGestureRecognizerStateBegan)
+    return;
+
+  if (gesture.view == self.view.backButton) {
+    [self.dispatcher showNavigationHistoryBackPopupMenu];
+  } else if (gesture.view == self.view.forwardButton) {
+    [self.dispatcher showNavigationHistoryForwardPopupMenu];
+  } else if (gesture.view == self.view.tabGridButton) {
+    [self.dispatcher showTabGridButtonPopup];
   }
 }
 

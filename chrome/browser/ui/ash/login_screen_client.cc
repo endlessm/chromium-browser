@@ -11,7 +11,9 @@
 #include "chrome/browser/chromeos/login/reauth_stats.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/ui/user_adding_screen.h"
+#include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
+#include "components/user_manager/remove_user_delegate.h"
 #include "content/public/common/service_manager_connection.h"
 #include "services/service_manager/public/cpp/connector.h"
 
@@ -51,6 +53,14 @@ LoginScreenClient* LoginScreenClient::Get() {
   return g_login_screen_client_instance;
 }
 
+void LoginScreenClient::SetDelegate(Delegate* delegate) {
+  delegate_ = delegate;
+}
+
+ash::mojom::LoginScreenPtr& LoginScreenClient::login_screen() {
+  return login_screen_;
+}
+
 void LoginScreenClient::AuthenticateUser(
     const AccountId& account_id,
     const std::string& hashed_password,
@@ -65,16 +75,6 @@ void LoginScreenClient::AuthenticateUser(
     LOG(ERROR) << "Returning failed authentication attempt; no delegate";
     std::move(callback).Run(false);
   }
-}
-
-void LoginScreenClient::ShowLockScreen(
-    ash::mojom::LoginScreen::ShowLockScreenCallback on_shown) {
-  login_screen_->ShowLockScreen(std::move(on_shown));
-}
-
-void LoginScreenClient::ShowLoginScreen(
-    ash::mojom::LoginScreen::ShowLoginScreenCallback on_shown) {
-  login_screen_->ShowLoginScreen(std::move(on_shown));
 }
 
 void LoginScreenClient::AttemptUnlock(const AccountId& account_id) {
@@ -107,7 +107,7 @@ void LoginScreenClient::FocusLockScreenApps(bool reverse) {
   // |HandleFocusLeavingLockScreenApps| so the lock screen mojo service can
   // give focus to the next window in the tab order.
   if (!delegate_ || !delegate_->HandleFocusLockScreenApps(reverse))
-    HandleFocusLeavingLockScreenApps(reverse);
+    login_screen_->HandleFocusLeavingLockScreenApps(reverse);
 }
 
 void LoginScreenClient::ShowGaiaSignin() {
@@ -115,6 +115,25 @@ void LoginScreenClient::ShowGaiaSignin() {
     chromeos::LoginDisplayHost::default_host()->UpdateGaiaDialogVisibility(
         true /*visible*/);
   }
+}
+
+void LoginScreenClient::OnRemoveUserWarningShown() {
+  ProfileMetrics::LogProfileDeleteUser(
+      ProfileMetrics::DELETE_PROFILE_USER_MANAGER_SHOW_WARNING);
+}
+
+void LoginScreenClient::RemoveUser(const AccountId& account_id) {
+  ProfileMetrics::LogProfileDeleteUser(
+      ProfileMetrics::DELETE_PROFILE_USER_MANAGER);
+  user_manager::UserManager::Get()->RemoveUser(account_id,
+                                               nullptr /*delegate*/);
+}
+
+void LoginScreenClient::LaunchPublicSession(const AccountId& account_id,
+                                            const std::string& locale,
+                                            const std::string& input_method) {
+  if (delegate_)
+    delegate_->HandleLaunchPublicSession(account_id, locale, input_method);
 }
 
 void LoginScreenClient::LoadWallpaper(const AccountId& account_id) {
@@ -138,64 +157,4 @@ void LoginScreenClient::OnMaxIncorrectPasswordAttempted(
     const AccountId& account_id) {
   RecordReauthReason(account_id,
                      chromeos::ReauthReason::INCORRECT_PASSWORD_ENTERED);
-}
-
-void LoginScreenClient::ShowErrorMessage(int32_t login_attempts,
-                                         const std::string& error_text,
-                                         const std::string& help_link_text,
-                                         int32_t help_topic_id) {
-  login_screen_->ShowErrorMessage(login_attempts, error_text, help_link_text,
-                                  help_topic_id);
-}
-
-void LoginScreenClient::ClearErrors() {
-  login_screen_->ClearErrors();
-}
-
-void LoginScreenClient::ShowUserPodCustomIcon(
-    const AccountId& account_id,
-    ash::mojom::EasyUnlockIconOptionsPtr icon) {
-  login_screen_->ShowUserPodCustomIcon(account_id, std::move(icon));
-}
-
-void LoginScreenClient::HideUserPodCustomIcon(const AccountId& account_id) {
-  login_screen_->HideUserPodCustomIcon(account_id);
-}
-
-void LoginScreenClient::SetAuthType(const AccountId& account_id,
-                                    proximity_auth::mojom::AuthType auth_type,
-                                    const base::string16& initial_value) {
-  login_screen_->SetAuthType(account_id, auth_type, initial_value);
-}
-
-void LoginScreenClient::LoadUsers(
-    std::vector<ash::mojom::LoginUserInfoPtr> users_list,
-    bool show_guest) {
-  login_screen_->LoadUsers(std::move(users_list), show_guest);
-}
-
-void LoginScreenClient::SetPinEnabledForUser(const AccountId& account_id,
-                                             bool is_enabled) {
-  login_screen_->SetPinEnabledForUser(account_id, is_enabled);
-}
-
-void LoginScreenClient::HandleFocusLeavingLockScreenApps(bool reverse) {
-  login_screen_->HandleFocusLeavingLockScreenApps(reverse);
-}
-
-void LoginScreenClient::SetDevChannelInfo(
-    const std::string& os_version_label_text,
-    const std::string& enterprise_info_text,
-    const std::string& bluetooth_name) {
-  login_screen_->SetDevChannelInfo(os_version_label_text, enterprise_info_text,
-                                   bluetooth_name);
-}
-
-void LoginScreenClient::IsReadyForPassword(
-    ash::mojom::LoginScreen::IsReadyForPasswordCallback callback) {
-  login_screen_->IsReadyForPassword(std::move(callback));
-}
-
-void LoginScreenClient::SetDelegate(Delegate* delegate) {
-  delegate_ = delegate;
 }

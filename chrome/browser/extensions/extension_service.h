@@ -21,6 +21,7 @@
 #include "base/strings/string16.h"
 #include "chrome/browser/extensions/blacklist.h"
 #include "chrome/browser/extensions/extension_management.h"
+#include "chrome/browser/extensions/forced_extensions/installation_tracker.h"
 #include "chrome/browser/extensions/install_gate.h"
 #include "chrome/browser/extensions/pending_extension_manager.h"
 #include "chrome/browser/upgrade_observer.h"
@@ -34,10 +35,10 @@
 #include "extensions/browser/install_flag.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/browser/uninstall_reason.h"
+#include "extensions/buildflags/buildflags.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
 #include "extensions/common/manifest.h"
-#include "extensions/features/features.h"
 
 #if !BUILDFLAG(ENABLE_EXTENSIONS)
 #error "Extensions must be enabled"
@@ -695,6 +696,9 @@ class ExtensionService
 
   // Helper to register and unregister extensions.
   extensions::ExtensionRegistrar extension_registrar_;
+
+  // Tracker of enterprise policy forced installation.
+  extensions::InstallationTracker forced_extensions_tracker_;
 
   using InstallGateRegistry = std::map<extensions::ExtensionPrefs::DelayReason,
                                        extensions::InstallGate*>;

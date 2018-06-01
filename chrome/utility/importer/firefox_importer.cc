@@ -11,7 +11,6 @@
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
@@ -843,6 +842,9 @@ void FirefoxImporter::LoadFavicons(
   std::map<uint64_t, size_t> icon_cache;
 
   for (const auto& entry : bookmarks) {
+    // Reset the SQL statement at the start of the loop rather than at the end
+    // to simplify early-continue logic.
+    s.Reset(true);
     s.BindString(0, entry.url.spec());
     if (s.Step()) {
       uint64_t icon_id = s.ColumnInt64(0);
@@ -865,6 +867,5 @@ void FirefoxImporter::LoadFavicons(
       favicons->push_back(usage_data);
       icon_cache[icon_id] = favicons->size() - 1;
     }
-    s.Reset(true);
   }
 }

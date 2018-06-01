@@ -17,7 +17,6 @@
 #include "chrome/browser/page_load_metrics/observers/core_page_load_metrics_observer.h"
 #include "chrome/browser/page_load_metrics/observers/css_scanning_page_load_metrics_observer.h"
 #include "chrome/browser/page_load_metrics/observers/data_reduction_proxy_metrics_observer.h"
-#include "chrome/browser/page_load_metrics/observers/delay_navigation_page_load_metrics_observer.h"
 #include "chrome/browser/page_load_metrics/observers/document_write_page_load_metrics_observer.h"
 #include "chrome/browser/page_load_metrics/observers/from_gws_page_load_metrics_observer.h"
 #include "chrome/browser/page_load_metrics/observers/google_captcha_observer.h"
@@ -31,6 +30,7 @@
 #include "chrome/browser/page_load_metrics/observers/noscript_preview_page_load_metrics_observer.h"
 #include "chrome/browser/page_load_metrics/observers/offline_page_previews_page_load_metrics_observer.h"
 #include "chrome/browser/page_load_metrics/observers/omnibox_suggestion_used_page_load_metrics_observer.h"
+#include "chrome/browser/page_load_metrics/observers/page_capping_page_load_metrics_observer.h"
 #include "chrome/browser/page_load_metrics/observers/prerender_page_load_metrics_observer.h"
 #include "chrome/browser/page_load_metrics/observers/previews_ukm_observer.h"
 #include "chrome/browser/page_load_metrics/observers/protocol_page_load_metrics_observer.h"
@@ -108,6 +108,8 @@ void PageLoadMetricsEmbedder::RegisterObservers(
     tracker->AddObserver(
         std::make_unique<
             previews::OfflinePagePreviewsPageLoadMetricsObserver>());
+    tracker->AddObserver(
+        std::make_unique<PageCappingPageLoadMetricsObserver>());
     tracker->AddObserver(std::make_unique<previews::PreviewsUKMObserver>());
     tracker->AddObserver(
         std::make_unique<ServiceWorkerPageLoadMetricsObserver>());
@@ -160,8 +162,6 @@ void PageLoadMetricsEmbedder::RegisterObservers(
   }
   tracker->AddObserver(
       std::make_unique<OmniboxSuggestionUsedMetricsObserver>(IsPrerendering()));
-  tracker->AddObserver(
-      std::make_unique<DelayNavigationPageLoadMetricsObserver>());
   tracker->AddObserver(
       SecurityStatePageLoadMetricsObserver::MaybeCreateForProfile(
           web_contents_->GetBrowserContext()));

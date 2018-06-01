@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/app_list/search/launcher_search/launcher_search_icon_image_loader.h"
 
 #include "base/macros.h"
+#include "base/memory/linked_ptr.h"
 #include "chrome/browser/chromeos/launcher_search_provider/error_reporter.h"
 #include "extensions/common/manifest_constants.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -113,6 +114,7 @@ scoped_refptr<extensions::Extension> CreateTestExtension(
   base::DictionaryValue manifest;
   std::string error;
   manifest.SetKey(extensions::manifest_keys::kVersion, base::Value("1"));
+  manifest.SetKey(extensions::manifest_keys::kManifestVersion, base::Value(2));
   manifest.SetKey(extensions::manifest_keys::kName,
                   base::Value("TestExtension"));
   return extensions::Extension::Create(

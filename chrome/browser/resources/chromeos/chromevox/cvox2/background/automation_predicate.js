@@ -20,6 +20,23 @@ var Role = chrome.automation.RoleType;
 var State = chrome.automation.StateType;
 
 /**
+ * A helper to find any actionable children.
+ * @param {!AutomationNode} node
+ * @return {boolean}
+ */
+var hasActionableDescendant = function(node) {
+  // DefaultActionVerb does not have value 'none' even though it gets set.
+  if (node.defaultActionVerb != 'none')
+    return true;
+
+  var result = false;
+  for (var i = 0; i < node.children.length; i++)
+    result = hasActionableDescendant(node.children[i]);
+
+  return result;
+};
+
+/**
  * @constructor
  */
 AutomationPredicate = function() {};
@@ -167,8 +184,14 @@ AutomationPredicate.focused = function(node) {
  */
 AutomationPredicate.leaf = function(node) {
   return !node.firstChild || node.role == Role.BUTTON ||
-      node.role == Role.POP_UP_BUTTON ||
-      node.role == Role.SLIDER || node.role == Role.TEXT_FIELD ||
+      node.role == Role.POP_UP_BUTTON || node.role == Role.SLIDER ||
+      node.role == Role.TEXT_FIELD ||
+      // A node acting as a label should be a leaf if it has no actionable
+      // controls.
+      (!!node.labelFor && node.labelFor.length > 0 &&
+       !hasActionableDescendant(node)) ||
+      (!!node.descriptionFor && node.descriptionFor.length > 0 &&
+       !hasActionableDescendant(node)) ||
       node.state[State.INVISIBLE] || node.children.every(function(n) {
         return n.state[State.INVISIBLE];
       });
@@ -236,6 +259,24 @@ AutomationPredicate.object = function(node) {
       (node.name || node.state[State.EDITABLE] ||
        AutomationPredicate.formField(node)))
     return true;
+
+  // Containers who have name from contents should be treated like objects if
+  // the contents is all static text and not large.
+  if (node.name && node.nameFrom == 'contents') {
+    var onlyStaticText = true;
+    var textLength = 0;
+    for (var i = 0, child; child = node.children[i]; i++) {
+      if (child.role != Role.STATIC_TEXT) {
+        onlyStaticText = false;
+        break;
+      }
+      textLength += child.name ? child.name.length + textLength : textLength;
+    }
+
+    if (onlyStaticText && textLength > 0 &&
+        textLength < constants.OBJECT_MAX_CHARCOUNT)
+      return true;
+  }
 
   // Otherwise, leaf or static text nodes that don't contain only whitespace
   // should be visited with the exception of non-text only nodes. This covers
@@ -376,6 +417,17 @@ AutomationPredicate.shouldIgnoreNode = function(node) {
   if (AutomationPredicate.structuralContainer(node))
     return true;
 
+  // Ignore nodes acting as labels for another control, that don't
+  // have actionable descendants.
+  if (!!node.labelFor && node.labelFor.length > 0 &&
+      !hasActionableDescendant(node))
+    return true;
+
+  // Similarly, ignore nodes acting as descriptions.
+  if (!!node.descriptionFor && node.descriptionFor.length > 0 &&
+      !hasActionableDescendant(node))
+    return true;
+
   // Don't ignore nodes with names or name-like attribute.
   if (node.name || node.value || node.description || node.url)
     return false;
@@ -514,8 +566,9 @@ AutomationPredicate.supportsImageData =
  * @return {boolean}
  */
 AutomationPredicate.contextualBraille = function(node) {
-  return node.parent != null && node.parent.role == Role.ROW &&
-      AutomationPredicate.cellLike(node);
+  return node.parent != null &&
+      ((node.parent.role == Role.ROW && AutomationPredicate.cellLike(node)) ||
+       (node.parent.role == Role.TREE && node.parent.state[State.HORIZONTAL]));
 };
 
 /**

@@ -11,14 +11,15 @@
 #include "base/debug/stack_trace.h"
 #include "base/files/file_path.h"
 #include "base/test/scoped_feature_list.h"
+#include "chrome/browser/ui/media_router/media_cast_mode.h"
 #include "chrome/browser/ui/toolbar/media_router_action.h"
-#include "chrome/browser/ui/webui/media_router/media_cast_mode.h"
 #include "chrome/test/media_router/media_router_base_browsertest.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 
 namespace media_router {
 
+class MediaRouterDialogControllerWebUIImpl;
 class MediaRouterUI;
 struct IssueInfo;
 
@@ -170,7 +171,7 @@ class MediaRouterIntegrationBrowserTest : public MediaRouterBaseBrowserTest {
 
   // Checks that a Media Router dialog is shown for |web_contents|, and returns
   // its controller.
-  MediaRouterDialogControllerImpl* GetControllerForShownDialog(
+  MediaRouterDialogControllerWebUIImpl* GetControllerForShownDialog(
       content::WebContents* web_contents);
 
   // Returns the active WebContents for the current window.

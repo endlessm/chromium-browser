@@ -17,6 +17,7 @@
 #include "ui/app_list/views/apps_grid_view.h"
 #include "ui/app_list/views/contents_view.h"
 #include "ui/app_list/views/folder_background_view.h"
+#include "ui/app_list/views/horizontal_page_container.h"
 #include "ui/app_list/views/page_switcher.h"
 #include "ui/app_list/views/search_box_view.h"
 #include "ui/app_list/views/suggestions_container_view.h"
@@ -37,10 +38,10 @@ constexpr int kSearchBoxPeekingTopPadding = 24;
 // Minimum top padding of search box in fullscreen state.
 constexpr int kSearchBoxMinimumTopPadding = 24;
 
-AppsContainerView::AppsContainerView(AppListMainView* app_list_main_view,
-                                     AppListModel* model) {
-  apps_grid_view_ =
-      new AppsGridView(app_list_main_view->contents_view(), nullptr);
+AppsContainerView::AppsContainerView(ContentsView* contents_view,
+                                     AppListModel* model)
+    : contents_view_(contents_view) {
+  apps_grid_view_ = new AppsGridView(contents_view_, nullptr);
   apps_grid_view_->SetLayout(kPreferredCols, kPreferredRows);
   AddChildView(apps_grid_view_);
 
@@ -49,8 +50,7 @@ AppsContainerView::AppsContainerView(AppListMainView* app_list_main_view,
                                     true /* vertical */);
   AddChildView(page_switcher_);
 
-  app_list_folder_view_ =
-      new AppListFolderView(this, model, app_list_main_view);
+  app_list_folder_view_ = new AppListFolderView(this, model, contents_view_);
   // The folder view is initially hidden.
   app_list_folder_view_->SetVisible(false);
   folder_background_view_ = new FolderBackgroundView(app_list_folder_view_);
@@ -80,7 +80,7 @@ void AppsContainerView::ShowActiveFolder(AppListFolderItem* folder_item) {
 
   // Disable all the items behind the folder so that they will not be reached
   // during focus traversal.
-  contents_view()->GetSearchBoxView()->search_box()->RequestFocus();
+  contents_view_->GetSearchBoxView()->search_box()->RequestFocus();
   apps_grid_view_->DisableFocusForShowingActiveFolder(true);
 }
 
@@ -133,7 +133,7 @@ void AppsContainerView::UpdateOpacity() {
 
   // Updates the opacity of page switcher buttons. The same rule as all apps in
   // AppsGridView.
-  AppListView* app_list_view = contents_view()->app_list_view();
+  AppListView* app_list_view = contents_view_->app_list_view();
   bool should_restore_opacity =
       !app_list_view->is_in_drag() &&
       (app_list_view->app_list_state() != AppListViewState::CLOSED);
@@ -201,11 +201,6 @@ const char* AppsContainerView::GetClassName() const {
   return "AppsContainerView";
 }
 
-void AppsContainerView::OnWillBeShown() {
-  apps_grid_view()->ClearAnySelectedView();
-  app_list_folder_view()->items_grid_view()->ClearAnySelectedView();
-}
-
 void AppsContainerView::OnWillBeHidden() {
   if (show_state_ == SHOW_APPS || show_state_ == SHOW_ITEM_REPARENT)
     apps_grid_view_->EndDrag(true);
@@ -213,16 +208,46 @@ void AppsContainerView::OnWillBeHidden() {
     app_list_folder_view_->CloseFolderPage();
 }
 
-gfx::Rect AppsContainerView::GetSearchBoxBounds() const {
-  return GetSearchBoxBoundsForState(contents_view()->GetActiveState());
+views::View* AppsContainerView::GetFirstFocusableView() {
+  if (IsInFolderView()) {
+    // The pagination inside a folder is set horizontally, so focus should be
+    // set on the first item view in the selected page when it is moved down
+    // from the search box.
+    return app_list_folder_view_->items_grid_view()
+        ->GetCurrentPageFirstItemViewInFolder();
+  }
+  return GetFocusManager()->GetNextFocusableView(
+      this, GetWidget(), false /* reverse */, false /* dont_loop */);
+}
+
+gfx::Rect AppsContainerView::GetPageBoundsForState(
+    ash::AppListState state) const {
+  if (contents_view_->app_list_view()->is_in_drag())
+    return GetPageBoundsDuringDragging(state);
+
+  gfx::Rect bounds = parent()->GetContentsBounds();
+  bounds.ClampToCenteredSize(GetPreferredSize());
+
+  // AppsContainerView page is shown in both STATE_START and STATE_APPS.
+  if (state == ash::AppListState::kStateApps ||
+      state == ash::AppListState::kStateStart) {
+    // The bottom left point relative to |contents_view_|.
+    gfx::Point bottom_left = GetSearchBoxBoundsForState(state).bottom_left();
+    if (state == ash::AppListState::kStateStart) {
+      bottom_left.Offset(
+          0, kSearchBoxPeekingBottomPadding - kSearchBoxBottomPadding);
+    }
+    ConvertPointToTarget(contents_view_, parent(), &bottom_left);
+    bounds.set_y(bottom_left.y());
+  }
+
+  return bounds;
 }
 
 gfx::Rect AppsContainerView::GetSearchBoxBoundsForState(
     ash::AppListState state) const {
-  gfx::Rect search_box_bounds(contents_view()->GetDefaultSearchBoxBounds());
-  bool is_in_drag = false;
-  if (contents_view()->app_list_view())
-    is_in_drag = contents_view()->app_list_view()->is_in_drag();
+  gfx::Rect search_box_bounds(contents_view_->GetDefaultSearchBoxBounds());
+  bool is_in_drag = contents_view_->app_list_view()->is_in_drag();
   if (is_in_drag) {
     search_box_bounds.set_y(GetSearchBoxTopPaddingDuringDragging());
   } else {
@@ -235,29 +260,58 @@ gfx::Rect AppsContainerView::GetSearchBoxBoundsForState(
   return search_box_bounds;
 }
 
-gfx::Rect AppsContainerView::GetPageBoundsForState(
-    ash::AppListState state) const {
-  gfx::Rect onscreen_bounds = GetDefaultContentsBounds();
+int AppsContainerView::GetSearchBoxFinalTopPadding() const {
+  gfx::Rect search_box_bounds(contents_view_->GetDefaultSearchBoxBounds());
+  const int total_height =
+      GetPreferredSize().height() + search_box_bounds.height();
 
-  // Both STATE_START and STATE_APPS are AppsContainerView page.
-  if (state == ash::AppListState::kStateApps ||
-      state == ash::AppListState::kStateStart) {
-    int y = GetSearchBoxBoundsForState(state).bottom();
-    if (state == ash::AppListState::kStateStart)
-      y -= (kSearchBoxBottomPadding - kSearchBoxPeekingBottomPadding);
-    onscreen_bounds.set_y(y);
-    return onscreen_bounds;
+  // Makes search box and content vertically centered in contents_view.
+  int y = std::max(search_box_bounds.y(),
+                   (contents_view_->GetDisplayHeight() - total_height) / 2);
+
+  // Top padding of the searchbox should not be smaller than
+  // |kSearchBoxMinimumTopPadding|
+  return std::max(y, kSearchBoxMinimumTopPadding);
+}
+
+int AppsContainerView::GetSearchBoxTopPaddingDuringDragging() const {
+  float searchbox_final_y = GetSearchBoxFinalTopPadding();
+  float peeking_to_fullscreen_height =
+      contents_view_->GetDisplayHeight() - kPeekingAppListHeight;
+  float drag_amount = std::max(
+      0, contents_view_->app_list_view()->GetScreenBottom() - kShelfSize -
+             contents_view_->app_list_view()->app_list_y_position_in_screen());
+
+  if (drag_amount <= (kPeekingAppListHeight - kShelfSize)) {
+    // App list is dragged from collapsed to peeking, which moved up at most
+    // |kPeekingAppListHeight - kShelfSize| (272px). The top padding of search
+    // box changes from |kSearchBoxInitalTopPadding| to
+    // |kSearchBoxPeekingTopPadding|,
+    return std::ceil(
+        (kSearchBoxPeekingTopPadding - kSearchBoxInitalTopPadding) +
+        ((kSearchBoxPeekingTopPadding - kSearchBoxInitalTopPadding) *
+         drag_amount) /
+            (kPeekingAppListHeight - kShelfSize));
+  } else {
+    // App list is dragged from peeking to fullscreen, which moved up at most
+    // |peeking_to_fullscreen_height|. The top padding of search box changes
+    // from |kSearchBoxPeekingTopPadding| to |searchbox_final_y|.
+    int y = (kSearchBoxPeekingTopPadding +
+             std::ceil((searchbox_final_y - kSearchBoxPeekingTopPadding) *
+                       (drag_amount - (kPeekingAppListHeight - kShelfSize)) /
+                       peeking_to_fullscreen_height));
+    y = std::max(kSearchBoxPeekingTopPadding,
+                 std::min<int>(searchbox_final_y, y));
+    return y;
   }
-
-  return GetBelowContentsOffscreenBounds(onscreen_bounds.size());
 }
 
 gfx::Rect AppsContainerView::GetPageBoundsDuringDragging(
     ash::AppListState state) const {
   float app_list_y_position_in_screen =
-      contents_view()->app_list_view()->app_list_y_position_in_screen();
+      contents_view_->app_list_view()->app_list_y_position_in_screen();
   float drag_amount =
-      std::max(0.f, contents_view()->app_list_view()->GetScreenBottom() -
+      std::max(0.f, contents_view_->app_list_view()->GetScreenBottom() -
                         kShelfSize - app_list_y_position_in_screen);
 
   float y = 0;
@@ -280,7 +334,7 @@ gfx::Rect AppsContainerView::GetPageBoundsDuringDragging(
     float final_y =
         GetSearchBoxFinalTopPadding() + search_box::kSearchBoxPreferredHeight;
     float peeking_to_fullscreen_height =
-        contents_view()->GetDisplayHeight() - kPeekingAppListHeight;
+        contents_view_->GetDisplayHeight() - kPeekingAppListHeight;
     y = std::ceil((final_y - peeking_final_y) *
                       (drag_amount - (kPeekingAppListHeight - kShelfSize)) /
                       peeking_to_fullscreen_height +
@@ -288,36 +342,18 @@ gfx::Rect AppsContainerView::GetPageBoundsDuringDragging(
     y = std::max(std::min(final_y, y), peeking_final_y);
   }
 
-  gfx::Rect onscreen_bounds = GetPageBoundsForState(state);
-  // Both STATE_START and STATE_APPS are AppsContainerView page.
+  gfx::Rect bounds = parent()->GetContentsBounds();
+  bounds.ClampToCenteredSize(GetPreferredSize());
+
+  // AppsContainerView page is shown in both STATE_START and STATE_APPS.
   if (state == ash::AppListState::kStateApps ||
-      state == ash::AppListState::kStateStart)
-    onscreen_bounds.set_y(y);
-
-  return onscreen_bounds;
-}
-
-views::View* AppsContainerView::GetSelectedView() const {
-  return IsInFolderView()
-             ? app_list_folder_view_->items_grid_view()->GetSelectedView()
-             : apps_grid_view_->GetSelectedView();
-}
-
-views::View* AppsContainerView::GetFirstFocusableView() {
-  if (IsInFolderView()) {
-    // The pagination inside a folder is set horizontally, so focus should be
-    // set on the first item view in the selected page when it is moved down
-    // from the search box.
-    return app_list_folder_view_->items_grid_view()
-        ->GetCurrentPageFirstItemViewInFolder();
+      state == ash::AppListState::kStateStart) {
+    gfx::Point point(0, y);
+    ConvertPointToTarget(contents_view_, parent(), &point);
+    bounds.set_y(point.y());
   }
-  return GetFocusManager()->GetNextFocusableView(
-      this, GetWidget(), false /* reverse */, false /* dont_loop */);
-}
 
-views::View* AppsContainerView::GetLastFocusableView() {
-  return GetFocusManager()->GetNextFocusableView(
-      this, GetWidget(), true /* reverse */, false /* dont_loop */);
+  return bounds;
 }
 
 void AppsContainerView::SetShowState(ShowState show_state,
@@ -350,52 +386,6 @@ void AppsContainerView::SetShowState(ShowState show_state,
       break;
     default:
       NOTREACHED();
-  }
-}
-
-int AppsContainerView::GetSearchBoxFinalTopPadding() const {
-  gfx::Rect search_box_bounds(contents_view()->GetDefaultSearchBoxBounds());
-  const int total_height =
-      GetDefaultContentsBounds().bottom() - search_box_bounds.y();
-
-  // Makes search box and content vertically centered in contents_view.
-  int y = std::max(search_box_bounds.y(),
-                   (contents_view()->GetDisplayHeight() - total_height) / 2);
-
-  // Top padding of the searchbox should not be smaller than
-  // |kSearchBoxMinimumTopPadding|
-  return std::max(y, kSearchBoxMinimumTopPadding);
-}
-
-int AppsContainerView::GetSearchBoxTopPaddingDuringDragging() const {
-  float searchbox_final_y = GetSearchBoxFinalTopPadding();
-  float peeking_to_fullscreen_height =
-      contents_view()->GetDisplayHeight() - kPeekingAppListHeight;
-  float drag_amount = std::max(
-      0, contents_view()->app_list_view()->GetScreenBottom() - kShelfSize -
-             contents_view()->app_list_view()->app_list_y_position_in_screen());
-
-  if (drag_amount <= (kPeekingAppListHeight - kShelfSize)) {
-    // App list is dragged from collapsed to peeking, which moved up at most
-    // |kPeekingAppListHeight - kShelfSize| (272px). The top padding of search
-    // box changes from |kSearchBoxInitalTopPadding| to
-    // |kSearchBoxPeekingTopPadding|,
-    return std::ceil(
-        (kSearchBoxPeekingTopPadding - kSearchBoxInitalTopPadding) +
-        ((kSearchBoxPeekingTopPadding - kSearchBoxInitalTopPadding) *
-         drag_amount) /
-            (kPeekingAppListHeight - kShelfSize));
-  } else {
-    // App list is dragged from peeking to fullscreen, which moved up at most
-    // |peeking_to_fullscreen_height|. The top padding of search box changes
-    // from |kSearchBoxPeekingTopPadding| to |searchbox_final_y|.
-    int y = (kSearchBoxPeekingTopPadding +
-             std::ceil((searchbox_final_y - kSearchBoxPeekingTopPadding) *
-                       (drag_amount - (kPeekingAppListHeight - kShelfSize)) /
-                       peeking_to_fullscreen_height));
-    y = std::max(kSearchBoxPeekingTopPadding,
-                 std::min<int>(searchbox_final_y, y));
-    return y;
   }
 }
 

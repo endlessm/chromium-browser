@@ -34,7 +34,6 @@ class Profile;
 namespace base {
 class DictionaryValue;
 class ListValue;
-class SimpleTestTickClock;
 class TickClock;
 }
 
@@ -285,8 +284,7 @@ class PrerenderManager : public content::NotificationObserver,
   // testing.
   base::Time GetCurrentTime() const;
   base::TimeTicks GetCurrentTimeTicks() const;
-  void SetTickClockForTesting(
-      std::unique_ptr<base::SimpleTestTickClock> tick_clock);
+  void SetTickClockForTesting(const base::TickClock* tick_clock);
 
   void DisablePageLoadMetricsObserverForTesting() {
     page_load_metric_observer_disabled_ = true;
@@ -577,7 +575,7 @@ class PrerenderManager : public content::NotificationObserver,
   using PrerenderProcessSet = std::set<content::RenderProcessHost*>;
   PrerenderProcessSet prerender_process_hosts_;
 
-  std::unique_ptr<base::TickClock> tick_clock_;
+  const base::TickClock* tick_clock_;
 
   bool page_load_metric_observer_disabled_;
 

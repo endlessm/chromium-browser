@@ -11,7 +11,6 @@
 #include "chrome/common/media_router/issue.h"
 #include "chrome/common/media_router/mojo/media_router.mojom.h"
 #include "chrome/common/media_router/route_request_result.h"
-#include "mojo/common/common_custom_types_struct_traits.h"
 #include "net/base/ip_endpoint.h"
 
 namespace mojo {
@@ -628,6 +627,8 @@ struct EnumTraits<media_router::mojom::MediaRouteProvider::Id,
         return media_router::mojom::MediaRouteProvider::Id::WIRED_DISPLAY;
       case media_router::MediaRouteProviderId::CAST:
         return media_router::mojom::MediaRouteProvider::Id::CAST;
+      case media_router::MediaRouteProviderId::DIAL:
+        return media_router::mojom::MediaRouteProvider::Id::DIAL;
       case media_router::MediaRouteProviderId::UNKNOWN:
         break;
     }
@@ -647,6 +648,9 @@ struct EnumTraits<media_router::mojom::MediaRouteProvider::Id,
         return true;
       case media_router::mojom::MediaRouteProvider::Id::CAST:
         *provider_id = media_router::MediaRouteProviderId::CAST;
+        return true;
+      case media_router::mojom::MediaRouteProvider::Id::DIAL:
+        *provider_id = media_router::MediaRouteProviderId::DIAL;
         return true;
     }
     return false;

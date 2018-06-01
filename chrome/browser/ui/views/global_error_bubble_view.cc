@@ -9,15 +9,22 @@
 #include <vector>
 
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
+#include "build/buildflag.h"
+#include "chrome/browser/platform_util.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/bubble_anchor_util.h"
 #include "chrome/browser/ui/global_error/global_error.h"
 #include "chrome/browser/ui/global_error/global_error_service.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/elevation_icon_setter.h"
+#include "chrome/browser/ui/views/frame/app_menu_button.h"
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
-#include "chrome/browser/ui/views/toolbar/app_menu_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+#include "chrome/browser/ui/views_mode_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_features.h"
 #include "ui/gfx/image/image.h"
@@ -38,6 +45,27 @@ namespace {
 
 const int kMaxBubbleViewWidth = 362;
 
+#if !defined(OS_MACOSX) || BUILDFLAG(MAC_VIEWS_BROWSER)
+
+views::View* GetGlobalErrorBubbleAnchorView(Browser* browser) {
+#if BUILDFLAG(MAC_VIEWS_BROWSER)
+  if (views_mode_controller::IsViewsBrowserCocoa())
+    return nullptr;
+#endif
+  BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser);
+  return browser_view->toolbar_button_provider()->GetAppMenuButton();
+}
+
+gfx::Rect GetGlobalErrorBubbleAnchorRect(Browser* browser) {
+#if BUILDFLAG(MAC_VIEWS_BROWSER)
+  if (views_mode_controller::IsViewsBrowserCocoa())
+    return bubble_anchor_util::GetAppMenuAnchorRectCocoa(browser);
+#endif
+  return gfx::Rect();
+}
+
+#endif
+
 }  // namespace
 
 // GlobalErrorBubbleViewBase ---------------------------------------------------
@@ -47,12 +75,12 @@ const int kMaxBubbleViewWidth = 362;
 GlobalErrorBubbleViewBase* GlobalErrorBubbleViewBase::ShowStandardBubbleView(
     Browser* browser,
     const base::WeakPtr<GlobalErrorWithStandardBubble>& error) {
-  BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser);
-  views::View* app_menu_button =
-      browser_view->button_provider()->GetAppMenuButton();
-  GlobalErrorBubbleView* bubble_view =
-      new GlobalErrorBubbleView(app_menu_button, gfx::Point(),
-                                views::BubbleBorder::TOP_RIGHT, browser, error);
+  views::View* anchor_view = GetGlobalErrorBubbleAnchorView(browser);
+  gfx::Rect anchor_rect;
+  if (!anchor_view)
+    anchor_rect = GetGlobalErrorBubbleAnchorRect(browser);
+  GlobalErrorBubbleView* bubble_view = new GlobalErrorBubbleView(
+      anchor_view, anchor_rect, views::BubbleBorder::TOP_RIGHT, browser, error);
   views::BubbleDialogDelegateView::CreateBubble(bubble_view);
   bubble_view->GetWidget()->Show();
   return bubble_view;
@@ -63,15 +91,18 @@ GlobalErrorBubbleViewBase* GlobalErrorBubbleViewBase::ShowStandardBubbleView(
 
 GlobalErrorBubbleView::GlobalErrorBubbleView(
     views::View* anchor_view,
-    const gfx::Point& anchor_point,
+    const gfx::Rect& anchor_rect,
     views::BubbleBorder::Arrow arrow,
     Browser* browser,
     const base::WeakPtr<GlobalErrorWithStandardBubble>& error)
     : BubbleDialogDelegateView(anchor_view, arrow),
       browser_(browser),
       error_(error) {
-  if (!anchor_view)
-    SetAnchorRect(gfx::Rect(anchor_point, gfx::Size()));
+  if (!anchor_view) {
+    SetAnchorRect(anchor_rect);
+    set_parent_window(
+        platform_util::GetViewForWindow(browser->window()->GetNativeWindow()));
+  }
   chrome::RecordDialogCreation(chrome::DialogIdentifier::GLOBAL_ERROR);
 }
 
@@ -149,8 +180,8 @@ void GlobalErrorBubbleView::UpdateButton(views::LabelButton* button,
     if (type == ui::DIALOG_BUTTON_OK &&
         error_->ShouldAddElevationIconToAcceptButton()) {
       elevation_icon_setter_.reset(new ElevationIconSetter(
-          button, base::Bind(&GlobalErrorBubbleView::SizeToContents,
-                             base::Unretained(this))));
+          button, base::BindOnce(&GlobalErrorBubbleView::SizeToContents,
+                                 base::Unretained(this))));
     }
   }
 }

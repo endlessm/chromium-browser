@@ -61,6 +61,8 @@ DesktopAutomationHandler = function(node) {
   this.addListener_(
       EventType.CHECKED_STATE_CHANGED, this.onCheckedStateChanged);
   this.addListener_(EventType.CHILDREN_CHANGED, this.onChildrenChanged);
+  this.addListener_(
+      EventType.DOCUMENT_SELECTION_CHANGED, this.onDocumentSelectionChanged);
   this.addListener_(EventType.EXPANDED_CHANGED, this.onEventIfInRange);
   this.addListener_(EventType.FOCUS, this.onFocus);
   this.addListener_(EventType.HOVER, this.onHover);
@@ -146,15 +148,8 @@ DesktopAutomationHandler.prototype = {
       return;
 
     var output = new Output();
-    output.withRichSpeech(
+    output.withRichSpeechAndBraille(
         ChromeVoxState.instance.currentRange, prevRange, evt.type);
-    if (!this.textEditHandler_) {
-      output.withBraille(
-          ChromeVoxState.instance.currentRange, prevRange, evt.type);
-    } else {
-      // Delegate event handling to the text edit handler for braille.
-      this.textEditHandler_.onEvent(evt);
-    }
     output.go();
   },
 
@@ -184,7 +179,7 @@ DesktopAutomationHandler.prototype = {
    * @param {!AutomationEvent} evt
    */
   onEventIfSelected: function(evt) {
-    if (evt.target.state.selected)
+    if (evt.target.selected)
       this.onEventDefault(evt);
   },
 
@@ -192,11 +187,6 @@ DesktopAutomationHandler.prototype = {
    * @param {!AutomationEvent} evt
    */
   onAriaAttributeChanged: function(evt) {
-    if (evt.target.activeDescendant) {
-      this.onActiveDescendantChanged(evt);
-      return;
-    }
-
     if (evt.target.state.editable)
       return;
     this.onEventIfInRange(evt);
@@ -306,8 +296,26 @@ DesktopAutomationHandler.prototype = {
           .withBraille(curRange, curRange, Output.EventType.NAVIGATE)
           .go();
     }
+  },
 
-    this.onActiveDescendantChanged(evt);
+  /**
+   * @param {!AutomationEvent} evt
+   */
+  onDocumentSelectionChanged: function(evt) {
+    var anchor = evt.target.anchorObject;
+
+    // No selection.
+    if (!anchor)
+      return;
+
+    // Editable selection.
+    if (anchor.state[StateType.EDITABLE]) {
+      anchor = AutomationUtil.getEditableRoot(anchor) || anchor;
+      this.onEditableChanged_(
+          new CustomAutomationEvent(evt.type, anchor, evt.eventFrom));
+    }
+
+    // Non-editable selections are handled in |Background|.
   },
 
   /**
@@ -404,6 +412,12 @@ DesktopAutomationHandler.prototype = {
    * @private
    */
   onEditableChanged_: function(evt) {
+    // Document selections only apply to rich editables, text selections to
+    // non-rich editables.
+    if (evt.type != EventType.DOCUMENT_SELECTION_CHANGED &&
+        evt.target.state[StateType.RICHLY_EDITABLE])
+      return;
+
     if (!this.createTextEditHandlerIfNeeded_(evt.target))
       return;
 
@@ -434,6 +448,10 @@ DesktopAutomationHandler.prototype = {
    * @param {!AutomationEvent} evt
    */
   onValueChanged: function(evt) {
+    // Skip root web areas.
+    if (evt.target.role == RoleType.ROOT_WEB_AREA)
+      return;
+
     // Skip all unfocused text fields.
     if (!evt.target.state[StateType.FOCUSED] &&
         evt.target.state[StateType.EDITABLE])

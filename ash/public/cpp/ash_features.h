@@ -31,6 +31,11 @@ ASH_PUBLIC_EXPORT extern const base::Feature kKeyboardShortcutViewer;
 // https://crbug.com/801465.
 ASH_PUBLIC_EXPORT extern const base::Feature kNewOverviewAnimations;
 
+// Enables the new overview animations.
+// TODO(sammiequon): Remove this after the feature is fully launched.
+// https://crbug.com/821608.
+ASH_PUBLIC_EXPORT extern const base::Feature kNewOverviewUi;
+
 // Enables persistent window bounds in multi-displays scenario.
 // TODO(warx): Remove this after the feature is fully launched.
 // https://crbug.com/805046.
@@ -39,17 +44,32 @@ ASH_PUBLIC_EXPORT extern const base::Feature kPersistentWindowBounds;
 // Enables new system menu.
 ASH_PUBLIC_EXPORT extern const base::Feature kSystemTrayUnified;
 
+// Enables trilinear filtering.
+ASH_PUBLIC_EXPORT extern const base::Feature kTrilinearFiltering;
+
+// Enables notifications on the lock screen.
+ASH_PUBLIC_EXPORT extern const base::Feature kLockScreenNotifications;
+
+// Enables mode-specific power button behavior.
+// TODO(derat): Remove this after we make a decision about whether to enable it
+// by default: https://crbug.com/819276
+ASH_PUBLIC_EXPORT extern const base::Feature kModeSpecificPowerButton;
+
 ASH_PUBLIC_EXPORT bool IsDisplayMoveWindowAccelsEnabled();
 
 ASH_PUBLIC_EXPORT bool IsDockedMagnifierEnabled();
 
 ASH_PUBLIC_EXPORT bool IsKeyboardShortcutViewerEnabled();
 
-ASH_PUBLIC_EXPORT bool IsNewOverviewAnimationsEnabled();
-
 ASH_PUBLIC_EXPORT bool IsPersistentWindowBoundsEnabled();
 
 ASH_PUBLIC_EXPORT bool IsSystemTrayUnifiedEnabled();
+
+ASH_PUBLIC_EXPORT bool IsTrilinearFilteringEnabled();
+
+ASH_PUBLIC_EXPORT bool IsLockScreenNotificationsEnabled();
+
+ASH_PUBLIC_EXPORT bool IsModeSpecificPowerButtonEnabled();
 
 }  // namespace features
 }  // namespace ash

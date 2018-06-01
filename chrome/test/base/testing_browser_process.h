@@ -20,9 +20,9 @@
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
-#include "extensions/features/features.h"
-#include "media/media_features.h"
-#include "printing/features/features.h"
+#include "extensions/buildflags/buildflags.h"
+#include "media/media_buildflags.h"
+#include "printing/buildflags/buildflags.h"
 
 class BackgroundModeManager;
 class IOThread;
@@ -45,6 +45,10 @@ class GCMDriver;
 
 namespace policy {
 class PolicyService;
+}
+
+namespace resource_coordinator {
+class TabLifecycleUnitSource;
 }
 
 class TestingBrowserProcess : public BrowserProcess {
@@ -194,6 +198,8 @@ class TestingBrowserProcess : public BrowserProcess {
   // GetTabManager() is invoked on supported platforms.
 #if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
   std::unique_ptr<resource_coordinator::TabManager> tab_manager_;
+  std::unique_ptr<resource_coordinator::TabLifecycleUnitSource>
+      tab_lifecycle_unit_source_;
 #endif
 
   // The following objects are not owned by TestingBrowserProcess:

@@ -5,11 +5,22 @@
 #include "components/sync/driver/fake_sync_service.h"
 
 #include "base/values.h"
+#include "components/signin/core/browser/account_info.h"
 #include "components/sync/driver/data_type_controller.h"
 #include "components/sync/syncable/base_transaction.h"
 #include "components/sync/syncable/user_share.h"
 
 namespace syncer {
+
+void FakeSyncService::SetAuthenticatedAccountInfo(
+    const AccountInfo& account_info) {
+  account_info_ = account_info;
+}
+AccountInfo FakeSyncService::GetAuthenticatedAccountInfo() const {
+  return account_info_;
+}
+
+// Dummy methods
 
 FakeSyncService::FakeSyncService()
     : error_(GoogleServiceAuthError::NONE),
@@ -203,10 +214,6 @@ base::WeakPtr<JsController> FakeSyncService::GetJsController() {
 
 void FakeSyncService::GetAllNodes(
     const base::Callback<void(std::unique_ptr<base::ListValue>)>& callback) {}
-
-SigninManagerBase* FakeSyncService::signin() const {
-  return nullptr;
-}
 
 GlobalIdMapper* FakeSyncService::GetGlobalIdMapper() const {
   return nullptr;

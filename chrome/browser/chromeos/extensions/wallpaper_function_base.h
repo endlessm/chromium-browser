@@ -8,11 +8,12 @@
 #include <string>
 #include <vector>
 
-#include "components/wallpaper/wallpaper_info.h"
+#include "ash/public/cpp/wallpaper_types.h"
 #include "extensions/browser/extension_function.h"
 #include "ui/gfx/image/image_skia.h"
 
 namespace base {
+class RefCountedBytes;
 class SequencedTaskRunner;
 }
 
@@ -20,18 +21,21 @@ namespace wallpaper_api_util {
 
 extern const char kCancelWallpaperMessage[];
 
-wallpaper::WallpaperLayout GetLayoutEnum(const std::string& layout);
+ash::WallpaperLayout GetLayoutEnum(const std::string& layout);
 
 // This is used to record the wallpaper layout when the user sets a custom
 // wallpaper or changes the existing custom wallpaper's layout.
-void RecordCustomWallpaperLayout(const wallpaper::WallpaperLayout& layout);
+void RecordCustomWallpaperLayout(const ash::WallpaperLayout& layout);
 
 }  // namespace wallpaper_api_util
 
 // Wallpaper manager function base. It contains a image decoder to decode
 // wallpaper data.
-class WallpaperFunctionBase : public AsyncExtensionFunction {
+class WallpaperFunctionBase : public UIThreadExtensionFunction {
  public:
+  static const int kWallpaperThumbnailWidth;
+  static const int kWallpaperThumbnailHeight;
+
   WallpaperFunctionBase();
 
   // For tasks that are worth blocking shutdown, i.e. saving user's custom
@@ -61,6 +65,19 @@ class WallpaperFunctionBase : public AsyncExtensionFunction {
 
   // Handles failure case. Sets error message.
   void OnFailure(const std::string& error);
+
+  // Handles failure case with setting an error message with results argument.
+  // TODO(wzang): This is a bug, we shouldn't be sending arguments when the
+  // function fails. Only used in setWallpaperIfExists function. See
+  // https://crbug.com/830212 for details.
+  void OnFailureWithArguments(std::unique_ptr<base::ListValue> args,
+                              const std::string& error);
+
+  // Resize the image to |size|, encode it and save to |thumbnail_data_out|.
+  void GenerateThumbnail(
+      const gfx::ImageSkia& image,
+      const gfx::Size& size,
+      scoped_refptr<base::RefCountedBytes>* thumbnail_data_out);
 
  private:
   virtual void OnWallpaperDecoded(const gfx::ImageSkia& wallpaper) = 0;

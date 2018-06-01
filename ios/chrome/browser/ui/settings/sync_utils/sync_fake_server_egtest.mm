@@ -44,7 +44,7 @@
 #error "This file requires ARC support."
 #endif
 
-using chrome_test_util::NavigationBarDoneButton;
+using chrome_test_util::SettingsDoneButton;
 
 namespace {
 
@@ -59,7 +59,7 @@ void SignInIdentity(NSString* userEmail) {
       tapSettingsMenuButton:chrome_test_util::SecondarySignInButton()];
   [ChromeEarlGreyUI signInToIdentityByEmail:userEmail];
   [ChromeEarlGreyUI confirmSigninConfirmationDialog];
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:SettingsDoneButton()]
       performAction:grey_tap()];
 }
 
@@ -131,15 +131,8 @@ void AssertNumberOfEntitiesWithName(int entity_count,
 
 // Tests that a bookmark added on the client (before Sync is enabled) is
 // uploaded to the Sync server once Sync is turned on.
-// TODO(crbug.com/814990): Reenable the test.
-#if TARGET_IPHONE_SIMULATOR
-#define MAYBE_testSyncUploadBookmarkOnFirstSync \
-  FLAKY_testSyncUploadBookmarkOnFirstSync
-#else
-#define MAYBE_testSyncUploadBookmarkOnFirstSync \
-  testSyncUploadBookmarkOnFirstSync
-#endif
-- (void)MAYBE_testSyncUploadBookmarkOnFirstSync {
+// TODO(crbug.com/821490): Reenable the test.
+- (void)DISABLED_testSyncUploadBookmarkOnFirstSync {
   [self addBookmark:GURL("https://www.foo.com") withTitle:@"foo"];
 
   // Sign in to sync, after a bookmark has been added.
@@ -154,13 +147,8 @@ void AssertNumberOfEntitiesWithName(int entity_count,
 }
 
 // Tests that a bookmark added on the client is uploaded to the Sync server.
-// TODO(crbug.com/814990): Reenable the test.
-#if TARGET_IPHONE_SIMULATOR
-#define MAYBE_testSyncUploadBookmark FLAKY_testSyncUploadBookmark
-#else
-#define MAYBE_testSyncUploadBookmark testSyncUploadBookmark
-#endif
-- (void)MAYBE_testSyncUploadBookmark {
+// TODO(crbug.com/821490): Reenable the test.
+- (void)DISABLED_testSyncUploadBookmark {
   ChromeIdentity* identity = [SigninEarlGreyUtils fakeIdentity1];
   ios::FakeChromeIdentityService::GetInstanceFromChromeProvider()->AddIdentity(
       identity);
@@ -174,13 +162,8 @@ void AssertNumberOfEntitiesWithName(int entity_count,
 
 // Tests that a bookmark injected in the FakeServer is synced down to the
 // client.
-// TODO(crbug.com/814990): Reenable the test.
-#if TARGET_IPHONE_SIMULATOR
-#define MAYBE_testSyncDownloadBookmark FLAKY_testSyncDownloadBookmark
-#else
-#define MAYBE_testSyncDownloadBookmark testSyncDownloadBookmark
-#endif
-- (void)MAYBE_testSyncDownloadBookmark {
+// TODO(crbug.com/821490): Reenable the test.
+- (void)DISABLED_testSyncDownloadBookmark {
   [[self class] assertBookmarksWithTitle:@"hoo" expectedCount:0];
   chrome_test_util::InjectBookmarkOnFakeSyncServer("http://www.hoo.com", "hoo");
 
@@ -217,7 +200,8 @@ void AssertNumberOfEntitiesWithName(int entity_count,
 
 // Tests that the local cache guid changes when the user signs out and then
 // signs back in with the same account.
-- (void)testSyncCheckDifferentCacheGuid_SignOutAndSignIn {
+// TODO(crbug.com/821490): Reenable the test.
+- (void)DISABLED_testSyncCheckDifferentCacheGuid_SignOutAndSignIn {
   // Sign in a fake identity, and store the initial sync guid.
   ChromeIdentity* identity = [SigninEarlGreyUtils fakeIdentity1];
   ios::FakeChromeIdentityService::GetInstanceFromChromeProvider()->AddIdentity(
@@ -247,7 +231,8 @@ void AssertNumberOfEntitiesWithName(int entity_count,
 // Tests that the local cache guid does not change when sync is restarted, if
 // a user previously signed out and back in.
 // Test for http://crbug.com/413611 .
-- (void)testSyncCheckSameCacheGuid_SyncRestartedAfterSignOutAndSignIn {
+// TODO(crbug.com/821490): Reenable the test.
+- (void)DISABLED_testSyncCheckSameCacheGuid_SyncRestartedAfterSignOutAndSignIn {
   // Sign in a fake idenitty.
   ChromeIdentity* identity = [SigninEarlGreyUtils fakeIdentity1];
   ios::FakeChromeIdentityService::GetInstanceFromChromeProvider()->AddIdentity(
@@ -282,7 +267,8 @@ void AssertNumberOfEntitiesWithName(int entity_count,
 }
 
 // Tests that autofill profile injected in FakeServer gets synced to client.
-- (void)testSyncDownloadAutofillProfile {
+// TODO(crbug.com/821490): Reenable the test.
+- (void)DISABLED_testSyncDownloadAutofillProfile {
   const std::string kGuid = "2340E83B-5BEE-4560-8F95-5914EF7F539E";
   const std::string kFullName = "Peter Pan";
   GREYAssertFalse(chrome_test_util::IsAutofillProfilePresent(kGuid, kFullName),
@@ -307,13 +293,8 @@ void AssertNumberOfEntitiesWithName(int entity_count,
 
 // Test that update to autofill profile injected in FakeServer gets synced to
 // client.
-// TODO(crbug.com/814990): Reenable the test.
-#if TARGET_IPHONE_SIMULATOR
-#define MAYBE_testSyncUpdateAutofillProfile FLAKY_testSyncUpdateAutofillProfile
-#else
-#define MAYBE_testSyncUpdateAutofillProfile testSyncUpdateAutofillProfile
-#endif
-- (void)MAYBE_testSyncUpdateAutofillProfile {
+// TODO(crbug.com/821490): Reenable the test.
+- (void)DISABLED_testSyncUpdateAutofillProfile {
   const std::string kGuid = "2340E83B-5BEE-4560-8F95-5914EF7F539E";
   const std::string kFullName = "Peter Pan";
   const std::string kUpdatedFullName = "Roger Rabbit";
@@ -357,13 +338,8 @@ void AssertNumberOfEntitiesWithName(int entity_count,
 
 // Test that autofill profile deleted from FakeServer gets deleted from client
 // as well.
-// TODO(crbug.com/814990): Reenable the test.
-#if TARGET_IPHONE_SIMULATOR
-#define MAYBE_testSyncDeleteAutofillProfile FLAKY_testSyncDeleteAutofillProfile
-#else
-#define MAYBE_testSyncDeleteAutofillProfile testSyncDeleteAutofillProfile
-#endif
-- (void)MAYBE_testSyncDeleteAutofillProfile {
+// TODO(crbug.com/821490): Reenable the test.
+- (void)DISABLED_testSyncDeleteAutofillProfile {
   const std::string kGuid = "2340E83B-5BEE-4560-8F95-5914EF7F539E";
   const std::string kFullName = "Peter Pan";
   GREYAssertFalse(chrome_test_util::IsAutofillProfilePresent(kGuid, kFullName),
@@ -397,13 +373,8 @@ void AssertNumberOfEntitiesWithName(int entity_count,
 
 // Tests that tabs opened on this client are committed to the Sync server and
 // that the created sessions entities are correct.
-// TODO(crbug.com/814990): Reenable the test.
-#if TARGET_IPHONE_SIMULATOR
-#define MAYBE_testSyncUploadOpenTabs FLAKY_testSyncUploadOpenTabs
-#else
-#define MAYBE_testSyncUploadOpenTabs testSyncUploadOpenTabs
-#endif
-- (void)MAYBE_testSyncUploadOpenTabs {
+// TODO(crbug.com/821490): Reenable the test.
+- (void)DISABLED_testSyncUploadOpenTabs {
   // Create map of canned responses and set up the test HTML server.
   const GURL URL1 = web::test::HttpServer::MakeUrl("http://page1");
   const GURL URL2 = web::test::HttpServer::MakeUrl("http://page2");
@@ -437,13 +408,8 @@ void AssertNumberOfEntitiesWithName(int entity_count,
 
 // Tests that a typed URL (after Sync is enabled) is uploaded to the Sync
 // server.
-// TODO(crbug.com/814990): Reenable the test.
-#if TARGET_IPHONE_SIMULATOR
-#define MAYBE_testSyncTypedURLUpload FLAKY_testSyncTypedURLUpload
-#else
-#define MAYBE_testSyncTypedURLUpload testSyncTypedURLUpload
-#endif
-- (void)MAYBE_testSyncTypedURLUpload {
+// TODO(crbug.com/821490): Reenable the test.
+- (void)DISABLED_testSyncTypedURLUpload {
   const GURL mockURL("http://not-a-real-site/");
 
   GREYAssertTrue(chrome_test_util::ClearBrowsingHistory(),
@@ -482,13 +448,8 @@ void AssertNumberOfEntitiesWithName(int entity_count,
 }
 
 // Tests that typed url is downloaded from sync server.
-// TODO(crbug.com/814990): Reenable the test.
-#if TARGET_IPHONE_SIMULATOR
-#define MAYBE_testSyncTypedUrlDownload FLAKY_testSyncTypedUrlDownload
-#else
-#define MAYBE_testSyncTypedUrlDownload testSyncTypedUrlDownload
-#endif
-- (void)MAYBE_testSyncTypedUrlDownload {
+// TODO(crbug.com/821490): Reenable the test.
+- (void)DISABLED_testSyncTypedUrlDownload {
   const GURL mockURL("http://not-a-real-site/");
 
   GREYAssertTrue(chrome_test_util::ClearBrowsingHistory(),
@@ -525,14 +486,8 @@ void AssertNumberOfEntitiesWithName(int entity_count,
 
 // Tests that when typed url is deleted on the client, sync the change gets
 // propagated to server.
-// TODO(crbug.com/814990): Reenable the test.
-#if TARGET_IPHONE_SIMULATOR
-#define MAYBE_testSyncTypedURLDeleteFromClient \
-  FLAKY_testSyncTypedURLDeleteFromClient
-#else
-#define MAYBE_testSyncTypedURLDeleteFromClient testSyncTypedURLDeleteFromClient
-#endif
-- (void)MAYBE_testSyncTypedURLDeleteFromClient {
+// TODO(crbug.com/821490): Reenable the test.
+- (void)DISABLED_testSyncTypedURLDeleteFromClient {
   const GURL mockURL("http://not-a-real-site/");
 
   GREYAssertTrue(chrome_test_util::ClearBrowsingHistory(),
@@ -580,14 +535,8 @@ void AssertNumberOfEntitiesWithName(int entity_count,
 
 // Test that typed url is deleted from client after server sends tombstone for
 // that typed url.
-// TODO(crbug.com/814990): Reenable the test.
-#if TARGET_IPHONE_SIMULATOR
-#define MAYBE_testSyncTypedURLDeleteFromServer \
-  FLAKY_testSyncTypedURLDeleteFromServer
-#else
-#define MAYBE_testSyncTypedURLDeleteFromServer testSyncTypedURLDeleteFromServer
-#endif
-- (void)MAYBE_testSyncTypedURLDeleteFromServer {
+// TODO(crbug.com/821490): Reenable the test.
+- (void)DISABLED_testSyncTypedURLDeleteFromServer {
   const GURL mockURL("http://not-a-real-site/");
 
   GREYAssertTrue(chrome_test_util::ClearBrowsingHistory(),

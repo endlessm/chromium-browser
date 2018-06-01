@@ -33,27 +33,25 @@ CONFIG_TYPE_TOOLCHAIN = 'toolchain'
 
 DISPLAY_LABEL_PRECQ = 'pre_cq'
 DISPLAY_LABEL_TRYJOB = 'tryjob'
-DISPLAY_LABEL_INCREMENATAL = 'incremental'
-DISPLAY_LABEL_FULL = 'full'
-DISPLAY_LABEL_INFORMATIONAL = 'informational'
 
-# These are the build groups against which tryjobs can be run. All other
-# groups MUST be production builds.
+# These are the build groups against which tryjobs can be directly run. All
+# other groups MUST be production builds (ie: use their -tryjob instead)
 # TODO: crbug.com/776955 Make the above statement true.
 TRYJOB_DISPLAY_LABEL = {
     DISPLAY_LABEL_PRECQ,
     DISPLAY_LABEL_TRYJOB,
-    DISPLAY_LABEL_INCREMENATAL,
-    DISPLAY_LABEL_FULL,
-    DISPLAY_LABEL_INFORMATIONAL,
 }
 
+DISPLAY_LABEL_INCREMENATAL = 'incremental'
+DISPLAY_LABEL_FULL = 'full'
+DISPLAY_LABEL_INFORMATIONAL = 'informational'
 DISPLAY_LABEL_CQ = 'cq'
 DISPLAY_LABEL_RELEASE = 'release'
 DISPLAY_LABEL_CHROME_PFQ = 'chrome_pfq'
 DISPLAY_LABEL_MST_ANDROID_PFQ = 'mst_android_pfq'
 DISPLAY_LABEL_MNC_ANDROID_PFQ = 'mnc_android_pfq'
 DISPLAY_LABEL_NYC_ANDROID_PFQ = 'nyc_android_pfq'
+DISPLAY_LABEL_PI_ANDROID_PFQ = 'pi_android_pfq'
 DISPLAY_LABEL_FIRMWARE = 'firmware'
 DISPLAY_LABEL_FACTORY = 'factory'
 DISPLAY_LABEL_TOOLCHAIN = 'toolchain'
@@ -62,12 +60,16 @@ DISPLAY_LABEL_UNKNOWN_PRODUCTION = 'production_tryjob'
 
 # This list of constants should be kept in sync with GoldenEye code.
 ALL_DISPLAY_LABEL = TRYJOB_DISPLAY_LABEL | {
+    DISPLAY_LABEL_INCREMENATAL,
+    DISPLAY_LABEL_FULL,
+    DISPLAY_LABEL_INFORMATIONAL,
     DISPLAY_LABEL_CQ,
     DISPLAY_LABEL_RELEASE,
     DISPLAY_LABEL_CHROME_PFQ,
     DISPLAY_LABEL_MST_ANDROID_PFQ,
     DISPLAY_LABEL_MNC_ANDROID_PFQ,
     DISPLAY_LABEL_NYC_ANDROID_PFQ,
+    DISPLAY_LABEL_PI_ANDROID_PFQ,
     DISPLAY_LABEL_FIRMWARE,
     DISPLAY_LABEL_FACTORY,
     DISPLAY_LABEL_TOOLCHAIN,
@@ -157,6 +159,7 @@ def UseBuildbucketScheduler(config):
                           constants.PFQ_MASTER,
                           constants.MST_ANDROID_PFQ_MASTER,
                           constants.NYC_ANDROID_PFQ_MASTER,
+                          constants.PI_ANDROID_PFQ_MASTER,
                           constants.TOOLCHAIN_MASTTER,
                           constants.PRE_CQ_LAUNCHER_NAME))
 
@@ -257,18 +260,6 @@ class BuildConfig(AttrDict):
   See DefaultSettings for details on known configurations, and their
   documentation.
   """
-  def GetBotId(self, remote_trybot=False):
-    """Get the 'bot id' of a particular bot.
-
-    The bot id is used to specify the subdirectory where artifacts are stored
-    in Google Storage. To avoid conflicts between remote trybots and regular
-    bots, we add a 'trybot-' prefix to any remote trybot runs.
-
-    Args:
-      remote_trybot: Whether this run is a remote trybot run.
-    """
-    return 'trybot-%s' % self.name if remote_trybot else self.name
-
   def deepcopy(self):
     """Create a deep copy of this object.
 
@@ -399,7 +390,7 @@ class VMTestConfig(object):
     max_retries: Integer, maximum job retries allowed at suite level.
                  None for no max.
   """
-  DEFAULT_TEST_TIMEOUT = 60 * 60
+  DEFAULT_TEST_TIMEOUT = 90 * 60
 
   def __init__(self, test_type, test_suite=None,
                timeout=DEFAULT_TEST_TIMEOUT, retry=False,
@@ -668,6 +659,9 @@ def DefaultSettings():
       # and is usually correlated with tryjob build configs.
       debug=False,
 
+      # If True, use the debug instance of CIDB instead of prod.
+      debug_cidb=False,
+
       # Timeout for the build as a whole (in seconds).
       build_timeout=(4 * 60 + 30) * 60,
 
@@ -760,6 +754,10 @@ def DefaultSettings():
 
       # Wipe and replace chroot, but not source.
       chroot_replace=True,
+
+      # Create the chroot on a loopback-mounted chroot.img instead of a bare
+      # directory.  Required for snapshots; otherwise optional.
+      chroot_use_image=True,
 
       # Uprevs the local ebuilds to build new changes since last stable.
       # build.  If master then also pushes these changes on success. Note that

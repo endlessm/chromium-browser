@@ -354,7 +354,7 @@ class OmniboxViewTest : public InProcessBrowserTest,
       browser()->swap_toolbar_models(&toolbar_model);
     }
 
-    test_toolbar_model_->set_text(text);
+    test_toolbar_model_->set_formatted_full_url(text);
     omnibox_view->Update();
   }
 
@@ -1502,6 +1502,10 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewTest, MAYBE_TabTraverseResultsTest) {
 
 // http://crbug.com/133347
 #if defined(OS_LINUX)
+#define MAYBE_PersistKeywordModeOnTabSwitch \
+    DISABLED_PersistKeywordModeOnTabSwitch
+#elif defined(OS_MACOSX)
+// Getting text from textfields doesn't always work: https://crbug.com/823532
 #define MAYBE_PersistKeywordModeOnTabSwitch \
     DISABLED_PersistKeywordModeOnTabSwitch
 #else

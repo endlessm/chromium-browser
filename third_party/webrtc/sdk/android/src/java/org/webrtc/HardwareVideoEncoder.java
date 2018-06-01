@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.Nullable;
 import org.webrtc.ThreadUtils.ThreadChecker;
 
 /** Android hardware video encoder. */
@@ -81,16 +82,16 @@ class HardwareVideoEncoder implements VideoEncoder {
   private boolean automaticResizeOn;
 
   // --- Valid and immutable while an encoding session is running.
-  private MediaCodec codec;
+  @Nullable private MediaCodec codec;
   // Thread that delivers encoded frames to the user callback.
-  private Thread outputThread;
+  @Nullable private Thread outputThread;
 
   // EGL base wrapping the shared texture context.  Holds hooks to both the shared context and the
   // input surface.  Making this base current allows textures from the context to be drawn onto the
   // surface.
-  private EglBase14 textureEglBase;
+  @Nullable private EglBase14 textureEglBase;
   // Input surface for the codec.  The encoder will draw input textures onto this surface.
-  private Surface textureInputSurface;
+  @Nullable private Surface textureInputSurface;
 
   private int width;
   private int height;
@@ -102,7 +103,7 @@ class HardwareVideoEncoder implements VideoEncoder {
 
   // --- Only accessed on the output thread.
   // Contents of the last observed config frame output by the MediaCodec. Used by H.264.
-  private ByteBuffer configBuffer = null;
+  @Nullable private ByteBuffer configBuffer = null;
   private int adjustedBitrate;
 
   // Whether the encoder is running.  Volatile so that the output thread can watch this value and
@@ -110,7 +111,7 @@ class HardwareVideoEncoder implements VideoEncoder {
   private volatile boolean running = false;
   // Any exception thrown during shutdown.  The output thread releases the MediaCodec and uses this
   // value to send exceptions thrown during release back to the encoder thread.
-  private volatile Exception shutdownException = null;
+  @Nullable private volatile Exception shutdownException = null;
 
   /**
    * Creates a new HardwareVideoEncoder with the given codecName, codecType, colorFormat, key frame
@@ -185,7 +186,7 @@ class HardwareVideoEncoder implements VideoEncoder {
       format.setInteger(MediaFormat.KEY_BIT_RATE, adjustedBitrate);
       format.setInteger(KEY_BITRATE_MODE, VIDEO_ControlRateConstant);
       format.setInteger(MediaFormat.KEY_COLOR_FORMAT, colorFormat);
-      format.setInteger(MediaFormat.KEY_FRAME_RATE, bitrateAdjuster.getAdjustedFramerate());
+      format.setInteger(MediaFormat.KEY_FRAME_RATE, bitrateAdjuster.getCodecConfigFramerate());
       format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyFrameIntervalSec);
       if (codecType == VideoCodecType.H264) {
         String profileLevelId = params.get(VideoCodecInfo.H264_FMTP_PROFILE_LEVEL_ID);

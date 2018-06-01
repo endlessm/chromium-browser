@@ -9,10 +9,13 @@
 #include "chrome/browser/chromeos/arc/extensions/fake_arc_support.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/consent_auditor/consent_auditor_factory.h"
-#include "chrome/browser/sync/user_event_service_factory.h"
+#include "chrome/browser/consent_auditor/consent_auditor_test_utils.h"
+#include "chrome/browser/signin/fake_signin_manager_builder.h"
+#include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_profile.h"
-#include "components/consent_auditor/consent_auditor.h"
+#include "components/consent_auditor/fake_consent_auditor.h"
+#include "components/signin/core/browser/fake_signin_manager.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -60,32 +63,6 @@ class MockErrorDelegateNonStrict : public ArcSupportHost::ErrorDelegate {
 
 using MockErrorDelegate = StrictMock<MockErrorDelegateNonStrict>;
 
-// TODO(jhorwich): Integrate with centralized FakeConsentAuditor.
-class FakeConsentAuditor : public consent_auditor::ConsentAuditor {
- public:
-  static std::unique_ptr<KeyedService> Build(content::BrowserContext* context) {
-    return std::make_unique<FakeConsentAuditor>(
-        Profile::FromBrowserContext(context));
-  }
-
-  explicit FakeConsentAuditor(Profile* profile)
-      : ConsentAuditor(
-            profile->GetPrefs(),
-            browser_sync::UserEventServiceFactory::GetForProfile(profile),
-            std::string(),
-            std::string()) {}
-
-  ~FakeConsentAuditor() override = default;
-
-  void RecordGaiaConsent(consent_auditor::Feature feature,
-                         const std::vector<int>& description_grd_ids,
-                         int confirmation_grd_id,
-                         consent_auditor::ConsentStatus status) override {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(FakeConsentAuditor);
-};
-
 class ArcSupportHostTest : public BrowserWithTestWindowTest {
  public:
   ArcSupportHostTest() = default;
@@ -95,6 +72,7 @@ class ArcSupportHostTest : public BrowserWithTestWindowTest {
     BrowserWithTestWindowTest::SetUp();
     user_manager_enabler_ = std::make_unique<user_manager::ScopedUserManager>(
         std::make_unique<chromeos::FakeChromeUserManager>());
+    signin_manager()->SignIn("testing_account_id");
 
     support_host_ = std::make_unique<ArcSupportHost>(profile());
     fake_arc_support_ = std::make_unique<FakeArcSupport>(support_host_.get());
@@ -140,14 +118,20 @@ class ArcSupportHostTest : public BrowserWithTestWindowTest {
                                             kFakeActiveDirectoryPrefix);
   }
 
-  FakeConsentAuditor* consent_auditor() {
-    return static_cast<FakeConsentAuditor*>(
+  consent_auditor::FakeConsentAuditor* consent_auditor() {
+    return static_cast<consent_auditor::FakeConsentAuditor*>(
         ConsentAuditorFactory::GetForProfile(profile()));
+  }
+
+  FakeSigninManagerBase* signin_manager() {
+    return static_cast<FakeSigninManagerBase*>(
+        SigninManagerFactory::GetForProfile(profile()));
   }
 
   // BrowserWithTestWindowTest:
   TestingProfile::TestingFactories GetTestingFactories() override {
-    return {{ConsentAuditorFactory::GetInstance(), FakeConsentAuditor::Build}};
+    return {{SigninManagerFactory::GetInstance(), BuildFakeSigninManagerBase},
+            {ConsentAuditorFactory::GetInstance(), BuildFakeConsentAuditor}};
   }
 
  private:

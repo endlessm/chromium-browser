@@ -15,6 +15,7 @@
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/report_unrecoverable_error.h"
+#include "components/sync/model_impl/client_tag_based_model_type_processor.h"
 #include "components/sync/user_events/no_op_user_event_service.h"
 #include "components/sync/user_events/user_event_service_impl.h"
 #include "components/sync/user_events/user_event_sync_bridge.h"
@@ -36,7 +37,12 @@ syncer::UserEventService* UserEventServiceFactory::GetForProfile(
 UserEventServiceFactory::UserEventServiceFactory()
     : BrowserContextKeyedServiceFactory(
           "UserEventService",
-          BrowserContextDependencyManager::GetInstance()) {}
+          BrowserContextDependencyManager::GetInstance()) {
+  // TODO(vitaliii): This is missing
+  // DependsOn(ProfileSyncServiceFactory::GetInstance()), which we can't
+  // simply add because ProfileSyncServiceFactory itself depends on this
+  // factory.
+}
 
 UserEventServiceFactory::~UserEventServiceFactory() {}
 
@@ -53,13 +59,14 @@ KeyedService* UserEventServiceFactory::BuildServiceInstanceFor(
   syncer::OnceModelTypeStoreFactory store_factory =
       browser_sync::ProfileSyncService::GetModelTypeStoreFactory(
           profile->GetPath());
-  syncer::ModelTypeSyncBridge::ChangeProcessorFactory processor_factory =
-      base::BindRepeating(&syncer::ModelTypeChangeProcessor::Create,
-                          base::BindRepeating(&syncer::ReportUnrecoverableError,
-                                              chrome::GetChannel()));
+  auto change_processor =
+      std::make_unique<syncer::ClientTagBasedModelTypeProcessor>(
+          syncer::USER_EVENTS,
+          base::BindRepeating(&syncer::ReportUnrecoverableError,
+                              chrome::GetChannel()));
   auto bridge = std::make_unique<syncer::UserEventSyncBridge>(
-      std::move(store_factory), std::move(processor_factory),
-      sync_service->GetGlobalIdMapper());
+      std::move(store_factory), std::move(change_processor),
+      sync_service->GetGlobalIdMapper(), sync_service);
   return new syncer::UserEventServiceImpl(sync_service, std::move(bridge));
 }
 

@@ -61,11 +61,8 @@ namespace app_list {
 
 namespace {
 
-// The preferred width/height for apps grid. For page #01, it includes the
-// top/bottom 24px padding. For page #02 and all the followings, it includes top
-// 24px padding and bottom 56px padding.
+// The preferred width for apps grid.
 constexpr int kAppsGridPreferredWidth = 576;
-constexpr int kAppsGridPreferredHeight = 623;
 
 // 32px page break space adjustment needed to keep 48px page break space due to
 // the fact that page #02 and all the followings have bottom 56px padding.
@@ -600,7 +597,7 @@ void AppsGridView::EndDrag(bool cancel) {
       // An EndDrag can be received during a reparent via a model change. This
       // is always a cancel and needs to be forwarded to the folder.
       DCHECK(cancel);
-      contents_view_->app_list_main_view()->CancelDragInActiveFolder();
+      contents_view_->GetAppListMainView()->CancelDragInActiveFolder();
       return;
     }
 
@@ -647,6 +644,12 @@ void AppsGridView::StopPageFlipTimer() {
   page_flip_target_ = -1;
 }
 
+const gfx::Rect& AppsGridView::GetIdealBounds(AppListItemView* view) const {
+  const int index = view_model_.GetIndexOfView(view);
+  DCHECK_NE(-1, index);
+  return view_model_.ideal_bounds(index);
+}
+
 AppListItemView* AppsGridView::GetItemViewAt(int index) const {
   return view_model_.view_at(index);
 }
@@ -685,7 +688,7 @@ void AppsGridView::InitiateDragFromReparentItemInRootLevelGridView(
   // folder's grid view.
   AppListItemView* view = new AppListItemView(
       this, original_drag_view->item(),
-      contents_view_->app_list_main_view()->view_delegate());
+      contents_view_->GetAppListMainView()->view_delegate());
   AddChildView(view);
   drag_view_ = view;
   drag_view_->SetPaintToLayer();
@@ -765,7 +768,8 @@ gfx::Size AppsGridView::CalculatePreferredSize() const {
   if (folder_delegate_)
     return GetTileGridSize();
 
-  gfx::Size size = gfx::Size(kAppsGridPreferredWidth, kAppsGridPreferredHeight);
+  gfx::Size size =
+      gfx::Size(kAppsGridPreferredWidth, kHorizontalPagePreferredHeight);
   return size;
 }
 
@@ -907,8 +911,13 @@ void AppsGridView::OnGestureEvent(ui::GestureEvent* event) {
     return;
   }
 
-  if (pagination_controller_->OnGestureEvent(*event, GetContentsBounds()))
+  // Gesture events should not be passed to ancestor views if it occurs inside
+  // the folder bounds even it is not handled. This prevents user from closing
+  // the folder when scrolling inside it.
+  if (pagination_controller_->OnGestureEvent(*event, GetContentsBounds()) ||
+      folder_delegate_) {
     event->SetHandled();
+  }
 }
 
 void AppsGridView::Update() {
@@ -931,7 +940,7 @@ void AppsGridView::Update() {
 void AppsGridView::UpdateSuggestions() {
   if (!suggestions_container_)
     return;
-  suggestions_container_->SetResults(contents_view_->app_list_main_view()
+  suggestions_container_->SetResults(contents_view_->GetAppListMainView()
                                          ->view_delegate()
                                          ->GetSearchModel()
                                          ->results());
@@ -994,7 +1003,7 @@ AppListItemView* AppsGridView::CreateViewForItemAtIndex(size_t index) {
   DCHECK_LE(index, item_list_->item_count());
   AppListItemView* view = new AppListItemView(
       this, item_list_->item_at(index),
-      contents_view_->app_list_main_view()->view_delegate());
+      contents_view_->GetAppListMainView()->view_delegate());
   view->SetPaintToLayer();
   view->layer()->SetFillsBoundsOpaquely(false);
   return view;
@@ -1519,7 +1528,7 @@ bool AppsGridView::HandleFocusMovementInFullscreenAllAppsState(bool arrow_up) {
     if (arrow_up) {
       contents_view_->GetSearchBoxView()->search_box()->RequestFocus();
     } else {
-      contents_view_->apps_container_view()
+      contents_view_->GetAppsContainerView()
           ->app_list_folder_view()
           ->folder_header_view()
           ->SetTextFocus();
@@ -1755,6 +1764,22 @@ bool AppsGridView::HandleScrollFromAppListView(int offset, ui::EventType type) {
   return true;
 }
 
+bool AppsGridView::IsEventNearAppIcon(const ui::LocatedEvent& event) {
+  // Convert the event location to AppsGridView coordinates.
+  std::unique_ptr<ui::Event> cloned_event = ui::Event::Clone(event);
+  ui::LocatedEvent* cloned_located_event = cloned_event->AsLocatedEvent();
+  event.target()->ConvertEventToTarget(this, cloned_located_event);
+  const gfx::Point point_in_apps_grid_view = cloned_located_event->location();
+
+  // GetNearestTileIndexForPoint will always return a slot, even if the point is
+  // outside of this.
+  if (!bounds().Contains(point_in_apps_grid_view))
+    return false;
+
+  return GetViewDisplayedAtSlotOnCurrentPage(
+      GetNearestTileIndexForPoint(point_in_apps_grid_view).slot);
+}
+
 AppListItemView* AppsGridView::GetCurrentPageFirstItemViewInFolder() {
   DCHECK(folder_delegate_);
   int first_index = pagination_model_.selected_page() * kMaxFolderItemsPerPage;
@@ -1841,10 +1866,12 @@ void AppsGridView::MaybeStartPageFlipTimer(const gfx::Point& drag_point) {
   // Drag zones are at the edges of the scroll axis.
   if (pagination_controller_->scroll_axis() ==
       PaginationController::SCROLL_AXIS_VERTICAL) {
-    if (drag_point.y() < kPageFlipZoneSize)
+    if (drag_point.y() < kPageFlipZoneSize) {
       new_page_flip_target = pagination_model_.selected_page() - 1;
-    else if (drag_point.y() > height() - kPageFlipZoneSize)
+    } else if (IsPointWithinBottomDragBuffer(drag_point)) {
+      // If the drag point is within the drag buffer, but not over the shelf.
       new_page_flip_target = pagination_model_.selected_page() + 1;
+    }
   } else {
     // TODO(xiyuan): Fix this for RTL.
     if (new_page_flip_target == -1 && drag_point.x() < kPageFlipZoneSize)
@@ -2169,6 +2196,19 @@ bool AppsGridView::IsPointWithinPageFlipBuffer(const gfx::Point& point) const {
   return display.work_area().Contains(point_in_screen);
 }
 
+bool AppsGridView::IsPointWithinBottomDragBuffer(
+    const gfx::Point& point) const {
+  gfx::Point point_in_screen = point;
+  ConvertPointToScreen(this, &point_in_screen);
+  const display::Display display =
+      display::Screen::GetScreen()->GetDisplayNearestView(
+          GetWidget()->GetNativeView());
+
+  return point_in_screen.y() >
+             GetBoundsInScreen().height() - kPageFlipZoneSize &&
+         point_in_screen.y() < display.work_area().height();
+}
+
 void AppsGridView::ButtonPressed(views::Button* sender,
                                  const ui::Event& event) {
   if (dragging())
@@ -2190,7 +2230,7 @@ void AppsGridView::ButtonPressed(views::Button* sender,
     else
       activated_folder_item_view_ = nullptr;
   }
-  contents_view_->app_list_main_view()->ActivateApp(pressed_item_view->item(),
+  contents_view_->GetAppListMainView()->ActivateApp(pressed_item_view->item(),
                                                     event.flags());
 }
 
@@ -2338,7 +2378,7 @@ AppsGridView::Index AppsGridView::GetNearestTileIndexForPoint(
 
 gfx::Size AppsGridView::GetTileGridSize() const {
   if (!folder_delegate_)
-    return gfx::Size(kAppsGridPreferredWidth, kAppsGridPreferredHeight);
+    return gfx::Size(kAppsGridPreferredWidth, kHorizontalPagePreferredHeight);
 
   gfx::Rect rect(GetTotalTileSize());
   rect.set_size(

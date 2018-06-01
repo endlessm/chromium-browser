@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/ash/chrome_browser_main_extra_parts_ash.h"
 
+#include <utility>
+
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/mus_property_mirror_ash.h"
@@ -17,12 +19,12 @@
 #include "ash/public/interfaces/window_properties.mojom.h"
 #include "ash/public/interfaces/window_state_type.mojom.h"
 #include "ash/shell.h"
-#include "base/memory/ptr_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/ash_config.h"
 #include "chrome/browser/chromeos/docked_magnifier/docked_magnifier_client.h"
 #include "chrome/browser/chromeos/night_light/night_light_client.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/ash/accessibility/accessibility_controller_client.h"
 #include "chrome/browser/ui/ash/ash_shell_init.h"
 #include "chrome/browser/ui/ash/auto_connect_notifier.h"
@@ -205,6 +207,8 @@ void ChromeBrowserMainExtraPartsAsh::PreProfileInit() {
         std::move(user_activity_monitor), user_activity_detector_.get());
   }
 
+  app_list_client_ = std::make_unique<AppListClientImpl>();
+
   // Must be available at login screen, so initialize before profile.
   accessibility_controller_client_ =
       std::make_unique<AccessibilityControllerClient>();
@@ -309,6 +313,10 @@ void ChromeBrowserMainExtraPartsAsh::PostMainMessageLoopRun() {
   auto_connect_notifier_.reset();
   cast_config_client_media_router_.reset();
   accessibility_controller_client_.reset();
+
+  // AppListClientImpl indirectly holds WebContents for answer card and
+  // needs to be released before destroying the profile.
+  app_list_client_.reset();
 
   ash_shell_init_.reset();
 

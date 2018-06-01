@@ -10,6 +10,7 @@
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tab_grid_button.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tools_menu_button.h"
+#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
 #import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -23,19 +24,22 @@
 // Redefined as readwrite
 @property(nonatomic, strong, readwrite) NSArray<ToolbarButton*>* allButtons;
 
+// The blur visual effect view, redefined as readwrite.
+@property(nonatomic, strong, readwrite) UIVisualEffectView* blur;
+
 // The stack view containing the buttons.
 @property(nonatomic, strong) UIStackView* stackView;
 
+// Button to navigate back, redefined as readwrite.
+@property(nonatomic, strong, readwrite) ToolbarButton* backButton;
+// Buttons to navigate forward, redefined as readwrite.
+@property(nonatomic, strong, readwrite) ToolbarButton* forwardButton;
 // Button to display the tools menu, redefined as readwrite.
 @property(nonatomic, strong, readwrite) ToolbarToolsMenuButton* toolsMenuButton;
 // Button to display the tab grid, redefined as readwrite.
 @property(nonatomic, strong, readwrite) ToolbarTabGridButton* tabGridButton;
-// Button to display the share menu, redefined as readwrite.
-@property(nonatomic, strong, readwrite) ToolbarButton* shareButton;
 // Button to focus the omnibox, redefined as readwrite.
 @property(nonatomic, strong, readwrite) ToolbarButton* omniboxButton;
-// Button to manage the bookmarks of this page, defined as readwrite.
-@property(nonatomic, strong, readwrite) ToolbarButton* bookmarkButton;
 
 @end
 
@@ -44,11 +48,12 @@
 @synthesize allButtons = _allButtons;
 @synthesize buttonFactory = _buttonFactory;
 @synthesize stackView = _stackView;
+@synthesize backButton = _backButton;
+@synthesize forwardButton = _forwardButton;
 @synthesize toolsMenuButton = _toolsMenuButton;
-@synthesize shareButton = _shareButton;
 @synthesize omniboxButton = _omniboxButton;
-@synthesize bookmarkButton = _bookmarkButton;
 @synthesize tabGridButton = _tabGridButton;
+@synthesize blur = _blur;
 
 #pragma mark - Public
 
@@ -80,14 +85,10 @@
   self.translatesAutoresizingMaskIntoConstraints = NO;
 
   UIBlurEffect* blurEffect = self.buttonFactory.toolbarConfiguration.blurEffect;
-  UIVisualEffectView* blur =
-      [[UIVisualEffectView alloc] initWithEffect:blurEffect];
-  blur.contentView.backgroundColor =
-      self.buttonFactory.toolbarConfiguration.blurEffectBackgroundColor;
-
-  [self addSubview:blur];
-  blur.translatesAutoresizingMaskIntoConstraints = NO;
-  AddSameConstraints(blur, self);
+  self.blur = [[UIVisualEffectView alloc] initWithEffect:blurEffect];
+  [self addSubview:self.blur];
+  self.blur.translatesAutoresizingMaskIntoConstraints = NO;
+  AddSameConstraints(self.blur, self);
 
   UIView* contentView = self;
   if (UIVisualEffect* vibrancy = [self.buttonFactory.toolbarConfiguration
@@ -101,15 +102,15 @@
     contentView = vibrancyView.contentView;
   }
 
-  self.tabGridButton = [self.buttonFactory tabGridButton];
-  self.shareButton = [self.buttonFactory shareButton];
+  self.backButton = [self.buttonFactory backButton];
+  self.forwardButton = [self.buttonFactory forwardButton];
   self.omniboxButton = [self.buttonFactory omniboxButton];
-  self.bookmarkButton = [self.buttonFactory bookmarkButton];
+  self.tabGridButton = [self.buttonFactory tabGridButton];
   self.toolsMenuButton = [self.buttonFactory toolsMenuButton];
 
   self.allButtons = @[
-    self.tabGridButton, self.shareButton, self.omniboxButton,
-    self.bookmarkButton, self.toolsMenuButton
+    self.backButton, self.forwardButton, self.omniboxButton, self.tabGridButton,
+    self.toolsMenuButton
   ];
 
   self.stackView =
@@ -135,23 +136,19 @@
 
 #pragma mark - AdaptiveToolbarView
 
-- (ToolbarButton*)backButton {
-  return nil;
-}
-
-- (ToolbarButton*)forwardLeadingButton {
-  return nil;
-}
-
-- (ToolbarButton*)forwardTrailingButton {
-  return nil;
-}
-
 - (ToolbarButton*)stopButton {
   return nil;
 }
 
 - (ToolbarButton*)reloadButton {
+  return nil;
+}
+
+- (ToolbarButton*)shareButton {
+  return nil;
+}
+
+- (ToolbarButton*)bookmarkButton {
   return nil;
 }
 

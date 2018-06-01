@@ -43,9 +43,9 @@ typedef void (*FhtFunc)(const int16_t *in, tran_low_t *out, int stride,
 typedef void (*IhtFunc)(const tran_low_t *in, uint8_t *out, int stride,
                         int tx_type);
 
-typedef std::tr1::tuple<FdctFunc, IdctFunc, int, vpx_bit_depth_t> Dct8x8Param;
-typedef std::tr1::tuple<FhtFunc, IhtFunc, int, vpx_bit_depth_t> Ht8x8Param;
-typedef std::tr1::tuple<IdctFunc, IdctFunc, int, vpx_bit_depth_t> Idct8x8Param;
+typedef ::testing::tuple<FdctFunc, IdctFunc, int, vpx_bit_depth_t> Dct8x8Param;
+typedef ::testing::tuple<FhtFunc, IhtFunc, int, vpx_bit_depth_t> Ht8x8Param;
+typedef ::testing::tuple<IdctFunc, IdctFunc, int, vpx_bit_depth_t> Idct8x8Param;
 
 void reference_8x8_dct_1d(const double in[8], double out[8]) {
   const double kInvSqrt2 = 0.707106781186547524400844362104;
@@ -628,7 +628,7 @@ TEST_P(InvTrans8x8DCT, CompareReference) {
   CompareInvReference(ref_txfm_, thresh_);
 }
 
-using std::tr1::make_tuple;
+using ::testing::make_tuple;
 
 #if CONFIG_VP9_HIGHBITDEPTH
 INSTANTIATE_TEST_CASE_P(
@@ -675,9 +675,8 @@ INSTANTIATE_TEST_CASE_P(NEON, FwdTrans8x8DCT,
                         ::testing::Values(make_tuple(&vpx_fdct8x8_neon,
                                                      &vpx_idct8x8_64_add_neon,
                                                      0, VPX_BITS_8)));
-// TODO(linfengz): reenable these functions once test vector failures are
-// addressed.
-#if 0   // !CONFIG_VP9_HIGHBITDEPTH
+
+#if !CONFIG_VP9_HIGHBITDEPTH
 INSTANTIATE_TEST_CASE_P(
     NEON, FwdTrans8x8HT,
     ::testing::Values(

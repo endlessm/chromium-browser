@@ -39,9 +39,7 @@ import org.chromium.chrome.browser.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.snackbar.SnackbarManager.SnackbarController;
 import org.chromium.chrome.browser.widget.ThumbnailProvider;
 import org.chromium.chrome.browser.widget.ThumbnailProviderImpl;
-import org.chromium.chrome.browser.widget.selection.SelectableBottomSheetContent.SelectableBottomSheetContentManager;
 import org.chromium.chrome.browser.widget.selection.SelectableListLayout;
-import org.chromium.chrome.browser.widget.selection.SelectableListToolbar;
 import org.chromium.chrome.browser.widget.selection.SelectableListToolbar.SearchDelegate;
 import org.chromium.chrome.browser.widget.selection.SelectionDelegate;
 import org.chromium.components.offline_items_collection.OfflineContentProvider;
@@ -59,7 +57,6 @@ import java.util.Set;
 
 public class DownloadManagerUi
         implements OnMenuItemClickListener, SearchDelegate,
-                   SelectableBottomSheetContentManager<DownloadHistoryItemWrapper>,
                    BackendProvider.UIDelegate {
     /**
      * Interface to observe the changes in the download manager ui. This should be implemented by
@@ -286,13 +283,12 @@ public class DownloadManagerUi
 
     @Override
     public void shareItem(DownloadHistoryItemWrapper item) {
-        startShareIntent(DownloadUtils.createShareIntent(CollectionUtil.newArrayList(item)));
+        shareItems(CollectionUtil.newArrayList(item));
     }
 
     /**
-     * Called when the bottom sheet content/activity/native page is destroyed.
+     * Called when the activity/native page is destroyed.
      */
-    @Override
     public void onDestroyed() {
         for (DownloadUiObserver observer : mObservers) {
             observer.onManagerDestroyed();
@@ -320,24 +316,11 @@ public class DownloadManagerUi
         return false;
     }
 
-    @Override
+    /**
+     * @return The view that shows the main download UI.
+     */
     public ViewGroup getView() {
         return mMainView;
-    }
-
-    @Override
-    public RecyclerView getRecyclerView() {
-        return mRecyclerView;
-    }
-
-    @Override
-    public TextView getEmptyView() {
-        return mEmptyView;
-    }
-
-    @Override
-    public SelectableListToolbar<DownloadHistoryItemWrapper> detachToolbarView() {
-        return mSelectableListLayout.detachToolbarView();
     }
 
     /**
@@ -386,7 +369,7 @@ public class DownloadManagerUi
             RecordHistogram.recordCount100Histogram(
                     "Android.DownloadManager.Menu.Share.SelectedCount", items.size());
 
-            startShareIntent(DownloadUtils.createShareIntent(items));
+            shareItems(items);
             return true;
         } else if (item.getItemId() == R.id.info_menu_id) {
             boolean showInfo = !mHistoryAdapter.shouldShowStorageInfoHeader();
@@ -559,5 +542,13 @@ public class DownloadManagerUi
     private static void recordMenuActionHistogram(@MenuAction int action) {
         RecordHistogram.recordEnumeratedHistogram(
                 "Android.DownloadManager.Menu.Action", action, MENU_ACTION_BOUNDARY);
+    }
+
+    private void shareItems(final List<DownloadHistoryItemWrapper> items) {
+        boolean done = DownloadUtils.prepareForSharing(items, (newFilePathMap) -> {
+            startShareIntent(DownloadUtils.createShareIntent(items, newFilePathMap));
+        });
+
+        if (done) startShareIntent(DownloadUtils.createShareIntent(items, null));
     }
 }

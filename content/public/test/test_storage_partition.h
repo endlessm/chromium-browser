@@ -56,8 +56,11 @@ class TestStoragePartition : public StoragePartition {
   }
   network::mojom::NetworkContext* GetNetworkContext() override;
 
-  scoped_refptr<SharedURLLoaderFactory> GetURLLoaderFactoryForBrowserProcess()
-      override;
+  scoped_refptr<network::SharedURLLoaderFactory>
+  GetURLLoaderFactoryForBrowserProcess() override;
+
+  std::unique_ptr<network::SharedURLLoaderFactoryInfo>
+  GetURLLoaderFactoryForBrowserProcessIOThread() override;
 
   void set_cookie_manager_for_browser_process(
       network::mojom::CookieManager* cookie_manager_for_browser_process) {
@@ -114,6 +117,11 @@ class TestStoragePartition : public StoragePartition {
     platform_notification_context_ = context;
   }
   PlatformNotificationContext* GetPlatformNotificationContext() override;
+
+  void set_web_package_context(WebPackageContext* context) {
+    web_package_context_ = context;
+  }
+  WebPackageContext* GetWebPackageContext() override;
 
 #if !defined(OS_ANDROID)
   void set_host_zoom_map(HostZoomMap* map) { host_zoom_map_ = map; }
@@ -178,6 +186,7 @@ class TestStoragePartition : public StoragePartition {
   SharedWorkerService* shared_worker_service_ = nullptr;
   CacheStorageContext* cache_storage_context_ = nullptr;
   PlatformNotificationContext* platform_notification_context_ = nullptr;
+  WebPackageContext* web_package_context_ = nullptr;
 #if !defined(OS_ANDROID)
   HostZoomMap* host_zoom_map_ = nullptr;
   HostZoomLevelContext* host_zoom_level_context_ = nullptr;

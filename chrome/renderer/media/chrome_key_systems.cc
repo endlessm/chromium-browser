@@ -20,7 +20,7 @@
 #include "content/public/renderer/render_thread.h"
 #include "media/base/eme_constants.h"
 #include "media/base/key_system_properties.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 
 #if defined(OS_ANDROID)
 #include "components/cdm/renderer/android_key_systems.h"
@@ -183,7 +183,7 @@ EmeSessionTypeSupport GetPersistentLicenseSupport(bool supported_by_the_cdm) {
 #endif  // defined(OS_CHROMEOS)
 }
 
-static void AddPepperBasedWidevine(
+static void AddWidevine(
     std::vector<std::unique_ptr<KeySystemProperties>>* concrete_key_systems) {
 #if defined(WIDEVINE_CDM_MIN_GLIBC_VERSION)
   base::Version glibc_version(gnu_get_libc_version());
@@ -266,7 +266,7 @@ void AddChromeKeySystems(
     AddExternalClearKey(key_systems_properties);
 
 #if defined(WIDEVINE_CDM_AVAILABLE)
-  AddPepperBasedWidevine(key_systems_properties);
+  AddWidevine(key_systems_properties);
 #endif  // defined(WIDEVINE_CDM_AVAILABLE)
 
 #endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)

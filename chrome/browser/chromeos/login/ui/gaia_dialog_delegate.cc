@@ -5,7 +5,6 @@
 #include "chrome/browser/chromeos/login/ui/gaia_dialog_delegate.h"
 
 #include "ash/public/cpp/shell_window_ids.h"
-#include "ash/shell.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host_views.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
@@ -13,8 +12,6 @@
 #include "chrome/browser/ui/webui/chrome_web_contents_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "content/public/browser/web_contents.h"
-#include "services/ui/public/cpp/property_type_converters.h"
-#include "services/ui/public/interfaces/window_manager.mojom.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -41,7 +38,7 @@ GaiaDialogDelegate::~GaiaDialogDelegate() {
     controller_->OnDialogDestroyed(this);
 }
 
-void GaiaDialogDelegate::Show() {
+void GaiaDialogDelegate::Init() {
   DCHECK(!dialog_view_ && !dialog_widget_);
   // Life cycle of |dialog_view_| is managed by the widget:
   // Widget owns a root view which has |dialog_view_| as its child view.
@@ -52,24 +49,24 @@ void GaiaDialogDelegate::Show() {
   views::Widget::InitParams params(
       views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
   params.delegate = dialog_view_;
-  if (!ash_util::IsRunningInMash()) {
-    params.parent =
-        ash::Shell::GetContainer(ash::Shell::GetPrimaryRootWindow(),
-                                 ash::kShellWindowId_LockSystemModalContainer);
-  } else {
-    using ui::mojom::WindowManager;
-    params.mus_properties[WindowManager::kContainerId_InitProperty] =
-        mojo::ConvertTo<std::vector<uint8_t>>(
-            static_cast<int32_t>(ash::kShellWindowId_LockSystemModalContainer));
-  }
+  ash_util::SetupWidgetInitParamsForContainer(
+      &params, ash::kShellWindowId_LockSystemModalContainer);
 
   dialog_widget_ = new views::Widget;
   dialog_widget_->Init(params);
 
   extensions::ChromeExtensionWebContentsObserver::CreateForWebContents(
       dialog_view_->web_contents());
+}
 
+void GaiaDialogDelegate::Show(bool closable_by_esc) {
+  closable_by_esc_ = closable_by_esc;
   dialog_widget_->Show();
+}
+
+void GaiaDialogDelegate::Hide() {
+  if (dialog_widget_)
+    dialog_widget_->Hide();
 }
 
 void GaiaDialogDelegate::Close() {
@@ -154,6 +151,20 @@ bool GaiaDialogDelegate::HandleContextMenu(
 std::vector<ui::Accelerator> GaiaDialogDelegate::GetAccelerators() {
   // TODO(crbug.com/809648): Adding necessory accelerators.
   return std::vector<ui::Accelerator>();
+}
+
+bool GaiaDialogDelegate::AcceleratorPressed(
+    const ui::Accelerator& accelerator) {
+  if (ui::VKEY_ESCAPE == accelerator.key_code()) {
+    // The widget should not be closed until the login is done.
+    // Consume the escape key here so WebDialogView won't have a chance to
+    // close the widget.
+    if (closable_by_esc_)
+      dialog_widget_->Hide();
+    return true;
+  }
+
+  return false;
 }
 
 }  // namespace chromeos

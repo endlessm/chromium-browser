@@ -10,6 +10,7 @@
 
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/message_loop/message_loop.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/synchronization/waitable_event.h"
 #include "chrome/common/multi_process_lock.h"
@@ -92,10 +93,7 @@ void ServiceProcessState::StateData::SignalReady(base::WaitableEvent* signal,
   DCHECK_EQ(g_signal_socket, -1);
   DCHECK(!signal->IsSignaled());
   *success = base::MessageLoopForIO::current()->WatchFileDescriptor(
-      sockets[0],
-      true,
-      base::MessageLoopForIO::WATCH_READ,
-      &watcher,
+      sockets[0], true, base::MessagePumpForIO::WATCH_READ, &watcher,
       terminate_monitor.get());
   if (!*success) {
     DLOG(ERROR) << "WatchFileDescriptor";

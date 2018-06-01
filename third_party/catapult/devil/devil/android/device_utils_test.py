@@ -465,6 +465,27 @@ class DeviceUtils_GetApplicationVersionTest(DeviceUtilsTest):
         self.device.GetApplicationVersion('com.android.chrome')
 
 
+class DeviceUtils_GetPackageArchitectureTest(DeviceUtilsTest):
+
+  def test_GetPackageArchitecture_exists(self):
+    with self.assertCall(
+        self.call.device._RunPipedShellCommand(
+            'dumpsys package com.android.chrome | grep -F primaryCpuAbi'),
+        ['  primaryCpuAbi=armeabi-v7a']):
+      self.assertEquals(
+          'armeabi-v7a',
+          self.device.GetPackageArchitecture('com.android.chrome'))
+
+  def test_GetPackageArchitecture_notExists(self):
+    with self.assertCall(
+        self.call.device._RunPipedShellCommand(
+            'dumpsys package com.android.chrome | grep -F primaryCpuAbi'),
+        []):
+      self.assertEquals(
+          None,
+          self.device.GetPackageArchitecture('com.android.chrome'))
+
+
 class DeviceUtilsGetApplicationDataDirectoryTest(DeviceUtilsTest):
 
   def testGetApplicationDataDirectory_exists(self):
@@ -1415,6 +1436,62 @@ class DeviceUtilsStartActivityTest(DeviceUtilsTest):
       self.device.StartActivity(test_intent)
 
 
+class DeviceUtilsStartServiceTest(DeviceUtilsTest):
+  def testStartService_success(self):
+    test_intent = intent.Intent(action='android.intent.action.START',
+                                package='test.package',
+                                activity='.Main')
+    with self.patch_call(self.call.device.build_version_sdk,
+                         return_value=version_codes.NOUGAT):
+      with self.assertCall(
+          self.call.adb.Shell('am startservice '
+                              '-a android.intent.action.START '
+                              '-n test.package/.Main'),
+          'Starting service: Intent { act=android.intent.action.START }'):
+        self.device.StartService(test_intent)
+
+  def testStartService_failure(self):
+    test_intent = intent.Intent(action='android.intent.action.START',
+                                package='test.package',
+                                activity='.Main')
+    with self.patch_call(self.call.device.build_version_sdk,
+                         return_value=version_codes.NOUGAT):
+      with self.assertCall(
+          self.call.adb.Shell('am startservice '
+                              '-a android.intent.action.START '
+                              '-n test.package/.Main'),
+          'Error: Failed to start test service'):
+        with self.assertRaises(device_errors.CommandFailedError):
+          self.device.StartService(test_intent)
+
+  def testStartService_withUser(self):
+    test_intent = intent.Intent(action='android.intent.action.START',
+                                package='test.package',
+                                activity='.Main')
+    with self.patch_call(self.call.device.build_version_sdk,
+                         return_value=version_codes.NOUGAT):
+      with self.assertCall(
+          self.call.adb.Shell('am startservice '
+                              '--user TestUser '
+                              '-a android.intent.action.START '
+                              '-n test.package/.Main'),
+          'Starting service: Intent { act=android.intent.action.START }'):
+        self.device.StartService(test_intent, user_id='TestUser')
+
+  def testStartService_onOreo(self):
+    test_intent = intent.Intent(action='android.intent.action.START',
+                                package='test.package',
+                                activity='.Main')
+    with self.patch_call(self.call.device.build_version_sdk,
+                         return_value=version_codes.O):
+      with self.assertCall(
+          self.call.adb.Shell('am start-service '
+                              '-a android.intent.action.START '
+                              '-n test.package/.Main'),
+          'Starting service: Intent { act=android.intent.action.START }'):
+        self.device.StartService(test_intent)
+
+
 class DeviceUtilsStartInstrumentationTest(DeviceUtilsTest):
 
   def testStartInstrumentation_nothing(self):
@@ -1691,6 +1768,8 @@ class DeviceUtilsPushChangedFilesZippedTest(DeviceUtilsTest):
          mock_zip_temp_dir),
         (mock.call.devil.utils.zip_utils.WriteZipFile(
             '/test/temp/dir/tmp.zip', test_files)),
+        (mock.call.os.path.getsize(
+            '/test/temp/dir/tmp.zip'), 123),
         (self.call.device.NeedsSU(), True),
         (mock.call.devil.android.device_temp_file.DeviceTempFile(self.adb,
                                                                  suffix='.zip'),
@@ -2523,6 +2602,20 @@ class DeviceUtilsGetSetEnforce(DeviceUtilsTest):
         (self.call.device.NeedsSU(), False),
         (self.call.adb.Shell('setenforce 0'), '')):
       self.device.SetEnforce(enabled='0')  # Not recommended but it works!
+
+
+class DeviceUtilsSetWebViewImplementationTest(DeviceUtilsTest):
+
+  def testSetWebViewImplementation_success(self):
+    with self.assertCall(self.call.adb.Shell(
+        'cmd webviewupdate set-webview-implementation foo.org'), 'Success'):
+      self.device.SetWebViewImplementation('foo.org')
+
+  def testSetWebViewImplementation_failure(self):
+    with self.assertCall(self.call.adb.Shell(
+        'cmd webviewupdate set-webview-implementation foo.org'), 'Oops!'):
+      with self.assertRaises(device_errors.CommandFailedError):
+        self.device.SetWebViewImplementation('foo.org')
 
 
 class DeviceUtilsTakeScreenshotTest(DeviceUtilsTest):

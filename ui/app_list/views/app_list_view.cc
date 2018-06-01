@@ -9,11 +9,11 @@
 #include <vector>
 
 #include "ash/app_list/model/app_list_model.h"
+#include "ash/public/cpp/wallpaper_types.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/string_util.h"
-#include "components/wallpaper/wallpaper_color_profile.h"
 #include "mojo/public/cpp/bindings/type_converter.h"
 #include "services/ui/public/cpp/property_type_converters.h"
 #include "services/ui/public/interfaces/window_manager.mojom.h"
@@ -23,6 +23,7 @@
 #include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/app_list_features.h"
 #include "ui/app_list/app_list_util.h"
+#include "ui/app_list/assistant_interaction_model.h"
 #include "ui/app_list/views/app_list_folder_view.h"
 #include "ui/app_list/views/app_list_main_view.h"
 #include "ui/app_list/views/apps_container_view.h"
@@ -56,7 +57,7 @@
 #include "ui/wm/core/coordinate_conversion.h"
 #include "ui/wm/core/shadow_types.h"
 
-using wallpaper::ColorProfileType;
+using ash::ColorProfileType;
 
 namespace app_list {
 
@@ -195,7 +196,8 @@ class StateAnimationMetricsReporter : public ui::AnimationMetricsReporter {
 // An animation observer to decide whether to ignore scroll events.
 class ScrollAnimationObserver : public ui::ImplicitAnimationObserver {
  public:
-  ScrollAnimationObserver(base::WeakPtr<AppListView> view) : view_(view) {}
+  explicit ScrollAnimationObserver(base::WeakPtr<AppListView> view)
+      : view_(view) {}
   ~ScrollAnimationObserver() override = default;
 
  private:
@@ -290,6 +292,7 @@ void AppListView::Initialize(const InitParams& params) {
   base::Time start_time = base::Time::Now();
   is_tablet_mode_ = params.is_tablet_mode;
   is_side_shelf_ = params.is_side_shelf;
+  assistant_interaction_model_ = params.assistant_interaction_model;
   InitContents(params.initial_apps_page);
   AddAccelerator(ui::Accelerator(ui::VKEY_ESCAPE, ui::EF_NONE));
   AddAccelerator(ui::Accelerator(ui::VKEY_BROWSER_BACK, ui::EF_NONE));
@@ -524,10 +527,13 @@ void AppListView::InitializeFullscreen(gfx::NativeView parent,
 }
 
 void AppListView::HandleClickOrTap(ui::LocatedEvent* event) {
+  // Clear focus if the located event is not handled by any child view.
+  GetFocusManager()->ClearFocus();
+
   // No-op if app list is on fullscreen all apps state and the event location is
-  // within apps grid view's bounds.
+  // near an app.
   if (app_list_state_ == AppListViewState::FULLSCREEN_ALL_APPS &&
-      GetRootAppsGridView()->GetBoundsInScreen().Contains(event->location())) {
+      GetRootAppsGridView()->IsEventNearAppIcon(*event)) {
     return;
   }
 
@@ -565,13 +571,6 @@ void AppListView::StartDrag(const gfx::Point& location) {
 }
 
 void AppListView::UpdateDrag(const gfx::Point& location) {
-  if (initial_drag_point_ == gfx::Point()) {
-    // When the app grid view redirects the event to the app list view, we
-    // detect this by seeing that StartDrag was not called. This sets up the
-    // drag.
-    StartDrag(location);
-    return;
-  }
   // Update the widget bounds based on the initial widget bounds and drag delta.
   gfx::Point location_in_screen_coordinates = location;
   ConvertPointToScreen(this, &location_in_screen_coordinates);
@@ -800,7 +799,7 @@ display::Display AppListView::GetDisplayNearestView() const {
 }
 
 AppsContainerView* AppListView::GetAppsContainerView() {
-  return app_list_main_view_->contents_view()->apps_container_view();
+  return app_list_main_view_->contents_view()->GetAppsContainerView();
 }
 
 AppsGridView* AppListView::GetRootAppsGridView() {
@@ -1102,7 +1101,8 @@ void AppListView::StartAnimationForState(AppListViewState target_state) {
   if (is_side_shelf_)
     return;
 
-  const int display_height = GetDisplayNearestView().size().height();
+  const display::Display display = GetDisplayNearestView();
+  const int display_height = display.size().height();
   int target_state_y = 0;
 
   switch (target_state) {
@@ -1117,7 +1117,7 @@ void AppListView::StartAnimationForState(AppListViewState target_state) {
       // The ChromeVox panel as well as the Docked Magnifier viewport affect the
       // workarea of the display. We need to account for that when applist is in
       // fullscreen to avoid being shown below them.
-      target_state_y = GetDisplayNearestView().work_area().y();
+      target_state_y = display.work_area().y() - display.bounds().y();
       break;
 
     case AppListViewState::CLOSED:
@@ -1145,7 +1145,7 @@ void AppListView::StartAnimationForState(AppListViewState target_state) {
   }
 
   if (fullscreen_widget_->GetNativeView()->bounds().y() ==
-      GetDisplayNearestView().work_area().bottom()) {
+      display.work_area().bottom()) {
     // If the animation start position is the bottom of the screen activate the
     // fade in animation.
     app_list_main_view_->contents_view()->FadeInOnOpen(
@@ -1318,6 +1318,20 @@ void AppListView::RedirectKeyEventToSearchBox(ui::KeyEvent* event) {
     // key should not be handled to prevent inserting duplicate character.
     search_box->InsertChar(*event);
   }
+}
+
+void AppListView::OnScreenKeyboardShown(bool shown) {
+  if (onscreen_keyboard_shown_ == shown)
+    return;
+
+  onscreen_keyboard_shown_ = shown;
+  if (!GetAppsContainerView()->IsInFolderView())
+    return;
+  // Update the folder's bounds to avoid being blocked by the on-screen
+  // keyboard.
+  GetAppsContainerView()->app_list_folder_view()->UpdatePreferredBounds();
+  GetAppsContainerView()->Layout();
+  GetAppsContainerView()->SchedulePaint();
 }
 
 void AppListView::OnDisplayMetricsChanged(const display::Display& display,

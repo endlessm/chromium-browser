@@ -40,9 +40,9 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
-#include "device/vr/features/features.h"
+#include "device/vr/buildflags/buildflags.h"
 #include "extensions/common/constants.h"
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
 
 #if BUILDFLAG(ENABLE_PLUGINS)
 #include "chrome/browser/plugins/flash_permission_context.h"
@@ -53,7 +53,6 @@
 #endif
 
 #if defined(OS_ANDROID)
-#include "chrome/browser/android/chrome_feature_list.h"
 #include "chrome/browser/geolocation/geolocation_permission_context_android.h"
 #else
 #include "chrome/browser/geolocation/geolocation_permission_context.h"
@@ -329,21 +328,8 @@ GURL PermissionManager::GetCanonicalOrigin(const GURL& requesting_origin,
   }
 
   if (base::FeatureList::IsEnabled(features::kPermissionDelegation)) {
-    // TODO(raymes): There are caveats that need to be addressed before
-    // permission delegation is enabled by default:
-    // 1) It will cause permission reports from iframes to be recorded as if
-    // they are originating from the top-level frame. This is actually what we
-    // want when permission delegation is enabled because all prompts will be
-    // displayed on behalf of the top level origin and it should be the one
-    // penalized for delegating permission to badly behaving sites. Furthermore,
-    // when we migrate to UKM we will be unable to collect iframe URLs.
-    // 2) It will mean the permission blacklisting only applies to the top
-    // level origin. This may or may not be acceptable but regardless,
-    // permission blacklisting is not currently used and it's unclear whether it
-    // should be shipped or removed.
-    // 3) Once permission delegation is enabled by default, depending on the
-    // resolution of the above 2 points then it may be possible to remove
-    // "embedding_origin" as a parameter from all function calls in
+    // Once permission delegation is enabled by default, it may be possible to
+    // remove "embedding_origin" as a parameter from all function calls in
     // PermissionContextBase and subclasses. The embedding origin will always
     // match the requesting origin.
 
@@ -387,16 +373,12 @@ int PermissionManager::RequestPermissions(
   content::WebContents* web_contents =
       content::WebContents::FromRenderFrameHost(render_frame_host);
 
-#if defined(OS_ANDROID)
-  if (vr::VrTabHelper::IsInVr(web_contents) &&
-      !base::FeatureList::IsEnabled(
-          chrome::android::kVrBrowsingNativeAndroidUi)) {
-    vr::VrTabHelper::UISuppressed(vr::UiSuppressedElement::kPermissionRequest);
+  if (vr::VrTabHelper::IsUiSuppressedInVr(
+          web_contents, vr::UiSuppressedElement::kPermissionRequest)) {
     callback.Run(
         std::vector<ContentSetting>(permissions.size(), CONTENT_SETTING_BLOCK));
     return kNoPendingOperation;
   }
-#endif
 
   GURL embedding_origin = web_contents->GetLastCommittedURL().GetOrigin();
   GURL canonical_requesting_origin =
@@ -530,6 +512,33 @@ PermissionStatus PermissionManager::GetPermissionStatus(
     result = context->UpdatePermissionStatusWithDeviceStatus(
         result, GetCanonicalOrigin(requesting_origin, embedding_origin),
         embedding_origin);
+  }
+
+  return ContentSettingToPermissionStatus(result.content_setting);
+}
+
+PermissionStatus PermissionManager::GetPermissionStatusForFrame(
+    PermissionType permission,
+    content::RenderFrameHost* render_frame_host,
+    const GURL& requesting_origin) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  PermissionResult result =
+      GetPermissionStatusForFrame(PermissionTypeToContentSetting(permission),
+                                  render_frame_host, requesting_origin);
+
+  // TODO(benwells): split this into two functions, GetPermissionStatus and
+  // GetPermissionStatusForPermissionsAPI.
+  PermissionContextBase* context =
+      GetPermissionContext(PermissionTypeToContentSetting(permission));
+  if (context) {
+    content::WebContents* web_contents =
+        content::WebContents::FromRenderFrameHost(render_frame_host);
+    GURL embedding_origin = web_contents->GetLastCommittedURL().GetOrigin();
+    result = context->UpdatePermissionStatusWithDeviceStatus(
+        result, GetCanonicalOrigin(requesting_origin, embedding_origin),
+        content::WebContents::FromRenderFrameHost(render_frame_host)
+            ->GetLastCommittedURL()
+            .GetOrigin());
   }
 
   return ContentSettingToPermissionStatus(result.content_setting);

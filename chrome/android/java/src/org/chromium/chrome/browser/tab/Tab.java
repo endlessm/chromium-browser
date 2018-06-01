@@ -39,7 +39,6 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
-import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.AppHooks;
 import org.chromium.chrome.browser.ChromeActionModeCallback;
@@ -88,7 +87,6 @@ import org.chromium.chrome.browser.tabmodel.AsyncTabParamsManager;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabSelectionType;
-import org.chromium.chrome.browser.tabmodel.TabModelImpl;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabReparentingParams;
 import org.chromium.chrome.browser.util.ColorUtils;
@@ -365,9 +363,7 @@ public class Tab
     private TabRedirectHandler mTabRedirectHandler;
 
     private FullscreenManager mFullscreenManager;
-    private float mPreviousTopControlsOffsetY = Float.NaN;
-    private float mPreviousBottomControlsOffsetY = Float.NaN;
-    private float mPreviousContentOffsetY = Float.NaN;
+    private final TabBrowserControlsOffsetHelper mControlsOffsetHelper;
 
     /**
      * Indicates whether this tab is detached from any activity and its corresponding
@@ -423,6 +419,14 @@ public class Tab
     private int mBottomControlsHeight;
     private boolean mControlsResizeView;
 
+    /**
+     * The publisher URL for pages hosted on a trusted CDN, or null otherwise.
+     */
+    private @Nullable String mTrustedCdnPublisherUrl;
+
+    /** The current browser controls constraints. -1 if not set. */
+    private @BrowserControlsState int mBrowserConstrolsConstraints = -1;
+
     private GestureStateListener createGestureStateListener() {
         return new GestureStateListener() {
             @Override
@@ -448,8 +452,13 @@ public class Tab
             private void onScrollingStateChanged() {
                 FullscreenManager fullscreenManager = getFullscreenManager();
                 if (fullscreenManager == null) return;
-                fullscreenManager.onContentViewScrollingStateChanged(
-                        getContentViewCore() != null && getContentViewCore().isScrollInProgress());
+                fullscreenManager.onContentViewScrollingStateChanged(isScrollInProgress());
+            }
+
+            private boolean isScrollInProgress() {
+                WebContents webContents = getWebContents();
+                if (webContents == null) return false;
+                return GestureListenerManager.fromWebContents(webContents).isScrollInProgress();
             }
         };
     }
@@ -608,6 +617,8 @@ public class Tab
         ContextualSearchTabHelper.createForTab(this);
         MediaSessionTabHelper.createForTab(this);
 
+        mControlsOffsetHelper = new TabBrowserControlsOffsetHelper(this);
+
         if (creationState != null) {
             mTabUma = new TabUma(creationState);
             if (frozenState == null) {
@@ -752,10 +763,10 @@ public class Tab
             }
 
             if (mNativeTabAndroid == 0) {
-                // if mNativeTabAndroid is invalid then we are going to crash anyways on the
+                // if mNativeTabAndroid is null then we are going to crash anyways on the
                 // native side. Lets crash on the java side so that we can have a better stack
-                // trace. https://crbug.com/662877
-                throw new RuntimeException("Please post this crash on crbug.com/662877");
+                // trace.
+                throw new RuntimeException("Tab.loadUrl called when no native side exists");
             }
 
             // We load the URL from the tab rather than directly from the ContentView so the tab has
@@ -1264,7 +1275,7 @@ public class Tab
             loadIfNeeded();
             assert !isFrozen();
 
-            if (mContentViewCore != null) mContentViewCore.onShow();
+            if (getWebContents() != null) getWebContents().onShow();
 
             if (mTabUma != null) {
                 mTabUma.onShow(type, getTimestampMillis(),
@@ -1305,7 +1316,7 @@ public class Tab
             mIsHidden = true;
             updateInteractableState();
 
-            if (mContentViewCore != null) mContentViewCore.onHide();
+            if (getWebContents() != null) getWebContents().onHide();
 
             // Clean up any fullscreen state that might impact other tabs.
             if (mFullscreenManager != null) {
@@ -1682,6 +1693,8 @@ public class Tab
     protected void didStartPageLoad(String validatedUrl, boolean showingErrorPage) {
         updateTitle();
         removeSadTabIfPresent();
+        // A page load means that any pending reload is no longer necessary.
+        mNeedsReload = false;
 
         mDataSavedOnStartPageLoad =
                 DataReductionProxySettings.getInstance().getContentLengthSavedInHistorySummary();
@@ -1700,10 +1713,6 @@ public class Tab
         mIsTabStateDirty = true;
         updateTitle();
         updateFullscreenEnabledState();
-        if (!isNativePage()) {
-            RecordHistogram.recordBooleanHistogram(
-                    "Navigation.IsMobileOptimized", mContentViewCore.getIsMobileOptimizedHint());
-        }
 
         // Reset the succressiveRefresh counter after successfully loading a page.
         mSadTabSuccessiveRefreshCounter = 0;
@@ -1795,11 +1804,11 @@ public class Tab
     }
 
     private ContentViewCore createContentViewCore(WebContents webContents) {
-        ContentViewCore cvc = ContentViewCore.create(mThemedApplicationContext, PRODUCT_VERSION);
-        ContentView cv = ContentView.createContentView(mThemedApplicationContext, cvc);
+        ContentView cv = ContentView.createContentView(mThemedApplicationContext, webContents);
         cv.setContentDescription(mThemedApplicationContext.getResources().getString(
                 R.string.accessibility_content_view));
-        cvc.initialize(new TabViewAndroidDelegate(this, cv), cv, webContents, getWindowAndroid());
+        ContentViewCore cvc = ContentViewCore.create(mThemedApplicationContext, PRODUCT_VERSION,
+                webContents, new TabViewAndroidDelegate(this, cv), cv, getWindowAndroid());
         SelectionPopupController controller = SelectionPopupController.fromWebContents(webContents);
         ChromeActionModeCallback actionModeCallback =
                 new ChromeActionModeCallback(this, controller.getActionModeCallbackHelper());
@@ -1848,7 +1857,15 @@ public class Tab
 
             mDownloadDelegate = new ChromeDownloadDelegate(mThemedApplicationContext, this);
 
-            initWebContents(mContentViewCore.getWebContents());
+            WebContents parentWebContents = null;
+            if (getParentId() != INVALID_TAB_ID) {
+                Tab parentTab = getTabModelSelector().getTabById(getParentId());
+                if (parentTab != null && parentTab.isIncognito() == isIncognito()) {
+                    parentWebContents = parentTab.getWebContents();
+                }
+            }
+
+            initWebContents(mContentViewCore.getWebContents(), parentWebContents);
 
             // In the case where restoring a Tab or showing a prerendered one we already have a
             // valid infobar container, no need to recreate one.
@@ -1901,10 +1918,10 @@ public class Tab
         }
     }
 
-    private void initWebContents(WebContents webContents) {
+    private void initWebContents(WebContents webContents, WebContents parentWebContents) {
         assert mNativeTabAndroid != 0;
         nativeInitWebContents(mNativeTabAndroid, mIncognito, mIsDetached, webContents,
-                mWebContentsDelegate,
+                parentWebContents, mWebContentsDelegate,
                 new TabContextMenuPopulator(
                         mDelegateFactory.createContextMenuPopulator(this), this));
 
@@ -2004,10 +2021,7 @@ public class Tab
                             LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
             notifyContentChanged();
         }
-        FullscreenManager fullscreenManager = getFullscreenManager();
-        if (fullscreenManager != null) {
-            fullscreenManager.setPositionsForTabToNonFullscreen();
-        }
+        mControlsOffsetHelper.showAndroidControls(false);
     }
 
     /**
@@ -2093,9 +2107,7 @@ public class Tab
             mInfoBarContainer = null;
         }
 
-        mPreviousTopControlsOffsetY = Float.NaN;
-        mPreviousBottomControlsOffsetY = Float.NaN;
-        mPreviousContentOffsetY = Float.NaN;
+        mControlsOffsetHelper.destroy();
 
         mNeedsReload = false;
     }
@@ -2601,9 +2613,9 @@ public class Tab
         int originalWidth = 0;
         int originalHeight = 0;
         if (mContentViewCore != null) {
-            originalWidth = mContentViewCore.getViewportWidthPix();
-            originalHeight = mContentViewCore.getViewportHeightPix();
-            mContentViewCore.onHide();
+            originalWidth = mContentView.getWidth();
+            originalHeight = mContentView.getHeight();
+            mContentViewCore.getWebContents().onHide();
         }
 
         Rect bounds = new Rect();
@@ -2626,7 +2638,7 @@ public class Tab
             nativeOnPhysicalBackingSizeChanged(mNativeTabAndroid,
                     newContentViewCore.getWebContents(), bounds.right, bounds.bottom);
         }
-        newContentViewCore.onShow();
+        newContentViewCore.getWebContents().onShow();
         setContentViewCore(newContentViewCore);
 
         destroyNativePageInternal(previousNativePage);
@@ -2743,6 +2755,21 @@ public class Tab
     }
 
     /**
+     * Delete navigation entries from frozen state matching the predicate.
+     * @param predicate Handle for a deletion predicate interpreted by native code.
+     *                  Only valid during this call frame.
+     */
+    @CalledByNative
+    private void deleteNavigationEntriesFromFrozenState(long predicate) {
+        if (mFrozenContentsState == null) return;
+        WebContentsState newState = mFrozenContentsState.deleteNavigationEntries(predicate);
+        if (newState != null) {
+            mFrozenContentsState = newState;
+            notifyNavigationEntriesDeleted();
+        }
+    }
+
+    /**
      * @return The reason the Tab was launched.
      */
     public TabLaunchType getLaunchType() {
@@ -2778,33 +2805,6 @@ public class Tab
     }
 
     /**
-     * Called when offset values related with fullscreen functionality has been changed by the
-     * compositor.
-     * @param topControlsOffsetY The Y offset of the top controls in physical pixels.
-     *    {@code Float.NaN} if the value is invalid and the cached value should be used.
-     * @param bottomControlsOffsetY The Y offset of the bottom controls in physical pixels.
-     *    {@code Float.NaN} if the value is invalid and the cached value should be used.
-     * @param contentOffsetY The Y offset of the content in physical pixels.
-     */
-    void onOffsetsChanged(
-            float topControlsOffsetY, float bottomControlsOffsetY, float contentOffsetY) {
-        if (!Float.isNaN(topControlsOffsetY)) mPreviousTopControlsOffsetY = topControlsOffsetY;
-        if (!Float.isNaN(bottomControlsOffsetY)) {
-            mPreviousBottomControlsOffsetY = bottomControlsOffsetY;
-        }
-        if (!Float.isNaN(contentOffsetY)) mPreviousContentOffsetY = contentOffsetY;
-
-        if (mFullscreenManager == null) return;
-        if (isShowingSadTab() || isNativePage()) {
-            mFullscreenManager.setPositionsForTabToNonFullscreen();
-        } else {
-            mFullscreenManager.setPositionsForTab(mPreviousTopControlsOffsetY,
-                    mPreviousBottomControlsOffsetY, mPreviousContentOffsetY);
-        }
-        TabModelImpl.setActualTabSwitchLatencyMetricRequired();
-    }
-
-    /**
      * Push state about whether or not the browser controls can show or hide to the renderer.
      */
     public void updateFullscreenEnabledState() {
@@ -2837,6 +2837,12 @@ public class Tab
             @BrowserControlsState int current, boolean animate) {
         if (mNativeTabAndroid == 0) return;
         nativeUpdateBrowserControlsState(mNativeTabAndroid, constraints, current, animate);
+
+        if (constraints == mBrowserConstrolsConstraints) return;
+        mBrowserConstrolsConstraints = constraints;
+        for (TabObserver observer : mObservers) {
+            observer.onBrowserControlsConstraintsUpdated(this, constraints);
+        }
     }
 
     /**
@@ -2935,24 +2941,7 @@ public class Tab
      */
     public void setFullscreenManager(FullscreenManager manager) {
         mFullscreenManager = manager;
-        if (mFullscreenManager != null) {
-            boolean topOffsetsInitialized = !Float.isNaN(mPreviousTopControlsOffsetY)
-                    && !Float.isNaN(mPreviousContentOffsetY);
-            boolean bottomOffsetsInitialized =
-                    !Float.isNaN(mPreviousBottomControlsOffsetY);
-            boolean isChromeHomeEnabled = FeatureUtilities.isChromeHomeEnabled();
-
-            // Make sure the dominant control offsets have been set.
-            if ((!topOffsetsInitialized && !isChromeHomeEnabled)
-                    || (!bottomOffsetsInitialized && isChromeHomeEnabled)) {
-                mFullscreenManager.setPositionsForTabToNonFullscreen();
-            } else {
-                mFullscreenManager.setPositionsForTab(mPreviousTopControlsOffsetY,
-                        mPreviousBottomControlsOffsetY,
-                        mPreviousContentOffsetY);
-            }
-            updateFullscreenEnabledState();
-        }
+        mControlsOffsetHelper.resetPositions();
     }
 
     /**
@@ -3310,7 +3299,7 @@ public class Tab
         mIsRendererUnresponsive = true;
         if (mFullscreenManager == null) return;
 
-        mFullscreenManager.setPositionsForTabToNonFullscreen();
+        mControlsOffsetHelper.showAndroidControls(false);
         updateBrowserControlsState(BrowserControlsState.SHOWN, false);
     }
 
@@ -3410,9 +3399,27 @@ public class Tab
      */
     public void onTabModalDialogStateChanged(boolean isShowing) {
         mIsShowingTabModalDialog = isShowing;
-        if (mFullscreenManager == null) return;
-        mFullscreenManager.setPositionsForTabToNonFullscreen();
-        updateBrowserControlsState(BrowserControlsState.SHOWN, false);
+        // Also need to update browser control state after dismissal to refresh the constraints.
+        if (isShowing && areRendererInputEventsIgnored()) {
+            mControlsOffsetHelper.showAndroidControls(true);
+        } else {
+            updateBrowserControlsState(BrowserControlsState.SHOWN,
+                    !mControlsOffsetHelper.isControlsOffsetOverridden());
+        }
+    }
+
+    /**
+     * @return Whether input events from the renderer are ignored on the browser side.
+     */
+    boolean areRendererInputEventsIgnored() {
+        return nativeAreRendererInputEventsIgnored(mNativeTabAndroid);
+    }
+
+    /**
+     * @return The {@link TabBrowserControlsOffsetHelper} for this tab.
+     */
+    public TabBrowserControlsOffsetHelper getControlsOffsetHelper() {
+        return mControlsOffsetHelper;
     }
 
     @CalledByNative
@@ -3492,10 +3499,26 @@ public class Tab
         nativeMediaDownloadInProductHelpDismissed(mNativeTabAndroid);
     }
 
+    /**
+     * @return The publisher URL if the current page is hosted on a trusted CDN, or null otherwise.
+     */
+    public @Nullable String getTrustedCdnPublisherUrl() {
+        ChromeActivity activity = getActivity();
+        if (activity == null) return null;
+        if (!activity.canShowTrustedCdnPublisherUrl()) return null;
+        if (getSecurityLevel() == ConnectionSecurityLevel.DANGEROUS) return null;
+        return mTrustedCdnPublisherUrl;
+    }
+
+    @CalledByNative
+    private void setTrustedCdnPublisherUrl(@Nullable String url) {
+        mTrustedCdnPublisherUrl = url;
+    }
+
     private native void nativeInit();
     private native void nativeDestroy(long nativeTabAndroid);
     private native void nativeInitWebContents(long nativeTabAndroid, boolean incognito,
-            boolean isBackgroundTab, WebContents webContents,
+            boolean isBackgroundTab, WebContents webContents, WebContents parentWebContents,
             TabWebContentsDelegateAndroid delegate, ContextMenuPopulator contextMenuPopulator);
     private native void nativeUpdateDelegates(long nativeTabAndroid,
             TabWebContentsDelegateAndroid delegate, ContextMenuPopulator contextMenuPopulator);
@@ -3529,4 +3552,5 @@ public class Tab
     private native void nativeAttachDetachedTab(long nativeTabAndroid);
     private native void nativeMediaDownloadInProductHelpDismissed(long nativeTabAndroid);
     private native int nativeGetCurrentRenderProcessId(long nativeTabAndroid);
+    private native boolean nativeAreRendererInputEventsIgnored(long nativeTabAndroid);
 }

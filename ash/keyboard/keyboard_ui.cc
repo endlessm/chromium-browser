@@ -7,11 +7,9 @@
 #include <memory>
 
 #include "ash/accessibility/accessibility_controller.h"
+#include "ash/accessibility/accessibility_observer.h"
 #include "ash/keyboard/keyboard_ui_observer.h"
 #include "ash/shell.h"
-#include "ash/system/accessibility_observer.h"
-#include "ash/system/tray/system_tray_notifier.h"
-#include "ash/system/tray_accessibility.h"
 #include "ui/keyboard/keyboard_controller.h"
 
 namespace ash {
@@ -19,12 +17,12 @@ namespace ash {
 class KeyboardUIImpl : public KeyboardUI, public AccessibilityObserver {
  public:
   KeyboardUIImpl() : enabled_(false) {
-    Shell::Get()->system_tray_notifier()->AddAccessibilityObserver(this);
+    Shell::Get()->accessibility_controller()->AddObserver(this);
   }
 
   ~KeyboardUIImpl() override {
-    if (Shell::HasInstance() && Shell::Get()->system_tray_notifier())
-      Shell::Get()->system_tray_notifier()->RemoveAccessibilityObserver(this);
+    if (Shell::HasInstance() && Shell::Get()->accessibility_controller())
+      Shell::Get()->accessibility_controller()->RemoveObserver(this);
   }
 
   void ShowInDisplay(const int64_t display_id) override {
@@ -44,8 +42,7 @@ class KeyboardUIImpl : public KeyboardUI, public AccessibilityObserver {
   }
 
   // AccessibilityObserver:
-  void OnAccessibilityStatusChanged(
-      AccessibilityNotificationVisibility notify) override {
+  void OnAccessibilityStatusChanged() override {
     bool enabled = IsEnabled();
     if (enabled_ == enabled)
       return;

@@ -7,6 +7,7 @@
 #include <dwmapi.h>
 #include <utility>
 
+#include "base/trace_event/common/trace_event_common.h"
 #include "base/win/windows_version.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/app/chrome_dll_resource.h"
@@ -22,6 +23,7 @@
 #include "chrome/browser/win/titlebar_config.h"
 #include "content/public/browser/web_contents.h"
 #include "skia/ext/image_operations.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle_win.h"
 #include "ui/base/theme_provider.h"
 #include "ui/display/win/dpi.h"
@@ -31,6 +33,7 @@
 #include "ui/gfx/icon_util.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/scoped_canvas.h"
+#include "ui/strings/grit/ui_strings.h"
 #include "ui/views/resources/grit/views_resources.h"
 #include "ui/views/win/hwnd_util.h"
 #include "ui/views/window/client_view.h"
@@ -119,10 +122,14 @@ GlassBrowserFrameView::GlassBrowserFrameView(BrowserFrame* frame,
     AddChildView(window_title_);
   }
 
-  minimize_button_ = CreateCaptionButton(VIEW_ID_MINIMIZE_BUTTON);
-  maximize_button_ = CreateCaptionButton(VIEW_ID_MAXIMIZE_BUTTON);
-  restore_button_ = CreateCaptionButton(VIEW_ID_RESTORE_BUTTON);
-  close_button_ = CreateCaptionButton(VIEW_ID_CLOSE_BUTTON);
+  minimize_button_ =
+      CreateCaptionButton(VIEW_ID_MINIMIZE_BUTTON, IDS_APP_ACCNAME_MINIMIZE);
+  maximize_button_ =
+      CreateCaptionButton(VIEW_ID_MAXIMIZE_BUTTON, IDS_APP_ACCNAME_MAXIMIZE);
+  restore_button_ =
+      CreateCaptionButton(VIEW_ID_RESTORE_BUTTON, IDS_APP_ACCNAME_RESTORE);
+  close_button_ =
+      CreateCaptionButton(VIEW_ID_CLOSE_BUTTON, IDS_APP_ACCNAME_CLOSE);
 }
 
 GlassBrowserFrameView::~GlassBrowserFrameView() {
@@ -133,7 +140,7 @@ GlassBrowserFrameView::~GlassBrowserFrameView() {
 
 gfx::Rect GlassBrowserFrameView::GetBoundsForTabStrip(
     views::View* tabstrip) const {
-  const int x = incognito_bounds_.right() + kAvatarIconPadding;
+  const int x = GetTabStripLeftInset();
   int end_x = width() - ClientBorderThickness(false);
   if (!CaptionButtonsOnLeadingEdge()) {
     end_x = std::min(MinimizeButtonX(), end_x) -
@@ -142,7 +149,7 @@ gfx::Rect GlassBrowserFrameView::GetBoundsForTabStrip(
 
     // The profile switcher button is optionally displayed to the left of the
     // minimize button.
-    views::View* profile_switcher = GetProfileSwitcherView();
+    views::View* profile_switcher = GetProfileSwitcherButton();
     if (profile_switcher) {
       const int old_end_x = end_x;
       end_x -= profile_switcher->width() + kProfileSwitcherButtonOffset;
@@ -212,6 +219,10 @@ gfx::Size GlassBrowserFrameView::GetMinimumSize() const {
   return min_size;
 }
 
+int GlassBrowserFrameView::GetTabStripLeftInset() const {
+  return incognito_bounds_.right() + GetAvatarIconPadding();
+}
+
 void GlassBrowserFrameView::OnBrowserViewInitViewsComplete() {
   if (browser_view()->tabstrip()) {
     DCHECK(!tab_strip_observer_.IsObserving(browser_view()->tabstrip()));
@@ -270,7 +281,7 @@ int GlassBrowserFrameView::NonClientHitTest(const gfx::Point& point) {
     return HTNOWHERE;
 
   // See if the point is within the incognito icon or the profile switcher menu.
-  views::View* profile_switcher_view = GetProfileSwitcherView();
+  views::View* profile_switcher_view = GetProfileSwitcherButton();
   if ((profile_indicator_icon() &&
        profile_indicator_icon()->GetMirroredBounds().Contains(point)) ||
       (profile_switcher_view &&
@@ -409,6 +420,7 @@ bool GlassBrowserFrameView::IsMaximized() const {
 // GlassBrowserFrameView, views::View overrides:
 
 void GlassBrowserFrameView::OnPaint(gfx::Canvas* canvas) {
+  TRACE_EVENT0("views.frame", "GlassBrowserFrameView::OnPaint");
   if (ShouldCustomDrawSystemTitlebar())
     PaintTitlebar(canvas);
   if (!browser_view()->IsTabStripVisible())
@@ -420,15 +432,23 @@ void GlassBrowserFrameView::OnPaint(gfx::Canvas* canvas) {
 }
 
 void GlassBrowserFrameView::Layout() {
-  if (ShouldCustomDrawSystemTitlebar()) {
-    // The profile switcher button depends on the caption button layout, so this
-    // must be called prior to LayoutProfileSwitcher().
+  TRACE_EVENT0("views.frame", "GlassBrowserFrameView::Layout");
+  // The profile switcher and incognito icon depends on the caption button
+  // layout, so always call it first.
+  if (ShouldCustomDrawSystemTitlebar())
     LayoutCaptionButtons();
-    LayoutTitleBar();
-  }
+
   if (browser_view()->IsRegularOrGuestSession())
     LayoutProfileSwitcher();
+
+  // The incognito area must be laid out even if we're not in incognito as
+  // tab-strip insets depend on it. When not in incognito the bounds will be
+  // zero-width but positioned correctly for the titlebar to start after it.
   LayoutIncognitoIcon();
+
+  if (ShouldCustomDrawSystemTitlebar())
+    LayoutTitleBar();
+
   LayoutClientView();
 }
 
@@ -456,7 +476,7 @@ bool GlassBrowserFrameView::DoesIntersectRect(const views::View* target,
   bool hit_incognito_icon =
       profile_indicator_icon() &&
       profile_indicator_icon()->GetMirroredBounds().Intersects(rect);
-  views::View* profile_switcher_view = GetProfileSwitcherView();
+  views::View* profile_switcher_view = GetProfileSwitcherButton();
   bool hit_profile_switcher_button =
       profile_switcher_view &&
       profile_switcher_view->GetMirroredBounds().Intersects(rect);
@@ -564,7 +584,9 @@ bool GlassBrowserFrameView::CaptionButtonsOnLeadingEdge() const {
 }
 
 bool GlassBrowserFrameView::ShowCustomIcon() const {
-  return ShouldCustomDrawSystemTitlebar() &&
+  // Don't show the window icon when the incognito badge is visible, since
+  // they're competing for the same space.
+  return !profile_indicator_icon() && ShouldCustomDrawSystemTitlebar() &&
          browser_view()->ShouldShowWindowIcon();
 }
 
@@ -586,14 +608,17 @@ SkColor GlassBrowserFrameView::GetTitlebarColor() const {
 }
 
 Windows10CaptionButton* GlassBrowserFrameView::CreateCaptionButton(
-    ViewID button_type) {
-  Windows10CaptionButton* button =
-      new Windows10CaptionButton(this, button_type);
+    ViewID button_type,
+    int accessible_name_resource_id) {
+  Windows10CaptionButton* button = new Windows10CaptionButton(
+      this, button_type,
+      l10n_util::GetStringUTF16(accessible_name_resource_id));
   AddChildView(button);
   return button;
 }
 
 void GlassBrowserFrameView::PaintTitlebar(gfx::Canvas* canvas) const {
+  TRACE_EVENT0("views.frame", "GlassBrowserFrameView::PaintTitlebar");
   gfx::Rect tabstrip_bounds = GetBoundsForTabStrip(browser_view()->tabstrip());
 
   cc::PaintFlags flags;
@@ -622,9 +647,16 @@ void GlassBrowserFrameView::PaintTitlebar(gfx::Canvas* canvas) const {
   // power consumption needed for DWM to blend the window contents.
   //
   // So the accent border also has to be opaque, but native inactive borders
-  // are #565656 with 80% alpha. We copy Edge (which also custom-draws its top
-  // border) and use #A2A2A2 instead.
-  constexpr SkColor inactive_border_color = 0xFFA2A2A2;
+  // are #494949 with 47% alpha. Against white (the most visible case) this is
+  // #AAAAAA, so we color with that normally. However, when the titlebar is dark
+  // that color sometimes stands out badly. In that case we lighten the titlebar
+  // color slightly, which creates a subtle highlight effect. This isn't exactly
+  // native but it looks good given our constraints.
+  const SkColor titlebar_color = GetTitlebarColor();
+  const SkColor inactive_border_color =
+      color_utils::IsDark(titlebar_color)
+          ? color_utils::BlendTowardOppositeLuma(titlebar_color, 0x0F)
+          : SkColorSetRGB(0xAA, 0xAA, 0xAA);
   flags.setColor(
       ShouldPaintAsActive()
           ? GetThemeProvider()->GetColor(ThemeProperties::COLOR_ACCENT_BORDER)
@@ -635,7 +667,7 @@ void GlassBrowserFrameView::PaintTitlebar(gfx::Canvas* canvas) const {
       gfx::RectF(0, y, width() * scale, tabstrip_bounds.bottom() * scale - y));
   // Paint the titlebar first so we have a background if an area isn't covered
   // by the theme image.
-  flags.setColor(GetTitlebarColor());
+  flags.setColor(titlebar_color);
   canvas->DrawRect(titlebar_rect, flags);
   const gfx::ImageSkia frame_image = GetFrameImage();
   if (!frame_image.isNull()) {
@@ -649,6 +681,15 @@ void GlassBrowserFrameView::PaintTitlebar(gfx::Canvas* canvas) const {
                          frame_overlay_image.height(), titlebar_rect.x(),
                          titlebar_rect.y(), frame_overlay_image.width() * scale,
                          frame_overlay_image.height() * scale, true);
+  }
+
+  if (ShowCustomTitle()) {
+    const SkAlpha title_alpha =
+        ShouldPaintAsActive() ? SK_AlphaOPAQUE : kInactiveTitlebarFeatureAlpha;
+    const SkColor title_color = SkColorSetA(
+        color_utils::BlendTowardOppositeLuma(titlebar_color, SK_AlphaOPAQUE),
+        title_alpha);
+    window_title_->SetEnabledColor(title_color);
   }
 }
 
@@ -700,7 +741,7 @@ void GlassBrowserFrameView::FillClientEdgeRects(int x,
 void GlassBrowserFrameView::LayoutProfileSwitcher() {
   DCHECK(browser_view()->IsRegularOrGuestSession());
 
-  View* profile_switcher = GetProfileSwitcherView();
+  View* profile_switcher = GetProfileSwitcherButton();
   if (!profile_switcher)
     return;
 
@@ -741,14 +782,14 @@ void GlassBrowserFrameView::LayoutIncognitoIcon() {
   // In RTL, the icon needs to start after the caption buttons.
   if (CaptionButtonsOnLeadingEdge()) {
     x = width() - frame()->GetMinimizeButtonOffset() +
-        (GetProfileSwitcherView() ? (GetProfileSwitcherView()->width() +
-                                     kProfileSwitcherButtonOffset)
-                                  : 0);
+        (GetProfileSwitcherButton() ? (GetProfileSwitcherButton()->width() +
+                                       kProfileSwitcherButtonOffset)
+                                    : 0);
   }
   const int bottom = GetTopInset(false) + browser_view()->GetTabStripHeight() -
-                     kAvatarIconPadding;
+                     GetAvatarIconPadding();
   incognito_bounds_.SetRect(
-      x + (profile_indicator_icon() ? kAvatarIconPadding : 0),
+      x + (profile_indicator_icon() ? GetAvatarIconPadding() : 0),
       bottom - size.height(), profile_indicator_icon() ? size.width() : 0,
       size.height());
   if (profile_indicator_icon())
@@ -756,6 +797,7 @@ void GlassBrowserFrameView::LayoutIncognitoIcon() {
 }
 
 void GlassBrowserFrameView::LayoutTitleBar() {
+  TRACE_EVENT0("views.frame", "GlassBrowserFrameView::LayoutTitleBar");
   if (!ShowCustomIcon() && !ShowCustomTitle())
     return;
 
@@ -771,13 +813,16 @@ void GlassBrowserFrameView::LayoutTitleBar() {
   int x = IsMaximized()
               ? kIconMaximizedLeftMargin
               : display::win::ScreenWin::GetSystemMetricsInDIP(SM_CXSIZEFRAME);
+
   const int y = window_top + (titlebar_visual_height - icon_size) / 2;
   window_icon_bounds = gfx::Rect(x, y, icon_size, icon_size);
 
+  constexpr int kIconTitleSpacing = 5;
   if (ShowCustomIcon()) {
     window_icon_->SetBoundsRect(window_icon_bounds);
-    constexpr int kIconTitleSpacing = 5;
     x = window_icon_bounds.right() + kIconTitleSpacing;
+  } else if (profile_indicator_icon()) {
+    x = profile_indicator_icon()->bounds().right() + kIconTitleSpacing;
   }
 
   if (ShowCustomTitle()) {
@@ -785,19 +830,20 @@ void GlassBrowserFrameView::LayoutTitleBar() {
     const int max_text_width = std::max(0, MinimizeButtonX() - x);
     window_title_->SetBounds(x, window_icon_bounds.y(), max_text_width,
                              window_icon_bounds.height());
+    window_title_->SetAutoColorReadabilityEnabled(false);
   }
 }
 
 void GlassBrowserFrameView::LayoutCaptionButton(Windows10CaptionButton* button,
                                                 int previous_button_x) {
+  TRACE_EVENT0("views.frame", "GlassBrowserFrameView::LayoutCaptionButton");
   gfx::Size button_size = button->GetPreferredSize();
-  constexpr int kCaptionButtonSpacing = 1;
-  button->SetBounds(
-      previous_button_x - button_size.width() - kCaptionButtonSpacing,
-      WindowTopY(), button_size.width(), button_size.height());
+  button->SetBounds(previous_button_x - button_size.width(), WindowTopY(),
+                    button_size.width(), button_size.height());
 }
 
 void GlassBrowserFrameView::LayoutCaptionButtons() {
+  TRACE_EVENT0("views.frame", "GlassBrowserFrameView::LayoutCaptionButtons");
   LayoutCaptionButton(close_button_, width());
 
   LayoutCaptionButton(restore_button_, close_button_->x());

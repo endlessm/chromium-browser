@@ -56,7 +56,42 @@ void BrowserActivationWaiter::OnBrowserSetLastActive(Browser* browser) {
   if (browser != browser_)
     return;
 
-  ASSERT_TRUE(browser->window()->IsActive());
+// On Mac, BrowserWindowCocoa::Show() sets the active browser before the
+// window becomes the key window.
+#if !defined(OS_MACOSX)
+  EXPECT_TRUE(browser->window()->IsActive());
+#endif
+
+  observed_ = true;
+  BrowserList::RemoveObserver(this);
+  if (run_loop_.running())
+    run_loop_.Quit();
+}
+
+BrowserDeactivationWaiter::BrowserDeactivationWaiter(const Browser* browser)
+    : browser_(browser), observed_(false) {
+  if (chrome::FindLastActive() != browser_ && !browser->window()->IsActive()) {
+    observed_ = true;
+    return;
+  }
+  BrowserList::AddObserver(this);
+}
+
+BrowserDeactivationWaiter::~BrowserDeactivationWaiter() = default;
+
+void BrowserDeactivationWaiter::WaitForDeactivation() {
+  if (observed_)
+    return;
+  DCHECK(!run_loop_.running()) << "WaitForDeactivation() can be called at most "
+                                  "once. Construct a new "
+                                  "BrowserDeactivationWaiter instead.";
+  run_loop_.Run();
+}
+
+void BrowserDeactivationWaiter::OnBrowserNoLongerActive(Browser* browser) {
+  if (browser != browser_)
+    return;
+
   observed_ = true;
   BrowserList::RemoveObserver(this);
   if (run_loop_.running())
@@ -167,11 +202,13 @@ namespace internal {
 
 void ClickTask(ui_controls::MouseButton button,
                int state,
-               const base::Closure& followup) {
-  if (!followup.is_null())
-    ui_controls::SendMouseEventsNotifyWhenDone(button, state, followup);
-  else
+               base::OnceClosure followup) {
+  if (!followup.is_null()) {
+    ui_controls::SendMouseEventsNotifyWhenDone(button, state,
+                                               std::move(followup));
+  } else {
     ui_controls::SendMouseEvents(button, state);
+  }
 }
 
 }  // namespace internal

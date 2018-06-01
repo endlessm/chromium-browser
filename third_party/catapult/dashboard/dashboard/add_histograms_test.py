@@ -94,10 +94,11 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
     SetGooglerOAuth(mock_oauth)
 
   def _CreateHistogram(
-      self, master=None, bot=None, benchmark=None, commit_position=None,
-      device=None, owner=None, stories=None, benchmark_description=None,
-      samples=None, max_samples=None, is_ref=False):
-    hists = [histogram_module.Histogram('hist', 'count')]
+      self, name='hist', master=None, bot=None, benchmark=None,
+      device=None, owner=None, stories=None, story_tags=None,
+      benchmark_description=None, commit_position=None,
+      samples=None, max_samples=None, is_ref=False, is_summary=None):
+    hists = [histogram_module.Histogram(name, 'count')]
     if max_samples:
       hists[0].max_num_sample_values = max_samples
     if samples:
@@ -137,10 +138,18 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
       histograms.AddSharedDiagnostic(
           reserved_infos.STORIES.name,
           generic_set.GenericSet(stories))
+    if story_tags:
+      histograms.AddSharedDiagnostic(
+          reserved_infos.STORY_TAGS.name,
+          generic_set.GenericSet(story_tags))
     if is_ref:
       histograms.AddSharedDiagnostic(
           reserved_infos.IS_REFERENCE_BUILD.name,
           generic_set.GenericSet([True]))
+    if is_summary is not None:
+      histograms.AddSharedDiagnostic(
+          reserved_infos.SUMMARY_KEYS.name,
+          generic_set.GenericSet(is_summary))
     return histograms
 
   @mock.patch.object(
@@ -177,6 +186,28 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
     mock_graph_revisions.assert_called_once()
     self.assertEqual(len(mock_graph_revisions.mock_calls[0][1][0]), len(rows))
 
+  @mock.patch.object(
+      add_histograms_queue.graph_revisions, 'AddRowsToCacheAsync',
+      mock.MagicMock())
+  @mock.patch.object(
+      add_histograms_queue.find_anomalies, 'ProcessTestsAsync',
+      mock.MagicMock())
+  def testPost_BenchmarkTotalDuration_Filtered(self):
+    hs = self._CreateHistogram(
+        name='benchmark_total_duration', master='master', bot='bot',
+        benchmark='v8.browsing', commit_position=123, samples=[1], is_ref=True)
+    data = json.dumps(hs.AsDicts())
+
+    self.testapp.post('/add_histograms', {'data': data})
+    self.ExecuteTaskQueueTasks('/add_histograms_queue',
+                               add_histograms.TASK_QUEUE_NAME)
+    tests = graph_data.TestMetadata.query().fetch()
+    for t in tests:
+      parts = t.key.id().split('/')
+      if len(parts) <= 3:
+        continue
+      self.assertEqual('benchmark_total_duration', parts[3])
+
   def testPost_PurgesBinData(self):
     hs = self._CreateHistogram(
         master='m', bot='b', benchmark='s', commit_position=1)
@@ -195,6 +226,30 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
     for b in hist.bins:
       for dm in b.diagnostic_maps:
         self.assertEqual(0, len(dm))
+
+  def testPost_IllegalMasterName_Fails(self):
+    hs = self._CreateHistogram(
+        master='m/m', bot='b', benchmark='s', commit_position=1, samples=[1])
+    data = json.dumps(hs.AsDicts())
+
+    response = self.testapp.post('/add_histograms', {'data': data}, status=400)
+    self.assertIn('Illegal slash', response.body)
+
+  def testPost_IllegalBotName_Fails(self):
+    hs = self._CreateHistogram(
+        master='m', bot='b/b', benchmark='s', commit_position=1, samples=[1])
+    data = json.dumps(hs.AsDicts())
+
+    response = self.testapp.post('/add_histograms', {'data': data}, status=400)
+    self.assertIn('Illegal slash', response.body)
+
+  def testPost_IllegalSuiteName_Fails(self):
+    hs = self._CreateHistogram(
+        master='m', bot='b', benchmark='s/s', commit_position=1, samples=[1])
+    data = json.dumps(hs.AsDicts())
+
+    response = self.testapp.post('/add_histograms', {'data': data}, status=400)
+    self.assertIn('Illegal slash', response.body)
 
   @mock.patch.object(
       add_histograms_queue.graph_revisions, 'AddRowsToCacheAsync')
@@ -266,11 +321,9 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
       add_histograms_queue.find_anomalies, 'ProcessTestsAsync',
       mock.MagicMock())
   def testPost_DeduplicateByName(self):
-
-
     hs = self._CreateHistogram(
         master='m', bot='b', benchmark='s', stories=['s1', 's2'],
-        commit_position=1111, device='device1', owner='owner1')
+        commit_position=1111, device='device1', owner='owner1', samples=[42])
     self.testapp.post(
         '/add_histograms', {'data': json.dumps(hs.AsDicts())})
     self.ExecuteTaskQueueTasks('/add_histograms_queue',
@@ -282,7 +335,7 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
 
     hs = self._CreateHistogram(
         master='m', bot='b', benchmark='s', stories=['s1', 's2'],
-        commit_position=1112, device='device1', owner='owner1')
+        commit_position=1112, device='device1', owner='owner1', samples=[42])
     self.testapp.post(
         '/add_histograms', {'data': json.dumps(hs.AsDicts())})
     self.ExecuteTaskQueueTasks('/add_histograms_queue',
@@ -294,7 +347,7 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
 
     hs = self._CreateHistogram(
         master='m', bot='b', benchmark='s', stories=['s1', 's2'],
-        commit_position=1113, device='device2', owner='owner1')
+        commit_position=1113, device='device2', owner='owner1', samples=[42])
     self.testapp.post(
         '/add_histograms', {'data': json.dumps(hs.AsDicts())})
     self.ExecuteTaskQueueTasks('/add_histograms_queue',
@@ -318,7 +371,7 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
 
     hs = self._CreateHistogram(
         master='m', bot='b', benchmark='s', stories=['s1', 's2'],
-        commit_position=1115, device='device2', owner='owner2')
+        commit_position=1115, device='device2', owner='owner2', samples=[42])
     self.testapp.post(
         '/add_histograms', {'data': json.dumps(hs.AsDicts())})
     self.ExecuteTaskQueueTasks('/add_histograms_queue',
@@ -335,8 +388,9 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
       add_histograms_queue.find_anomalies, 'ProcessTestsAsync',
       mock.MagicMock())
   def testPost_NamesAreSet(self):
-    hists = [histogram_module.Histogram('hist', 'count')]
-    histograms = histogram_set.HistogramSet(hists)
+    hist = histogram_module.Histogram('hist', 'count')
+    hist.AddSample(42)
+    histograms = histogram_set.HistogramSet([hist])
     histograms.AddSharedDiagnostic(
         reserved_infos.MASTERS.name,
         generic_set.GenericSet(['master']))
@@ -424,6 +478,103 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
     diagnostics = histogram.SparseDiagnostic.query().fetch()
     for d in diagnostics:
       self.assertTrue(d.internal_only)
+
+  def testPost_SetsCorrectTestPathForSummary(self):
+    histograms = self._CreateHistogram(
+        master='master', bot='bot', benchmark='benchmark',
+        commit_position=12345, device='device_foo', stories=['story'],
+        story_tags=['group:media', 'case:browse'], is_summary=['name'],
+        samples=[42])
+
+    self.testapp.post(
+        '/add_histograms', {'data': json.dumps(histograms.AsDicts())})
+    self.ExecuteTaskQueueTasks('/add_histograms_queue',
+                               add_histograms.TASK_QUEUE_NAME)
+
+    tests = graph_data.TestMetadata.query().fetch()
+
+    expected = [
+        'master/bot/benchmark',
+        'master/bot/benchmark/hist',
+        'master/bot/benchmark/hist_avg',
+        'master/bot/benchmark/hist_count',
+        'master/bot/benchmark/hist_max',
+        'master/bot/benchmark/hist_min',
+        'master/bot/benchmark/hist_std',
+        'master/bot/benchmark/hist_sum',
+    ]
+
+    for test in tests:
+      self.assertIn(test.key.id(), expected)
+      expected.remove(test.key.id())
+    self.assertEqual(0, len(expected))
+
+  def testPost_SetsCorrectTestPathForTIRLabelSummary(self):
+    histograms = self._CreateHistogram(
+        master='master', bot='bot', benchmark='benchmark',
+        commit_position=12345, device='device_foo', stories=['story'],
+        story_tags=['group:media', 'case:browse'],
+        is_summary=['name', 'storyTags'], samples=[42])
+
+    self.testapp.post(
+        '/add_histograms', {'data': json.dumps(histograms.AsDicts())})
+    self.ExecuteTaskQueueTasks('/add_histograms_queue',
+                               add_histograms.TASK_QUEUE_NAME)
+
+    tests = graph_data.TestMetadata.query().fetch()
+
+    expected = [
+        'master/bot/benchmark',
+        'master/bot/benchmark/hist',
+        'master/bot/benchmark/hist/browse_media',
+        'master/bot/benchmark/hist_avg',
+        'master/bot/benchmark/hist_avg/browse_media',
+        'master/bot/benchmark/hist_count',
+        'master/bot/benchmark/hist_count/browse_media',
+        'master/bot/benchmark/hist_max',
+        'master/bot/benchmark/hist_max/browse_media',
+        'master/bot/benchmark/hist_min',
+        'master/bot/benchmark/hist_min/browse_media',
+        'master/bot/benchmark/hist_std',
+        'master/bot/benchmark/hist_std/browse_media',
+        'master/bot/benchmark/hist_sum',
+        'master/bot/benchmark/hist_sum/browse_media',
+    ]
+
+    for test in tests:
+      self.assertIn(test.key.id(), expected)
+      expected.remove(test.key.id())
+    self.assertEqual(0, len(expected))
+
+  def testPost_SetsCorrectTestPathForNonSummary(self):
+    histograms = self._CreateHistogram(
+        master='master', bot='bot', benchmark='benchmark',
+        commit_position=12345, device='device_foo', stories=['story'],
+        is_summary=None, samples=[42])
+
+    self.testapp.post(
+        '/add_histograms', {'data': json.dumps(histograms.AsDicts())})
+    self.ExecuteTaskQueueTasks('/add_histograms_queue',
+                               add_histograms.TASK_QUEUE_NAME)
+
+    tests = [t.key.id() for t in graph_data.TestMetadata.query().fetch()]
+    self.assertEqual(15, len(tests))  # suite + hist + stats + story per stat
+    self.assertIn('master/bot/benchmark/hist/story', tests)
+
+  def testPost_SetsCorrectTestPathForSummaryAbsent(self):
+    histograms = self._CreateHistogram(
+        master='master', bot='bot', benchmark='benchmark',
+        commit_position=12345, device='device_foo', stories=['story'],
+        samples=[42])
+
+    self.testapp.post(
+        '/add_histograms', {'data': json.dumps(histograms.AsDicts())})
+    self.ExecuteTaskQueueTasks('/add_histograms_queue',
+                               add_histograms.TASK_QUEUE_NAME)
+
+    tests = [t.key.id() for t in graph_data.TestMetadata.query().fetch()]
+    self.assertEqual(15, len(tests))
+    self.assertIn('master/bot/benchmark/hist/story', tests)
 
 
 class AddHistogramsTest(testing_common.TestCase):
@@ -786,8 +937,8 @@ class AddHistogramsTest(testing_common.TestCase):
             'type': 'GenericSet'
         }
     ])
-    # TODO: Should be a 400 error,
-    self.testapp.post('/add_histograms', {'data': data}, status=200)
+
+    self.testapp.post('/add_histograms', {'data': data}, status=400)
 
   def testPostHistogramFailsWithoutBuildbotInfo(self):
     data = json.dumps([
@@ -812,8 +963,8 @@ class AddHistogramsTest(testing_common.TestCase):
             'unit': 'count'
         }
     ])
-    # TODO: Should be a 400 error,
-    self.testapp.post('/add_histograms', {'data': data}, status=200)
+
+    self.testapp.post('/add_histograms', {'data': data}, status=400)
 
   def testPostHistogramFailsWithoutChromiumCommit(self):
     data = json.dumps([
@@ -843,8 +994,8 @@ class AddHistogramsTest(testing_common.TestCase):
             'name': 'foo',
             'unit': 'count'}
     ])
-    # TODO: Should be a 400 error,
-    self.testapp.post('/add_histograms', {'data': data}, status=200)
+
+    self.testapp.post('/add_histograms', {'data': data}, status=400)
 
   def testPostHistogramFailsWithoutBenchmark(self):
     data = json.dumps([
@@ -875,8 +1026,8 @@ class AddHistogramsTest(testing_common.TestCase):
             'unit': 'count'
         }
     ])
-    # TODO: Should be a 400 error,
-    self.testapp.post('/add_histograms', {'data': data}, status=200)
+
+    self.testapp.post('/add_histograms', {'data': data}, status=400)
 
   def testPostHistogram_AddsSparseDiagnosticByName(self):
     data = json.dumps([
@@ -1083,8 +1234,7 @@ class AddHistogramsTest(testing_common.TestCase):
             'unit': 'count'
         }])
 
-    # TODO(simonhatch): The endpoint is swallowing all exceptions for now.
-    self.testapp.post('/add_histograms', {'data': data})
+    self.testapp.post('/add_histograms', {'data': data}, status=500)
 
   def testFindHistogramLevelSparseDiagnostics(self):
     hist = histogram_module.Histogram('hist', 'count')

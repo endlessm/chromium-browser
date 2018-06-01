@@ -16,16 +16,17 @@
 #include "chrome/browser/safe_browsing/certificate_reporting_service_factory.h"
 #include "chrome/browser/safe_browsing/certificate_reporting_service_test_utils.h"
 #include "chrome/browser/ssl/cert_report_helper.h"
+#include "chrome/browser/ssl/certificate_error_report.h"
 #include "chrome/browser/ssl/certificate_reporting_test_utils.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/certificate_reporting/error_report.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/common/safe_browsing_prefs.h"
 #include "components/variations/variations_params_manager.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
@@ -81,7 +82,8 @@ class CertificateReportingServiceBrowserTest
     https_server_.ServeFilesFromSourceDirectory("chrome/test/data");
     ASSERT_TRUE(https_server_.Start());
 
-    test_helper()->SetUpInterceptor();
+    test_helper_ =
+        base::MakeRefCounted<CertificateReportingServiceTestHelper>();
 
     CertificateReportingServiceFactory::GetInstance()
         ->SetReportEncryptionParamsForTesting(
@@ -91,6 +93,8 @@ class CertificateReportingServiceBrowserTest
         ->SetServiceResetCallbackForTesting(
             base::Bind(&CertificateReportingServiceObserver::OnServiceReset,
                        base::Unretained(&service_observer_)));
+    CertificateReportingServiceFactory::GetInstance()
+        ->SetURLLoaderFactoryForTesting(test_helper_);
 
     event_histogram_tester_.reset(new EventHistogramTester());
     InProcessBrowserTest::SetUpOnMainThread();
@@ -125,7 +129,23 @@ class CertificateReportingServiceBrowserTest
     }
   }
 
-  CertificateReportingServiceTestHelper* test_helper() { return &test_helper_; }
+  CertificateReportingServiceTestHelper* test_helper() {
+    return test_helper_.get();
+  }
+
+  void WaitForNoReports() {
+    if (!service()->GetReporterForTesting() ||
+        !service()
+             ->GetReporterForTesting()
+             ->inflight_report_count_for_testing())
+      return;
+
+    base::RunLoop run_loop;
+    service()
+        ->GetReporterForTesting()
+        ->SetClosureWhenNoInflightReportsForTesting(run_loop.QuitClosure());
+    run_loop.Run();
+  }
 
  protected:
   CertificateReportingServiceFactory* factory() {
@@ -156,7 +176,10 @@ class CertificateReportingServiceBrowserTest
       content::WaitForInterstitialDetach(contents);
   }
 
-  void SendPendingReports() { service()->SendPending(); }
+  void SendPendingReports() {
+    WaitForNoReports();
+    service()->SendPending();
+  }
 
   // Changes opt-in status and waits for the cert reporting service to reset.
   // Can only be used after the service is initialized. When changing the
@@ -203,7 +226,7 @@ class CertificateReportingServiceBrowserTest
                     const std::string type) {
     std::set<std::string> received_hostnames;
     for (const std::string& serialized_report : received_reports) {
-      certificate_reporting::ErrorReport report;
+      CertificateErrorReport report;
       ASSERT_TRUE(report.InitializeFromString(serialized_report));
       received_hostnames.insert(report.hostname());
     }
@@ -215,7 +238,7 @@ class CertificateReportingServiceBrowserTest
 
   int num_expected_failed_report_ = -1;
 
-  CertificateReportingServiceTestHelper test_helper_;
+  scoped_refptr<CertificateReportingServiceTestHelper> test_helper_;
 
   CertificateReportingServiceObserver service_observer_;
 
@@ -433,6 +456,8 @@ IN_PROC_BROWSER_TEST_P(CertificateReportingServiceBrowserTest,
   test_helper()->WaitForRequestsDestroyed(
       ReportExpectation::Successful({{"report1", RetryStatus::RETRIED}}));
 
+  WaitForNoReports();
+
   // report0 was submitted once, failed once, then cleared.
   // report1 was submitted twice, failed once, succeeded once.
   event_histogram_tester()->SetExpectedValues(
@@ -510,6 +535,8 @@ IN_PROC_BROWSER_TEST_P(CertificateReportingServiceBrowserTest,
   SendReport("report3");
   test_helper()->WaitForRequestsDestroyed(
       ReportExpectation::Successful({{"report3", RetryStatus::NOT_RETRIED}}));
+
+  WaitForNoReports();
 
   // report0 was submitted once, failed once, dropped once.
   // report1 was submitted twice, failed twice, dropped once.
@@ -592,6 +619,8 @@ IN_PROC_BROWSER_TEST_P(CertificateReportingServiceBrowserTest,
   test_helper()->WaitForRequestsDestroyed(ReportExpectation::Successful(
       {{"report2", RetryStatus::RETRIED}, {"report3", RetryStatus::RETRIED}}));
 
+  WaitForNoReports();
+
   // report0 was submitted once, failed once, dropped once.
   // report1 was submitted twice, failed twice, dropped once.
   // report2 was submitted thrice, failed twice, succeeded once.
@@ -621,6 +650,8 @@ IN_PROC_BROWSER_TEST_P(CertificateReportingServiceBrowserTest,
   test_helper()->ResumeDelayedRequest();
   test_helper()->WaitForRequestsDestroyed(
       ReportExpectation::Delayed({{"report0", RetryStatus::NOT_RETRIED}}));
+
+  WaitForNoReports();
 
   // report0 was submitted once and succeeded once.
   event_histogram_tester()->SetExpectedValues(
@@ -673,6 +704,11 @@ IN_PROC_BROWSER_TEST_P(CertificateReportingServiceBrowserTest, Delayed_Reset) {
 
   // Disable SafeBrowsing. This should clear all pending reports.
   ToggleSafeBrowsingAndWaitForServiceReset(false);
+
+  // In production, the request would have already went out to the network. For
+  // this test, we manually resume it which will cause it to be cancelled.
+  test_helper()->ResumeDelayedRequest();
+
   test_helper()->WaitForRequestsDestroyed(
       ReportExpectation::Delayed({{"report0", RetryStatus::NOT_RETRIED}}));
 
@@ -693,6 +729,8 @@ IN_PROC_BROWSER_TEST_P(CertificateReportingServiceBrowserTest, Delayed_Reset) {
   test_helper()->ResumeDelayedRequest();
   test_helper()->WaitForRequestsDestroyed(
       ReportExpectation::Delayed({{"report1", RetryStatus::NOT_RETRIED}}));
+
+  WaitForNoReports();
 
   // report0 was submitted once and delayed, then cleared.
   // report1 was submitted once and delayed, then succeeded.

@@ -24,9 +24,11 @@ class TestSharedBitmapManager : public SharedBitmapManager {
 
   // SharedBitmapManager implementation.
   std::unique_ptr<SharedBitmap> AllocateSharedBitmap(
-      const gfx::Size& size) override;
+      const gfx::Size& size,
+      ResourceFormat format) override;
   std::unique_ptr<SharedBitmap> GetSharedBitmapFromId(
       const gfx::Size&,
+      ResourceFormat,
       const SharedBitmapId& id) override;
   bool ChildAllocatedSharedBitmap(mojo::ScopedSharedBufferHandle buffer,
                                   const SharedBitmapId& id) override;
@@ -35,6 +37,7 @@ class TestSharedBitmapManager : public SharedBitmapManager {
  private:
   base::Lock lock_;
   std::map<SharedBitmapId, base::SharedMemory*> bitmap_map_;
+  std::map<SharedBitmapId, std::unique_ptr<base::SharedMemory>> owned_map_;
   std::set<SharedBitmapId> notified_set_;
 };
 

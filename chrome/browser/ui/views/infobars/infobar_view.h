@@ -13,7 +13,6 @@
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/menu/menu_types.h"
 #include "ui/views/focus/external_focus_tracker.h"
-#include "ui/views/view_targeter_delegate.h"
 
 namespace views {
 class ImageButton;
@@ -27,17 +26,16 @@ class MenuRunner;
 class InfoBarView : public infobars::InfoBar,
                     public views::View,
                     public views::ButtonListener,
-                    public views::ExternalFocusTracker,
-                    public views::ViewTargeterDelegate {
+                    public views::ExternalFocusTracker {
  public:
   explicit InfoBarView(std::unique_ptr<infobars::InfoBarDelegate> delegate);
+  ~InfoBarView() override;
 
-  const infobars::InfoBarContainer::Delegate* container_delegate() const;
+  // Requests that the infobar recompute its target height.
+  void RecalculateHeight();
 
  protected:
-  typedef std::vector<views::Label*> Labels;
-
-  ~InfoBarView() override;
+  using Labels = std::vector<views::Label*>;
 
   // Creates a label with the appropriate font and color for an infobar.
   views::Label* CreateLabel(const base::string16& text) const;
@@ -57,6 +55,7 @@ class InfoBarView : public infobars::InfoBar,
   void Layout() override;
   void ViewHierarchyChanged(
       const ViewHierarchyChangedDetails& details) override;
+  void OnPaint(gfx::Canvas* canvas) override;
   void OnThemeChanged() override;
   void OnNativeThemeChanged(const ui::NativeTheme* theme) override;
 
@@ -75,17 +74,14 @@ class InfoBarView : public infobars::InfoBar,
   int StartX() const;
   int EndX() const;
 
-  // Given a |view|, returns the centered y position within |child_container_|,
-  // taking into account animation so the control "slides in" (or out) as we
-  // animate open and closed.
+  // Given a |view|, returns the centered y position, taking into account
+  // animation so the control "slides in" (or out) as we animate open and
+  // closed.
   int OffsetY(views::View* view) const;
 
- protected:
-  // Adds |view| to the content area, i.e. |child_container_|. The |view| won't
-  // automatically get any layout, so should still be laid out manually.
-  void AddViewToContentArea(views::View* view);
-
  private:
+  FRIEND_TEST_ALL_PREFIXES(InfoBarViewTest, ShouldDrawSeparator);
+
   // Does the actual work for AssignWidths().  Assumes |labels| is sorted by
   // decreasing preferred width.
   static void AssignWidthsSorted(Labels* labels, int available_width);
@@ -93,7 +89,7 @@ class InfoBarView : public infobars::InfoBar,
   // InfoBar:
   void PlatformSpecificShow(bool animate) override;
   void PlatformSpecificHide(bool animate) override;
-  void PlatformSpecificOnHeightsRecalculated() override;
+  void PlatformSpecificOnHeightRecalculated() override;
 
   // views::View:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
@@ -102,9 +98,12 @@ class InfoBarView : public infobars::InfoBar,
   // views::ExternalFocusTracker:
   void OnWillChangeFocus(View* focused_before, View* focused_now) override;
 
-  // views::ViewTargeterDelegate:
-  bool DoesIntersectRect(const View* target,
-                         const gfx::Rect& rect) const override;
+  // Returns whether this infobar should draw a 1 px separator at its top.
+  bool ShouldDrawSeparator() const;
+
+  // Returns how many DIPs the container should reserve for a separator between
+  // infobars, in addition to the height of the infobars themselves.
+  int GetSeparatorHeightDip() const;
 
   // Returns the current color for the theme property |id|.  Will return the
   // wrong value if no theme provider is available.
@@ -114,15 +113,11 @@ class InfoBarView : public infobars::InfoBar,
   // labels.
   void SetLabelDetails(views::Label* label) const;
 
-  // This container holds the children and clips their painting during
-  // animation.
-  views::View* child_container_;
-
   // The optional icon at the left edge of the InfoBar.
-  views::ImageView* icon_;
+  views::ImageView* icon_ = nullptr;
 
   // The close button at the right edge of the InfoBar.
-  views::ImageButton* close_button_;
+  views::ImageButton* close_button_ = nullptr;
 
   // Used to run the menu.
   std::unique_ptr<views::MenuRunner> menu_runner_;

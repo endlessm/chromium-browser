@@ -531,6 +531,9 @@ locale.  The strings in this file are specific to iOS.
       <message name="IDS_IOS_CONTENT_SUGGESTIONS_BOOKMARKS" desc="The Bookmarks title on the new tab page [Length: 10em]">
         Bookmarks
       </message>
+      <message name="IDS_IOS_CONTENT_SUGGESTIONS_HIDE" desc="The label in the header to hide/collapse Content Suggestions [Length: 10em]">
+        Hide
+      </message>
       <message name="IDS_IOS_CONTENT_SUGGESTIONS_HISTORY" desc="The History title on the new tab page [Length: 10em]">
         History
       </message>
@@ -548,6 +551,9 @@ locale.  The strings in this file are specific to iOS.
       </message>
       <message name="IDS_IOS_CONTENT_SUGGESTIONS_SETTING_TITLE" desc="The title of the settings to toggle the articles suggestions on the NTP on/off">
         Article Suggestions
+      </message>
+      <message name="IDS_IOS_CONTENT_SUGGESTIONS_SHOW" desc="The label in the header to show/uncollapse Content Suggestions [Length: 10em]">
+        Show
       </message>
       <message name="IDS_IOS_CONTENT_SETTINGS_TITLE" desc="Title for content settings dialog [Length: 29em] [iOS only]">
         Content Settings
@@ -589,7 +595,13 @@ locale.  The strings in this file are specific to iOS.
         Install
       </message>
       <message name="IDS_IOS_DOWNLOAD_MANAGER_CANCEL_CONFIRMATION" desc="Alert title to confirm download cancellation [Length: 30em] [iOS only]">
-        Cancel Download?
+        Stop Download?
+      </message>
+      <message name="IDS_IOS_DOWNLOAD_MANAGER_CONTINUE" desc="The title of Continue button in the Stop Download? confirmation dialog [30em]">
+        Continue
+      </message>
+      <message name="IDS_IOS_DOWNLOAD_MANAGER_STOP" desc="The title of Stop button in the Stop Download? confirmation dialog [30em]">
+        Stop
       </message>
       <message name="IDS_IOS_DOWNLOAD_MANAGER_REPLACE_CONFIRMATION" desc="Alert title to confirm download old download replacement [Length: 30em] [iOS only]">
         Start New Download?
@@ -618,8 +630,20 @@ locale.  The strings in this file are specific to iOS.
       <message name="IDS_IOS_DOWNLOAD_MANAGER_UNABLE_TO_OPEN_FILE" desc="Title of dialog displayed when the user attempts to open a downloaded file and no app on the device can open the file. [Length: 25em] [iOS only]">
         Unable to Open File
       </message>
+      <message name="IDS_IOS_DOWNLOAD_MANAGER_FAILED_ACCESSIBILITY_ANNOUNCEMENT" desc="The accessibility announcement read by Voice Over when the download has failed. [Length: unlimited] [iOS only]">
+        Download failed
+      </message>
+      <message name="IDS_IOS_DOWNLOAD_MANAGER_SUCCEEDED_ACCESSIBILITY_ANNOUNCEMENT" desc="The accessibility announcement read by Voice Over when the download has sucessfully finished. [Length: unlimited] [iOS only]">
+        Download finished
+      </message>
+      <message name="IDS_IOS_DOWNLOAD_MANAGER_REQUESTED_ACCESSIBILITY_ANNOUNCEMENT" desc="The accessibility announcement read by Voice Over when the Download Manager UI is shown to the user. [Length: unlimited] [iOS only]">
+        File download is available. Options available near bottom of screen.
+      </message>
       <message name="IDS_IOS_DOWNLOAD_MANAGER_UPLOAD_TO_GOOGLE_DRIVE" desc="Button for uploading a downloaded file to Google Drive. It's displayed on the dialog presented when no app on the device can open the file. [Length: 25em] [iOS only]">
         Upload to Google Drive
+      </message>
+      <message name="IDS_IOS_DOWNLOAD_MANAGER_GOOGLE_DRIVE" desc="Button for installing Google Drive app. Google Drive is a product name and should use the correct localized version of the product name. [Length: 25em] [iOS only]">
+        Google Drive
       </message>
       <message name="IDS_IOS_FACETIME_BUTTON" desc="Text in the confirmation dialog button that will initiate a FaceTime call for the presented number. [Length: 10em] [iOS only]">
         FaceTime
@@ -1430,6 +1454,42 @@ Your data was encrypted with your sync passphrase on <ph name="TIME">$2<ex>Sept 
       <message name="IDS_IOS_SYNC_UPDATE_CREDENTIALS" desc="Title displayed when the signed in user needs to update its credentials. [Length: 20em] [iOS only]">
         Update
       </message>
+      <message name="IDS_IOS_TAB_GRID_DONE_BUTTON" desc="Title of the Done button in the tab grid UI. [iOS only]">
+        Done
+      </message>
+      <message name="IDS_IOS_TAB_GRID_CLOSE_ALL_BUTTON" desc="Title of the button in the tab grid UI that closes all the tabs in the grid. [iOS only]">
+        Close All
+      </message>
+      <message name="IDS_IOS_TAB_GRID_UNDO_CLOSE_ALL_BUTTON" desc="Title of the button in the tab grid UI that revert the close all action recently taken by the user. [iOS only]">
+        Undo
+      </message>
+      <message name="IDS_IOS_TAB_GRID_INCOGNITO_TABS_TITLE" desc="The accessibility label of the Incognito Tabs page in the tab grid UI. [iOS only]">
+        Incognito Tabs
+      </message>
+      <message name="IDS_IOS_TAB_GRID_REGULAR_TABS_TITLE" desc="The accessibility label of the Regular Tabs page (as opposed to the Incognito Tabs page) in the tab grid UI. [iOS only]">
+        Open Tabs
+      </message>
+      <message name="IDS_IOS_TAB_GRID_REMOTE_TABS_TITLE" desc="The accessibility label of the Remote Tabs page in the tab grid UI. [iOS only]">
+        Tabs from other devices
+      </message>
+      <message name="IDS_IOS_TAB_GRID_INCOGNITO_TABS_EMPTY_STATE_TITLE" desc="Title shown in the Incognito Tabs page when the grid is empty. [iOS only]">
+        No Incognito Tabs
+      </message>
+      <message name="IDS_IOS_TAB_GRID_REGULAR_TABS_EMPTY_STATE_TITLE" desc="Title shown in the Regular Tabs page (as opposed to the Incognito Tabs page) when the grid is empty. [iOS only]">
+        No Open Tabs
+      </message>
+      <message name="IDS_IOS_TAB_GRID_INCOGNITO_TABS_EMPTY_STATE_BODY" desc="Text body shown in the Incognito Tabs page when the grid is empty, explaining that the user can open a new tab. [iOS only]">
+        Open a tab to browse the web privately.
+      </message>
+      <message name="IDS_IOS_TAB_GRID_REGULAR_TABS_EMPTY_STATE_BODY" desc="Text body shown in the Regular Tabs page (as opposed to the Incognito Tabs page) when the grid is empty, explaining that the user can open a new tab. [iOS only]">
+        Open a tab to browse the web.
+      </message>
+      <message name="IDS_IOS_TAB_GRID_CREATE_NEW_INCOGNITO_TAB" desc="The accessibility label for the button that creates new incognito tabs. [iOS only]">
+        Create new incognito tab.
+      </message>
+      <message name="IDS_IOS_TAB_GRID_CREATE_NEW_TAB" desc="The accessibility label for the button that creates new regular tabs (as opposed to incognito tabs). [iOS only]">
+        Create new tab.
+      </message>
       <message name="IDS_IOS_TAB_STRIP_ENTER_TAB_SWITCHER" desc="The accessibility label of the tab strip button to enter the tab switcher. The tab switcher is a view showing the opened tabs, and allows users to switch, close, and open new tabs. [iOS only]">
         Enter Tab Switcher
       </message>
@@ -1496,6 +1556,9 @@ Your data was encrypted with your sync passphrase on <ph name="TIME">$2<ex>Sept 
       <message name="IDS_IOS_TOOLS_MENU" desc="The accessibility label for the iOS tools menu [iOS only]">
         Tools Menu
       </message>
+      <message name="IDS_IOS_TOOLS_MENU_ADD_TO_BOOKMARKS" desc="The iOS menu item for adding the current page to the bookmarks [Length: 15em] [iOS only]">
+        Bookmark
+      </message>
       <message name="IDS_IOS_TOOLS_MENU_BOOKMARKS" desc="The iOS menu item for opening the bookmarks manager [Length: 15em] [iOS only]">
         Bookmarks
       </message>
@@ -1520,6 +1583,9 @@ Your data was encrypted with your sync passphrase on <ph name="TIME">$2<ex>Sept 
       <message name="IDS_IOS_TOOLS_MENU_HELP_URL" translateable="false">
         https://support.google.com/chrome/?p=chrome_help&amp;hl=[GRITLANGCODE]
       </message>
+      <message name="IDS_IOS_TOOLS_MENU_HISTORY" desc="The Tools menu item for opening the navigation history menu">
+        History
+      </message>
       <message name="IDS_IOS_TOOLS_MENU_NEW_INCOGNITO_TAB" desc="The iOS menu item for opening a new incognito tab [Length: 15em] [iOS only]" meaning="Tools menu entry to create a new Incognito tab.">
         New Incognito Tab
       </message>
@@ -1532,6 +1598,9 @@ Your data was encrypted with your sync passphrase on <ph name="TIME">$2<ex>Sept 
       <message name="IDS_IOS_TOOLS_MENU_RECENT_TABS" desc="The iOS menu item for opening the panel showing the recently closed tabs and the tabs from other devices. [Length: 15em]" meaning="[In Title case] [iOS only]">
         Recent Tabs
       </message>
+      <message name="IDS_IOS_TOOLS_MENU_RELOAD" desc="The title of the button in the menu allowing the user to reload the page.">
+        Reload
+      </message>
       <message name="IDS_IOS_TOOLS_MENU_REQUEST_DESKTOP_SITE" desc="The iOS menu item for requesting the desktop site [Length: 15em] [iOS only]">
         Request Desktop Site
       </message>
@@ -1543,6 +1612,12 @@ Your data was encrypted with your sync passphrase on <ph name="TIME">$2<ex>Sept 
       </message>
       <message name="IDS_IOS_TOOLS_MENU_SHARE" desc="The iOS menu item for sharing the current URL [Length: 15em] [iOS only]">
         Share...
+      </message>
+      <message name="IDS_IOS_TOOLS_MENU_SITE_INFORMATION" desc="The iOS menu item for getting the site informations.">
+        Site Information
+      </message>
+      <message name="IDS_IOS_TOOLS_MENU_STOP" desc="The iOS menu item for stoping the loading of the page.">
+        Stop
       </message>
       <message name="IDS_IOS_TRANSLATE_SETTING" desc="Title for the view and option in Settings for Translate. [Length: 25em] [iOS only]">
         Google Translate

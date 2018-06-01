@@ -137,6 +137,7 @@ Contohnya, sesetengah tapak web mungkin menyambut permintaan ini dengan memapark
 <translation id="3393920035788932672">Pop Timbul Dibenarkn</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> min</translation>
 <translation id="3448016392200048164">Paparan Pisah</translation>
+<translation id="3469166899695866866">Hentikan Muat Turun?</translation>
 <translation id="3474624961160222204">Teruskan sebagai <ph name="NAME" /></translation>
 <translation id="3474649192738347024">Borang diisi.</translation>
 <translation id="3478058380795961209">Bulan Tamat Tempoh</translation>
@@ -159,6 +160,7 @@ Contohnya, sesetengah tapak web mungkin menyambut permintaan ini dengan memapark
 <translation id="3789841737615482174">Pasang</translation>
 <translation id="385051799172605136">Kembali</translation>
 <translation id="3897092660631435901">Menu</translation>
+<translation id="3915450441834151894">Maklumat Tapak</translation>
 <translation id="3928666092801078803">Gabungkan data saya</translation>
 <translation id="3950820424414687140">Log masuk</translation>
 <translation id="3963231839620026525">Tab Inkognito Baharu</translation>
@@ -167,6 +169,7 @@ Contohnya, sesetengah tapak web mungkin menyambut permintaan ini dengan memapark
 <translation id="4002066346123236978">Tajuk</translation>
 <translation id="4038354071007134711">Tiada aplikasi pada peranti ini yang dapat membuka fail itu.</translation>
 <translation id="4049507953662678203">Pastikan anda mempunyai sambungan rangkaian dan cuba lagi.</translation>
+<translation id="4084682180776658562">Penanda halaman</translation>
 <translation id="411254640334432676">Muat turun gagal.</translation>
 <translation id="4121993058175073134">Tetapkn akaun e-mel anda dahulu dlm apl Tetapan utk mhantar data net-eksport.</translation>
 <translation id="4124987746317609294">Julat Masa</translation>
@@ -191,6 +194,7 @@ Contohnya, sesetengah tapak web mungkin menyambut permintaan ini dengan memapark
 <translation id="4536418791685807335">Cuba log masuk semula.</translation>
 <translation id="457386861538956877">Lagi...</translation>
 <translation id="461440297010471931">Mencari dengan Google</translation>
+<translation id="4619615317237390068">Tab daripada peranti lain</translation>
 <translation id="4620246317052452550">Halaman yang Anda Baca</translation>
 <translation id="4636930964841734540">Maklumat</translation>
 <translation id="4659667755519643272">Masuk ke Penukar Tab</translation>
@@ -221,6 +225,7 @@ Data anda disulitkan dengan ungkapan laluan segerak anda. Masukkannya untuk memu
 <translation id="5197255632782567636">Internet</translation>
 <translation id="5228579091201413441">Dayakan penyegerakan</translation>
 <translation id="5244474230056479698">Menyegerak ke <ph name="EMAIL" /></translation>
+<translation id="527973086555161537">Buka tab untuk menyemak imbas web secara sulit.</translation>
 <translation id="5300589172476337783">Paparkan</translation>
 <translation id="5317780077021120954">Simpan</translation>
 <translation id="5327248766486351172">Nama</translation>
@@ -319,6 +324,7 @@ Data anda disulitkan dengan ungkapan laluan segerak anda pada <ph name="TIME" />
 <translation id="6914783257214138813">Kata laluan anda akan kelihatan kepada sesiapa yang dapat melihat fail yang dieksport.</translation>
 <translation id="6945221475159498467">Pilih</translation>
 <translation id="6973630695168034713">Folder</translation>
+<translation id="6979158407327259162">Google Drive</translation>
 <translation id="7004499039102548441">Tab Terbaharu</translation>
 <translation id="7006788746334555276">Tetapan Kandungan</translation>
 <translation id="7029809446516969842">Kata laluan</translation>
@@ -370,16 +376,20 @@ Data anda disulitkan dengan ungkapan laluan segerak anda pada <ph name="TIME" />
 <translation id="7971521879845308059">Sekat P/Timbul</translation>
 <translation id="7982789257301363584">Rangkaian</translation>
 <translation id="8019783059653722575">Langkah ini membolehkan anda menyimpan dan memuat naik foto.</translation>
+<translation id="802154636333426148">Muat turun gagal</translation>
 <translation id="8023878949384262191">Mengembangkan bahagian.</translation>
 <translation id="8059533439631660104">Meruntuhkan bahagian.</translation>
 <translation id="806745655614357130">Biarkan data saya diasingkan</translation>
+<translation id="8073670137947914548">Muat turun selesai</translation>
 <translation id="8076014560081431679">Tetapan tapak yang disimpan tidak akan dipadamkan dan mungkin mencerminkan tabiat semak imbas anda. <ph name="BEGIN_LINK" />Ketahui lebih lanjut<ph name="END_LINK" /></translation>
 <translation id="8080028325999236607">Tutup Semua Tab</translation>
+<translation id="8114753159095730575">Muat turun fail tersedia. Pilihan tersedia di bahagian bawah skrin.</translation>
 <translation id="8205564605687841303">Batal</translation>
 <translation id="8225985093977202398">Imej dan Fail Dicache</translation>
 <translation id="8261506727792406068">Padam</translation>
 <translation id="8272426682713568063">Kad Kredit</translation>
 <translation id="8281781826761538115">Lalai - <ph name="DEFAULT_LOCALE" /></translation>
+<translation id="8328777765163860529">Tutup Semua</translation>
 <translation id="8381750437846184350">Kawal cara Google menggunakan sejarah penyemakan imbas anda untuk memperibadikan Carian, iklan dan perkhidmatan Google yang lain</translation>
 <translation id="842017693807136194">Dilog Masuk dengan</translation>
 <translation id="8428045167754449968">Bandar / Pekan</translation>
@@ -422,7 +432,6 @@ Data anda disulitkan dengan ungkapan laluan segerak anda pada <ph name="TIME" />
 <translation id="9083392325882095631">1 item</translation>
 <translation id="9100610230175265781">Frasa laluan diperlukan</translation>
 <translation id="9148126808321036104">Log masuk semula</translation>
-<translation id="915371508759614899">Batalkan Muat Turun?</translation>
 <translation id="9157836665414082580">Sekat Dialog</translation>
 <translation id="9188680907066685419">Log keluar daripada akaun terurus</translation>
 <translation id="9203116392574189331">Serah</translation>

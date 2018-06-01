@@ -122,15 +122,15 @@ class StaleHostResolverTest : public testing::Test {
     net::HostResolverImpl::ProcTaskParams proc_params(mock_proc_.get(), 1u);
     inner_resolver->set_proc_params_for_test(proc_params);
 
-    stale_resolver_ = base::WrapUnique(
-        new StaleHostResolver(std::move(inner_resolver), options_));
+    stale_resolver_ = std::make_unique<StaleHostResolver>(
+        std::move(inner_resolver), options_);
     resolver_ = stale_resolver_.get();
   }
 
   void DestroyResolver() {
     DCHECK(stale_resolver_);
 
-    stale_resolver_.reset();
+    stale_resolver_ = nullptr;
     resolver_ = nullptr;
   }
 
@@ -241,7 +241,7 @@ class StaleHostResolverTest : public testing::Test {
     DCHECK(resolver_);
     EXPECT_TRUE(resolve_pending_);
 
-    delete request_.release();
+    request_ = nullptr;
 
     resolve_pending_ = false;
   }
@@ -249,7 +249,7 @@ class StaleHostResolverTest : public testing::Test {
   void OnResolveComplete(int error) {
     EXPECT_TRUE(resolve_pending_);
 
-    request_.reset();
+    request_ = nullptr;
 
     resolve_error_ = error;
     resolve_pending_ = false;
@@ -379,9 +379,11 @@ TEST_F(StaleHostResolverTest, CancelWithStaleCache) {
 // CancelWithFreshCache makes no sense; the request would've returned
 // synchronously.
 
-// Limited expired time cases are flaky under iOS (crbug.com/792173).
+// Limited expired time cases are flaky under iOS and MACOS (crbug.com/792173).
 // Disallow other networks cases fail under Fuchsia (crbug.com/816143).
-#if defined(OS_IOS) || defined(OS_FUCHSIA)
+// TODO(https://crbug.com/829097): Fix memory leaks and re-enable under ASAN.
+#if defined(OS_IOS) || defined(OS_FUCHSIA) || defined(OS_MACOSX) || \
+    defined(ADDRESS_SANITIZER)
 #define MAYBE_StaleUsability DISABLED_StaleUsability
 #else
 #define MAYBE_StaleUsability StaleUsability
@@ -483,6 +485,8 @@ TEST_F(StaleHostResolverTest, MAYBE_StaleUsability) {
   }
 }
 
+#if !defined(ADDRESS_SANITIZER)
+// TODO(https://crbug.com/829097): Fix memory leaks and re-enable under ASAN.
 TEST_F(StaleHostResolverTest, CreatedByContext) {
   URLRequestContextConfig config(
       // Enable QUIC.
@@ -525,8 +529,9 @@ TEST_F(StaleHostResolverTest, CreatedByContext) {
   net::NetLog net_log;
   config.ConfigureURLRequestContextBuilder(&builder, &net_log);
   // Set a ProxyConfigService to avoid DCHECK failure when building.
-  builder.set_proxy_config_service(base::WrapUnique(
-      new net::ProxyConfigServiceFixed(net::ProxyConfig::CreateDirect())));
+  builder.set_proxy_config_service(
+      base::WrapUnique(new net::ProxyConfigServiceFixed(
+          net::ProxyConfigWithAnnotation::CreateDirect())));
   std::unique_ptr<net::URLRequestContext> context(builder.Build());
 
   // Duplicate StaleCache test case to ensure StaleHostResolver was created:
@@ -544,6 +549,7 @@ TEST_F(StaleHostResolverTest, CreatedByContext) {
   EXPECT_EQ(1u, resolve_addresses().size());
   EXPECT_EQ(kCacheAddress, resolve_addresses()[0].ToStringWithoutPort());
 }
+#endif  // !defined(ADDRESS_SANITIZER)
 
 }  // namespace
 

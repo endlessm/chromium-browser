@@ -33,7 +33,7 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/install_flag.h"
 #include "extensions/common/manifest_constants.h"
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
 
 namespace {
 const char kExtensionId1[] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -48,6 +48,8 @@ class ExtensionGarbageCollectorChromeOSUnitTest
   const base::FilePath& cache_dir() { return cache_dir_.GetPath(); }
 
   void SetUp() override {
+    ExtensionServiceTestBase::SetUp();
+
 #if BUILDFLAG(ENABLE_PLUGINS)
     content::PluginService::GetInstance()->Init();
 #endif

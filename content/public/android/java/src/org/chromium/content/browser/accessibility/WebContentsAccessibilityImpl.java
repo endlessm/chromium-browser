@@ -32,12 +32,12 @@ import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.content.browser.RenderCoordinates;
 import org.chromium.content.browser.WindowEventObserver;
+import org.chromium.content.browser.accessibility.captioning.CaptioningController;
 import org.chromium.content.browser.webcontents.WebContentsImpl;
-import org.chromium.content.browser.webcontents.WebContentsUserData;
-import org.chromium.content.browser.webcontents.WebContentsUserData.UserDataFactory;
 import org.chromium.content_public.browser.AccessibilitySnapshotCallback;
 import org.chromium.content_public.browser.AccessibilitySnapshotNode;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.content_public.browser.WebContents.UserDataFactory;
 import org.chromium.content_public.browser.WebContentsAccessibility;
 
 import java.util.ArrayList;
@@ -97,6 +97,7 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProvider
     protected int mSelectionNodeId;
     private Runnable mSendWindowContentChangedRunnable;
     private View mAutofillPopupView;
+    private CaptioningController mCaptioningController;
 
     // Whether native accessibility is allowed.
     private boolean mNativeAccessibilityAllowed;
@@ -140,7 +141,7 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProvider
 
     public static WebContentsAccessibilityImpl create(Context context, ViewGroup containerView,
             WebContents webContents, String productVersion) {
-        WebContentsAccessibilityImpl wcax = WebContentsUserData.fromWebContents(webContents,
+        WebContentsAccessibilityImpl wcax = webContents.getOrSetUserData(
                 WebContentsAccessibilityImpl.class, UserDataFactoryLazyHolder.INSTANCE);
         assert wcax != null && !wcax.initialized();
         wcax.init(context, containerView, productVersion);
@@ -148,8 +149,7 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProvider
     }
 
     public static WebContentsAccessibilityImpl fromWebContents(WebContents webContents) {
-        return WebContentsUserData.fromWebContents(
-                webContents, WebContentsAccessibilityImpl.class, null);
+        return webContents.getOrSetUserData(WebContentsAccessibilityImpl.class, null);
     }
 
     protected WebContentsAccessibilityImpl(WebContents webContents) {
@@ -162,6 +162,8 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProvider
         mProductVersion = productVersion;
         mAccessibilityManager =
                 (AccessibilityManager) mContext.getSystemService(Context.ACCESSIBILITY_SERVICE);
+        mCaptioningController = new CaptioningController(mWebContents, mContext);
+
         mInitialized = true;
         // Native is initialized lazily, when node provider is actually requested.
     }
@@ -205,12 +207,14 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProvider
     @Override
     public void onDetachedFromWindow() {
         mAccessibilityManager.removeAccessibilityStateChangeListener(this);
+        mCaptioningController.stopListening();
     }
 
     @Override
     public void onAttachedToWindow() {
         mAccessibilityManager.addAccessibilityStateChangeListener(this);
         refreshState();
+        mCaptioningController.startListening();
     }
 
     /**
@@ -432,9 +436,11 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProvider
                 }
                 return true;
             case AccessibilityNodeInfo.ACTION_CLICK:
+                if (!mView.hasFocus()) mView.requestFocus();
                 nativeClick(mNativeObj, virtualViewId);
                 return true;
             case AccessibilityNodeInfo.ACTION_FOCUS:
+                if (!mView.hasFocus()) mView.requestFocus();
                 nativeFocus(mNativeObj, virtualViewId);
                 return true;
             case AccessibilityNodeInfo.ACTION_CLEAR_FOCUS:

@@ -14,10 +14,9 @@ import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.content.browser.PopupZoomer.OnTapListener;
 import org.chromium.content.browser.PopupZoomer.OnVisibilityChangedListener;
-import org.chromium.content.browser.webcontents.WebContentsUserData;
-import org.chromium.content.browser.webcontents.WebContentsUserData.UserDataFactory;
 import org.chromium.content_public.browser.ImeEventObserver;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.content_public.browser.WebContents.UserDataFactory;
 
 /**
  * Class that handles tap disambiguation feature.  When a tap lands ambiguously
@@ -26,7 +25,7 @@ import org.chromium.content_public.browser.WebContents;
  * must re-tap the magnified content in order to clarify their intent.
  */
 @JNINamespace("content")
-public class TapDisambiguator implements ImeEventObserver {
+public class TapDisambiguator implements ImeEventObserver, PopupController.HideablePopup {
     private final WebContents mWebContents;
     private PopupZoomer mPopupView;
     private boolean mInitialized;
@@ -38,8 +37,8 @@ public class TapDisambiguator implements ImeEventObserver {
 
     public static TapDisambiguator create(
             Context context, WebContents webContents, ViewGroup containerView) {
-        TapDisambiguator tabDismabiguator = WebContentsUserData.fromWebContents(
-                webContents, TapDisambiguator.class, UserDataFactoryLazyHolder.INSTANCE);
+        TapDisambiguator tabDismabiguator = webContents.getOrSetUserData(
+                TapDisambiguator.class, UserDataFactoryLazyHolder.INSTANCE);
         assert tabDismabiguator != null;
         assert !tabDismabiguator.initialized();
 
@@ -48,7 +47,7 @@ public class TapDisambiguator implements ImeEventObserver {
     }
 
     public static TapDisambiguator fromWebContents(WebContents webContents) {
-        return WebContentsUserData.fromWebContents(webContents, TapDisambiguator.class, null);
+        return webContents.getOrSetUserData(TapDisambiguator.class, null);
     }
 
     /**
@@ -100,6 +99,7 @@ public class TapDisambiguator implements ImeEventObserver {
         };
         mPopupView = new PopupZoomer(context, containerView, visibilityListener, tapListener);
         mNativeTapDisambiguator = nativeInit(mWebContents);
+        PopupController.register(mWebContents, this);
         mInitialized = true;
     }
 
@@ -112,6 +112,13 @@ public class TapDisambiguator implements ImeEventObserver {
     @Override
     public void onImeEvent() {
         hidePopup(true);
+    }
+
+    // HideablePopup
+
+    @Override
+    public void hide() {
+        hidePopup(false);
     }
 
     /**

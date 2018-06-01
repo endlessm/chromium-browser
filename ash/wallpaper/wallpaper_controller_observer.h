@@ -12,15 +12,17 @@ namespace ash {
 class ASH_EXPORT WallpaperControllerObserver {
  public:
   // Invoked when the wallpaper data is changed.
+  // TODO(wzang): Remove this.
   virtual void OnWallpaperDataChanged() = 0;
 
-  // Invoked when the colors extracted from the current wallpaper change. May
-  // be called as a side effect of changing the wallpaper on the
-  // WallpaperController, e.g. WallpaperController::SetWallpaperImage().
+  // Invoked when the colors extracted from the current wallpaper change.
   virtual void OnWallpaperColorsChanged() {}
 
   // Invoked when the blur state of the wallpaper changes.
   virtual void OnWallpaperBlurChanged() {}
+
+  // Invoked when the wallpaper preview mode starts.
+  virtual void OnWallpaperPreviewStarted() {}
 
  protected:
   virtual ~WallpaperControllerObserver() {}

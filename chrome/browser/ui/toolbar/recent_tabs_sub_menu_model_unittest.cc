@@ -113,14 +113,6 @@ class TestRecentTabsMenuModelDelegate : public ui::MenuModelDelegate {
   DISALLOW_COPY_AND_ASSIGN(TestRecentTabsMenuModelDelegate);
 };
 
-class DummyRouter : public sync_sessions::LocalSessionEventRouter {
- public:
-  ~DummyRouter() override {}
-  void StartRoutingTo(
-      sync_sessions::LocalSessionEventHandler* handler) override {}
-  void Stop() override {}
-};
-
 class FakeSyncServiceObserverList {
  public:
   FakeSyncServiceObserverList() {}
@@ -185,7 +177,7 @@ class RecentTabsSubMenuModelTest
 
     manager_ = std::make_unique<sync_sessions::SessionsSyncManager>(
         mock_sync_service_->GetSyncClient()->GetSyncSessionsClient(),
-        sync_prefs_.get(), local_device_.get(), &dummy_router_,
+        sync_prefs_.get(), local_device_.get(),
         base::Bind(&FakeSyncServiceObserverList::NotifyForeignSessionUpdated,
                    base::Unretained(&fake_sync_service_observer_list_)));
 
@@ -256,7 +248,6 @@ class RecentTabsSubMenuModelTest
       will_create_browser_context_services_subscription_;
 
   std::unique_ptr<syncer::LocalDeviceInfoProviderMock> local_device_;
-  DummyRouter dummy_router_;
   std::unique_ptr<syncer::SyncPrefs> sync_prefs_;
   FakeSyncServiceObserverList fake_sync_service_observer_list_;
   browser_sync::ProfileSyncServiceMock* mock_sync_service_ = nullptr;
@@ -381,8 +372,8 @@ TEST_F(RecentTabsSubMenuModelTest,
   SessionService* session_service = new SessionService(profile());
   SessionServiceFactory::SetForTestProfile(profile(),
                                            base::WrapUnique(session_service));
-  SessionID tab_id;
-  SessionID window_id;
+  SessionID tab_id = SessionID::FromSerializedValue(1);
+  SessionID window_id = SessionID::FromSerializedValue(2);
   session_service->SetWindowType(window_id,
                                  Browser::TYPE_TABBED,
                                  SessionService::TYPE_NORMAL);

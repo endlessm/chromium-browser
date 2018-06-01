@@ -39,6 +39,7 @@ class LoadingDataCollectorTest : public testing::Test {
   }
 
   void SetUp() override {
+    LoadingDataCollector::SetAllowPortInUrlsForTesting(false);
     content::RunAllTasksUntilIdle();  // Runs the DB lookup.
 
     url_request_job_factory_.Reset();
@@ -68,14 +69,12 @@ TEST_F(LoadingDataCollectorTest, SummarizeResponse) {
                        content::RESOURCE_TYPE_IMAGE, true);
   URLRequestSummary summary;
   EXPECT_TRUE(URLRequestSummary::SummarizeResponse(*request, &summary));
-  EXPECT_EQ(url, summary.resource_url);
+  EXPECT_EQ(url, summary.request_url);
   EXPECT_EQ(content::RESOURCE_TYPE_IMAGE, summary.resource_type);
-  EXPECT_TRUE(summary.was_cached);
-  EXPECT_FALSE(summary.has_validators);
   EXPECT_FALSE(summary.always_revalidate);
 
   // Navigation_id elements should be unset by default.
-  EXPECT_EQ(-1, summary.navigation_id.tab_id);
+  EXPECT_FALSE(summary.navigation_id.tab_id.is_valid());
   EXPECT_EQ(GURL(), summary.navigation_id.main_frame_url);
 }
 
@@ -110,7 +109,6 @@ TEST_F(LoadingDataCollectorTest, SummarizeResponseCachePolicy) {
   URLRequestSummary summary;
   EXPECT_TRUE(
       URLRequestSummary::SummarizeResponse(*request_no_validators, &summary));
-  EXPECT_FALSE(summary.has_validators);
 
   response_info.headers = MakeResponseHeaders(
       "HTTP/1.1 200 OK\n"
@@ -121,37 +119,7 @@ TEST_F(LoadingDataCollectorTest, SummarizeResponseCachePolicy) {
       url_request_context_, GURL("http://www.google.com/cat.png"), net::MEDIUM,
       content::RESOURCE_TYPE_PREFETCH, true);
   EXPECT_TRUE(URLRequestSummary::SummarizeResponse(*request_etag, &summary));
-  EXPECT_TRUE(summary.has_validators);
   EXPECT_TRUE(summary.always_revalidate);
-}
-
-TEST_F(LoadingDataCollectorTest, SummarizeResponseConnectDuration) {
-  net::HttpResponseInfo response_info;
-  response_info.headers =
-      MakeResponseHeaders("HTTP/1.1 200 OK\n\nSome: Headers\n");
-  url_request_job_factory_.set_response_info(response_info);
-
-  net::LoadTimingInfo load_timing_info;
-  // These times must be after request start in CreateURLRequest().
-  auto block_on_connect =
-      base::TimeTicks::Now() + base::TimeDelta::FromSeconds(1);
-  load_timing_info.connect_timing.dns_start = block_on_connect;
-  load_timing_info.connect_timing.dns_end =
-      block_on_connect + base::TimeDelta::FromMilliseconds(100);
-  load_timing_info.connect_timing.connect_start =
-      block_on_connect + base::TimeDelta::FromMilliseconds(500);
-  load_timing_info.connect_timing.connect_end =
-      block_on_connect + base::TimeDelta::FromMilliseconds(700);
-  url_request_job_factory_.set_load_timing_info(load_timing_info);
-
-  GURL url("http://www.google.com/cat.png");
-  std::unique_ptr<net::URLRequest> request =
-      CreateURLRequest(url_request_context_, url, net::MEDIUM,
-                       content::RESOURCE_TYPE_IMAGE, true);
-
-  URLRequestSummary summary;
-  EXPECT_TRUE(URLRequestSummary::SummarizeResponse(*request, &summary));
-  EXPECT_EQ(base::TimeDelta::FromMilliseconds(300), summary.connect_duration);
 }
 
 TEST_F(LoadingDataCollectorTest, HandledResourceTypes) {
@@ -390,52 +358,53 @@ TEST_F(LoadingDataCollectorTest, ShouldRecordResourceFromMemoryCache) {
 // Single navigation that will be recorded. Will check for duplicate
 // resources and also for number of resources saved.
 TEST_F(LoadingDataCollectorTest, SimpleNavigation) {
+  const SessionID kTabId = SessionID::FromSerializedValue(1);
   URLRequestSummary main_frame =
-      CreateURLRequestSummary(1, "http://www.google.com");
+      CreateURLRequestSummary(kTabId, "http://www.google.com");
   collector_->RecordURLRequest(main_frame);
   collector_->RecordURLResponse(main_frame);
   EXPECT_EQ(1U, collector_->inflight_navigations_.size());
 
   std::vector<URLRequestSummary> resources;
   resources.push_back(CreateURLRequestSummary(
-      1, "http://www.google.com", "http://google.com/style1.css",
-      content::RESOURCE_TYPE_STYLESHEET, net::MEDIUM, "text/css", false));
+      kTabId, "http://www.google.com", "http://google.com/style1.css",
+      content::RESOURCE_TYPE_STYLESHEET));
+  collector_->RecordURLResponse(resources.back());
+  resources.push_back(CreateURLRequestSummary(kTabId, "http://www.google.com",
+                                              "http://google.com/script1.js",
+                                              content::RESOURCE_TYPE_SCRIPT));
+  collector_->RecordURLResponse(resources.back());
+  resources.push_back(CreateURLRequestSummary(kTabId, "http://www.google.com",
+                                              "http://google.com/script2.js",
+                                              content::RESOURCE_TYPE_SCRIPT));
+  collector_->RecordURLResponse(resources.back());
+  resources.push_back(CreateURLRequestSummary(kTabId, "http://www.google.com",
+                                              "http://google.com/script1.js",
+                                              content::RESOURCE_TYPE_SCRIPT));
+  collector_->RecordURLResponse(resources.back());
+  resources.push_back(CreateURLRequestSummary(kTabId, "http://www.google.com",
+                                              "http://google.com/image1.png",
+                                              content::RESOURCE_TYPE_IMAGE));
+  collector_->RecordURLResponse(resources.back());
+  resources.push_back(CreateURLRequestSummary(kTabId, "http://www.google.com",
+                                              "http://google.com/image2.png",
+                                              content::RESOURCE_TYPE_IMAGE));
   collector_->RecordURLResponse(resources.back());
   resources.push_back(CreateURLRequestSummary(
-      1, "http://www.google.com", "http://google.com/script1.js",
-      content::RESOURCE_TYPE_SCRIPT, net::MEDIUM, "text/javascript", false));
-  collector_->RecordURLResponse(resources.back());
-  resources.push_back(CreateURLRequestSummary(
-      1, "http://www.google.com", "http://google.com/script2.js",
-      content::RESOURCE_TYPE_SCRIPT, net::MEDIUM, "text/javascript", false));
-  collector_->RecordURLResponse(resources.back());
-  resources.push_back(CreateURLRequestSummary(
-      1, "http://www.google.com", "http://google.com/script1.js",
-      content::RESOURCE_TYPE_SCRIPT, net::MEDIUM, "text/javascript", true));
-  collector_->RecordURLResponse(resources.back());
-  resources.push_back(CreateURLRequestSummary(
-      1, "http://www.google.com", "http://google.com/image1.png",
-      content::RESOURCE_TYPE_IMAGE, net::MEDIUM, "image/png", false));
-  collector_->RecordURLResponse(resources.back());
-  resources.push_back(CreateURLRequestSummary(
-      1, "http://www.google.com", "http://google.com/image2.png",
-      content::RESOURCE_TYPE_IMAGE, net::MEDIUM, "image/png", false));
-  collector_->RecordURLResponse(resources.back());
-  resources.push_back(CreateURLRequestSummary(
-      1, "http://www.google.com", "http://google.com/style2.css",
-      content::RESOURCE_TYPE_STYLESHEET, net::MEDIUM, "text/css", true));
+      kTabId, "http://www.google.com", "http://google.com/style2.css",
+      content::RESOURCE_TYPE_STYLESHEET));
   collector_->RecordURLResponse(resources.back());
 
-  auto no_store = CreateURLRequestSummary(
-      1, "http://www.google.com",
-      "http://static.google.com/style2-no-store.css",
-      content::RESOURCE_TYPE_STYLESHEET, net::MEDIUM, "text/css", true);
+  auto no_store =
+      CreateURLRequestSummary(kTabId, "http://www.google.com",
+                              "http://static.google.com/style2-no-store.css",
+                              content::RESOURCE_TYPE_STYLESHEET);
   no_store.is_no_store = true;
   collector_->RecordURLResponse(no_store);
 
   auto redirected = CreateURLRequestSummary(
-      1, "http://www.google.com", "http://reader.google.com/style.css",
-      content::RESOURCE_TYPE_STYLESHEET, net::MEDIUM, "text/css", true);
+      kTabId, "http://www.google.com", "http://reader.google.com/style.css",
+      content::RESOURCE_TYPE_STYLESHEET);
   redirected.redirect_url = GURL("http://dev.null.google.com/style.css");
   collector_->RecordURLRedirect(redirected);
 
@@ -457,18 +426,20 @@ TEST_F(LoadingDataCollectorTest, SimpleNavigation) {
 }
 
 TEST_F(LoadingDataCollectorTest, SimpleRedirect) {
-  URLRequestSummary fb1 = CreateURLRequestSummary(1, "http://fb.com/google");
+  const SessionID kTabId = SessionID::FromSerializedValue(1);
+  URLRequestSummary fb1 =
+      CreateURLRequestSummary(kTabId, "http://fb.com/google");
   collector_->RecordURLRequest(fb1);
   EXPECT_EQ(1U, collector_->inflight_navigations_.size());
 
   URLRequestSummary fb2 = CreateRedirectRequestSummary(
-      1, "http://fb.com/google", "http://facebook.com/google");
+      kTabId, "http://fb.com/google", "http://facebook.com/google");
   collector_->RecordURLRedirect(fb2);
   URLRequestSummary fb3 = CreateRedirectRequestSummary(
-      1, "http://facebook.com/google", "https://facebook.com/google");
+      kTabId, "http://facebook.com/google", "https://facebook.com/google");
   collector_->RecordURLRedirect(fb3);
   URLRequestSummary fb4 =
-      CreateURLRequestSummary(1, "https://facebook.com/google");
+      CreateURLRequestSummary(kTabId, "https://facebook.com/google");
   collector_->RecordURLResponse(fb4);
 
   EXPECT_CALL(
@@ -481,15 +452,20 @@ TEST_F(LoadingDataCollectorTest, SimpleRedirect) {
 }
 
 TEST_F(LoadingDataCollectorTest, OnMainFrameRequest) {
+  const SessionID kTabId1 = SessionID::FromSerializedValue(1);
+  const SessionID kTabId2 = SessionID::FromSerializedValue(2);
+  const SessionID kTabId3 = SessionID::FromSerializedValue(3);
+  const SessionID kTabId4 = SessionID::FromSerializedValue(4);
+
   URLRequestSummary summary1 = CreateURLRequestSummary(
-      1, "http://www.google.com", "http://www.google.com",
-      content::RESOURCE_TYPE_MAIN_FRAME, net::MEDIUM, std::string(), false);
+      kTabId1, "http://www.google.com", "http://www.google.com",
+      content::RESOURCE_TYPE_MAIN_FRAME);
   URLRequestSummary summary2 = CreateURLRequestSummary(
-      2, "http://www.google.com", "http://www.google.com",
-      content::RESOURCE_TYPE_MAIN_FRAME, net::MEDIUM, std::string(), false);
+      kTabId2, "http://www.google.com", "http://www.google.com",
+      content::RESOURCE_TYPE_MAIN_FRAME);
   URLRequestSummary summary3 = CreateURLRequestSummary(
-      3, "http://www.yahoo.com", "http://www.yahoo.com",
-      content::RESOURCE_TYPE_MAIN_FRAME, net::MEDIUM, std::string(), false);
+      kTabId3, "http://www.yahoo.com", "http://www.yahoo.com",
+      content::RESOURCE_TYPE_MAIN_FRAME);
 
   collector_->RecordURLRequest(summary1);
   EXPECT_EQ(1U, collector_->inflight_navigations_.size());
@@ -500,11 +476,11 @@ TEST_F(LoadingDataCollectorTest, OnMainFrameRequest) {
 
   // Insert another with same navigation id. It should replace.
   URLRequestSummary summary4 = CreateURLRequestSummary(
-      1, "http://www.nike.com", "http://www.nike.com",
-      content::RESOURCE_TYPE_MAIN_FRAME, net::MEDIUM, std::string(), false);
+      kTabId1, "http://www.nike.com", "http://www.nike.com",
+      content::RESOURCE_TYPE_MAIN_FRAME);
   URLRequestSummary summary5 = CreateURLRequestSummary(
-      2, "http://www.google.com", "http://www.google.com",
-      content::RESOURCE_TYPE_MAIN_FRAME, net::MEDIUM, std::string(), false);
+      kTabId2, "http://www.google.com", "http://www.google.com",
+      content::RESOURCE_TYPE_MAIN_FRAME);
 
   collector_->RecordURLRequest(summary4);
   EXPECT_EQ(3U, collector_->inflight_navigations_.size());
@@ -516,8 +492,8 @@ TEST_F(LoadingDataCollectorTest, OnMainFrameRequest) {
   EXPECT_EQ(3U, collector_->inflight_navigations_.size());
 
   URLRequestSummary summary6 = CreateURLRequestSummary(
-      4, "http://www.shoes.com", "http://www.shoes.com",
-      content::RESOURCE_TYPE_MAIN_FRAME, net::MEDIUM, std::string(), false);
+      kTabId4, "http://www.shoes.com", "http://www.shoes.com",
+      content::RESOURCE_TYPE_MAIN_FRAME);
   collector_->RecordURLRequest(summary6);
   EXPECT_EQ(3U, collector_->inflight_navigations_.size());
 
@@ -530,35 +506,43 @@ TEST_F(LoadingDataCollectorTest, OnMainFrameRequest) {
 }
 
 TEST_F(LoadingDataCollectorTest, OnMainFrameRedirect) {
-  URLRequestSummary yahoo = CreateURLRequestSummary(1, "http://yahoo.com");
+  const SessionID kTabId1 = SessionID::FromSerializedValue(1);
+  const SessionID kTabId2 = SessionID::FromSerializedValue(2);
+  const SessionID kTabId3 = SessionID::FromSerializedValue(3);
+  const SessionID kTabId4 = SessionID::FromSerializedValue(4);
+  const SessionID kTabId5 = SessionID::FromSerializedValue(5);
 
-  URLRequestSummary bbc1 = CreateURLRequestSummary(2, "http://bbc.com");
-  URLRequestSummary bbc2 =
-      CreateRedirectRequestSummary(2, "http://bbc.com", "https://www.bbc.com");
-  NavigationID bbc_end = CreateNavigationID(2, "https://www.bbc.com");
+  URLRequestSummary yahoo =
+      CreateURLRequestSummary(kTabId1, "http://yahoo.com");
 
-  URLRequestSummary youtube1 = CreateURLRequestSummary(3, "http://youtube.com");
+  URLRequestSummary bbc1 = CreateURLRequestSummary(kTabId2, "http://bbc.com");
+  URLRequestSummary bbc2 = CreateRedirectRequestSummary(
+      kTabId2, "http://bbc.com", "https://www.bbc.com");
+  NavigationID bbc_end = CreateNavigationID(kTabId2, "https://www.bbc.com");
+
+  URLRequestSummary youtube1 =
+      CreateURLRequestSummary(kTabId3, "http://youtube.com");
   URLRequestSummary youtube2 = CreateRedirectRequestSummary(
-      3, "http://youtube.com", "https://youtube.com");
-  NavigationID youtube_end = CreateNavigationID(3, "https://youtube.com");
+      kTabId3, "http://youtube.com", "https://youtube.com");
+  NavigationID youtube_end = CreateNavigationID(kTabId3, "https://youtube.com");
 
-  URLRequestSummary nyt1 = CreateURLRequestSummary(4, "http://nyt.com");
-  URLRequestSummary nyt2 =
-      CreateRedirectRequestSummary(4, "http://nyt.com", "http://nytimes.com");
-  URLRequestSummary nyt3 = CreateRedirectRequestSummary(4, "http://nytimes.com",
-                                                        "http://m.nytimes.com");
-  NavigationID nyt_end = CreateNavigationID(4, "http://m.nytimes.com");
+  URLRequestSummary nyt1 = CreateURLRequestSummary(kTabId4, "http://nyt.com");
+  URLRequestSummary nyt2 = CreateRedirectRequestSummary(
+      kTabId4, "http://nyt.com", "http://nytimes.com");
+  URLRequestSummary nyt3 = CreateRedirectRequestSummary(
+      kTabId4, "http://nytimes.com", "http://m.nytimes.com");
+  NavigationID nyt_end = CreateNavigationID(kTabId4, "http://m.nytimes.com");
 
-  URLRequestSummary fb1 = CreateURLRequestSummary(5, "http://fb.com");
-  URLRequestSummary fb2 =
-      CreateRedirectRequestSummary(5, "http://fb.com", "http://facebook.com");
-  URLRequestSummary fb3 = CreateRedirectRequestSummary(5, "http://facebook.com",
-                                                       "https://facebook.com");
+  URLRequestSummary fb1 = CreateURLRequestSummary(kTabId5, "http://fb.com");
+  URLRequestSummary fb2 = CreateRedirectRequestSummary(kTabId5, "http://fb.com",
+                                                       "http://facebook.com");
+  URLRequestSummary fb3 = CreateRedirectRequestSummary(
+      kTabId5, "http://facebook.com", "https://facebook.com");
   URLRequestSummary fb4 = CreateRedirectRequestSummary(
-      5, "https://facebook.com",
+      kTabId5, "https://facebook.com",
       "https://m.facebook.com/?refsrc=https%3A%2F%2Fwww.facebook.com%2F&_rdr");
   NavigationID fb_end = CreateNavigationID(
-      5,
+      kTabId5,
       "https://m.facebook.com/?refsrc=https%3A%2F%2Fwww.facebook.com%2F&_rdr");
 
   // Redirect with empty redirect_url will be deleted.
@@ -604,74 +588,33 @@ TEST_F(LoadingDataCollectorTest, OnMainFrameRedirect) {
 }
 
 TEST_F(LoadingDataCollectorTest, OnSubresourceResponse) {
+  const SessionID kTabId = SessionID::FromSerializedValue(1);
   // If there is no inflight navigation, nothing happens.
   URLRequestSummary resource1 = CreateURLRequestSummary(
-      1, "http://www.google.com", "http://google.com/style1.css",
-      content::RESOURCE_TYPE_STYLESHEET, net::MEDIUM, "text/css", false);
+      kTabId, "http://www.google.com", "http://google.com/style1.css",
+      content::RESOURCE_TYPE_STYLESHEET);
   collector_->RecordURLResponse(resource1);
   EXPECT_TRUE(collector_->inflight_navigations_.empty());
 
   // Add an inflight navigation.
   URLRequestSummary main_frame1 = CreateURLRequestSummary(
-      1, "http://www.google.com", "http://www.google.com",
-      content::RESOURCE_TYPE_MAIN_FRAME, net::MEDIUM, std::string(), false);
+      kTabId, "http://www.google.com", "http://www.google.com",
+      content::RESOURCE_TYPE_MAIN_FRAME);
   collector_->RecordURLRequest(main_frame1);
   EXPECT_EQ(1U, collector_->inflight_navigations_.size());
 
   // Now add a few subresources.
   URLRequestSummary resource2 = CreateURLRequestSummary(
-      1, "http://www.google.com", "http://google.com/script1.js",
-      content::RESOURCE_TYPE_SCRIPT, net::MEDIUM, "text/javascript", false);
+      kTabId, "http://www.google.com", "http://google.com/script1.js",
+      content::RESOURCE_TYPE_SCRIPT);
   URLRequestSummary resource3 = CreateURLRequestSummary(
-      1, "http://www.google.com", "http://google.com/script2.js",
-      content::RESOURCE_TYPE_SCRIPT, net::MEDIUM, "text/javascript", false);
+      kTabId, "http://www.google.com", "http://google.com/script2.js",
+      content::RESOURCE_TYPE_SCRIPT);
   collector_->RecordURLResponse(resource1);
   collector_->RecordURLResponse(resource2);
   collector_->RecordURLResponse(resource3);
 
   EXPECT_EQ(1U, collector_->inflight_navigations_.size());
-}
-
-TEST_F(LoadingDataCollectorTest, TestRecordFirstContentfulPaint) {
-  auto res1_time = base::TimeTicks::FromInternalValue(1);
-  auto res2_time = base::TimeTicks::FromInternalValue(2);
-  auto fcp_time = base::TimeTicks::FromInternalValue(3);
-  auto res3_time = base::TimeTicks::FromInternalValue(4);
-
-  URLRequestSummary main_frame =
-      CreateURLRequestSummary(1, "http://www.google.com");
-  collector_->RecordURLRequest(main_frame);
-  collector_->RecordURLResponse(main_frame);
-  EXPECT_EQ(1U, collector_->inflight_navigations_.size());
-
-  URLRequestSummary resource1 = CreateURLRequestSummary(
-      1, "http://www.google.com", "http://google.com/style1.css",
-      content::RESOURCE_TYPE_STYLESHEET, net::MEDIUM, "text/css", false);
-  resource1.response_time = res1_time;
-  collector_->RecordURLResponse(resource1);
-  URLRequestSummary resource2 = CreateURLRequestSummary(
-      1, "http://www.google.com", "http://google.com/script1.js",
-      content::RESOURCE_TYPE_SCRIPT, net::MEDIUM, "text/javascript", false);
-  resource2.response_time = res2_time;
-  collector_->RecordURLResponse(resource2);
-  URLRequestSummary resource3 = CreateURLRequestSummary(
-      1, "http://www.google.com", "http://google.com/script2.js",
-      content::RESOURCE_TYPE_SCRIPT, net::MEDIUM, "text/javascript", false);
-  resource3.response_time = res3_time;
-  collector_->RecordURLResponse(resource3);
-
-  collector_->RecordFirstContentfulPaint(main_frame.navigation_id, fcp_time);
-
-  // Since res3_time is after fcp_time, we expect this field to have been set to
-  // false before RecordPageRequestSummary is called.
-  resource3.before_first_contentful_paint = false;
-  EXPECT_CALL(
-      *mock_predictor_,
-      RecordPageRequestSummaryProxy(testing::Pointee(CreatePageRequestSummary(
-          "http://www.google.com", "http://www.google.com",
-          {resource1, resource2, resource3}))));
-
-  collector_->RecordMainFrameLoadComplete(main_frame.navigation_id);
 }
 
 }  // namespace predictors

@@ -549,7 +549,7 @@ class SuggestionView extends ViewGroup {
                 }
                 classifications.add(0, new MatchClassification(0, MatchClassificationStyle.NONE));
 
-                if (DeviceFormFactor.isTablet()) {
+                if (DeviceFormFactor.isNonMultiDisplayContextOnTablet(getContext())) {
                     TextPaint tp = mContentsView.mTextLine1.getPaint();
                     mContentsView.mRequiredWidth =
                             tp.measureText(fillIntoEdit, 0, fillIntoEdit.length());
@@ -771,7 +771,7 @@ class SuggestionView extends ViewGroup {
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
 
-            if (DeviceFormFactor.isTablet()) {
+            if (DeviceFormFactor.isNonMultiDisplayContextOnTablet(getContext())) {
                 // Use the same image transform matrix as the navigation icon to ensure the same
                 // scaling, which requires centering vertically based on the height of the
                 // navigation icon view and not the image itself.
@@ -857,7 +857,7 @@ class SuggestionView extends ViewGroup {
 
             // Align the text to be pixel perfectly aligned with the text in the url bar.
             boolean isRTL = ApiCompatibilityUtils.isLayoutRtl(this);
-            if (DeviceFormFactor.isTablet()) {
+            if (DeviceFormFactor.isNonMultiDisplayContextOnTablet(getContext())) {
                 int textWidth = isRTL ? mTextRight : (r - l - mTextLeft);
                 final float maxRequiredWidth = mSuggestionDelegate.getMaxRequiredWidth();
                 final float maxMatchContentsWidth = mSuggestionDelegate.getMaxMatchContentsWidth();
@@ -878,11 +878,9 @@ class SuggestionView extends ViewGroup {
             }
 
             if (isRTL) {
-                mTextLine1.layout(0, t, mTextRight - mSuggestionViewStartOffset, b);
-                mAnswerImage.layout(
-                        mTextRight - imageWidth, t, mTextRight - mSuggestionViewStartOffset, b);
-                mTextLine2.layout(0, t,
-                        mTextRight - (imageWidth + imageSpacing) - mSuggestionViewStartOffset, b);
+                mTextLine1.layout(0, t, mTextRight, b);
+                mAnswerImage.layout(mTextRight - imageWidth, t, mTextRight, b);
+                mTextLine2.layout(0, t, mTextRight - (imageWidth + imageSpacing), b);
             } else {
                 mTextLine1.layout(mTextLeft + mSuggestionViewStartOffset, t, r - l, b);
                 mAnswerImage.layout(
@@ -932,7 +930,15 @@ class SuggestionView extends ViewGroup {
             int leftOffset = getUrlBarLeftOffset();
             View contentView = getRootView().findViewById(android.R.id.content);
             ViewUtils.getRelativeLayoutPosition(contentView, this, mViewPositionHolder);
-            return leftOffset + mUrlBar.getWidth() - mUrlBar.getPaddingRight()
+
+            // When a user types into the omnibox, buttons on the url action container e.g. delete
+            // become visible, shrinking the url bar's width. Add the url action container's width
+            // to the url bar for consistency.
+            int buttonWidth = 0;
+            if (mLocationBar instanceof LocationBarPhone) {
+                buttonWidth = mLocationBar.getUrlContainerMarginEnd();
+            }
+            return leftOffset + mUrlBar.getWidth() + buttonWidth - mUrlBar.getPaddingRight()
                     - mViewPositionHolder[0];
         }
 

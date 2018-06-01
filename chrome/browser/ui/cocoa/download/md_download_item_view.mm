@@ -172,7 +172,9 @@ NSTextField* MakeLabel(
     [self addSubview:iconView_];
 
     label_ = MakeLabel([NSFont systemFontOfSize:10], NSLineBreakByWordWrapping);
-    label_.frame = NSInsetRect(self.bounds, 0, kDangerousDownloadLabelYInset);
+    label_.frame =
+        [self cr_localizedRect:NSInsetRect(self.bounds, 0,
+                                           kDangerousDownloadLabelYInset)];
     label_.autoresizingMask =
         [NSView cr_localizedAutoresizingMask:NSViewMaxXMargin];
     [self addSubview:label_];
@@ -183,7 +185,7 @@ NSTextField* MakeLabel(
     discardButton_.title = l10n_util::GetNSString(IDS_DISCARD_DOWNLOAD);
     [discardButton_ sizeToFit];
     discardButton_.autoresizingMask =
-        [NSView cr_localizedAutoresizingMask:NSViewMinXMargin];
+        [NSView cr_localizedAutoresizingMask:NSViewMaxXMargin];
     [self addSubview:discardButton_];
 
     base::scoped_nsobject<HarmonyButton> saveButton(
@@ -191,7 +193,7 @@ NSTextField* MakeLabel(
     saveButton_ = saveButton;
     [saveButton_ sizeToFit];
     saveButton_.autoresizingMask =
-        [NSView cr_localizedAutoresizingMask:NSViewMinXMargin];
+        [NSView cr_localizedAutoresizingMask:NSViewMaxXMargin];
     saveButton_.hidden = YES;
     [self addSubview:saveButton_];
   }
@@ -215,12 +217,19 @@ NSTextField* MakeLabel(
   [GTMUILocalizerAndLayoutTweaker
       sizeToFitFixedHeightTextField:label_
                            minWidth:kDangerousDownloadLabelMinWidth];
-  NSRect labelRect = label_.frame;
+
+  // Flip the rect back to LTR if applicable.
+  NSRect labelRect = [self cr_localizedRect:label_.frame];
   labelRect.origin.x = kDangerousDownloadLabelX;
   labelRect.origin.y = NSMidY(self.bounds) - NSMidY(label_.bounds);
   label_.frame = [self cr_localizedRect:labelRect];
 
-  CGFloat maxX = NSMaxX(self.bounds);
+  NSRect discardButtonRect = [self cr_localizedRect:discardButton_.frame];
+  discardButtonRect.origin.x =
+      NSMaxX(labelRect) + kDangerousDownloadLabelButtonSpacing;
+  discardButtonRect.origin.y =
+      NSMidY(self.bounds) - NSMidY(discardButton_.bounds);
+  discardButton_.frame = [self cr_localizedRect:discardButtonRect];
 
   if (downloadModel->MightBeMalicious()) {
     saveButton_.hidden = YES;
@@ -229,18 +238,12 @@ NSTextField* MakeLabel(
     saveButton_.title =
         base::SysUTF16ToNSString(downloadModel->GetWarningConfirmButtonText());
     [saveButton_ sizeToFit];
-    NSRect saveButtonRect = saveButton_.frame;
-    saveButtonRect.origin.x = maxX - NSWidth(saveButtonRect);
+    NSRect saveButtonRect = [self cr_localizedRect:saveButton_.frame];
+    saveButtonRect.origin.x =
+        NSMaxX(discardButtonRect) + kDangerousDownloadLabelButtonSpacing;
     saveButtonRect.origin.y = NSMidY(self.bounds) - NSMidY(saveButton_.bounds);
     saveButton_.frame = [self cr_localizedRect:saveButtonRect];
-    maxX = NSMinX(saveButtonRect) - kDangerousDownloadLabelButtonSpacing;
   }
-
-  NSRect discardButtonRect = discardButton_.frame;
-  discardButtonRect.origin.x = maxX - NSWidth(discardButtonRect);
-  discardButtonRect.origin.y =
-      NSMidY(self.bounds) - NSMidY(discardButton_.bounds);
-  discardButton_.frame = [self cr_localizedRect:discardButtonRect];
 }
 
 // NSView overrides
@@ -521,8 +524,9 @@ NSTextField* MakeLabel(
       [self addSubview:dangerView_];
     }
     [dangerView_ setStateFromDownload:downloadModel];
-    [dangerView_ setFrameSize:NSMakeSize(dangerView_.preferredWidth,
-                                         NSHeight(dangerView_.frame))];
+    dangerView_.frame =
+        [self cr_localizedRect:NSMakeRect(0, 0, dangerView_.preferredWidth,
+                                          NSHeight(self.bounds))];
     return;
   } else if (dangerView_) {
     for (NSView* view in [self normalViews]) {
@@ -565,17 +569,11 @@ NSTextField* MakeLabel(
           setState:MDDownloadItemProgressIndicatorState::kComplete
           progress:1
           animations:^{
-            // Explicitly animate position.y so that x position isn't animated
-            // for a new download (which would happen with view.animator).
-            [filenameView_.layer
-                addAnimation:[CABasicAnimation
-                                 animationWithKeyPath:@"position.y"]
-                      forKey:nil];
-            [filenameView_
-                setFrameOrigin:NSMakePoint(NSMinX(filenameView_.frame),
-                                           statusString.length
-                                               ? kFilenameWithStatusY
-                                               : kFilenameY)];
+            NSRect filenameRect = [self cr_localizedRect:filenameView_.frame];
+            filenameRect.origin = NSMakePoint(
+                NSMinX(filenameView_.frame),
+                statusString.length ? kFilenameWithStatusY : kFilenameY);
+            filenameView_.animator.frame = [self cr_localizedRect:filenameRect];
             statusTextView_.animator.hidden = !statusString.length;
           }
           completion:^{
@@ -636,44 +634,59 @@ NSTextField* MakeLabel(
 
 - (void)beginDragFromHoverButton:(HoverButton*)button event:(NSEvent*)event {
   NSAttributedString* filename = filenameView_.attributedStringValue;
-  NSSize filenameSize = filename.size;
-  NSRect imageRect = NSMakeRect(0, 0, 32, 32);
-  NSRect labelRect = [self
-      backingAlignedRect:NSMakeRect(35, 32 / 2 - filenameSize.height / 2,
-                                    filenameSize.width, filenameSize.height)
-                 options:NSAlignAllEdgesOutward];
+  NSRect imageRect = imageView_.frame;
+  NSRect labelRect = filenameView_.frame;
+
+  // Hug the label content in an RTL-friendly way.
+  labelRect = [self cr_localizedRect:labelRect];
+  labelRect.size = filename.size;
+  labelRect = [self cr_localizedRect:labelRect];
+
   NSDraggingItem* draggingItem = [[[NSDraggingItem alloc]
       initWithPasteboardWriter:[NSURL
                                    fileURLWithPath:base::SysUTF8ToNSString(
                                                        downloadPath_.value())]]
       autorelease];
-  draggingItem.imageComponentsProvider = ^{
-    NSDraggingImageComponent* imageComponent =
-        [[[NSDraggingImageComponent alloc]
-            initWithKey:NSDraggingImageComponentIconKey] autorelease];
-    NSImage* image = imageView_.image;
-    imageComponent.contents = image;
-    imageComponent.frame = imageRect;
-    NSDraggingImageComponent* labelComponent =
-        [[[NSDraggingImageComponent alloc]
-            initWithKey:NSDraggingImageComponentLabelKey] autorelease];
 
-    labelComponent.contents = [NSImage imageWithSize:labelRect.size
-                                             flipped:NO
-                                      drawingHandler:^(NSRect rect) {
-                                        [filename drawAtPoint:NSZeroPoint];
-                                        return YES;
-                                      }];
-    labelComponent.frame = labelRect;
-    return @[ imageComponent, labelComponent ];
+  // draggingFrame must be set to avoid triggering an AppKit crash. See
+  // https://crbug.com/826632.
+  NSRect dragRect = NSUnionRect(imageRect, labelRect);
+  draggingItem.draggingFrame = dragRect;
+
+  draggingItem.imageComponentsProvider = ^{
+    // If either component is zero sized (which shouldn't generally happen, but
+    // apparently can… maybe a missing icon or empty string title?), omit it,
+    // else the dragging session will create layers with NaN components and
+    // crash.
+    auto* components = [NSMutableArray<NSDraggingImageComponent*> array];
+    if (imageRect.size.width != 0 && imageRect.size.height != 0) {
+      NSDraggingImageComponent* imageComponent =
+          [[[NSDraggingImageComponent alloc]
+              initWithKey:NSDraggingImageComponentIconKey] autorelease];
+      NSImage* image = imageView_.image;
+      imageComponent.contents = image;
+      imageComponent.frame =
+          NSOffsetRect(imageRect, -dragRect.origin.x, -dragRect.origin.y);
+      [components addObject:imageComponent];
+    }
+    if (labelRect.size.width != 0 && labelRect.size.height != 0) {
+      NSDraggingImageComponent* labelComponent =
+          [[[NSDraggingImageComponent alloc]
+              initWithKey:NSDraggingImageComponentLabelKey] autorelease];
+
+      labelComponent.contents = [NSImage imageWithSize:labelRect.size
+                                               flipped:NO
+                                        drawingHandler:^(NSRect rect) {
+                                          [filename drawAtPoint:NSZeroPoint];
+                                          return YES;
+                                        }];
+      labelComponent.frame =
+          NSOffsetRect(labelRect, -dragRect.origin.x, -dragRect.origin.y);
+      [components addObject:labelComponent];
+    }
+
+    return components;
   };
-  NSPoint dragOrigin =
-      [self convertPoint:[self.window mouseLocationOutsideOfEventStream]
-                fromView:nil];
-  draggingItem.draggingFrame =
-      [self backingAlignedRect:NSOffsetRect(imageRect, dragOrigin.x - 16,
-                                            dragOrigin.y - 16)
-                       options:NSAlignAllEdgesOutward];
   [self beginDraggingSessionWithItems:@[ draggingItem ]
                                 event:event
                                source:self];
@@ -703,6 +716,10 @@ NSTextField* MakeLabel(
 
 - (NSButton*)menuButton {
   return menuButton_;
+}
+
+- (NSView*)dangerView {
+  return dangerView_;
 }
 
 @end

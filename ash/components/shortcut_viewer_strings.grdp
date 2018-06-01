@@ -2,7 +2,7 @@
 <grit-part>
   <!-- Title -->
   <message name="IDS_KSV_TITLE" desc="The tooltip text of the keyboard shortcut viewer shelf icon.">
-    Keyboard Shortcut Viewer
+    Shortcuts
   </message>
 
   <!-- Accessibility -->
@@ -14,6 +14,12 @@
   </message>
   <message name="IDS_KSV_CLEAR_SEARCHBOX_ACCESSIBILITY_NAME" desc="Accessibility name for the button that clears all text from the search box.">
     Clear searchbox text
+  </message>
+  <message name="IDS_KSV_SEARCH_BOX_ACCESSIBILITY_VALUE_WITH_RESULTS" desc="Accessibility value for the search box with searched results.">
+    Displaying <ph name="n">$1<ex>1</ex></ph> search results for <ph name="query">$2<ex>a</ex></ph>
+  </message>
+  <message name="IDS_KSV_SEARCH_BOX_ACCESSIBILITY_VALUE_WITHOUT_RESULTS" desc="Accessibility value for the search box without searched results.">
+    No search result for <ph name="query">$1<ex>a</ex></ph>
   </message>
 
   <!-- Search illustration -->
@@ -58,7 +64,10 @@
     Launcher
   </message>
 
-  <!-- Keys with special meaning -->
+  <!-- Keys with special label -->
+  <message name="IDS_KSV_KEY_ESCAPE" desc="Name of [Esc] key. Shouldn't be translated in many languages.">
+    Esc
+  </message>
   <message name="IDS_KSV_KEY_SPACE" desc="Name of [Space] key.">
     Space
   </message>
@@ -77,10 +86,13 @@
     <ph name="key">$1<ex>Overview Mode Key</ex></ph>
   </message>
   <message name="IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY" desc="Human readable version of the keyboard shortcut. This is for all single modifier shortcuts.">
-    <ph name="modifier">$1<ex>Ctrl</ex></ph><ph name="separator">$2<ex>+</ex></ph><ph name="key">$3<ex>V</ex></ph>
+    <ph name="modifier">$1<ex>Ctrl</ex></ph><ph name="separator">$2<ex>+</ex></ph><ph name="key">$3<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY" desc="Human readable version of the keyboard shortcut. This is for all two modifiers shortcuts.">
-    <ph name="modifier1">$1<ex>Ctrl</ex></ph><ph name="separator1">$2<ex>+</ex></ph><ph name="modifier2">$3<ex>Alt</ex></ph><ph name="separator2">$4<ex>+</ex></ph><ph name="key">$5<ex>V</ex></ph>
+    <ph name="modifier1">$1<ex>Ctrl</ex></ph><ph name="separator1">$2<ex>+</ex></ph><ph name="modifier2">$3<ex>Alt</ex></ph><ph name="separator2">$4<ex>+</ex></ph><ph name="key">$5<ex>v</ex></ph>
+  </message>
+  <message name="IDS_KSV_SHORTCUT_THREE_MODIFIERS_ONE_KEY" desc="Human readable version of the keyboard shortcut. This is for all two modifiers shortcuts.">
+    <ph name="modifier1">$1<ex>Ctrl</ex></ph><ph name="separator1">$2<ex>+</ex></ph><ph name="modifier2">$3<ex>Alt</ex></ph><ph name="separator2">$4<ex>+</ex></ph><ph name="modifier3">$5<ex>Shift</ex></ph><ph name="separator3">$6<ex>+</ex></ph><ph name="key">$7<ex>v</ex></ph>
   </message>
 
   <!-- Shortcuts descriptions -->
@@ -88,10 +100,10 @@
     Lock screen
   </message>
   <message name="IDS_KSV_DESCRIPTION_CHANGE_SCREEN_RESOLUTION" desc="Description of the command in keyboard shortcut viewer.">
-    Change screen resolution
+    Make items on your screen larger or smaller
   </message>
   <message name="IDS_KSV_SHORTCUT_CHANGE_SCREEN_RESOLUTION" desc="Human readable version of the keyboard shortcut.">
-    <ph name="ctrl">$1</ph><ph name="separator1">$2</ph><ph name="shift">$3</ph><ph name="separator2">$4</ph><ph name="plus">$5</ph> or <ph name="minus">$6</ph>
+    <ph name="ctrl">$1<ex>Ctrl</ex></ph><ph name="separator1">$2<ex>+</ex></ph><ph name="shift">$3<ex>Shift</ex></ph><ph name="separator2">$4<ex>+</ex></ph><ph name="plus">$5<ex>v</ex></ph> or <ph name="minus">$6<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_DRAG_LINK_IN_SAME_TAB" desc="Description of the command in keyboard shortcut viewer.">
     Open the link in the tab
@@ -103,22 +115,22 @@
     Highlight the next item on your shelf
   </message>
   <message name="IDS_KSV_SHORTCUT_HIGHLIGHT_NEXT_ITEM_ON_SHELF" desc="Human readable version of the keyboard shortcut.">
-    <ph name="shift">$1</ph><ph name="separator1">$2</ph><ph name="alt">$3</ph><ph name="separator2">$4</ph><ph name="l">$5</ph>, then <ph name="tab">$6</ph> or <ph name="right">$7</ph>
+    <ph name="shift">$1<ex>Shift</ex></ph><ph name="separator1">$2<ex>+</ex></ph><ph name="alt">$3<ex>Alt</ex></ph><ph name="separator2">$4<ex>+</ex></ph><ph name="l">$5<ex>v</ex></ph>, then <ph name="tab">$6<ex>v</ex></ph> or <ph name="right">$7<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_PREVIOUS_IME" desc="Description of the command in keyboard shortcut viewer.">
-    Switch to the previous keyboard language you were using.
+    Switch to the input method of the previous language
   </message>
   <message name="IDS_KSV_DESCRIPTION_CYCLE_FORWARD_MRU" desc="Description of the command in keyboard shortcut viewer.">
     Switch quickly between windows
   </message>
   <message name="IDS_KSV_SHORTCUT_CYCLE_FORWARD_MRU" desc="Human readable version of the keyboard shortcut.">
-    Press and hold <ph name="alt">$1</ph>, tap <ph name="tab">$2</ph> until you get to the window you want to open, then release.
+    Press and hold <ph name="alt">$1<ex>Alt</ex></ph>, tap <ph name="tab">$2<ex>v</ex></ph> until you get to the window you want to open, then release.
   </message>
   <message name="IDS_KSV_DESCRIPTION_CYCLE_BACKWARD_MRU" desc="Description of the command in keyboard shortcut viewer.">
-    Open the window you used least recently
+    Open the window that has been unused for the longest time
   </message>
   <message name="IDS_KSV_SHORTCUT_CYCLE_BACKWARD_MRU" desc="Human readable version of the keyboard shortcut.">
-    Press and hold <ph name="alt">$1</ph><ph name="separator">$2</ph><ph name="shift">$3</ph>, tap <ph name="tab">$4</ph> until you get to the window you want to open, then release.
+    Press and hold <ph name="alt">$1<ex>Alt</ex></ph><ph name="separator">$2<ex>+</ex></ph><ph name="shift">$3<ex>Shift</ex></ph>, tap <ph name="tab">$4<ex>v</ex></ph> until you get to the window you want to open, then release.
   </message>
   <message name="IDS_KSV_DESCRIPTION_TOGGLE_OVERVIEW" desc="Description of the command in keyboard shortcut viewer.">
     Overview mode
@@ -154,7 +166,7 @@
     Turn Caps Lock on and off
   </message>
   <message name="IDS_KSV_DESCRIPTION_NEXT_IME" desc="Description of the command in keyboard shortcut viewer.">
-    Switch between the keyboard languages you've set. Learn how to choose your keyboard language.
+    Switch to the input method of the next language
   </message>
   <message name="IDS_KSV_DESCRIPTION_NEW_WINDOW" desc="Description of the command in keyboard shortcut viewer.">
     Open new window
@@ -205,19 +217,19 @@
     Go to the next match for your search
   </message>
   <message name="IDS_KSV_SHORTCUT_IDC_FIND_NEXT" desc="Human readable version of the keyboard shortcut.">
-    <ph name="ctrl">$1</ph><ph name="separator">$2</ph><ph name="g">$3</ph> or <ph name="enter">$4</ph>
+    <ph name="ctrl">$1<ex>Ctrl</ex></ph><ph name="separator">$2<ex>+</ex></ph><ph name="g">$3<ex>v</ex></ph> or <ph name="enter">$4<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_IDC_FIND_PREVIOUS" desc="Description of the command in keyboard shortcut viewer.">
     Go to the previous match for your search
   </message>
   <message name="IDS_KSV_SHORTCUT_IDC_FIND_PREVIOUS" desc="Human readable version of the keyboard shortcut.">
-    <ph name="ctrl">$1</ph><ph name="separator1">$2</ph><ph name="shift1">$3</ph><ph name="separator2">$4</ph><ph name="g">$5</ph> or <ph name="shift2">$6</ph><ph name="separator3">$7</ph><ph name="enter">$8</ph>
+    <ph name="ctrl">$1<ex>Ctrl</ex></ph><ph name="separator1">$2<ex>+</ex></ph><ph name="shift1">$3<ex>Shift</ex></ph><ph name="separator2">$4<ex>+</ex></ph><ph name="g">$5<ex>v</ex></ph> or <ph name="shift2">$6<ex>Shift</ex></ph><ph name="separator3">$7<ex>+</ex></ph><ph name="enter">$8<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_IDC_FOCUS_LOCATION" desc="Description of the command in keyboard shortcut viewer.">
     Focus address bar
   </message>
   <message name="IDS_KSV_SHORTCUT_IDC_FOCUS_LOCATION" desc="Description of the command in keyboard shortcut viewer.">
-    <ph name="ctrl">$1</ph><ph name="separator1">$2</ph><ph name="l">$3</ph> or <ph name="alt">$4</ph><ph name="separator2">$5</ph><ph name="d">$6</ph>
+    <ph name="ctrl">$1<ex>Ctrl</ex></ph><ph name="separator1">$2<ex>+</ex></ph><ph name="l">$3<ex>v</ex></ph> or <ph name="alt">$4<ex>Alt</ex></ph><ph name="separator2">$5<ex>+</ex></ph><ph name="d">$6<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_IDC_OPEN_FILE" desc="Description of the command in keyboard shortcut viewer.">
     Open a file in the browser
@@ -227,6 +239,9 @@
   </message>
   <message name="IDS_KSV_DESCRIPTION_IDC_RELOAD" desc="Description of the command in keyboard shortcut viewer.">
     Reload your current page
+  </message>
+  <message name="IDS_KSV_SHORTCUT_IDC_RELOAD" desc="Description of the command in keyboard shortcut viewer.">
+    <ph name="refresh">$1<ex>Refresh</ex></ph> or <ph name="ctrl">$2<ex>Ctrl</ex></ph><ph name="separator">$3<ex>+</ex></ph><ph name="r">$4<ex>r</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_IDC_RELOAD_BYPASSING_CACHE" desc="Description of the command in keyboard shortcut viewer.">
     Reload your current page without using cached content
@@ -268,16 +283,16 @@
     Show or hide the Developer Tools panel
   </message>
   <message name="IDS_KSV_DESCRIPTION_IDC_DEV_TOOLS_CONSOLE" desc="Description of the command in keyboard shortcut viewer.">
-    Show or hide the DOM Inspector
+    Show or hide the Developer Tools console
   </message>
   <message name="IDS_KSV_DESCRIPTION_IDC_FOCUS_BOOKMARKS" desc="Description of the command in keyboard shortcut viewer.">
-    Highlight the bookmarks bar (if shown)
+    Focus on or Highlight the bookmarks bar (if shown)
   </message>
   <message name="IDS_KSV_DESCRIPTION_IDC_FOCUS_SEARCH" desc="Description of the command in keyboard shortcut viewer.">
-    Focus address bar on search
+    Place focus in search address bar
   </message>
   <message name="IDS_KSV_SHORTCUT_IDC_FOCUS_SEARCH" desc="Description of the command in keyboard shortcut viewer.">
-    <ph name="ctrl">$1</ph><ph name="separator">$2</ph><ph name="k">$3</ph> or <ph name="e">$4</ph>
+    <ph name="ctrl">$1<ex>Ctrl</ex></ph><ph name="separator">$2<ex>+</ex></ph><ph name="k">$3<ex>v</ex></ph> or <ph name="e">$4<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_IDC_FOCUS_TOOLBAR" desc="Description of the command in keyboard shortcut viewer.">
     Highlight the row with the address bar
@@ -298,10 +313,10 @@
     Paste content from the clipboard
   </message>
   <message name="IDS_KSV_DESCRIPTION_SELECT_NUMBERED_TAB" desc="Description of the command in keyboard shortcut viewer.">
-    Go to numbered tab
+    Go to tabs 1 through 8
   </message>
   <message name="IDS_KSV_SHORTCUT_SELECT_NUMBERED_TAB" desc="Human readable version of the keyboard shortcut.">
-    <ph name="ctrl">$1</ph><ph name="separator">$2</ph> 1 through 8
+    <ph name="ctrl">$1<ex>Ctrl</ex></ph><ph name="separator">$2<ex>+</ex></ph> 1 through 8
   </message>
   <message name="IDS_KSV_DESCRIPTION_KEYBOARD_SHORTCUT_HELPER" desc="Description of the command in keyboard shortcut viewer.">
     See Keyboard Shortcut Helper
@@ -310,19 +325,19 @@
     Open the link in a new tab in the background
   </message>
   <message name="IDS_KSV_SHORTCUT_OPEN_LINK_IN_TAB_BACKGROUND" desc="Human readable version of the keyboard shortcut.">
-    Press <ph name="ctrl">$1</ph> and click a link
+    Press <ph name="ctrl">$1<ex>Ctrl</ex></ph> and click a link
   </message>
   <message name="IDS_KSV_DESCRIPTION_OPEN_LINK_IN_TAB" desc="Description of the command in keyboard shortcut viewer.">
     Open the link in a new tab and switch to the new tab
   </message>
   <message name="IDS_KSV_SHORTCUT_OPEN_LINK_IN_TAB" desc="Human readable version of the keyboard shortcut.">
-    Press <ph name="ctrl">$1</ph><ph name="separator">$2</ph><ph name="shift">$3</ph> and click a link
+    Press <ph name="ctrl">$1<ex>Ctrl</ex></ph><ph name="separator">$2<ex>+</ex></ph><ph name="shift">$3<ex>Shift</ex></ph> and click a link
   </message>
   <message name="IDS_KSV_DESCRIPTION_OPEN_LINK_IN_WINDOW" desc="Description of the command in keyboard shortcut viewer.">
     Open the link in a new window
   </message>
   <message name="IDS_KSV_SHORTCUT_OPEN_LINK_IN_WINDOW" desc="Human readable version of the keyboard shortcut.">
-    Press <ph name="shift">$1</ph> and click a link
+    Press <ph name="shift">$1<ex>Shift</ex></ph> and click a link
   </message>
   <message name="IDS_KSV_DESCRIPTION_DRAG_LINK_IN_NEW_TAB" desc="Description of the command in keyboard shortcut viewer.">
     Open the link in a new tab
@@ -334,25 +349,25 @@
     Open the webpage in a new tab
   </message>
   <message name="IDS_KSV_SHORTCUT_OPEN_PAGE_IN_NEW_TAB" desc="Human readable version of the keyboard shortcut.">
-    Type a web address in the address bar, then press <ph name="alt">$1</ph><ph name="separator">$2</ph><ph name="enter">$3</ph>
+    Type a web address in the address bar, then press <ph name="alt">$1<ex>Alt</ex></ph><ph name="separator">$2<ex>+</ex></ph><ph name="enter">$3<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_STOP_DRAG_TAB" desc="Description of the command in keyboard shortcut viewer.">
     Return the tab to its original position
   </message>
   <message name="IDS_KSV_SHORTCUT_STOP_DRAG_TAB" desc="Human readable version of the keyboard shortcut.">
-    While dragging the tab, press <ph name="esc">$1</ph>
+    While dragging the tab, press <ph name="esc">$1<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_PAGE_UP" desc="Description of the command in keyboard shortcut viewer.">
     Page up
   </message>
   <message name="IDS_KSV_SHORTCUT_PAGE_UP" desc="Human readable version of the keyboard shortcut.">
-    <ph name="alt">$1</ph> or <ph name="search">$2</ph><ph name="separator">$3</ph><ph name="up">$4</ph>
+    <ph name="alt">$1<ex>Alt</ex></ph> or <ph name="search">$2<ex>Search</ex></ph><ph name="separator">$3<ex>+</ex></ph><ph name="up">$4<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_PAGE_DOWN" desc="Description of the command in keyboard shortcut viewer.">
     Page down
   </message>
   <message name="IDS_KSV_SHORTCUT_PAGE_DOWN" desc="Human readable version of the keyboard shortcut.">
-    <ph name="alt">$1</ph> or <ph name="search">$2</ph><ph name="separator">$3</ph><ph name="down">$4</ph>
+    <ph name="alt">$1<ex>Alt</ex></ph> or <ph name="search">$2<ex>Search</ex></ph><ph name="separator">$3<ex>+</ex></ph><ph name="down">$4<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_SCROLL_DOWN_PAGE" desc="Description of the command in keyboard shortcut viewer.">
     Scroll down the web page
@@ -367,7 +382,7 @@
     Right-click a link
   </message>
   <message name="IDS_KSV_SHORTCUT_RIGHT_CLICK" desc="Human readable version of the keyboard shortcut.">
-    Press <ph name="alt">$1</ph> and click a link
+    Press <ph name="alt">$1<ex>Alt</ex></ph> and click a link
   </message>
   <message name="IDS_KSV_DESCRIPTION_SAVE_LINK_AS_BOOKMARK" desc="Description of the command in keyboard shortcut viewer.">
     Save the link as a bookmark
@@ -385,7 +400,7 @@
     Preview a file in the Files app
   </message>
   <message name="IDS_KSV_SHORTCUT_OPEN_FILE" desc="Human readable version of the keyboard shortcut.">
-    Select the file, then press <ph name="space">$1</ph>
+    Select the file, then press <ph name="space">$1<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_DISPLAY_HIDDEN_FILES" desc="Description of the command in keyboard shortcut viewer.">
     Display hidden files in the Files app
@@ -394,19 +409,19 @@
     Click icons 1-8 on your shelf
   </message>
   <message name="IDS_KSV_SHORTCUT_LAUNCH_NUMBERED_APP" desc="Human readable version of the keyboard shortcut.">
-    <ph name="alt">$1</ph><ph name="separator">$2</ph> 1 through 8
+    <ph name="alt">$1<ex>Alt</ex></ph><ph name="separator">$2<ex>+</ex></ph> 1 through 8
   </message>
   <message name="IDS_KSV_DESCRIPTION_USE_F_KEYS" desc="Description of the command in keyboard shortcut viewer.">
     Use F keys (F1 to F12)
   </message>
   <message name="IDS_KSV_SHORTCUT_USE_F_KEYS" desc="Human readable version of the keyboard shortcut.">
-    <ph name="search">$1</ph><ph name="separator">$2</ph> 1 through =
+    <ph name="search">$1<ex>Search</ex></ph><ph name="separator">$2<ex>+</ex></ph> 1 through =
   </message>
   <message name="IDS_KSV_DESCRIPTION_SELECT_ADDRESS_BAR" desc="Description of the command in keyboard shortcut viewer.">
     Select the content in the address bar
   </message>
   <message name="IDS_KSV_SHORTCUT_SELECT_ADDRESS_BAR" desc="Human readable version of the keyboard shortcut.">
-    <ph name="ctrl">$1</ph><ph name="separator1">$2</ph><ph name="l">$3</ph> or <ph name="alt">$4</ph><ph name="separator2">$5</ph><ph name="d">$6</ph>
+    <ph name="ctrl">$1<ex>Ctrl</ex></ph><ph name="separator1">$2<ex>+</ex></ph><ph name="l">$3<ex>v</ex></ph> or <ph name="alt">$4<ex>Alt</ex></ph><ph name="separator2">$5<ex>+</ex></ph><ph name="d">$6<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_SELECT_NEXT_WORD" desc="Description of the command in keyboard shortcut viewer.">
     Select the next word or letter
@@ -454,25 +469,25 @@
     Highlight the previous item on your shelf
   </message>
   <message name="IDS_KSV_SHORTCUT_HIGHLIGHT_PREVIOUS_ITEM_ON_SHELF" desc="Human readable version of the keyboard shortcut.">
-    <ph name="shift1">$1</ph><ph name="separator1">$2</ph><ph name="alt">$3</ph><ph name="separator2">$4</ph><ph name="l">$5</ph>, then <ph name="shift2">$6</ph><ph name="separator3">$7</ph><ph name="tab">$8</ph> or <ph name="left">$9</ph>
+    <ph name="shift1">$1<ex>Shift</ex></ph><ph name="separator1">$2<ex>+</ex></ph><ph name="alt">$3<ex>Alt</ex></ph><ph name="separator2">$4<ex>+</ex></ph><ph name="l">$5<ex>v</ex></ph>, then <ph name="shift2">$6<ex>Shift</ex></ph><ph name="separator3">$7<ex>+</ex></ph><ph name="tab">$8<ex>v</ex></ph> or <ph name="left">$9<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_OPEN_HIGHLIGHTED_ITEM_ON_SHELF" desc="Description of the command in keyboard shortcut viewer.">
-    Open the highlighted button on your shelf
+    Open the highlighted item on your shelf
   </message>
   <message name="IDS_KSV_SHORTCUT_OPEN_HIGHLIGHTED_ITEM_ON_SHELF" desc="Human readable version of the keyboard shortcut.">
-    <ph name="shift">$1</ph><ph name="separator1">$2</ph><ph name="alt">$3</ph><ph name="separator2">$4</ph><ph name="l">$5</ph>, then <ph name="space">$6</ph> or <ph name="enter">$7</ph>
+    <ph name="shift">$1<ex>Shift</ex></ph><ph name="separator1">$2<ex>+</ex></ph><ph name="alt">$3<ex>Alt</ex></ph><ph name="separator2">$4<ex>+</ex></ph><ph name="l">$5<ex>v</ex></ph>, then <ph name="space">$6<ex>v</ex></ph> or <ph name="enter">$7<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_REMOVE_HIGHLIGHT_ON_SHELF" desc="Description of the command in keyboard shortcut viewer.">
-    Remove the highlight from a button on your shelf
+    Remove the highlight from an item on your shelf
   </message>
   <message name="IDS_KSV_SHORTCUT_REMOVE_HIGHLIGHT_ON_SHELF" desc="Human readable version of the keyboard shortcut.">
-    <ph name="shift">$1</ph><ph name="separator1">$2</ph><ph name="alt">$3</ph><ph name="separator2">$4</ph><ph name="l">$5</ph>, then <ph name="esc">$6</ph>
+    <ph name="shift">$1<ex>Shift</ex></ph><ph name="separator1">$2<ex>+</ex></ph><ph name="alt">$3<ex>Alt</ex></ph><ph name="separator2">$4<ex>+</ex></ph><ph name="l">$5<ex>v</ex></ph>, then <ph name="esc">$6<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_SWITCH_FOCUS" desc="Description of the command in keyboard shortcut viewer.">
-    Switch focus between: Status area (where your account picture appears) Launcher Address bar Bookmarks bar (if visible) The webpage that's open Downloads bar (if visible)
+    Switch focus between: Status area (where your account picture appears), Launcher, Address bar, Bookmarks bar (if visible), The webpage that's open, and Downloads bar (if visible).
   </message>
   <message name="IDS_KSV_SHORTCUT_SWITCH_FOCUS" desc="Human readable version of the keyboard shortcut.">
-    <ph name="ctrl1">$1</ph><ph name="separator1">$2</ph><ph name="left">$3</ph> or <ph name="ctrl2">$4</ph><ph name="separator2">$5</ph><ph name="right">$6</ph>
+    <ph name="ctrl1">$1<ex>Ctrl</ex></ph><ph name="separator1">$2<ex>+</ex></ph><ph name="left">$3<ex>v</ex></ph> or <ph name="ctrl2">$4<ex>Ctrl</ex></ph><ph name="separator2">$5<ex>+</ex></ph><ph name="right">$6<ex>v</ex></ph>
   </message>
   <message name="IDS_KSV_DESCRIPTION_OPEN_RIGHT_CLICK_MENU_FOR_HIGHLIGHTED_ITEM" desc="Description of the command in keyboard shortcut viewer.">
     Open right-click menu for highlighted item
@@ -496,7 +511,7 @@
     Zoom in
   </message>
   <message name="IDS_KSV_DESCRIPTION_VOLUME_MUTE" desc="Description of the command in keyboard shortcut viewer.">
-    Mute volume
+    Mute sound
   </message>
   <message name="IDS_KSV_DESCRIPTION_VOLUME_DOWN" desc="Description of the command in keyboard shortcut viewer.">
     Volume down
@@ -522,5 +537,70 @@
   <message name="IDS_KSV_DESCRIPTION_MOVE_ACTIVE_WINDOW_BETWEEN_DISPLAYS" desc="Description of the command in keyboard shortcut viewer.">
     Move active window between displays
   </message>
-
+  <message name="IDS_KSV_DESCRIPTION_TOGGLE_APP_LIST" desc="Description of the command in keyboard shortcut viewer.">
+    Open/close the launcher
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_TAKE_WINDOW_SCREENSHOT" desc="Description of the command in keyboard shortcut viewer.">
+    Take window screenshot
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_SUSPEND" desc="Description of the command in keyboard shortcut viewer.">
+    Put device in sleep mode (suspend)
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_OPEN_GET_HELP" desc="Description of the command in keyboard shortcut viewer.">
+    Open Help Center
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_OPEN_FEEDBACK_PAGE" desc="Description of the command in keyboard shortcut viewer.">
+    Submit feedback
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_ROTATE_WINDOW" desc="Description of the command in keyboard shortcut viewer.">
+    Rotate window
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_SHOW_STYLUS_TOOLS" desc="Description of the command in keyboard shortcut viewer.">
+    Show stylus tools
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_TOGGLE_MAXIMIZED" desc="Description of the command in keyboard shortcut viewer.">
+    Maximize window
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_WINDOW_POSITION_CENTER" desc="Description of the command in keyboard shortcut viewer.">
+    Move window to center
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_OPEN_CROSH" desc="Description of the command in keyboard shortcut viewer.">
+    Open Crosh window
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_TOGGLE_DICTATION" desc="Description of the command in keyboard shortcut viewer.">
+    Starts or stops typing what you speak
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_EXIT" desc="Description of the command in keyboard shortcut viewer.">
+    Sign out
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_UNPIN" desc="Description of the command in keyboard shortcut viewer.">
+    Unpin an app
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_SHOW_IME_MENU_BUBBLE" desc="Description of the command in keyboard shortcut viewer.">
+    Show the menu displaying a list of available IMEs
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_SHOW_IDC_FOCUS_MENU_BAR" desc="Description of the command in keyboard shortcut viewer.">
+    Place focus on menu bar
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_SHOW_IDC_HOME" desc="Description of the command in keyboard shortcut viewer.">
+    Open home page
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_SHOW_IDC_CLEAR_BROWSING_DATA" desc="Description of the command in keyboard shortcut viewer.">
+    Clear browsing data
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_SHOW_IDC_SHOW_BOOKMARK_MANAGER" desc="Description of the command in keyboard shortcut viewer.">
+    Show bookmark manager
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_IDC_DEV_TOOLS_INSPECT" desc="Description of the command in keyboard shortcut viewer.">
+    Show or hide the Developer Tools inspector
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_IDC_FOCUS_INACTIVE_POPUP_FOR_ACCESSIBILITY" desc="Description of the command in keyboard shortcut viewer.">
+    Move focus to popups and dialogs
+  </message>
+  <message name="IDS_KSV_DESCRIPTION_IDC_SHOW_APP_MENU" desc="Description of the command in keyboard shortcut viewer.">
+    Show Chrome menu
+  </message>
+  <message name="IDS_KSV_SHORTCUT_IDC_SHOW_APP_MENU" desc="Description of the command in keyboard shortcut viewer.">
+    <ph name="alt">$1<ex>Alt</ex></ph><ph name="separator">$2<ex>+</ex></ph><ph name="e">$3<ex>e</ex></ph> or <ph name="f">$4<ex>f</ex></ph>
+  </message>
 </grit-part>

@@ -13,6 +13,7 @@
 #include "ash/login_status.h"
 #include "ash/public/cpp/session_types.h"
 #include "ash/public/interfaces/session_controller.mojom.h"
+#include "ash/session/session_activation_observer_holder.h"
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -186,6 +187,9 @@ class ASH_EXPORT SessionController : public mojom::SessionController {
       ShowTeleportWarningDialogCallback callback) override;
   void ShowMultiprofilesSessionAbortedDialog(
       const std::string& user_email) override;
+  void AddSessionActivationObserverForAccountId(
+      const AccountId& account_id,
+      mojom::SessionActivationObserverPtr observer) override;
 
   // Test helpers.
   void ClearUserSessionsForTest();
@@ -222,6 +226,12 @@ class ASH_EXPORT SessionController : public mojom::SessionController {
   void OnProfilePrefServiceInitialized(
       const AccountId& account_id,
       std::unique_ptr<PrefService> pref_service);
+
+  // Notifies observers that the active user pref service changed only if the
+  // signin profile pref service has been connected and observers were notified
+  // via OnSigninScreenPrefServiceInitialized(). Otherwise, defer the
+  // notification until that happens.
+  void MaybeNotifyOnActiveUserPrefServiceChanged();
 
   // Bindings for users of the mojom::SessionController interface.
   mojo::BindingSet<mojom::SessionController> bindings_;
@@ -268,12 +278,20 @@ class ASH_EXPORT SessionController : public mojom::SessionController {
   // pref in case of a crash during the session.
   base::TimeTicks session_start_time_;
 
+  // Set to true if the active user's pref is received before the signin prefs.
+  // This is so that we can guarantee that observers are notified with
+  // OnActiveUserPrefServiceChanged() after
+  // OnSigninScreenPrefServiceInitialized().
+  bool on_active_user_prefs_changed_notify_deferred_ = false;
+
   base::ObserverList<ash::SessionObserver> observers_;
 
   service_manager::Connector* const connector_;
 
   // Prefs for the incognito profile used by the signin screen.
   std::unique_ptr<PrefService> signin_screen_prefs_;
+
+  SessionActivationObserverHolder session_activation_observer_holder_;
 
   bool signin_screen_prefs_requested_ = false;
 

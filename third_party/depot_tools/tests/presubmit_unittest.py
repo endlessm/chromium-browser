@@ -27,7 +27,6 @@ import owners
 import owners_finder
 import subprocess2 as subprocess
 import presubmit_support as presubmit
-import rietveld
 import auth
 import git_cl
 import git_common as git
@@ -175,14 +174,15 @@ class PresubmitUnittest(PresubmitTestsBase):
       'AffectedFile', 'Change', 'DoPostUploadExecuter', 'DoPresubmitChecks',
       'GetPostUploadExecuter', 'GitAffectedFile', 'CallCommand', 'CommandData',
       'GitChange', 'InputApi', 'ListRelevantPresubmitFiles', 'main',
-      'NonexistantCannedCheckFilter', 'OutputApi', 'ParseFiles',
+      'OutputApi', 'ParseFiles',
       'PresubmitFailure', 'PresubmitExecuter', 'PresubmitOutput', 'ScanSubDirs',
-      'ast', 'auth', 'cPickle', 'cpplint', 'cStringIO', 'contextlib',
+      'ast', 'cPickle', 'cpplint', 'cStringIO', 'contextlib',
       'canned_check_filter', 'fix_encoding', 'fnmatch', 'gclient_utils',
       'git_footers', 'glob', 'inspect', 'json', 'load_files', 'logging',
       'marshal', 'normpath', 'optparse', 'os', 'owners', 'owners_finder',
-      'pickle', 'presubmit_canned_checks', 'random', 're', 'rietveld', 'scm',
-      'subprocess', 'sys', 'tempfile', 'time', 'traceback', 'types', 'unittest',
+      'pickle', 'presubmit_canned_checks', 'random', 're', 'scm',
+      'subprocess', 'sys', 'tempfile',
+      'time', 'traceback', 'types', 'unittest',
       'urllib2', 'warn', 'multiprocessing', 'DoGetTryMasters',
       'GetTryMastersExecuter', 'itertools', 'urlparse', 'gerrit_util',
       'GerritAccessor',
@@ -196,15 +196,6 @@ class PresubmitUnittest(PresubmitTestsBase):
     with presubmit.canned_check_filter(['CheckOwners']):
       self.assertNotEqual(canned.CheckOwners, orig)
       self.assertEqual(canned.CheckOwners(None, None), [])
-    self.assertEqual(canned.CheckOwners, orig)
-
-  def testCannedCheckFilterFail(self):
-    canned = presubmit.presubmit_canned_checks
-    orig = canned.CheckOwners
-    def failAttempt():
-      with presubmit.canned_check_filter(['CheckOwners', 'Spazfleem']):
-        pass
-    self.assertRaises(presubmit.NonexistantCannedCheckFilter, failAttempt)
     self.assertEqual(canned.CheckOwners, orig)
 
   def testListRelevantPresubmitFiles(self):
@@ -621,7 +612,7 @@ class PresubmitUnittest(PresubmitTestsBase):
     output = presubmit.DoPresubmitChecks(
         change=change, committing=False, verbose=True,
         output_stream=None, input_stream=None,
-        default_presubmit=None, may_prompt=False, rietveld_obj=None)
+        default_presubmit=None, may_prompt=False, gerrit_obj=None)
     self.failUnless(output.should_continue())
     self.assertEqual(output.getvalue().count('!!'), 0)
     self.assertEqual(output.getvalue().count('??'), 0)
@@ -656,7 +647,7 @@ class PresubmitUnittest(PresubmitTestsBase):
     output = presubmit.DoPresubmitChecks(
         change=change, committing=False, verbose=True,
         output_stream=None, input_stream=input_buf,
-        default_presubmit=None, may_prompt=True, rietveld_obj=None)
+        default_presubmit=None, may_prompt=True, gerrit_obj=None)
     self.failIf(output.should_continue())
     self.assertEqual(output.getvalue().count('??'), 2)
 
@@ -664,7 +655,7 @@ class PresubmitUnittest(PresubmitTestsBase):
     output = presubmit.DoPresubmitChecks(
         change=change, committing=False, verbose=True,
         output_stream=None, input_stream=input_buf,
-        default_presubmit=None, may_prompt=True, rietveld_obj=None)
+        default_presubmit=None, may_prompt=True, gerrit_obj=None)
     self.failUnless(output.should_continue())
     self.assertEquals(output.getvalue().count('??'), 2)
     self.assertEqual(output.getvalue().count(
@@ -695,7 +686,7 @@ class PresubmitUnittest(PresubmitTestsBase):
     output = presubmit.DoPresubmitChecks(
         change=change, committing=False, verbose=True,
         output_stream=None, input_stream=None,
-        default_presubmit=None, may_prompt=False, rietveld_obj=None)
+        default_presubmit=None, may_prompt=False, gerrit_obj=None)
     # A warning is printed, and should_continue is True.
     self.failUnless(output.should_continue())
     self.assertEquals(output.getvalue().count('??'), 2)
@@ -726,7 +717,7 @@ class PresubmitUnittest(PresubmitTestsBase):
     output = presubmit.DoPresubmitChecks(
         change=change, committing=False, verbose=True,
         output_stream=None, input_stream=None,
-        default_presubmit=None, may_prompt=True, rietveld_obj=None)
+        default_presubmit=None, may_prompt=True, gerrit_obj=None)
     self.failIf(output.should_continue())
     self.assertEqual(output.getvalue().count('??'), 0)
     self.assertEqual(output.getvalue().count('!!'), 2)
@@ -760,7 +751,7 @@ def CheckChangeOnCommit(input_api, output_api):
         change=change, committing=False, verbose=True,
         output_stream=None, input_stream=input_buf,
         default_presubmit=always_fail_presubmit_script,
-        may_prompt=False, rietveld_obj=None)
+        may_prompt=False, gerrit_obj=None)
     self.failIf(output.should_continue())
     text = (
         'Running presubmit upload checks ...\n'
@@ -772,66 +763,6 @@ def CheckChangeOnCommit(input_api, output_api):
         'to figure out which PRESUBMIT.py was run, then run git blame\n'
         'on the file to figure out who to ask for help.\n')
     self.assertEquals(output.getvalue(), text)
-
-  def testDoPresubmitChecksWithTags(self):
-    tag_checker_presubmit_script = """
-def CheckChangeOnUpload(input_api, output_api):
-  if input_api.change.tags['BUG'] != 'boo':
-    return [output_api.PresubmitError('Tag parsing failed. 1')]
-  if input_api.change.tags['STORY'] != 'http://tracker.com/42':
-    return [output_api.PresubmitError('Tag parsing failed. 2')]
-  try:
-    y = False
-    x = input_api.change.invalid
-  except AttributeError:
-    y = True
-  if not y:
-    return [output_api.PresubmitError('Tag parsing failed. 8')]
-  if 'TEST' in input_api.change.tags:
-    return [output_api.PresubmitError('Tag parsing failed. 3')]
-  if input_api.change.DescriptionText() != 'Blah Blah':
-    return [output_api.PresubmitError('Tag parsing failed. 4 ' +
-                                      input_api.change.DescriptionText())]
-  if (input_api.change.FullDescriptionText() !=
-      'Blah Blah\\n\\nSTORY=http://tracker.com/42\\nBUG=boo\\n'):
-    return [output_api.PresubmitError('Tag parsing failed. 5 ' +
-                                      input_api.change.FullDescriptionText())]
-  return [output_api.PresubmitNotifyResult(input_api.change.tags['STORY'])]
-def CheckChangeOnCommit(input_api, output_api):
-  raise Exception("Test error")
-"""
-    presubmit.random.randint(0, 4).AndReturn(1)
-    inherit_path = presubmit.os.path.join(
-        self.fake_root_dir, self._INHERIT_SETTINGS)
-    presubmit.os.path.isfile(inherit_path).AndReturn(False)
-    self.mox.ReplayAll()
-
-    output_buf = StringIO.StringIO()
-    input_buf = StringIO.StringIO('y\n')
-    change = presubmit.Change(
-        'foo',
-        'Blah Blah\n\nSTORY=http://tracker.com/42\nBUG=boo\n',
-        self.fake_root_dir,
-        None,
-        0,
-        0,
-        None)
-    presubmit_output = presubmit.DoPresubmitChecks(
-        change=change, committing=False, verbose=True,
-        output_stream=output_buf, input_stream=input_buf,
-        default_presubmit=tag_checker_presubmit_script,
-        may_prompt=False, rietveld_obj=None)
-
-    self.failUnless(presubmit_output)
-    self.assertEquals(output_buf.getvalue(),
-                      ('Running presubmit upload checks ...\n'
-                       'Warning, no PRESUBMIT.py found.\n'
-                       'Running default presubmit script.\n'
-                       '\n'
-                       '** Presubmit Messages **\n'
-                       'http://tracker.com/42\n'
-                       '\n'
-                       'Presubmit checks passed.\n'))
 
   def testGetTryMastersExecuter(self):
     self.mox.ReplayAll()
@@ -962,7 +893,7 @@ def CheckChangeOnCommit(input_api, output_api):
     presubmit.DoPresubmitChecks(mox.IgnoreArg(), False, False,
                                 mox.IgnoreArg(),
                                 mox.IgnoreArg(),
-                                None, False, None, None, None).AndReturn(output)
+                                None, False, None, None).AndReturn(output)
     self.mox.ReplayAll()
 
     self.assertEquals(
@@ -1023,7 +954,6 @@ class InputApiUnittest(PresubmitTestsBase):
         'environ',
         'fnmatch',
         'glob',
-        'host_url',
         'is_committing',
         'is_windows',
         'json',
@@ -1039,7 +969,6 @@ class InputApiUnittest(PresubmitTestsBase):
         'platform',
         'python_executable',
         're',
-        'rietveld',
         'subprocess',
         'tbr',
         'tempfile',
@@ -1062,10 +991,9 @@ class InputApiUnittest(PresubmitTestsBase):
     api = presubmit.InputApi(
         self.fake_change,
         presubmit_path='foo/path/PRESUBMIT.py',
-        is_committing=False, rietveld_obj=None, verbose=False)
+        is_committing=False, gerrit_obj=None, verbose=False)
     self.assertEquals(api.PresubmitLocalPath(), 'foo/path')
     self.assertEquals(api.change, self.fake_change)
-    self.assertEquals(api.host_url, 'http://codereview.chromium.org')
 
   def testInputApiPresubmitScriptFiltering(self):
     description_lines = ('Hello there',
@@ -1297,7 +1225,7 @@ class InputApiUnittest(PresubmitTestsBase):
         self.fake_root_dir, 'isdir', 'PRESUBMIT.py')
     api = presubmit.InputApi(
         change=change, presubmit_path=presubmit_path,
-        is_committing=True, rietveld_obj=None, verbose=False)
+        is_committing=True, gerrit_obj=None, verbose=False)
     paths_from_api = api.AbsoluteLocalPaths()
     self.assertEqual(len(paths_from_api), 2)
     for absolute_paths in [paths_from_change, paths_from_api]:
@@ -1374,7 +1302,7 @@ class InputApiUnittest(PresubmitTestsBase):
     input_api = presubmit.InputApi(
         self.fake_change,
         presubmit_path='foo/path/PRESUBMIT.py',
-        is_committing=False, rietveld_obj=None, verbose=False)
+        is_committing=False, gerrit_obj=None, verbose=False)
     input_api.tempfile.NamedTemporaryFile = self.mox.CreateMock(
         input_api.tempfile.NamedTemporaryFile)
     input_api.tempfile.NamedTemporaryFile(
@@ -1520,41 +1448,41 @@ class OutputApiUnittest(PresubmitTestsBase):
     self._testIncludingCQTrybots(
       """A change to GPU-related code.
 
-CQ_INCLUDE_TRYBOTS= master.tryserver.blink:linux_trusty_blink_rel ;master.tryserver.chromium.win:win_optional_gpu_tests_rel
+CQ_INCLUDE_TRYBOTS= master.tryserver.blink:linux_trusty_blink_rel ;luci.chromium.try:win_optional_gpu_tests_rel
 """,
       [
-        'master.tryserver.chromium.linux:linux_optional_gpu_tests_rel',
-        'master.tryserver.chromium.win:win_optional_gpu_tests_rel'
+        'luci.chromium.try:linux_optional_gpu_tests_rel',
+        'luci.chromium.try:win_optional_gpu_tests_rel'
       ],
       """A change to GPU-related code.
 
-CQ_INCLUDE_TRYBOTS=master.tryserver.blink:linux_trusty_blink_rel;master.tryserver.chromium.linux:linux_optional_gpu_tests_rel;master.tryserver.chromium.win:win_optional_gpu_tests_rel
+CQ_INCLUDE_TRYBOTS=luci.chromium.try:linux_optional_gpu_tests_rel;luci.chromium.try:win_optional_gpu_tests_rel;master.tryserver.blink:linux_trusty_blink_rel
 """)
 
     # Starting without any CQ_INCLUDE_TRYBOTS line.
     self._testIncludingCQTrybots(
       """A change to GPU-related code.""",
       [
-        'master.tryserver.chromium.linux:linux_optional_gpu_tests_rel',
-        'master.tryserver.chromium.mac:mac_optional_gpu_tests_rel',
+        'luci.chromium.try:linux_optional_gpu_tests_rel',
+        'luci.chromium.try:mac_optional_gpu_tests_rel',
       ],
       """A change to GPU-related code.
-CQ_INCLUDE_TRYBOTS=master.tryserver.chromium.linux:linux_optional_gpu_tests_rel;master.tryserver.chromium.mac:mac_optional_gpu_tests_rel
+CQ_INCLUDE_TRYBOTS=luci.chromium.try:linux_optional_gpu_tests_rel;luci.chromium.try:mac_optional_gpu_tests_rel
 """)
 
     # All pre-existing bots are already in output set.
     self._testIncludingCQTrybots(
       """A change to GPU-related code.
 
-CQ_INCLUDE_TRYBOTS=master.tryserver.chromium.win:win_optional_gpu_tests_rel
+CQ_INCLUDE_TRYBOTS=luci.chromium.try:win_optional_gpu_tests_rel
 """,
       [
-        'master.tryserver.chromium.linux:linux_optional_gpu_tests_rel',
-        'master.tryserver.chromium.win:win_optional_gpu_tests_rel'
+        'luci.chromium.try:linux_optional_gpu_tests_rel',
+        'luci.chromium.try:win_optional_gpu_tests_rel'
       ],
       """A change to GPU-related code.
 
-CQ_INCLUDE_TRYBOTS=master.tryserver.chromium.linux:linux_optional_gpu_tests_rel;master.tryserver.chromium.win:win_optional_gpu_tests_rel
+CQ_INCLUDE_TRYBOTS=luci.chromium.try:linux_optional_gpu_tests_rel;luci.chromium.try:win_optional_gpu_tests_rel
 """)
 
     # Equivalent tests for Gerrit (pre-existing Change-Id line).
@@ -1563,43 +1491,43 @@ CQ_INCLUDE_TRYBOTS=master.tryserver.chromium.linux:linux_optional_gpu_tests_rel;
 
 Change-Id: Idaeacea9cdbe912c24c8388147a8a767c7baa5f2""",
       [
-        'master.tryserver.chromium.linux:linux_optional_gpu_tests_rel',
-        'master.tryserver.chromium.mac:mac_optional_gpu_tests_rel',
+        'luci.chromium.try:linux_optional_gpu_tests_rel',
+        'luci.chromium.try:mac_optional_gpu_tests_rel',
       ],
       """A change to GPU-related code.
 
-Cq-Include-Trybots: master.tryserver.chromium.linux:linux_optional_gpu_tests_rel;master.tryserver.chromium.mac:mac_optional_gpu_tests_rel
+Cq-Include-Trybots: luci.chromium.try:linux_optional_gpu_tests_rel;luci.chromium.try:mac_optional_gpu_tests_rel
 Change-Id: Idaeacea9cdbe912c24c8388147a8a767c7baa5f2""", is_gerrit=True)
 
     self._testIncludingCQTrybots(
       """A change to GPU-related code.
 
-Cq-Include-Trybots: master.tryserver.chromium.linux:linux_optional_gpu_tests_rel
+Cq-Include-Trybots: luci.chromium.try:linux_optional_gpu_tests_rel
 Change-Id: Idaeacea9cdbe912c24c8388147a8a767c7baa5f2
 """,
       [
-        'master.tryserver.chromium.linux:linux_optional_gpu_tests_rel',
-        'master.tryserver.chromium.win:win_optional_gpu_tests_rel',
+        'luci.chromium.try:linux_optional_gpu_tests_rel',
+        'luci.chromium.try:win_optional_gpu_tests_rel',
       ],
       """A change to GPU-related code.
 
-Cq-Include-Trybots: master.tryserver.chromium.linux:linux_optional_gpu_tests_rel;master.tryserver.chromium.win:win_optional_gpu_tests_rel
+Cq-Include-Trybots: luci.chromium.try:linux_optional_gpu_tests_rel;luci.chromium.try:win_optional_gpu_tests_rel
 Change-Id: Idaeacea9cdbe912c24c8388147a8a767c7baa5f2""", is_gerrit=True)
 
     self._testIncludingCQTrybots(
       """A change to GPU-related code.
 
-Cq-Include-Trybots: master.tryserver.chromium.linux:linux_optional_gpu_tests_rel
-Cq-Include-Trybots: master.tryserver.chromium.linux:linux_optional_gpu_tests_dbg
+Cq-Include-Trybots: luci.chromium.try:linux_optional_gpu_tests_rel
+Cq-Include-Trybots: luci.chromium.try:linux_optional_gpu_tests_dbg
 Change-Id: Idaeacea9cdbe912c24c8388147a8a767c7baa5f2
 """,
       [
-        'master.tryserver.chromium.linux:linux_optional_gpu_tests_rel',
-        'master.tryserver.chromium.win:win_optional_gpu_tests_rel',
+        'luci.chromium.try:linux_optional_gpu_tests_rel',
+        'luci.chromium.try:win_optional_gpu_tests_rel',
       ],
       """A change to GPU-related code.
 
-Cq-Include-Trybots: master.tryserver.chromium.linux:linux_optional_gpu_tests_dbg;master.tryserver.chromium.linux:linux_optional_gpu_tests_rel;master.tryserver.chromium.win:win_optional_gpu_tests_rel
+Cq-Include-Trybots: luci.chromium.try:linux_optional_gpu_tests_dbg;luci.chromium.try:linux_optional_gpu_tests_rel;luci.chromium.try:win_optional_gpu_tests_rel
 Change-Id: Idaeacea9cdbe912c24c8388147a8a767c7baa5f2""", is_gerrit=True)
 
 
@@ -1676,15 +1604,9 @@ class ChangeUnittest(PresubmitTestsBase):
         'foo', 'foo', self.fake_root_dir, [('M', 'AA')], 0, 0, 'foo')
     self.compareMembers(change, members)
 
-  def testMembers(self):
+  def testAffectedFiles(self):
     change = presubmit.Change(
-        'foo1', 'foo2\nDRU=ro', self.fake_root_dir, [('Y', 'AA')], 3, 5, 'foo3')
-    self.assertEquals('foo1', change.Name())
-    self.assertEquals('foo2', change.DescriptionText())
-    self.assertEquals('foo3', change.author_email)
-    self.assertEquals(3, change.issue)
-    self.assertEquals(5, change.patchset)
-    self.assertEquals(self.fake_root_dir, change.RepositoryRoot())
+        '', '', self.fake_root_dir, [('Y', 'AA')], 3, 5, '')
     self.assertEquals(1, len(change.AffectedFiles()))
     self.assertEquals('Y', change.AffectedFiles()[0].Action())
 
@@ -1693,10 +1615,12 @@ class ChangeUnittest(PresubmitTestsBase):
         '', 'foo\nDRU=ro', self.fake_root_dir, [], 3, 5, '')
     self.assertEquals('foo', change.DescriptionText())
     self.assertEquals('foo\nDRU=ro', change.FullDescriptionText())
+    self.assertEquals({'DRU': 'ro'}, change.tags)
 
-    change.SetDescriptionText('bar\nWHIZ=bang')
+    change.SetDescriptionText('WHIZ=bang\nbar\nFOO=baz')
     self.assertEquals('bar', change.DescriptionText())
-    self.assertEquals('bar\nWHIZ=bang', change.FullDescriptionText())
+    self.assertEquals('WHIZ=bang\nbar\nFOO=baz', change.FullDescriptionText())
+    self.assertEquals({'WHIZ': 'bang', 'FOO': 'baz'}, change.tags)
 
   def testBugsFromDescription(self):
     change = presubmit.Change(
@@ -1740,8 +1664,7 @@ class CannedChecksUnittest(PresubmitTestsBase):
     input_api.os_walk = self.mox.CreateMockAnything()
     input_api.os_path = presubmit.os.path
     input_api.re = presubmit.re
-    input_api.rietveld = self.mox.CreateMock(rietveld.Rietveld)
-    input_api.gerrit = None
+    input_api.gerrit = self.mox.CreateMock(presubmit.GerritAccessor)
     input_api.traceback = presubmit.traceback
     input_api.urllib2 = self.mox.CreateMock(presubmit.urllib2)
     input_api.unittest = unittest
@@ -1755,7 +1678,6 @@ class CannedChecksUnittest(PresubmitTestsBase):
     input_api.is_windows = False
 
     input_api.change = change
-    input_api.host_url = 'http://localhost'
     input_api.is_committing = committing
     input_api.tbr = False
     input_api.dry_run = None
@@ -1791,7 +1713,6 @@ class CannedChecksUnittest(PresubmitTestsBase):
       'CheckOwners',
       'CheckPatchFormatted',
       'CheckGNFormatted',
-      'CheckRietveldTryJobExecution',
       'CheckSingletonInHeaders',
       'CheckVPythonSpec',
       'RunPythonUnitTests', 'RunPylint',
@@ -2406,9 +2327,9 @@ class CannedChecksUnittest(PresubmitTestsBase):
 
   def AssertOwnersWorks(self, tbr=False, issue='1', approvers=None,
       reviewers=None, is_committing=True,
-      rietveld_response=None, gerrit_response=None,
-      uncovered_files=None, expected_output='',
-      manually_specified_reviewers=None, dry_run=None):
+      response=None, uncovered_files=None, expected_output='',
+      manually_specified_reviewers=None, dry_run=None,
+      modified_file='foo/xyz.cc'):
     if approvers is None:
       # The set of people who lgtm'ed a change.
       approvers = set()
@@ -2430,10 +2351,7 @@ class CannedChecksUnittest(PresubmitTestsBase):
     change.RepositoryRoot = lambda: None
     affected_file = self.mox.CreateMock(presubmit.GitAffectedFile)
     input_api = self.MockInputApi(change, False)
-    if gerrit_response:
-      assert not rietveld_response
-      input_api.rietveld = None
-      input_api.gerrit = presubmit.GerritAccessor('host')
+    input_api.gerrit = presubmit.GerritAccessor('host')
 
     fake_db = self.mox.CreateMock(owners.Database)
     fake_db.email_regexp = input_api.re.compile(owners.BASIC_EMAIL_REGEXP)
@@ -2449,18 +2367,26 @@ class CannedChecksUnittest(PresubmitTestsBase):
     input_api.tbr = tbr
     input_api.dry_run = dry_run
 
-    if not is_committing or (not tbr and issue):
-      affected_file.LocalPath().AndReturn('foo/xyz.cc')
-      change.AffectedFiles(file_filter=None).AndReturn([affected_file])
+    affected_file.LocalPath().AndReturn(modified_file)
+    change.AffectedFiles(file_filter=None).AndReturn([affected_file])
+    if not is_committing or (not tbr and issue) or ('OWNERS' in modified_file):
       change.OriginalOwnersFiles().AndReturn({})
-      if issue and not rietveld_response and not gerrit_response:
-        rietveld_response = {
-          "owner_email": change.author_email,
-          "messages": [
-            {"sender": a, "text": "I approve", "approval": True}
-            for a in approvers
-          ],
-          "reviewers": reviewers
+      if issue and not response:
+        response = {
+          "owner": {"email": change.author_email},
+          "labels": {"Code-Review": {
+            u'all': [
+              {
+                u'email': a,
+                u'value': +1
+              } for a in approvers
+            ],
+            u'default_value': 0,
+            u'values': {u' 0': u'No score',
+                        u'+1': u'Looks good to me',
+                        u'-1': u"I would prefer that you didn't submit this"}
+          }},
+          "reviewers": {"REVIEWER": [{u'email': a}] for a in approvers},
         }
 
       if is_committing:
@@ -2469,12 +2395,7 @@ class CannedChecksUnittest(PresubmitTestsBase):
         people = reviewers
 
       if issue:
-        if rietveld_response:
-          input_api.rietveld.get_issue_properties(
-              issue=int(input_api.change.issue), messages=True).AndReturn(
-                  rietveld_response)
-        elif gerrit_response:
-          input_api.gerrit._FetchChangeDetail = lambda _: gerrit_response
+        input_api.gerrit._FetchChangeDetail = lambda _: response
 
       people.add(change.author_email)
       change.OriginalOwnersFiles().AndReturn({})
@@ -2492,12 +2413,25 @@ class CannedChecksUnittest(PresubmitTestsBase):
 
   def testCannedCheckOwners_DryRun(self):
     response = {
-      "owner_email": "john@example.com",
-      "reviewers": ["ben@example.com"],
+      "owner": {"email": "john@example.com"},
+      "labels": {"Code-Review": {
+        u'all': [
+          {
+            u'email': u'ben@example.com',
+            u'value': 0
+          },
+        ],
+        u'approved': {u'email': u'ben@example.org'},
+        u'default_value': 0,
+        u'values': {u' 0': u'No score',
+                    u'+1': u'Looks good to me',
+                    u'-1': u"I would prefer that you didn't submit this"}
+      }},
+      "reviewers": {"REVIEWER": [{u'email': u'ben@example.com'}]},
     }
     self.AssertOwnersWorks(approvers=set(),
         dry_run=True,
-        rietveld_response=response,
+        response=response,
         reviewers=set(["ben@example.com"]),
         expected_output='This is a dry run, but these failures would be ' +
                         'reported on commit:\nMissing LGTM from someone ' +
@@ -2505,10 +2439,10 @@ class CannedChecksUnittest(PresubmitTestsBase):
 
     self.AssertOwnersWorks(approvers=set(['ben@example.com']),
         is_committing=False,
-        rietveld_response=response,
+        response=response,
         expected_output='')
 
-  def testCannedCheckOwners_Approved_Gerrit(self):
+  def testCannedCheckOwners_Approved(self):
     response = {
       "owner": {"email": "john@example.com"},
       "labels": {"Code-Review": {
@@ -2533,13 +2467,13 @@ class CannedChecksUnittest(PresubmitTestsBase):
       "reviewers": {"REVIEWER": [{u'email': u'ben@example.com'}]},
     }
     self.AssertOwnersWorks(approvers=set(['ben@example.com']),
-        gerrit_response=response,
+        response=response,
         is_committing=True,
         expected_output='')
 
     self.AssertOwnersWorks(approvers=set(['ben@example.com']),
         is_committing=False,
-        gerrit_response=response,
+        response=response,
         expected_output='')
 
     # Testing configuration with on -1..+1.
@@ -2561,31 +2495,11 @@ class CannedChecksUnittest(PresubmitTestsBase):
       "reviewers": {"REVIEWER": [{u'email': u'ben@example.com'}]},
     }
     self.AssertOwnersWorks(approvers=set(['ben@example.com']),
-        gerrit_response=response,
+        response=response,
         is_committing=True,
         expected_output='')
 
-
-  def testCannedCheckOwners_Approved(self):
-    response = {
-      "owner_email": "john@example.com",
-      "messages": [
-        {
-          "sender": "ben@example.com", "text": "foo", "approval": True,
-        },
-      ],
-      "reviewers": ["ben@example.com"],
-    }
-    self.AssertOwnersWorks(approvers=set(['ben@example.com']),
-        rietveld_response=response,
-        expected_output='')
-
-    self.AssertOwnersWorks(approvers=set(['ben@example.com']),
-        is_committing=False,
-        rietveld_response=response,
-        expected_output='')
-
-  def testCannedCheckOwners_NotApproved_Gerrit(self):
+  def testCannedCheckOwners_NotApproved(self):
     response = {
       "owner": {"email": "john@example.com"},
       "labels": {"Code-Review": {
@@ -2612,7 +2526,7 @@ class CannedChecksUnittest(PresubmitTestsBase):
     self.AssertOwnersWorks(
         approvers=set(),
         reviewers=set(["ben@example.com"]),
-        gerrit_response=response,
+        response=response,
         is_committing=True,
         expected_output=
             'Missing LGTM from someone other than john@example.com\n')
@@ -2621,7 +2535,7 @@ class CannedChecksUnittest(PresubmitTestsBase):
         approvers=set(),
         reviewers=set(["ben@example.com"]),
         is_committing=False,
-        gerrit_response=response,
+        response=response,
         expected_output='')
 
     # Testing configuration with on -1..+1.
@@ -2645,49 +2559,26 @@ class CannedChecksUnittest(PresubmitTestsBase):
     self.AssertOwnersWorks(
         approvers=set(),
         reviewers=set(["ben@example.com"]),
-        gerrit_response=response,
+        response=response,
         is_committing=True,
         expected_output=
             'Missing LGTM from someone other than john@example.com\n')
 
-  def testCannedCheckOwners_NotApproved(self):
-    response = {
-      "owner_email": "john@example.com",
-      "messages": [
-        {
-          "sender": "ben@example.com", "text": "foo", "approval": False,
-        },
-      ],
-      "reviewers": ["ben@example.com"],
-    }
-    self.AssertOwnersWorks(
-        approvers=set(),
-        reviewers=set(["ben@example.com"]),
-        rietveld_response=response,
-        expected_output=
-            'Missing LGTM from someone other than john@example.com\n')
-
-    self.AssertOwnersWorks(
-        approvers=set(),
-        reviewers=set(["ben@example.com"]),
-        is_committing=False,
-        rietveld_response=response,
-        expected_output='')
-
   def testCannedCheckOwners_NoReviewers(self):
     response = {
-      "owner_email": "john@example.com",
-      "messages": [
-        {
-          "sender": "ben@example.com", "text": "foo", "approval": False,
-        },
-      ],
-      "reviewers": [],
+      "owner": {"email": "john@example.com"},
+      "labels": {"Code-Review": {
+        u'default_value': 0,
+        u'values': {u' 0': u'No score',
+                    u'+1': u'Looks good to me',
+                    u'-1': u"I would prefer that you didn't submit this"}
+      }},
+      "reviewers": {},
     }
     self.AssertOwnersWorks(
         approvers=set(),
         reviewers=set(),
-        rietveld_response=response,
+        response=response,
         expected_output=
             'Missing LGTM from someone other than john@example.com\n')
 
@@ -2695,7 +2586,7 @@ class CannedChecksUnittest(PresubmitTestsBase):
         approvers=set(),
         reviewers=set(),
         is_committing=False,
-        rietveld_response=response,
+        response=response,
         expected_output='')
 
   def testCannedCheckOwners_NoIssueNoFiles(self):
@@ -2759,6 +2650,13 @@ class CannedChecksUnittest(PresubmitTestsBase):
         expected_output='--tbr was specified, skipping OWNERS check\n')
     self.AssertOwnersWorks(tbr=True, is_committing=False, expected_output='')
 
+  def testCannedCheckOwners_TBROWNERSFile(self):
+    self.AssertOwnersWorks(
+        tbr=True, uncovered_files=set(['foo']),
+        modified_file='foo/OWNERS',
+        expected_output='Missing LGTM from an OWNER for these files:\n'
+                        '    foo\n')
+
   def testCannedCheckOwners_WithoutOwnerLGTM(self):
     self.AssertOwnersWorks(uncovered_files=set(['foo']),
         expected_output='Missing LGTM from an OWNER for these files:\n'
@@ -2786,7 +2684,9 @@ class CannedChecksUnittest(PresubmitTestsBase):
     CommHelper(input_api, ['allo', '--verbose'], cwd=self.fake_root_dir)
     cmd = ['bar.py', '--verbose']
     if input_api.platform == 'win32':
-      cmd.insert(0, input_api.python_executable)
+      cmd.insert(0, 'vpython.bat')
+    else:
+      cmd.insert(0, 'vpython')
     CommHelper(input_api, cmd, cwd=self.fake_root_dir, ret=(('', None), 1))
 
     self.mox.ReplayAll()

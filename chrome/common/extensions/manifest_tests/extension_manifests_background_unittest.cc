@@ -6,7 +6,6 @@
 #include <utility>
 
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "chrome/common/extensions/manifest_tests/chrome_manifest_test.h"
 #include "components/version_info/version_info.h"
@@ -51,7 +50,7 @@ TEST_F(ExtensionManifestBackgroundTest, BackgroundScripts) {
       std::string("/") + kGeneratedBackgroundPageFilename,
       BackgroundInfo::GetBackgroundURL(extension.get()).path());
 
-  manifest->SetString("background_page", "monkey.html");
+  manifest->SetString("background.page", "monkey.html");
   LoadAndExpectError(ManifestData(manifest.get(), ""),
                      errors::kInvalidBackgroundCombination);
 }
@@ -63,20 +62,6 @@ TEST_F(ExtensionManifestBackgroundTest, BackgroundPage) {
   EXPECT_EQ("/foo.html",
             BackgroundInfo::GetBackgroundURL(extension.get()).path());
   EXPECT_TRUE(BackgroundInfo::AllowJSAccess(extension.get()));
-
-  std::string error;
-  std::unique_ptr<base::DictionaryValue> manifest(
-      LoadManifest("background_page_legacy.json", &error));
-  ASSERT_TRUE(manifest.get());
-  extension = LoadAndExpectSuccess(ManifestData(manifest.get(), ""));
-  ASSERT_TRUE(extension.get());
-  EXPECT_EQ("/foo.html",
-            BackgroundInfo::GetBackgroundURL(extension.get()).path());
-
-  manifest->SetInteger(keys::kManifestVersion, 2);
-  LoadAndExpectWarning(
-      ManifestData(manifest.get(), ""),
-      "'background_page' requires manifest version of 1 or lower.");
 }
 
 TEST_F(ExtensionManifestBackgroundTest, BackgroundAllowNoJsAccess) {

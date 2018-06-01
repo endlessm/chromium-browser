@@ -310,13 +310,23 @@ void PresentationReceiverWindowView::ExitFullscreen() {
   exclusive_access_bubble_.reset();
   location_bar_view_->SetVisible(true);
   frame_->SetFullscreen(false);
+  if (location_bar_view_->height() <= 0)
+    Layout();
 }
 
 void PresentationReceiverWindowView::UpdateExclusiveAccessExitBubbleContent(
     const GURL& url,
     ExclusiveAccessBubbleType bubble_type,
     ExclusiveAccessBubbleHideCallback bubble_first_hide_callback) {
+#if defined(CHROMEOS)
+  // On Chrome OS, we will not show the toast for the normal browser fullscreen
+  // mode.  The 'F11' text is confusing since how to access F11 on a Chromebook
+  // is not common knowledge and there is also a dedicated fullscreen toggle
+  // button available.
+  if (bubble_type == EXCLUSIVE_ACCESS_BUBBLE_TYPE_NONE || url.is_empty()) {
+#else
   if (bubble_type == EXCLUSIVE_ACCESS_BUBBLE_TYPE_NONE) {
+#endif
     // |exclusive_access_bubble_.reset()| will trigger callback for current
     // bubble with |ExclusiveAccessBubbleHideReason::kInterrupted| if available.
     exclusive_access_bubble_.reset();
@@ -403,4 +413,6 @@ bool PresentationReceiverWindowView::GetAcceleratorForCommandId(
 void PresentationReceiverWindowView::EnterFullscreen() {
   location_bar_view_->SetVisible(false);
   frame_->SetFullscreen(true);
+  if (location_bar_view_->height() > 0)
+    Layout();
 }

@@ -24,10 +24,7 @@ import org.chromium.chrome.browser.ntp.NewTabPage;
 import org.chromium.chrome.browser.toolbar.ToolbarDataProvider;
 import org.chromium.chrome.browser.util.MathUtils;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet;
-import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet.BottomSheetContent;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet.StateChangeReason;
-import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetContentController;
-import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetContentController.ContentType;
 import org.chromium.chrome.browser.widget.bottomsheet.EmptyBottomSheetObserver;
 import org.chromium.ui.UiUtils;
 
@@ -53,7 +50,6 @@ public class LocationBarPhone extends LocationBarLayout {
 
     private Runnable mKeyboardResizeModeTask;
     private ObjectAnimator mOmniboxBackgroundAnimator;
-    private boolean mCloseSheetOnBackButton;
 
     /**
      * Constructor used to inflate from XML.
@@ -158,7 +154,8 @@ public class LocationBarPhone extends LocationBarLayout {
      */
     public void finishUrlFocusChange(boolean hasFocus) {
         if (!hasFocus) {
-            mUrlBar.scrollToTLD();
+            // Scroll to ensure the TLD is visible, if necessary.
+            if (getScrollType() == UrlBar.SCROLL_TO_TLD) mUrlBar.scrollDisplayText();
 
             // The animation rendering may not yet be 100% complete and hiding the keyboard makes
             // the animation quite choppy.
@@ -204,11 +201,6 @@ public class LocationBarPhone extends LocationBarLayout {
     }
 
     private void updateGoogleG() {
-        if (!mNativeInitialized) {
-            mGoogleGContainer.setVisibility(View.GONE);
-            return;
-        }
-
         // The toolbar data provider can be null during startup, before the ToolbarManager has been
         // initialized.
         ToolbarDataProvider toolbarDataProvider = getToolbarDataProvider();
@@ -346,25 +338,12 @@ public class LocationBarPhone extends LocationBarLayout {
 
             @Override
             public void onSheetOpened(@StateChangeReason int reason) {
-                if (reason == StateChangeReason.OMNIBOX_FOCUS) mCloseSheetOnBackButton = true;
-
                 updateGoogleG();
             }
 
             @Override
             public void onSheetClosed(@StateChangeReason int reason) {
                 updateGoogleG();
-            }
-
-            @Override
-            public void onSheetContentChanged(BottomSheetContent newContent) {
-                if (newContent == null) return;
-
-                @ContentType
-                int type = newContent.getType();
-                if (type != BottomSheetContentController.TYPE_AUXILIARY_CONTENT) {
-                    mCloseSheetOnBackButton = false;
-                }
             }
         });
 
@@ -377,19 +356,8 @@ public class LocationBarPhone extends LocationBarLayout {
     }
 
     @Override
-    public void backKeyPressed() {
-        if (mCloseSheetOnBackButton) {
-            mBottomSheet.setSheetState(BottomSheet.SHEET_STATE_PEEK, true);
-        }
-        mCloseSheetOnBackButton = false;
-
-        super.backKeyPressed();
-    }
-
-    @Override
     public void onNativeLibraryReady() {
         super.onNativeLibraryReady();
-        if (mBottomSheet != null) updateGoogleG();
 
         // TODO(twellington): Move this to constructor when isModernUiEnabled() is available before
         // native is loaded.

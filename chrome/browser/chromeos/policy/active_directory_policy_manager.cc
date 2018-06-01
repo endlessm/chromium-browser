@@ -8,14 +8,23 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
+#include "chrome/browser/browser_process.h"
 #include "chromeos/dbus/auth_policy_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/tools/variable_expander.h"
+#include "components/policy/core/common/cloud/cloud_external_data_manager.h"
 #include "components/policy/core/common/policy_bundle.h"
-#include "components/policy/core/common/policy_types.h"
+#include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/policy_constants.h"
+#include "net/url_request/url_request_context_getter.h"
 
+namespace em = enterprise_management;
+
+namespace policy {
 namespace {
+
+// List of policies where variables like ${machine_name} should be expanded.
+constexpr const char* kPoliciesToExpand[] = {key::kNativePrinters};
 
 // Fetch policy every 90 minutes which matches the Windows default:
 // https://technet.microsoft.com/en-us/library/cc940895.aspx
@@ -26,34 +35,20 @@ void RunRefreshCallback(base::OnceCallback<void(bool success)> callback,
   std::move(callback).Run(error == authpolicy::ERROR_NONE);
 }
 
+// Gets the AuthPolicy D-Bus interface.
+chromeos::AuthPolicyClient* GetAuthPolicyClient() {
+  chromeos::DBusThreadManager* thread_manager =
+      chromeos::DBusThreadManager::Get();
+  DCHECK(thread_manager);
+  chromeos::AuthPolicyClient* auth_policy_client =
+      thread_manager->GetAuthPolicyClient();
+  DCHECK(auth_policy_client);
+  return auth_policy_client;
+}
+
 }  // namespace
 
-namespace policy {
-
-ActiveDirectoryPolicyManager::~ActiveDirectoryPolicyManager() {}
-
-// static
-std::unique_ptr<ActiveDirectoryPolicyManager>
-ActiveDirectoryPolicyManager::CreateForDevicePolicy(
-    std::unique_ptr<CloudPolicyStore> store) {
-  // Can't use MakeUnique<> because the constructor is private.
-  return base::WrapUnique(
-      new ActiveDirectoryPolicyManager(EmptyAccountId(), base::TimeDelta(),
-                                       base::OnceClosure(), std::move(store)));
-}
-
-// static
-std::unique_ptr<ActiveDirectoryPolicyManager>
-ActiveDirectoryPolicyManager::CreateForUserPolicy(
-    const AccountId& account_id,
-    base::TimeDelta initial_policy_fetch_timeout,
-    base::OnceClosure exit_session,
-    std::unique_ptr<CloudPolicyStore> store) {
-  // Can't use MakeUnique<> because the constructor is private.
-  return base::WrapUnique(new ActiveDirectoryPolicyManager(
-      account_id, initial_policy_fetch_timeout, std::move(exit_session),
-      std::move(store)));
-}
+ActiveDirectoryPolicyManager::~ActiveDirectoryPolicyManager() = default;
 
 void ActiveDirectoryPolicyManager::Init(SchemaRegistry* registry) {
   ConfigurationPolicyProvider::Init(registry);
@@ -72,21 +67,28 @@ void ActiveDirectoryPolicyManager::Init(SchemaRegistry* registry) {
       base::BindRepeating(&ActiveDirectoryPolicyManager::OnPolicyFetched,
                           weak_ptr_factory_.GetWeakPtr()),
       kFetchInterval);
+
+  if (external_data_manager_) {
+    // Use the system request context here instead of a context derived from the
+    // Profile because Connect() is called before the profile is fully
+    // initialized (required so we can perform the initial policy load).
+    // Note: The request context can be null for tests and for device policy.
+    external_data_manager_->Connect(
+        g_browser_process->system_request_context());
+  }
 }
 
 void ActiveDirectoryPolicyManager::Shutdown() {
+  if (external_data_manager_)
+    external_data_manager_->Disconnect();
   store_->RemoveObserver(this);
   ConfigurationPolicyProvider::Shutdown();
 }
 
 bool ActiveDirectoryPolicyManager::IsInitializationComplete(
     PolicyDomain domain) const {
-  if (waiting_for_initial_policy_fetch_) {
-    return false;
-  }
-  if (domain == POLICY_DOMAIN_CHROME) {
+  if (domain == POLICY_DOMAIN_CHROME)
     return store_->is_initialized();
-  }
   return true;
 }
 
@@ -118,34 +120,11 @@ void ActiveDirectoryPolicyManager::OnStoreError(
   }
 }
 
-void ActiveDirectoryPolicyManager::ForceTimeoutForTest() {
-  DCHECK(initial_policy_timeout_.IsRunning());
-  // Stop the timer to mimic what happens when a real timer fires, then invoke
-  // the timer callback directly.
-  initial_policy_timeout_.Stop();
-  OnBlockingFetchTimeout();
-}
-
 ActiveDirectoryPolicyManager::ActiveDirectoryPolicyManager(
-    const AccountId& account_id,
-    base::TimeDelta initial_policy_fetch_timeout,
-    base::OnceClosure exit_session,
-    std::unique_ptr<CloudPolicyStore> store)
-    : account_id_(account_id),
-      waiting_for_initial_policy_fetch_(
-          !initial_policy_fetch_timeout.is_zero()),
-      initial_policy_fetch_may_fail_(!initial_policy_fetch_timeout.is_max()),
-      exit_session_(std::move(exit_session)),
-      store_(std::move(store)) {
-  // Delaying initialization complete is intended for user policy only.
-  DCHECK(account_id != EmptyAccountId() || !waiting_for_initial_policy_fetch_);
-  if (waiting_for_initial_policy_fetch_ && initial_policy_fetch_may_fail_) {
-    initial_policy_timeout_.Start(
-        FROM_HERE, initial_policy_fetch_timeout,
-        base::Bind(&ActiveDirectoryPolicyManager::OnBlockingFetchTimeout,
-                   weak_ptr_factory_.GetWeakPtr()));
-  }
-}
+    std::unique_ptr<CloudPolicyStore> store,
+    std::unique_ptr<CloudExternalDataManager> external_data_manager)
+    : store_(std::move(store)),
+      external_data_manager_(std::move(external_data_manager)) {}
 
 void ActiveDirectoryPolicyManager::PublishPolicy() {
   if (!store_->is_initialized()) {
@@ -161,24 +140,12 @@ void ActiveDirectoryPolicyManager::PublishPolicy() {
   // configurable, then drop PolicyMap::SetSourceForAll().
   policy_map.SetSourceForAll(POLICY_SOURCE_ACTIVE_DIRECTORY);
   SetEnterpriseUsersDefaults(&policy_map);
-  UpdatePolicy(std::move(bundle));
-}
 
-void ActiveDirectoryPolicyManager::DoPolicyFetch(
-    base::OnceCallback<void(bool success)> callback) {
-  chromeos::DBusThreadManager* thread_manager =
-      chromeos::DBusThreadManager::Get();
-  DCHECK(thread_manager);
-  chromeos::AuthPolicyClient* auth_policy_client =
-      thread_manager->GetAuthPolicyClient();
-  DCHECK(auth_policy_client);
-  if (account_id_ == EmptyAccountId()) {
-    auth_policy_client->RefreshDevicePolicy(
-        base::BindOnce(&RunRefreshCallback, std::move(callback)));
-  } else {
-    auth_policy_client->RefreshUserPolicy(
-        account_id_, base::BindOnce(&RunRefreshCallback, std::move(callback)));
-  }
+  // Expand e.g. ${machine_name} for a selected set of policies.
+  ExpandVariables(&policy_map);
+
+  // Policy is ready, send it off.
+  UpdatePolicy(std::move(bundle));
 }
 
 void ActiveDirectoryPolicyManager::OnPolicyFetched(bool success) {
@@ -198,14 +165,77 @@ void ActiveDirectoryPolicyManager::OnPolicyFetched(bool success) {
   store_->Load();
 }
 
-void ActiveDirectoryPolicyManager::OnBlockingFetchTimeout() {
-  DCHECK(waiting_for_initial_policy_fetch_);
-  LOG(WARNING) << "Timed out while waiting for the policy fetch. "
-               << "The session will start with the cached policy.";
-  CancelWaitForInitialPolicy(false);
+void ActiveDirectoryPolicyManager::ExpandVariables(PolicyMap* policy_map) {
+  const em::PolicyData* policy = store_->policy();
+  if (!policy)
+    return;
+  if (policy->machine_name().empty()) {
+    LOG(ERROR) << "Cannot expand machine_name (empty string in policy)";
+    return;
+  }
+
+  chromeos::VariableExpander expander;
+  expander.SetVariable("machine_name", policy->machine_name());
+
+  for (const char* policy_name : kPoliciesToExpand) {
+    base::Value* value = policy_map->GetMutableValue(policy_name);
+    if (value) {
+      if (!expander.ExpandValue(value)) {
+        LOG(ERROR) << "Failed to expand at least one variable in policy "
+                   << policy_name;
+      }
+    }
+  }
 }
 
-void ActiveDirectoryPolicyManager::CancelWaitForInitialPolicy(bool success) {
+UserActiveDirectoryPolicyManager::UserActiveDirectoryPolicyManager(
+    const AccountId& account_id,
+    base::TimeDelta initial_policy_fetch_timeout,
+    base::OnceClosure exit_session,
+    std::unique_ptr<CloudPolicyStore> store,
+    std::unique_ptr<CloudExternalDataManager> external_data_manager)
+    : ActiveDirectoryPolicyManager(std::move(store),
+                                   std::move(external_data_manager)),
+      account_id_(account_id),
+      waiting_for_initial_policy_fetch_(
+          !initial_policy_fetch_timeout.is_zero()),
+      initial_policy_fetch_may_fail_(!initial_policy_fetch_timeout.is_max()),
+      exit_session_(std::move(exit_session)) {
+  // Delaying initialization complete is intended for user policy only.
+  if (waiting_for_initial_policy_fetch_ && initial_policy_fetch_may_fail_) {
+    initial_policy_timeout_.Start(
+        FROM_HERE, initial_policy_fetch_timeout,
+        base::Bind(&UserActiveDirectoryPolicyManager::OnBlockingFetchTimeout,
+                   weak_ptr_factory_.GetWeakPtr()));
+  }
+}
+
+UserActiveDirectoryPolicyManager::~UserActiveDirectoryPolicyManager() = default;
+
+bool UserActiveDirectoryPolicyManager::IsInitializationComplete(
+    PolicyDomain domain) const {
+  if (waiting_for_initial_policy_fetch_)
+    return false;
+
+  return ActiveDirectoryPolicyManager::IsInitializationComplete(domain);
+}
+
+void UserActiveDirectoryPolicyManager::ForceTimeoutForTesting() {
+  DCHECK(initial_policy_timeout_.IsRunning());
+  // Stop the timer to mimic what happens when a real timer fires, then invoke
+  // the timer callback directly.
+  initial_policy_timeout_.Stop();
+  OnBlockingFetchTimeout();
+}
+
+void UserActiveDirectoryPolicyManager::DoPolicyFetch(
+    PolicyScheduler::TaskCallback callback) {
+  GetAuthPolicyClient()->RefreshUserPolicy(
+      account_id_, base::BindOnce(&RunRefreshCallback, std::move(callback)));
+}
+
+void UserActiveDirectoryPolicyManager::CancelWaitForInitialPolicy(
+    bool success) {
   if (!waiting_for_initial_policy_fetch_)
     return;
 
@@ -214,7 +244,7 @@ void ActiveDirectoryPolicyManager::CancelWaitForInitialPolicy(bool success) {
   // If the conditions to continue profile initialization are not met, the user
   // session is exited and initialization is not set as completed.
   // TODO(tnagel): Maybe add code to retry policy fetch?
-  if (!store_->has_policy()) {
+  if (!store()->has_policy()) {
     // If there's no policy at all (not even cached) the user session must not
     // continue.
     LOG(ERROR) << "Policy could not be obtained. "
@@ -241,6 +271,27 @@ void ActiveDirectoryPolicyManager::CancelWaitForInitialPolicy(bool success) {
   // Publish policy (even though it hasn't changed) in order to signal load
   // complete on the ConfigurationPolicyProvider interface.
   PublishPolicy();
+}
+
+void UserActiveDirectoryPolicyManager::OnBlockingFetchTimeout() {
+  DCHECK(waiting_for_initial_policy_fetch_);
+  LOG(WARNING) << "Timed out while waiting for the policy fetch. "
+               << "The session will start with the cached policy.";
+  CancelWaitForInitialPolicy(false /* success */);
+}
+
+DeviceActiveDirectoryPolicyManager::DeviceActiveDirectoryPolicyManager(
+    std::unique_ptr<CloudPolicyStore> store)
+    : ActiveDirectoryPolicyManager(std::move(store),
+                                   nullptr /* external_data_manager */) {}
+
+DeviceActiveDirectoryPolicyManager::~DeviceActiveDirectoryPolicyManager() =
+    default;
+
+void DeviceActiveDirectoryPolicyManager::DoPolicyFetch(
+    base::OnceCallback<void(bool success)> callback) {
+  GetAuthPolicyClient()->RefreshDevicePolicy(
+      base::BindOnce(&RunRefreshCallback, std::move(callback)));
 }
 
 }  // namespace policy

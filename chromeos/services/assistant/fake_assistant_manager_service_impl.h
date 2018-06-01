@@ -10,6 +10,7 @@
 
 #include "base/macros.h"
 #include "chromeos/services/assistant/assistant_manager_service.h"
+#include "chromeos/services/assistant/public/mojom/assistant.mojom.h"
 
 namespace chromeos {
 namespace assistant {
@@ -24,8 +25,20 @@ class FakeAssistantManagerServiceImpl : public AssistantManagerService {
   // assistant::AssistantManagerService overrides
   void Start(const std::string& access_token) override;
   void SetAccessToken(const std::string& access_token) override;
+  void EnableListening(bool enable) override;
+  bool IsRunning() const override;
+  AssistantSettingsManager* GetAssistantSettingsManager() override;
+  void SendGetSettingsUiRequest(
+      const std::string& selector,
+      GetSettingsUiResponseCallback callback) override;
+
+  // mojom::AssistantEvent overrides:
+  void SendTextQuery(const std::string& query) override;
+  void AddAssistantEventSubscriber(
+      mojom::AssistantEventSubscriberPtr subscriber) override;
 
  private:
+  bool running_ = false;
   DISALLOW_COPY_AND_ASSIGN(FakeAssistantManagerServiceImpl);
 };
 

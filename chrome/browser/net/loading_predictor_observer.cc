@@ -8,7 +8,6 @@
 #include <string>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/resource_request_info.h"
@@ -101,7 +100,6 @@ void LoadingPredictorObserver::OnRequestStarted(
     return;
 
   auto summary = std::make_unique<URLRequestSummary>();
-  summary->resource_url = request->original_url();
   summary->resource_type = resource_type;
 
   BrowserThread::PostTask(

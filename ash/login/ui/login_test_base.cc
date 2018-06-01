@@ -53,7 +53,6 @@ std::unique_ptr<views::Widget> LoginTestBase::CreateWidgetWithContent(
   views::Widget::InitParams params(
       views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  params.context = CurrentContext();
   params.bounds = gfx::Rect(0, 0, 800, 800);
   params.delegate = new WidgetDelegate(content);
 
@@ -71,13 +70,33 @@ std::unique_ptr<views::Widget> LoginTestBase::CreateWidgetWithContent(
 }
 
 void LoginTestBase::SetUserCount(size_t count) {
-  // Add missing users, then remove extra users.
-  while (users_.size() < count) {
+  if (count > users_.size()) {
+    AddUsers(count - users_.size());
+    return;
+  }
+
+  users_.erase(users_.begin() + count, users_.end());
+  // Notify any listeners that the user count has changed.
+  data_dispatcher_.NotifyUsers(users_);
+}
+
+void LoginTestBase::AddUsers(size_t num_users) {
+  for (size_t i = 0; i < num_users; i++) {
     std::string email =
         base::StrCat({"user", std::to_string(users_.size()), "@domain.com"});
     users_.push_back(CreateUser(email));
   }
-  users_.erase(users_.begin() + count, users_.end());
+
+  // Notify any listeners that the user count has changed.
+  data_dispatcher_.NotifyUsers(users_);
+}
+
+void LoginTestBase::AddPublicAccountUsers(size_t num_public_accounts) {
+  for (size_t i = 0; i < num_public_accounts; i++) {
+    std::string email =
+        base::StrCat({"user", std::to_string(users_.size()), "@domain.com"});
+    users_.push_back(CreatePublicAccountUser(email));
+  }
 
   // Notify any listeners that the user count has changed.
   data_dispatcher_.NotifyUsers(users_);

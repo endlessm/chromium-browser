@@ -34,8 +34,6 @@
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_test.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
-#include "chrome/browser/ui/ash/test_wallpaper_controller.h"
-#include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
@@ -65,6 +63,31 @@
 namespace arc {
 
 namespace {
+
+class ArcInitialStartHandler : public ArcSessionManager::Observer {
+ public:
+  explicit ArcInitialStartHandler(ArcSessionManager* session_manager)
+      : session_manager_(session_manager) {
+    session_manager->AddObserver(this);
+  }
+
+  ~ArcInitialStartHandler() override { session_manager_->RemoveObserver(this); }
+
+  // ArcSessionManager::Observer:
+  void OnArcInitialStart() override {
+    DCHECK(!was_called_);
+    was_called_ = true;
+  }
+
+  bool was_called() const { return was_called_; }
+
+ private:
+  bool was_called_ = false;
+
+  ArcSessionManager* const session_manager_;
+
+  DISALLOW_COPY_AND_ASSIGN(ArcInitialStartHandler);
+};
 
 class ArcSessionManagerInLoginScreenTest : public testing::Test {
  public:
@@ -174,15 +197,10 @@ class ArcSessionManagerTestBase : public testing::Test {
     StartPreferenceSyncing();
 
     ASSERT_FALSE(arc_session_manager_->enable_requested());
-    wallpaper_controller_client_ =
-        std::make_unique<WallpaperControllerClient>();
-    wallpaper_controller_client_->InitForTesting(
-        test_wallpaper_controller_.CreateInterfacePtr());
   }
 
   void TearDown() override {
     arc_session_manager_->Shutdown();
-    wallpaper_controller_client_.reset();
     profile_.reset();
     arc_session_manager_.reset();
     arc_service_manager_.reset();
@@ -229,8 +247,6 @@ class ArcSessionManagerTestBase : public testing::Test {
   std::unique_ptr<ArcSessionManager> arc_session_manager_;
   user_manager::ScopedUserManager user_manager_enabler_;
   base::ScopedTempDir temp_dir_;
-  std::unique_ptr<WallpaperControllerClient> wallpaper_controller_client_;
-  TestWallpaperController test_wallpaper_controller_;
 
   DISALLOW_COPY_AND_ASSIGN(ArcSessionManagerTestBase);
 };
@@ -280,6 +296,52 @@ TEST_F(ArcSessionManagerTest, BaseWorkflow) {
   EXPECT_FALSE(arc_session_manager()->arc_start_time().is_null());
 
   ASSERT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
+
+  arc_session_manager()->Shutdown();
+}
+
+// Tests that OnArcInitialStart is called  after the successful ARC provisioning
+// on the first start after OptIn.
+TEST_F(ArcSessionManagerTest, ArcInitialStartFirstProvisioning) {
+  arc_session_manager()->SetProfile(profile());
+  arc_session_manager()->Initialize();
+
+  ArcInitialStartHandler start_handler(arc_session_manager());
+  EXPECT_FALSE(start_handler.was_called());
+
+  arc_session_manager()->RequestEnable();
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_FALSE(start_handler.was_called());
+
+  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
+  arc_session_manager()->StartArcForTesting();
+
+  EXPECT_FALSE(start_handler.was_called());
+
+  arc_session_manager()->OnProvisioningFinished(ProvisioningResult::SUCCESS);
+  EXPECT_TRUE(start_handler.was_called());
+
+  arc_session_manager()->Shutdown();
+}
+
+// Tests that OnArcInitialStart is not called after the successful ARC
+// provisioning on the second and next starts after OptIn.
+TEST_F(ArcSessionManagerTest, ArcInitialStartNextProvisioning) {
+  // Set up the situation that provisioning is successfully done in the
+  // previous session. In this case initial start callback is not called.
+  PrefService* const prefs = profile()->GetPrefs();
+  prefs->SetBoolean(prefs::kArcTermsAccepted, true);
+  prefs->SetBoolean(prefs::kArcSignedIn, true);
+
+  arc_session_manager()->SetProfile(profile());
+  arc_session_manager()->Initialize();
+
+  ArcInitialStartHandler start_handler(arc_session_manager());
+
+  arc_session_manager()->RequestEnable();
+  arc_session_manager()->OnProvisioningFinished(ProvisioningResult::SUCCESS);
+  EXPECT_FALSE(start_handler.was_called());
 
   arc_session_manager()->Shutdown();
 }
@@ -697,13 +759,17 @@ TEST_P(ArcSessionManagerPolicyTest, SkippingTerms) {
   arc_session_manager()->RequestEnable();
 
   // Terms of Service are skipped iff ARC is enabled by policy and both policies
-  // are either managed or unused (for Active Directory users a LaForge account
-  // is created, not a full Dasher account, where the policies have no meaning).
-  const bool prefs_managed = backup_restore_pref_value().is_bool() &&
-                             location_service_pref_value().is_bool();
+  // are either managed/OFF or unused (for Active Directory users a LaForge
+  // account is created, not a full Dasher account, where the policies have no
+  // meaning).
   const bool prefs_unused = is_active_directory_user();
+  const bool backup_managed_off = backup_restore_pref_value().is_bool() &&
+                                  !backup_restore_pref_value().GetBool();
+  const bool location_managed_off = location_service_pref_value().is_bool() &&
+                                    !location_service_pref_value().GetBool();
   const bool expected_terms_skipping =
-      (arc_enabled_pref_managed() && (prefs_managed || prefs_unused));
+      (arc_enabled_pref_managed() &&
+       ((backup_managed_off && location_managed_off) || prefs_unused));
   EXPECT_EQ(expected_terms_skipping
                 ? ArcSessionManager::State::CHECKING_ANDROID_MANAGEMENT
                 : ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,

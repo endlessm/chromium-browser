@@ -7,7 +7,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "third_party/WebKit/public/platform/WebContentSettingsClient.h"
+#include "third_party/blink/public/platform/web_content_settings_client.h"
 #include "url/gurl.h"
 
 namespace IPC {
@@ -30,6 +30,7 @@ class WorkerContentSettingsClient : public blink::WebContentSettingsClient {
   ~WorkerContentSettingsClient() override;
 
   // WebContentSettingsClient overrides.
+  std::unique_ptr<blink::WebContentSettingsClient> Clone() override;
   bool RequestFileSystemAccessSync() override;
   bool AllowIndexedDB(const blink::WebString& name,
                       const blink::WebSecurityOrigin&) override;
@@ -38,6 +39,9 @@ class WorkerContentSettingsClient : public blink::WebContentSettingsClient {
                                    const blink::WebURL& url) override;
 
  private:
+  explicit WorkerContentSettingsClient(
+      const WorkerContentSettingsClient& other);
+
   // Loading document context for this worker.
   const int routing_id_;
   bool is_unique_origin_;
@@ -46,7 +50,7 @@ class WorkerContentSettingsClient : public blink::WebContentSettingsClient {
   bool allow_running_insecure_content_;
   scoped_refptr<IPC::SyncMessageFilter> sync_message_filter_;
 
-  DISALLOW_COPY_AND_ASSIGN(WorkerContentSettingsClient);
+  DISALLOW_ASSIGN(WorkerContentSettingsClient);
 };
 
 #endif  // CHROME_RENDERER_WORKER_CONTENT_SETTINGS_CLIENT_H_

@@ -21,29 +21,6 @@
  * Author: Mark Lobodzinski <mark@lunarg.com>
  */
 
-#ifndef NOEXCEPT
-// Check for noexcept support
-#if defined(__clang__)
-#if __has_feature(cxx_noexcept)
-#define HAS_NOEXCEPT
-#endif
-#else
-#if defined(__GXX_EXPERIMENTAL_CXX0X__) && __GNUC__ * 10 + __GNUC_MINOR__ >= 46
-#define HAS_NOEXCEPT
-#else
-#if defined(_MSC_FULL_VER) && _MSC_FULL_VER >= 190023026 && defined(_HAS_EXCEPTIONS) && _HAS_EXCEPTIONS
-#define HAS_NOEXCEPT
-#endif
-#endif
-#endif
-
-#ifdef HAS_NOEXCEPT
-#define NOEXCEPT noexcept
-#else
-#define NOEXCEPT
-#endif
-#endif
-
 #pragma once
 #include "core_validation_error_enums.h"
 #include "vk_validation_error_messages.h"
@@ -90,13 +67,6 @@
  */
 // TODO : Is there a way to track when Cmd Buffer finishes & remove mem references at that point?
 // TODO : Could potentially store a list of freed mem allocs to flag when they're incorrectly used
-
-
-
-struct GENERIC_HEADER {
-    VkStructureType sType;
-    const void *pNext;
-};
 
 enum SyncScope {
     kSyncScopeInternal,
@@ -184,7 +154,7 @@ struct hash<GpuQueue> {
         return hash<uint64_t>()((uint64_t)(gq.gpu)) ^ hash<uint32_t>()(gq.queue_family_index);
     }
 };
-}
+}  // namespace std
 
 struct SURFACE_STATE {
     VkSurfaceKHR surface = VK_NULL_HANDLE;

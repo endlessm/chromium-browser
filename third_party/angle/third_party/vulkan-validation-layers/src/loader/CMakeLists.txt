@@ -1,7 +1,7 @@
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_PROJECT_BINARY_DIR}
+    ${PROJECT_BINARY_DIR}
     ${CMAKE_BINARY_DIR}
 )
 
@@ -49,6 +49,8 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_definitions(-DVK_USE_PLATFORM_MIR_KHR)
         include_directories(${MIR_INCLUDE_DIR})
     endif()
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    add_definitions(-DVK_USE_PLATFORM_MACOS_MVK)
 else()
     message(FATAL_ERROR "Unsupported Platform!")
 endif()
@@ -104,20 +106,27 @@ if (WIN32)
         add_dependencies(asm_offset generate_helper_files loader_gen_files)
         add_custom_command(OUTPUT gen_defines.asm DEPENDS asm_offset COMMAND asm_offset MASM)
         add_custom_target(loader_asm_gen_files DEPENDS gen_defines.asm)
+        set_target_properties(loader_asm_gen_files PROPERTIES FOLDER ${LVL_TARGET_FOLDER})
     else()
         message(WARNING "Could not find working MASM assebler\n${ASM_FAILURE_MSG}")
         set(OPT_LOADER_SRCS ${OPT_LOADER_SRCS} unknown_ext_chain.c)
         add_custom_target(loader_asm_gen_files)
     endif()
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    # For MacOS, use the C code and force the compiler's tail-call optimization instead of using assembly code.
+    set(OPT_LOADER_SRCS ${OPT_LOADER_SRCS} unknown_ext_chain.c)
+    set_source_files_properties(${OPT_LOADER_SRCS} PROPERTIES COMPILE_FLAGS -O)
+    add_custom_target(loader_asm_gen_files) # This causes no assembly files to be generated.
 else()
     enable_language(ASM-ATT)
-    set(CMAKE_ASM-ATT_FLAGS "${CMAKE_ASM-ATT_FLAGS} $ENV{ASFLAGS}")
-    set(CMAKE_ASM-ATT_FLAGS "${CMAKE_ASM-ATT_FLAGS} -I\"${CMAKE_CURRENT_BINARY_DIR}\"")
+    set(CMAKE_ASM-ATT_COMPILE_FLAGS "${CMAKE_ASM-ATT_COMPILE_FLAGS} $ENV{ASFLAGS}")
+    set(CMAKE_ASM-ATT_COMPILE_FLAGS "${CMAKE_ASM-ATT_COMPILE_FLAGS} -I\"${CMAKE_CURRENT_BINARY_DIR}\"")
 
     file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/asm_test.asm ".intel_syntax noprefix\n.text\n.global sample\nsample:\nmov ecx, [eax + 16]\n")
     try_compile(ASSEMBLER_WORKS ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/asm_test.asm)
     file(REMOVE ${CMAKE_CURRENT_BINARY_DIR}/asm_test.asm)
     if (ASSEMBLER_WORKS)
+        set(CMAKE_ASM-ATT_FLAGS "$ENV{ASFLAGS} -I\"${CMAKE_CURRENT_BINARY_DIR}\"")
         set(OPT_LOADER_SRCS ${OPT_LOADER_SRCS} unknown_ext_chain_gas.asm)
         add_executable(asm_offset asm_offset.c)
         add_dependencies(asm_offset generate_helper_files loader_gen_files)
@@ -136,6 +145,7 @@ add_custom_target(loader_gen_files DEPENDS
         vk_loader_extensions.h
         vk_loader_extensions.c
     )
+set_target_properties(loader_gen_files PROPERTIES FOLDER ${LVL_TARGET_FOLDER})
 
 if (WIN32)
     # Use static MSVCRT libraries
@@ -146,6 +156,12 @@ if (WIN32)
         endif()
     endforeach()
 
+    if (ENABLE_WIN10_ONECORE)
+    # Note  When linking your app or driver to OneCore.lib, be sure to remove any links to non-umbrella libs (such as kernel32.lib). 
+        set(CMAKE_CXX_STANDARD_LIBRARIES " ") # space is intentional
+        set(CMAKE_C_STANDARD_LIBRARIES ${CMAKE_CXX_STANDARD_LIBRARIES})
+    endif()
+
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_CRT_SECURE_NO_WARNINGS")
     # Build dev_ext_trampoline.c with -O2 to allow tail-call optimization.
     # Build other C files with normal options
@@ -154,23 +170,39 @@ if (WIN32)
     set(CMAKE_C_FLAGS_DEBUG " ")
     separate_arguments(LOCAL_C_FLAGS_REL WINDOWS_COMMAND ${CMAKE_C_FLAGS_RELEASE})
 
-    add_library(loader-norm OBJECT ${NORMAL_LOADER_SRCS} dirent_on_windows.c)
-    add_dependencies(loader-norm generate_helper_files loader_gen_files)
+    add_library(loader-norm-dy OBJECT ${NORMAL_LOADER_SRCS} dirent_on_windows.c)
+    add_dependencies(loader-norm-dy generate_helper_files loader_gen_files)
+    target_compile_definitions(loader-norm-dy PUBLIC LOADER_DYNAMIC_LIB)
+    target_compile_options(loader-norm-dy PUBLIC "$<$<CONFIG:DEBUG>:${LOCAL_C_FLAGS_DBG}>")
 
-    target_compile_options(loader-norm PUBLIC "$<$<CONFIG:DEBUG>:${LOCAL_C_FLAGS_DBG}>")
-    add_library(loader-opt OBJECT ${OPT_LOADER_SRCS})
-    add_dependencies(loader-opt generate_helper_files loader_gen_files loader_asm_gen_files)
+    add_library(loader-opt-dy OBJECT ${OPT_LOADER_SRCS})
+    add_dependencies(loader-opt-dy generate_helper_files loader_gen_files loader_asm_gen_files)
+    target_compile_definitions(loader-opt-dy PUBLIC LOADER_DYNAMIC_LIB)
+    target_compile_options(loader-opt-dy PUBLIC "$<$<CONFIG:DEBUG>:${LOCAL_C_FLAGS_REL}>")
 
-    target_compile_options(loader-opt PUBLIC "$<$<CONFIG:DEBUG>:${LOCAL_C_FLAGS_REL}>")
-    add_library(${API_LOWERCASE}-${MAJOR} SHARED $<TARGET_OBJECTS:loader-opt> $<TARGET_OBJECTS:loader-norm> ${CMAKE_CURRENT_BINARY_DIR}/${API_LOWERCASE}-${MAJOR}.def ${CMAKE_CURRENT_SOURCE_DIR}/loader.rc)
-    add_library(VKstatic.${MAJOR} STATIC $<TARGET_OBJECTS:loader-opt> $<TARGET_OBJECTS:loader-norm>)
+    add_library(loader-norm-st OBJECT ${NORMAL_LOADER_SRCS} dirent_on_windows.c)
+    add_dependencies(loader-norm-st generate_helper_files loader_gen_files)
+    target_compile_options(loader-norm-st PUBLIC "$<$<CONFIG:DEBUG>:${LOCAL_C_FLAGS_DBG}>")
+
+    add_library(loader-opt-st OBJECT ${OPT_LOADER_SRCS})
+    add_dependencies(loader-opt-st generate_helper_files loader_gen_files loader_asm_gen_files)
+    target_compile_options(loader-opt-st PUBLIC "$<$<CONFIG:DEBUG>:${LOCAL_C_FLAGS_REL}>")
+
+    add_library(${API_LOWERCASE}-${MAJOR} SHARED $<TARGET_OBJECTS:loader-opt-dy> $<TARGET_OBJECTS:loader-norm-dy> ${CMAKE_CURRENT_BINARY_DIR}/${API_LOWERCASE}-${MAJOR}.def ${CMAKE_CURRENT_SOURCE_DIR}/loader.rc)
+    add_library(VKstatic.${MAJOR} STATIC $<TARGET_OBJECTS:loader-opt-st> $<TARGET_OBJECTS:loader-norm-st>)
     # Suppress conflicting libs warning for debug builds.
     set_target_properties(${API_LOWERCASE}-${MAJOR} PROPERTIES LINK_FLAGS_DEBUG /ignore:4098)
     set_target_properties(VKstatic.${MAJOR} PROPERTIES OUTPUT_NAME VKstatic.${MAJOR})
-    target_link_libraries(${API_LOWERCASE}-${MAJOR} shlwapi Cfgmgr32)
+
+    if (ENABLE_WIN10_ONECORE)
+        target_link_libraries(${API_LOWERCASE}-${MAJOR} OneCoreUAP.lib LIBCMT.LIB LIBCMTD.LIB LIBVCRUNTIME.LIB LIBUCRT.LIB)
+        set_target_properties(${API_LOWERCASE}-${MAJOR} PROPERTIES LINK_FLAGS   "/NODEFAULTLIB")
+    else()
+        target_link_libraries(${API_LOWERCASE}-${MAJOR} Cfgmgr32)
+    endif()
+
     add_dependencies(${API_LOWERCASE}-${MAJOR} generate_helper_files loader_gen_files loader_asm_gen_files)
 
-    target_link_libraries(VKstatic.${MAJOR} shlwapi)
     if (CMAKE_GENERATOR MATCHES "^Visual Studio.*")
         file(TO_NATIVE_PATH ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIGURATION>/${API_LOWERCASE}-${MAJOR}.dll COPY_SRC_PATH)
         file(TO_NATIVE_PATH ${CMAKE_CURRENT_BINARY_DIR}/../demos/$<CONFIGURATION>/ COPY_DST_PATH)
@@ -186,6 +218,7 @@ if (WIN32)
       COMMAND xcopy /Y /I ${COPY_SRC_PATH} ${COPY_DST_TEST_PATH})
 
 else()
+    # Linux and MacOS
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wpointer-arith")
 
     # Clang (and not gcc) warns about redefining a typedef with the same types, so disable that warning.
@@ -194,26 +227,70 @@ else()
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-typedef-redefinition")
     endif()
 
-    add_library(${API_LOWERCASE} SHARED ${NORMAL_LOADER_SRCS} ${OPT_LOADER_SRCS})
+    add_library(${API_LOWERCASE} SHARED ${NORMAL_LOADER_SRCS} ${OPT_LOADER_SRCS} ${FRAMEWORK_HEADERS})
     add_dependencies(${API_LOWERCASE} generate_helper_files loader_gen_files loader_asm_gen_files)
+    target_compile_definitions(${API_LOWERCASE} PUBLIC -DLOADER_DYNAMIC_LIB)
     set_target_properties(${API_LOWERCASE} PROPERTIES SOVERSION "1" VERSION "1.0.${vk_header_version}")
     target_link_libraries(${API_LOWERCASE} -ldl -lpthread -lm)
+
+    if(APPLE)
+        find_library(COREFOUNDATION_LIBRARY NAMES CoreFoundation)
+        target_link_libraries(${API_LOWERCASE} "-framework CoreFoundation")
+
+        # Build vulkan.framework
+        set(FRAMEWORK_HEADERS
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vk_icd.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vk_layer.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vk_platform.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vk_sdk_platform.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vulkan.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vulkan.hpp
+        )
+        add_library(vulkan-framework SHARED ${NORMAL_LOADER_SRCS} ${OPT_LOADER_SRCS} ${FRAMEWORK_HEADERS})
+        add_dependencies(vulkan-framework generate_helper_files loader_gen_files loader_asm_gen_files)
+        target_compile_definitions(vulkan-framework PUBLIC -DLOADER_DYNAMIC_LIB)
+        target_link_libraries(vulkan-framework -ldl -lpthread -lm "-framework CoreFoundation")
+
+        # The FRAMEWORK_VERSION needs to be "A" here so that Xcode code-signing works when
+        # a user adds their framework to an Xcode project and does "Sign on Copy".
+        # It would have been nicer to use "1" to denote Vulkan 1.
+        # Although Apple docs say that a framework version does not have to be "A",
+        # this part of the Apple toolchain expects it.
+        # https://forums.developer.apple.com/thread/65963
+        set_target_properties(vulkan-framework PROPERTIES
+            OUTPUT_NAME vulkan
+            FRAMEWORK TRUE
+            FRAMEWORK_VERSION A
+            VERSION "1.0.${vk_header_version}"       # "current version"
+            SOVERSION "1.0.0"                        # "compatibility version"
+            MACOSX_FRAMEWORK_IDENTIFIER com.lunarg.vulkanFramework
+            PUBLIC_HEADER "${FRAMEWORK_HEADERS}"
+        )
+        install(TARGETS vulkan-framework
+            PUBLIC_HEADER DESTINATION vulkan
+            FRAMEWORK DESTINATION loader
+        )
+    endif(APPLE)
 
     if(INSTALL_LVL_FILES)
         install(TARGETS ${API_LOWERCASE} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
     endif()
 
-    # Generate pkg-config file.
-    include(FindPkgConfig QUIET)
-    if(PKG_CONFIG_FOUND)
-        set(VK_API_VERSION "1.0.${vk_header_version}")
-        foreach(LIB ${CMAKE_CXX_IMPLICIT_LINK_LIBRARIES} ${PLATFORM_LIBS})
-            set(PRIVATE_LIBS "${PRIVATE_LIBS} -l${LIB}")
-        endforeach()
-        configure_file("vulkan.pc.in" "vulkan.pc" @ONLY)
-        if(INSTALL_LVL_FILES)
-            install(FILES       "${CMAKE_CURRENT_BINARY_DIR}/vulkan.pc"
-                    DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
+    if(NOT APPLE)
+        # Generate pkg-config file.
+        include(FindPkgConfig QUIET)
+        if(PKG_CONFIG_FOUND)
+            set(VK_API_VERSION "1.0.${vk_header_version}")
+            foreach(LIB ${CMAKE_CXX_IMPLICIT_LINK_LIBRARIES} ${PLATFORM_LIBS})
+                set(PRIVATE_LIBS "${PRIVATE_LIBS} -l${LIB}")
+            endforeach()
+            configure_file("vulkan.pc.in" "vulkan.pc" @ONLY)
+            if(INSTALL_LVL_FILES)
+                install(FILES       "${CMAKE_CURRENT_BINARY_DIR}/vulkan.pc"
+                        DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
+            endif()
         endif()
     endif()
 endif()
+
+

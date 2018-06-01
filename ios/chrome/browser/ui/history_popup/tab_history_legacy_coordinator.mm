@@ -17,6 +17,7 @@
 #import "ios/chrome/browser/ui/history_popup/tab_history_popup_controller.h"
 #include "ios/chrome/browser/ui/rtl_geometry.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
+#include "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
 #include "ios/web/public/navigation_item.h"
 #import "ios/web/public/navigation_manager.h"
@@ -124,8 +125,10 @@ using base::UserMetricsAction;
 
 // Returns the origin point of the popup for the |guideName|.
 - (CGPoint)popupOriginForNamedGuide:(GuideName*)guideName {
-  UILayoutGuide* guide = FindNamedGuide(
-      guideName, [self.presentationProvider viewForTabHistoryPresentation]);
+  UIView* presentationView =
+      [self.presentationProvider viewForTabHistoryPresentation];
+  UILayoutGuide* guide =
+      [NamedGuide guideWithName:guideName view:presentationView];
   DCHECK(guide);
   CGPoint leadingBottomCorner =
       CGPointMake(CGRectGetLeadingEdge(guide.layoutFrame),

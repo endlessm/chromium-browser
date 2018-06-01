@@ -70,7 +70,8 @@ class IntermNodeTest : public testing::Test
         for (TIntermNode *arg : args)
         {
             const TType *type = new TType(arg->getAsTyped()->getType());
-            func->addParameter(TConstParameter(type));
+            func->addParameter(new TVariable(&symbolTable, ImmutableString("param"), type,
+                                             SymbolType::UserDefined));
         }
         return func;
     }
@@ -195,7 +196,7 @@ TEST_F(IntermNodeTest, DeepCopyUnaryNode)
 {
     TType type(EbtFloat, EbpHigh);
 
-    TIntermUnary *original = new TIntermUnary(EOpPreIncrement, createTestSymbol());
+    TIntermUnary *original = new TIntermUnary(EOpPreIncrement, createTestSymbol(), nullptr);
     original->setLine(getTestSourceLoc());
     TIntermTyped *copyTyped = original->deepCopy();
     TIntermUnary *copy = copyTyped->getAsUnaryNode();

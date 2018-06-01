@@ -19,6 +19,7 @@
 #include "ui/app_list/vector_icons/vector_icons.h"
 #include "ui/app_list/views/search_result_container_view.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/image/canvas_image_source.h"
 #include "ui/gfx/image/image_skia_operations.h"
@@ -184,7 +185,7 @@ void SearchResultTileItemView::SetSearchResult(SearchResult* item) {
     title_->SetLineHeight(font.GetHeight());
     title_->SetEnabledColor(kGridTitleColor);
   } else {
-    DCHECK_EQ(SearchResult::DISPLAY_TILE, item_->display_type());
+    DCHECK_EQ(ash::SearchResultDisplayType::kTile, item_->display_type());
     // Set solid color background to avoid broken text. See crbug.com/746563.
     if (rating_) {
       rating_->SetBackground(
@@ -200,9 +201,9 @@ void SearchResultTileItemView::SetSearchResult(SearchResult* item) {
   }
 
   title_->SetMaxLines(2);
-  title_->SetMultiLine(item_->display_type() == SearchResult::DISPLAY_TILE &&
-                       item_->result_type() ==
-                           SearchResult::RESULT_INSTALLED_APP);
+  title_->SetMultiLine(
+      item_->display_type() == ash::SearchResultDisplayType::kTile &&
+      item_->result_type() == ash::SearchResultType::kInstalledApp);
 
   // Only refresh the icon if it's different from the old one. This prevents
   // flickering.
@@ -310,6 +311,7 @@ void SearchResultTileItemView::OnFocus() {
   }
   SetBackgroundHighlighted(true);
   UpdateBackgroundColor();
+  NotifyAccessibilityEvent(ax::mojom::Event::kSelection, true);
 }
 
 void SearchResultTileItemView::OnBlur() {
@@ -330,12 +332,11 @@ void SearchResultTileItemView::PaintButtonContents(gfx::Canvas* canvas) {
   flags.setAntiAlias(true);
   flags.setStyle(cc::PaintFlags::kFill_Style);
   if (IsSuggestedAppTile()) {
-    rect.Inset((rect.width() - kGridSelectedSize) / 2,
-               (rect.height() - kGridSelectedSize) / 2);
+    rect.ClampToCenteredSize(gfx::Size(kGridSelectedSize, kGridSelectedSize));
     flags.setColor(kGridSelectedColor);
     canvas->DrawRoundRect(gfx::RectF(rect), kGridSelectedCornerRadius, flags);
   } else {
-    DCHECK(item_->display_type() == SearchResult::DISPLAY_TILE);
+    DCHECK(item_->display_type() == ash::SearchResultDisplayType::kTile);
     const int kLeftRightPadding = (rect.width() - kIconSelectedSize) / 2;
     rect.Inset(kLeftRightPadding, 0);
     rect.set_height(kIconSelectedSize);
@@ -405,13 +406,28 @@ void SearchResultTileItemView::ShowContextMenuForView(
   if (!HasFocus())
     result_container_->ClearSelectedIndex();
 
+  int run_types = views::MenuRunner::HAS_MNEMONICS;
+  views::MenuAnchorPosition anchor_type = views::MENU_ANCHOR_TOPLEFT;
+  gfx::Rect anchor_rect = gfx::Rect(point, gfx::Size());
+
+  if (::features::IsTouchableAppContextMenuEnabled()) {
+    anchor_type = views::MENU_ANCHOR_BUBBLE_TOUCHABLE_LEFT;
+    run_types |= views::MenuRunner::USE_TOUCHABLE_LAYOUT |
+                 views::MenuRunner::CONTEXT_MENU |
+                 views::MenuRunner::FIXED_ANCHOR;
+    if (source_type == ui::MenuSourceType::MENU_SOURCE_TOUCH) {
+      anchor_rect = source->GetBoundsInScreen();
+      // Anchor the menu to the same rect that is used for selection highlight.
+      anchor_rect.ClampToCenteredSize(
+          gfx::Size(kGridSelectedSize, kGridSelectedSize));
+    }
+  }
   context_menu_runner_.reset(new views::MenuRunner(
-      menu_model, views::MenuRunner::HAS_MNEMONICS,
+      menu_model, run_types,
       base::Bind(&SearchResultTileItemView::OnContextMenuClosed,
                  weak_ptr_factory_.GetWeakPtr(), base::TimeTicks::Now())));
-  context_menu_runner_->RunMenuAt(GetWidget(), nullptr,
-                                  gfx::Rect(point, gfx::Size()),
-                                  views::MENU_ANCHOR_TOPLEFT, source_type);
+  context_menu_runner_->RunMenuAt(GetWidget(), nullptr, anchor_rect,
+                                  anchor_type, source_type);
 
   source->RequestFocus();
 }
@@ -478,7 +494,8 @@ void SearchResultTileItemView::SetPrice(const base::string16& price) {
 }
 
 bool SearchResultTileItemView::IsSuggestedAppTile() const {
-  return item_ && item_->display_type() == SearchResult::DISPLAY_RECOMMENDATION;
+  return item_ &&
+         item_->display_type() == ash::SearchResultDisplayType::kRecommendation;
 }
 
 void SearchResultTileItemView::LogAppLaunch() const {
@@ -514,7 +531,7 @@ void SearchResultTileItemView::Layout() {
     rect.set_height(title_->GetPreferredSize().height());
     title_->SetBoundsRect(rect);
   } else {
-    DCHECK(item_->display_type() == SearchResult::DISPLAY_TILE);
+    DCHECK(item_->display_type() == ash::SearchResultDisplayType::kTile);
     rect.Inset(0, kSearchTileTopPadding, 0, 0);
     icon_->SetBoundsRect(rect);
 
@@ -571,7 +588,7 @@ gfx::Size SearchResultTileItemView::CalculatePreferredSize() const {
   if (IsSuggestedAppTile())
     return gfx::Size(kGridTileWidth, kGridTileHeight);
 
-  DCHECK(item_->display_type() == SearchResult::DISPLAY_TILE);
+  DCHECK(item_->display_type() == ash::SearchResultDisplayType::kTile);
   return gfx::Size(kSearchTileWidth, kSearchTileHeight);
 }
 

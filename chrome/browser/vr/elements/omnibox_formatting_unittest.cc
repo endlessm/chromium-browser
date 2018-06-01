@@ -16,34 +16,33 @@ namespace vr {
 namespace {
 
 constexpr SkColor kDefaultColor = 0xFF000001;
-constexpr SkColor kDimColor = 0xFF000002;
-constexpr SkColor kUrlColor = 0xFF000003;
+constexpr SkColor kUrlColor = 0xFF000002;
+constexpr SkColor kEmphasizedColor = 0xFF000003;
+constexpr SkColor kDeemphasizedColor = 0xFF000004;
 
 constexpr bool kNoOffset = false;
 constexpr bool kHasOffset = true;
 
 }  // namespace
 
-TEST(OmniboxFormatting, MultiLine) {
+TEST(OmniboxSuggestionFormatting, TextFormatting) {
   ACMatchClassifications classifications = {
       ACMatchClassification(0, ACMatchClassification::NONE),
       ACMatchClassification(1, ACMatchClassification::URL),
       ACMatchClassification(2, ACMatchClassification::MATCH),
-      ACMatchClassification(3, ACMatchClassification::DIM),
-      ACMatchClassification(4, ACMatchClassification::INVISIBLE),
+      ACMatchClassification(3, ACMatchClassification::INVISIBLE),
   };
   size_t string_length = classifications.size();
 
   ColorScheme color_scheme;
   memset(&color_scheme, 0, sizeof(color_scheme));
-  color_scheme.suggestion_text = kDefaultColor;
-  color_scheme.suggestion_dim_text = kDimColor;
-  color_scheme.suggestion_url_text = kUrlColor;
+  color_scheme.url_bar_text = kDefaultColor;
+  color_scheme.hyperlink = kUrlColor;
 
   TextFormatting formatting =
       ConvertClassification(classifications, string_length, color_scheme);
 
-  ASSERT_EQ(formatting.size(), 6u);
+  ASSERT_EQ(formatting.size(), 5u);
 
   EXPECT_EQ(formatting[0].type(), TextFormattingAttribute::COLOR);
   EXPECT_EQ(formatting[0].color(), kDefaultColor);
@@ -62,12 +61,8 @@ TEST(OmniboxFormatting, MultiLine) {
   EXPECT_EQ(formatting[3].range(), gfx::Range(2, 3));
 
   EXPECT_EQ(formatting[4].type(), TextFormattingAttribute::COLOR);
-  EXPECT_EQ(formatting[4].color(), kDimColor);
+  EXPECT_EQ(formatting[4].color(), SK_ColorTRANSPARENT);
   EXPECT_EQ(formatting[4].range(), gfx::Range(3, 4));
-
-  EXPECT_EQ(formatting[5].type(), TextFormattingAttribute::COLOR);
-  EXPECT_EQ(formatting[5].color(), SK_ColorTRANSPARENT);
-  EXPECT_EQ(formatting[5].range(), gfx::Range(4, 5));
 }
 
 struct ElisionTestcase {
@@ -134,9 +129,12 @@ const std::vector<ElisionTestcase> elision_test_cases = {
     // A long domain and path should see fading at both ends.
     {"http://aaaaaaaaaaaaaaaaaaaaaaaa.abc.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaa",
      "abc.com/aaa", kHasOffset, true, true},
-    // A file URL should always fade to the right.
-    {"file://filer/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "file://filer/aaa",
+    // A file URL with no hostname should fade to the right.
+    {"file:///path/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "file://path/aaa",
      kNoOffset, false, true},
+    // A file URL with a hostname should treat the hostname like https.
+    {"file://very-long-file-hostname/aaaaaaaaaaaaaa", "file://hostname/aaa",
+     kHasOffset, true, true},
     {"data:text/plain;charset=UTF-8;aaaaaaaaaaaaaaaaaaa", "data:text/plain",
      kNoOffset, false, true},
 };
@@ -144,5 +142,45 @@ const std::vector<ElisionTestcase> elision_test_cases = {
 INSTANTIATE_TEST_CASE_P(ElisionTestCases,
                         ElisionTest,
                         ::testing::ValuesIn(elision_test_cases));
+
+TextFormatting CreateTextUrlFormatting(const std::string& url_string,
+                                       const std::string& expected_string) {
+  GURL url(base::UTF8ToUTF16(url_string));
+  url::Parsed parsed;
+  const base::string16 formatted_url = url_formatter::FormatUrl(
+      url, GetVrFormatUrlTypes(), net::UnescapeRule::NORMAL, &parsed, nullptr,
+      nullptr);
+  EXPECT_EQ(formatted_url, base::UTF8ToUTF16(expected_string));
+  return CreateUrlFormatting(formatted_url, parsed, kEmphasizedColor,
+                             kDeemphasizedColor);
+}
+
+TEST(UrlFormatting, HttpUrlHasHostEmphasized) {
+  TextFormatting formatting =
+      CreateTextUrlFormatting("https://host.com/page", "host.com/page");
+  ASSERT_EQ(formatting.size(), 2u);
+  EXPECT_EQ(formatting[0], TextFormattingAttribute(kDeemphasizedColor,
+                                                   gfx::Range::InvalidRange()));
+  EXPECT_EQ(formatting[1],
+            TextFormattingAttribute(kEmphasizedColor, gfx::Range(0, 8)));
+}
+
+TEST(UrlFormatting, FileUrlIsAllEmphasized) {
+  TextFormatting formatting =
+      CreateTextUrlFormatting("file:///abc/def", "file:///abc/def");
+  ASSERT_EQ(formatting.size(), 1u);
+  EXPECT_EQ(formatting[0], TextFormattingAttribute(kEmphasizedColor,
+                                                   gfx::Range::InvalidRange()));
+}
+
+TEST(UrlFormatting, DataUrlHasSchemeEmphasized) {
+  TextFormatting formatting = CreateTextUrlFormatting(
+      "data:text/html,lots of data", "data:text/html,lots of data");
+  ASSERT_EQ(formatting.size(), 2u);
+  EXPECT_EQ(formatting[0], TextFormattingAttribute(kDeemphasizedColor,
+                                                   gfx::Range::InvalidRange()));
+  EXPECT_EQ(formatting[1],
+            TextFormattingAttribute(kEmphasizedColor, gfx::Range(0, 4)));
+}
 
 }  // namespace vr

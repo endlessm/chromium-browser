@@ -27,12 +27,12 @@ import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.autofill.CardUnmaskPrompt;
 import org.chromium.chrome.browser.autofill.CardUnmaskPrompt.CardUnmaskObserverForTest;
 import org.chromium.chrome.browser.payments.PaymentRequestImpl.PaymentRequestServiceObserverForTest;
-import org.chromium.chrome.browser.payments.ui.EditorObserverForTest;
-import org.chromium.chrome.browser.payments.ui.EditorTextField;
 import org.chromium.chrome.browser.payments.ui.PaymentRequestSection.OptionSection;
 import org.chromium.chrome.browser.payments.ui.PaymentRequestSection.OptionSection.OptionRow;
 import org.chromium.chrome.browser.payments.ui.PaymentRequestUI;
 import org.chromium.chrome.browser.payments.ui.PaymentRequestUI.PaymentRequestObserverForTest;
+import org.chromium.chrome.browser.widget.prefeditor.EditorObserverForTest;
+import org.chromium.chrome.browser.widget.prefeditor.EditorTextField;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
@@ -980,7 +980,7 @@ public class PaymentRequestTestRule extends ChromeActivityTestRule<ChromeTabbedA
             final String appMethodName, final int instrumentPresence,
             final int responseSpeed, final int creationSpeed) {
         PaymentAppFactory.getInstance().addAdditionalFactory(
-                (webContents, methodNames, callback) -> {
+                (webContents, methodNames, mayCrawlUnusued, callback) -> {
                     final TestPay app = new TestPay(appMethodName, instrumentPresence,
                             responseSpeed);
                     if (creationSpeed == IMMEDIATE_CREATION) {

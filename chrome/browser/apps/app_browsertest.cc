@@ -59,7 +59,7 @@
 #include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
-#include "printing/features/features.h"
+#include "printing/buildflags/buildflags.h"
 #include "ui/base/window_open_disposition.h"
 #include "url/gurl.h"
 
@@ -1381,7 +1381,7 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, AppsIgnoreDefaultZoom) {
   // made it through.
   ExtensionTestMessageListener launched_listener("Launched", false);
   LaunchPlatformApp(extension);
-  launched_listener.WaitUntilSatisfied();
+  EXPECT_TRUE(launched_listener.WaitUntilSatisfied());
 
   // Now check that the app window's default zoom, and actual zoom level,
   // have not been changed from the default.
@@ -1397,6 +1397,19 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, AppsIgnoreDefaultZoom) {
 IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, AppWindowIframe) {
   LoadAndLaunchPlatformApp("app_window_send_message",
                            "APP_WINDOW_CREATE_CALLBACK");
+}
+
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, NewWindowWithNonExistingFile) {
+  ASSERT_TRUE(
+      RunPlatformAppTest("platform_apps/new_window_with_non_existing_file"));
+}
+
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, SandboxedLocalFile) {
+  ASSERT_TRUE(RunPlatformAppTest("platform_apps/sandboxed_local_file"));
+}
+
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, NewWindowAboutBlank) {
+  ASSERT_TRUE(RunPlatformAppTest("platform_apps/new_window_about_blank"));
 }
 
 }  // namespace extensions

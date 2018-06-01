@@ -49,8 +49,10 @@ class CastWebViewDefault : public CastWebView,
   content::WebContents* web_contents() const override;
   void LoadUrl(GURL url) override;
   void ClosePage(const base::TimeDelta& shutdown_delay) override;
-  void CreateWindow(CastWindowManager* window_manager,
-                    bool is_visible) override;
+  void InitializeWindow(CastWindowManager* window_manager,
+                        bool is_visible,
+                        CastWindowManager::WindowId z_order,
+                        VisibilityPriority initial_priority) override;
 
  private:
   // WebContentsObserver implementation:
@@ -80,7 +82,7 @@ class CastWebViewDefault : public CastWebView,
   void LoadingStateChanged(content::WebContents* source,
                            bool to_different_document) override;
   void ActivateContents(content::WebContents* contents) override;
-  bool CheckMediaAccessPermission(content::WebContents* web_contents,
+  bool CheckMediaAccessPermission(content::RenderFrameHost* render_frame_host,
                                   const GURL& security_origin,
                                   content::MediaStreamType type) override;
   bool DidAddMessageToConsole(content::WebContents* source,

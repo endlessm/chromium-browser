@@ -9,13 +9,16 @@
 #include "base/scoped_observer.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/favicon/ios/web_favicon_driver.h"
+#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#include "ios/chrome/browser/chrome_url_constants.h"
 #import "ios/chrome/browser/snapshots/snapshot_tab_helper.h"
 #import "ios/chrome/browser/tabs/tab_model.h"
-#import "ios/chrome/browser/ui/tab_grid/grid_consumer.h"
-#import "ios/chrome/browser/ui/tab_grid/grid_item.h"
+#import "ios/chrome/browser/ui/tab_grid/grid/grid_consumer.h"
+#import "ios/chrome/browser/ui/tab_grid/grid/grid_item.h"
 #import "ios/chrome/browser/web/tab_id_tab_helper.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
+#include "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
+#include "ios/chrome/browser/web_state_list/web_state_opener.h"
 #include "ios/web/public/web_state/web_state.h"
 #import "ios/web/public/web_state/web_state_observer_bridge.h"
 #include "ui/gfx/image/image.h"
@@ -28,8 +31,7 @@ namespace {
 // Constructs a GridItem from a |webState|.
 GridItem* CreateItem(web::WebState* webState) {
   TabIdTabHelper* tabHelper = TabIdTabHelper::FromWebState(webState);
-  GridItem* item = [[GridItem alloc] init];
-  item.identifier = tabHelper->tab_id();
+  GridItem* item = [[GridItem alloc] initWithIdentifier:tabHelper->tab_id()];
   item.title = base::SysUTF16ToNSString(webState->GetTitle());
   return item;
 }
@@ -43,6 +45,25 @@ NSArray* CreateItems(WebStateList* webStateList) {
   }
   return [items copy];
 }
+
+NSString* GetActiveTabId(WebStateList* webStateList) {
+  web::WebState* webState = webStateList->GetActiveWebState();
+  if (!webState)
+    return nil;
+  TabIdTabHelper* tabHelper = TabIdTabHelper::FromWebState(webState);
+  return tabHelper->tab_id();
+}
+
+int GetIndexOfTabWithId(WebStateList* webStateList, NSString* identifier) {
+  for (int i = 0; i < webStateList->count(); i++) {
+    web::WebState* webState = webStateList->GetWebStateAt(i);
+    TabIdTabHelper* tabHelper = TabIdTabHelper::FromWebState(webState);
+    if ([tabHelper->tab_id() isEqualToString:identifier])
+      return i;
+  }
+  return -1;
+}
+
 }  // namespace
 
 @interface TabGridMediator ()<CRWWebStateObserver, WebStateListObserving>
@@ -69,27 +90,38 @@ NSArray* CreateItems(WebStateList* webStateList) {
 @synthesize webStateList = _webStateList;
 @synthesize consumer = _consumer;
 
-- (instancetype)initWithTabModel:(TabModel*)tabModel
-                        consumer:(id<GridConsumer>)consumer {
+- (instancetype)initWithConsumer:(id<GridConsumer>)consumer {
   if (self = [super init]) {
-    _tabModel = tabModel;
-    _webStateList = tabModel.webStateList;
     _consumer = consumer;
-
     _webStateListObserverBridge =
         std::make_unique<WebStateListObserverBridge>(self);
     _scopedWebStateListObserver =
         std::make_unique<ScopedObserver<WebStateList, WebStateListObserver>>(
             _webStateListObserverBridge.get());
-    _scopedWebStateListObserver->Add(_webStateList);
     _webStateObserverBridge =
         std::make_unique<web::WebStateObserverBridge>(self);
     _scopedWebStateObserver =
         std::make_unique<ScopedObserver<web::WebState, web::WebStateObserver>>(
             _webStateObserverBridge.get());
-    [self populateConsumerItems];
   }
   return self;
+}
+
+#pragma mark - Public properties
+
+- (void)setTabModel:(TabModel*)tabModel {
+  _scopedWebStateListObserver->RemoveAll();
+  _scopedWebStateObserver->RemoveAll();
+  _tabModel = tabModel;
+  _webStateList = tabModel.webStateList;
+  if (_webStateList) {
+    _scopedWebStateListObserver->Add(_webStateList);
+    for (int i = 0; i < self.webStateList->count(); i++) {
+      web::WebState* webState = self.webStateList->GetWebStateAt(i);
+      _scopedWebStateObserver->Add(webState);
+    }
+    [self populateConsumerItems];
+  }
 }
 
 #pragma mark - WebStateListObserving
@@ -100,7 +132,7 @@ NSArray* CreateItems(WebStateList* webStateList) {
            activating:(BOOL)activating {
   [self.consumer insertItem:CreateItem(webState)
                     atIndex:index
-              selectedIndex:webStateList->active_index()];
+             selectedItemID:GetActiveTabId(webStateList)];
   _scopedWebStateObserver->Add(webState);
 }
 
@@ -108,16 +140,17 @@ NSArray* CreateItems(WebStateList* webStateList) {
      didMoveWebState:(web::WebState*)webState
            fromIndex:(int)fromIndex
              toIndex:(int)toIndex {
-  [self.consumer moveItemFromIndex:fromIndex
-                           toIndex:toIndex
-                     selectedIndex:webStateList->active_index()];
+  TabIdTabHelper* tabHelper = TabIdTabHelper::FromWebState(webState);
+  [self.consumer moveItemWithID:tabHelper->tab_id() toIndex:toIndex];
 }
 
 - (void)webStateList:(WebStateList*)webStateList
     didReplaceWebState:(web::WebState*)oldWebState
           withWebState:(web::WebState*)newWebState
                atIndex:(int)index {
-  [self.consumer replaceItemAtIndex:index withItem:CreateItem(newWebState)];
+  TabIdTabHelper* tabHelper = TabIdTabHelper::FromWebState(oldWebState);
+  [self.consumer replaceItemID:tabHelper->tab_id()
+                      withItem:CreateItem(newWebState)];
   _scopedWebStateObserver->Remove(oldWebState);
   _scopedWebStateObserver->Add(newWebState);
 }
@@ -125,8 +158,10 @@ NSArray* CreateItems(WebStateList* webStateList) {
 - (void)webStateList:(WebStateList*)webStateList
     didDetachWebState:(web::WebState*)webState
               atIndex:(int)index {
-  [self.consumer removeItemAtIndex:index
-                     selectedIndex:webStateList->active_index()];
+  TabIdTabHelper* tabHelper = TabIdTabHelper::FromWebState(webState);
+  NSString* itemID = tabHelper->tab_id();
+  [self.consumer removeItemWithID:itemID
+                   selectedItemID:GetActiveTabId(webStateList)];
   _scopedWebStateObserver->Remove(webState);
 }
 
@@ -134,33 +169,66 @@ NSArray* CreateItems(WebStateList* webStateList) {
     didChangeActiveWebState:(web::WebState*)newWebState
                 oldWebState:(web::WebState*)oldWebState
                     atIndex:(int)atIndex
-                 userAction:(BOOL)userAction {
-  [self.consumer selectItemAtIndex:atIndex];
+                     reason:(int)reason {
+  // If the selected index changes as a result of the last webstate being
+  // detached, atIndex will be -1.
+  if (atIndex == -1) {
+    [self.consumer selectItemWithID:nil];
+    return;
+  }
+
+  TabIdTabHelper* tabHelper = TabIdTabHelper::FromWebState(newWebState);
+  [self.consumer selectItemWithID:tabHelper->tab_id()];
 }
 
 #pragma mark - CRWWebStateObserver
 
 - (void)webState:(web::WebState*)webState didLoadPageWithSuccess:(BOOL)success {
-  int index = self.webStateList->GetIndexOfWebState(webState);
-  [self.consumer replaceItemAtIndex:index withItem:CreateItem(webState)];
+  // Assumption: the ID of the webState didn't change as a result of this load.
+  TabIdTabHelper* tabHelper = TabIdTabHelper::FromWebState(webState);
+  NSString* itemID = tabHelper->tab_id();
+  [self.consumer replaceItemID:itemID withItem:CreateItem(webState)];
 }
 
 #pragma mark - GridCommands
 
-- (void)insertNewItemAtIndex:(NSInteger)index {
-  // TODO(crbug.com/804503) : Add alerts for unimplemented controls.
+- (void)addNewItem {
+  [self insertNewItemAtIndex:self.webStateList->count()];
 }
 
-- (void)selectItemAtIndex:(NSUInteger)index {
-  // TODO(crbug.com/804503) : Add alerts for unimplemented controls.
+- (void)insertNewItemAtIndex:(NSUInteger)index {
+  web::WebState::CreateParams params(self.tabModel.browserState);
+  std::unique_ptr<web::WebState> webState = web::WebState::Create(params);
+  self.webStateList->InsertWebState(
+      base::checked_cast<int>(index), std::move(webState),
+      (WebStateList::INSERT_FORCE_INDEX | WebStateList::INSERT_ACTIVATE),
+      WebStateOpener());
+  web::WebState::OpenURLParams openParams(
+      GURL(kChromeUINewTabURL), web::Referrer(),
+      WindowOpenDisposition::CURRENT_TAB, ui::PAGE_TRANSITION_TYPED, false);
+  self.webStateList->GetWebStateAt(index)->OpenURL(openParams);
 }
 
-- (void)closeItemAtIndex:(NSUInteger)index {
-  // TODO(crbug.com/804503) : Add alerts for unimplemented controls.
+- (void)moveItemWithID:(NSString*)itemID toIndex:(NSUInteger)destinationIndex {
+  int sourceIndex = GetIndexOfTabWithId(self.webStateList, itemID);
+  if (sourceIndex >= 0)
+    self.webStateList->MoveWebStateAt(sourceIndex, destinationIndex);
+}
+
+- (void)selectItemWithID:(NSString*)itemID {
+  int index = GetIndexOfTabWithId(self.webStateList, itemID);
+  if (index >= 0)
+    self.webStateList->ActivateWebStateAt(index);
+}
+
+- (void)closeItemWithID:(NSString*)itemID {
+  int index = GetIndexOfTabWithId(self.webStateList, itemID);
+  if (index >= 0)
+    self.webStateList->CloseWebStateAt(index, WebStateList::CLOSE_USER_ACTION);
 }
 
 - (void)closeAllItems {
-  // TODO(crbug.com/804503) : Add alerts for unimplemented controls.
+  self.webStateList->CloseAllWebStates(WebStateList::CLOSE_USER_ACTION);
 }
 
 #pragma mark - GridImageDataSource
@@ -207,7 +275,7 @@ NSArray* CreateItems(WebStateList* webStateList) {
 - (void)populateConsumerItems {
   if (self.webStateList->count() > 0) {
     [self.consumer populateItems:CreateItems(self.webStateList)
-                   selectedIndex:self.webStateList->active_index()];
+                  selectedItemID:GetActiveTabId(self.webStateList)];
   }
 }
 

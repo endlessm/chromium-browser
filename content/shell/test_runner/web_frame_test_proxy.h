@@ -14,10 +14,10 @@
 #include "content/public/common/content_switches.h"
 #include "content/shell/test_runner/test_runner_export.h"
 #include "content/shell/test_runner/web_frame_test_client.h"
-#include "third_party/WebKit/public/platform/WebEffectiveConnectionType.h"
-#include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/web/WebFrameClient.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "third_party/blink/public/platform/web_effective_connection_type.h"
+#include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/web/web_frame_client.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 
 namespace test_runner {
 
@@ -83,10 +83,9 @@ class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
     return mime_type.Utf8().find(suffix) != std::string::npos;
   }
 
-  void DownloadURL(const blink::WebURLRequest& request,
-                   const blink::WebString& suggested_name) override {
-    test_client()->DownloadURL(request, suggested_name);
-    Base::DownloadURL(request, suggested_name);
+  void DownloadURL(const blink::WebURLRequest& request) override {
+    test_client()->DownloadURL(request);
+    Base::DownloadURL(request);
   }
 
 
@@ -256,6 +255,10 @@ class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
       blink::WebSetSinkIdCallbacks* web_callbacks) override {
     test_client()->CheckIfAudioSinkExistsAndIsAuthorized(
         sink_id, security_origin, web_callbacks);
+  }
+
+  blink::WebSpeechRecognizer* SpeechRecognizer() override {
+    return test_client()->SpeechRecognizer();
   }
 
   void DidClearWindowObject() override {

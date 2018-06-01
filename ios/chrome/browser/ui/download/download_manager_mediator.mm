@@ -4,22 +4,29 @@
 
 #import "ios/chrome/browser/ui/download/download_manager_mediator.h"
 
+#include <UIKit/UIKit.h>
+
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task_scheduler/post_task.h"
 #include "ios/chrome/browser/download/download_directory_util.h"
+#import "ios/chrome/browser/download/google_drive_app_util.h"
+#include "ios/chrome/grit/ios_strings.h"
 #import "ios/web/public/download/download_task.h"
 #include "net/base/net_errors.h"
 #include "net/url_request/url_fetcher_response_writer.h"
+#include "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
 DownloadManagerMediator::DownloadManagerMediator() : weak_ptr_factory_(this) {}
-DownloadManagerMediator::~DownloadManagerMediator() {}
+DownloadManagerMediator::~DownloadManagerMediator() {
+  SetDownloadTask(nullptr);
+}
 
 void DownloadManagerMediator::SetConsumer(
     id<DownloadManagerConsumer> consumer) {
@@ -89,15 +96,31 @@ void DownloadManagerMediator::OnDownloadUpdated(web::DownloadTask* task) {
   UpdateConsumer();
 }
 
-void DownloadManagerMediator::UpdateConsumer() {
-  [consumer_ setState:GetDownloadManagerState()];
-  [consumer_ setCountOfBytesReceived:task_->GetReceivedBytes()];
-  [consumer_ setCountOfBytesExpectedToReceive:task_->GetTotalBytes()];
-  [consumer_
-      setFileName:base::SysUTF16ToNSString(task_->GetSuggestedFilename())];
+void DownloadManagerMediator::OnDownloadDestroyed(web::DownloadTask* task) {
+  SetDownloadTask(nullptr);
 }
 
-DownloadManagerState DownloadManagerMediator::GetDownloadManagerState() {
+void DownloadManagerMediator::UpdateConsumer() {
+  DownloadManagerState state = GetDownloadManagerState();
+  if (state == kDownloadManagerStateSucceeded && !IsGoogleDriveAppInstalled()) {
+    [consumer_ setInstallDriveButtonVisible:YES animated:YES];
+  }
+
+  [consumer_ setState:state];
+  [consumer_ setCountOfBytesReceived:task_->GetReceivedBytes()];
+  [consumer_ setCountOfBytesExpectedToReceive:task_->GetTotalBytes()];
+  [consumer_ setProgress:GetDownloadManagerProgress()];
+  [consumer_
+      setFileName:base::SysUTF16ToNSString(task_->GetSuggestedFilename())];
+
+  int a11y_announcement = GetDownloadManagerA11yAnnouncement();
+  if (a11y_announcement != -1) {
+    UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification,
+                                    l10n_util::GetNSString(a11y_announcement));
+  }
+}
+
+DownloadManagerState DownloadManagerMediator::GetDownloadManagerState() const {
   switch (task_->GetState()) {
     case web::DownloadTask::State::kNotStarted:
       return kDownloadManagerStateNotStarted;
@@ -105,9 +128,29 @@ DownloadManagerState DownloadManagerMediator::GetDownloadManagerState() {
       return kDownloadManagerStateInProgress;
     case web::DownloadTask::State::kComplete:
       return task_->GetErrorCode() ? kDownloadManagerStateFailed
-                                   : kDownloadManagerStateSuceeded;
+                                   : kDownloadManagerStateSucceeded;
     case web::DownloadTask::State::kCancelled:
       // Download Manager should dismiss the UI after download cancellation.
       return kDownloadManagerStateNotStarted;
   }
+}
+
+int DownloadManagerMediator::GetDownloadManagerA11yAnnouncement() const {
+  switch (task_->GetState()) {
+    case web::DownloadTask::State::kNotStarted:
+      return IDS_IOS_DOWNLOAD_MANAGER_REQUESTED_ACCESSIBILITY_ANNOUNCEMENT;
+    case web::DownloadTask::State::kComplete:
+      return task_->GetErrorCode()
+                 ? IDS_IOS_DOWNLOAD_MANAGER_FAILED_ACCESSIBILITY_ANNOUNCEMENT
+                 : IDS_IOS_DOWNLOAD_MANAGER_SUCCEEDED_ACCESSIBILITY_ANNOUNCEMENT;
+    case web::DownloadTask::State::kCancelled:
+    case web::DownloadTask::State::kInProgress:
+      return -1;
+  }
+}
+
+float DownloadManagerMediator::GetDownloadManagerProgress() const {
+  if (task_->GetPercentComplete() == -1)
+    return 0.0f;
+  return static_cast<float>(task_->GetPercentComplete()) / 100.0f;
 }

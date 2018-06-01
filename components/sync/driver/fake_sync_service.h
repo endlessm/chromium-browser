@@ -7,7 +7,9 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
+#include "components/signin/core/browser/account_info.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/engine/cycle/sync_cycle_snapshot.h"
 #include "google_apis/gaia/google_service_auth_error.h"
@@ -23,7 +25,15 @@ class FakeSyncService : public SyncService {
   FakeSyncService();
   ~FakeSyncService() override;
 
+  void set_auth_error(GoogleServiceAuthError error) {
+    error_ = std::move(error);
+  }
+
+  void SetAuthenticatedAccountInfo(const AccountInfo& account_info);
+  AccountInfo GetAuthenticatedAccountInfo() const override;
+
  private:
+  // Dummy methods.
   // SyncService implementation.
   bool IsFirstSetupComplete() const override;
   bool IsSyncAllowed() const override;
@@ -83,7 +93,6 @@ class FakeSyncService : public SyncService {
   base::WeakPtr<JsController> GetJsController() override;
   void GetAllNodes(const base::Callback<void(std::unique_ptr<base::ListValue>)>&
                        callback) override;
-  SigninManagerBase* signin() const override;
   GlobalIdMapper* GetGlobalIdMapper() const override;
 
   // DataTypeEncryptionHandler implementation.
@@ -97,6 +106,8 @@ class FakeSyncService : public SyncService {
   GURL sync_service_url_;
   std::string unrecoverable_error_message_;
   std::unique_ptr<UserShare> user_share_;
+
+  AccountInfo account_info_;
 };
 
 }  // namespace syncer

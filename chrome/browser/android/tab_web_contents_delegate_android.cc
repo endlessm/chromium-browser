@@ -51,7 +51,7 @@
 #include "content/public/common/file_chooser_params.h"
 #include "content/public/common/media_stream_request.h"
 #include "jni/TabWebContentsDelegateAndroid_jni.h"
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 
@@ -125,9 +125,9 @@ TabWebContentsDelegateAndroid::~TabWebContentsDelegateAndroid() {
 void TabWebContentsDelegateAndroid::RunFileChooser(
     content::RenderFrameHost* render_frame_host,
     const FileChooserParams& params) {
-  if (vr::VrTabHelper::IsInVr(
-          WebContents::FromRenderFrameHost(render_frame_host))) {
-    vr::VrTabHelper::UISuppressed(vr::UiSuppressedElement::kFileChooser);
+  if (vr::VrTabHelper::IsUiSuppressedInVr(
+          WebContents::FromRenderFrameHost(render_frame_host),
+          vr::UiSuppressedElement::kFileChooser)) {
     return;
   }
   FileSelectHelper::RunFileChooser(render_frame_host, params);
@@ -137,8 +137,9 @@ std::unique_ptr<BluetoothChooser>
 TabWebContentsDelegateAndroid::RunBluetoothChooser(
     content::RenderFrameHost* frame,
     const BluetoothChooser::EventHandler& event_handler) {
-  if (vr::VrTabHelper::IsInVr(WebContents::FromRenderFrameHost(frame))) {
-    vr::VrTabHelper::UISuppressed(vr::UiSuppressedElement::kBluetoothChooser);
+  if (vr::VrTabHelper::IsUiSuppressedInVr(
+          WebContents::FromRenderFrameHost(frame),
+          vr::UiSuppressedElement::kBluetoothChooser)) {
     return nullptr;
   }
   return std::make_unique<BluetoothChooserAndroid>(frame, event_handler);
@@ -273,10 +274,8 @@ void TabWebContentsDelegateAndroid::FindMatchRectsReply(
 content::JavaScriptDialogManager*
 TabWebContentsDelegateAndroid::GetJavaScriptDialogManager(
     WebContents* source) {
-  if (vr::VrTabHelper::IsInVr(source) &&
-      !base::FeatureList::IsEnabled(
-          chrome::android::kVrBrowsingNativeAndroidUi)) {
-    vr::VrTabHelper::UISuppressed(vr::UiSuppressedElement::kJavascriptDialog);
+  if (vr::VrTabHelper::IsUiSuppressedInVr(
+          source, vr::UiSuppressedElement::kJavascriptDialog)) {
     return nullptr;
   }
   if (base::FeatureList::IsEnabled(chrome::android::kTabModalJsDialog) ||
@@ -286,16 +285,22 @@ TabWebContentsDelegateAndroid::GetJavaScriptDialogManager(
   return app_modal::JavaScriptDialogManager::GetInstance();
 }
 
+void TabWebContentsDelegateAndroid::AdjustPreviewsStateForNavigation(
+    content::WebContents* web_contents,
+    content::PreviewsState* previews_state) {
+  if (GetDisplayMode(web_contents) != blink::kWebDisplayModeBrowser) {
+    *previews_state = content::PREVIEWS_OFF;
+  }
+}
+
 void TabWebContentsDelegateAndroid::RequestMediaAccessPermission(
     content::WebContents* web_contents,
     const content::MediaStreamRequest& request,
     const content::MediaResponseCallback& callback) {
-  if (vr::VrTabHelper::IsInVr(web_contents) &&
-      !base::FeatureList::IsEnabled(
-          chrome::android::kVrBrowsingNativeAndroidUi)) {
+  if (vr::VrTabHelper::IsUiSuppressedInVr(
+          web_contents, vr::UiSuppressedElement::kMediaPermission)) {
     callback.Run(content::MediaStreamDevices(),
                  content::MEDIA_DEVICE_NOT_SUPPORTED, nullptr);
-    vr::VrTabHelper::UISuppressed(vr::UiSuppressedElement::kMediaPermission);
     return;
   }
   MediaCaptureDevicesDispatcher::GetInstance()->ProcessMediaAccessRequest(
@@ -303,11 +308,11 @@ void TabWebContentsDelegateAndroid::RequestMediaAccessPermission(
 }
 
 bool TabWebContentsDelegateAndroid::CheckMediaAccessPermission(
-    content::WebContents* web_contents,
+    content::RenderFrameHost* render_frame_host,
     const GURL& security_origin,
     content::MediaStreamType type) {
   return MediaCaptureDevicesDispatcher::GetInstance()
-      ->CheckMediaAccessPermission(web_contents, security_origin, type);
+      ->CheckMediaAccessPermission(render_frame_host, security_origin, type);
 }
 
 void TabWebContentsDelegateAndroid::SetOverlayMode(bool use_overlay_mode) {

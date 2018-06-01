@@ -24,6 +24,7 @@
 #include "ui/views/animation/ink_drop_state.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/controls/menu/menu_types.h"
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/view.h"
 #include "ui/views/view_model.h"
@@ -88,6 +89,10 @@ class ASH_EXPORT ShelfView : public views::View,
 
   // Returns true if we're showing a menu.
   bool IsShowingMenu() const;
+
+  // Returns true if we're showing a menu for |view|. |view| could be a
+  // ShelfButton or the ShelfView.
+  bool IsShowingMenuForView(views::View* view) const;
 
   // Returns true if overflow bubble is shown.
   bool IsShowingOverflowBubble() const;
@@ -294,6 +299,28 @@ class ASH_EXPORT ShelfView : public views::View,
   // Updates the visible range of overflow items in |overflow_view|.
   void UpdateOverflowRange(ShelfView* overflow_view) const;
 
+  // Gets the menu anchor rect for menus. |source| is the view that is
+  // asking for a menu, |location| is the location of the event,
+  // |source_type| is the type of event that asked for the menu, and
+  // |context_menu| is whether the menu is for a context or app menu.
+  gfx::Rect GetMenuAnchorRect(const views::View* source,
+                              const gfx::Point& location,
+                              ui::MenuSourceType source_type,
+                              bool context_menu) const;
+
+  // Gets the menu anchor rect that aligns the menu to the edge of the
+  // shelf for touch events. |source| is the view that is asking for the
+  // menu, |location| is the location of the event.
+  gfx::Rect GetTouchMenuAnchorRect(const views::View* source,
+                                   const gfx::Point& location) const;
+
+  // Gets the menu anchor position for a menu. |for_item| is true if the menu is
+  // for an item on the shelf, or false if the menu is for the shelf view
+  // itself, |context_menu| is whether the menu will be an application menu or
+  // context menu, and |touch_menu| is whether the menu was initiated by touch.
+  views::MenuAnchorPosition GetMenuAnchorPosition(bool for_item,
+                                                  bool context_menu) const;
+
   // Overridden from views::View:
   gfx::Size CalculatePreferredSize() const override;
   void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
@@ -334,16 +361,6 @@ class ASH_EXPORT ShelfView : public views::View,
       ShelfAction action,
       base::Optional<std::vector<mojom::MenuItemPtr>> menu_items);
 
-  // Show a list of all running items for this shelf |item|; it only shows a
-  // menu if there are multiple running items. |source| specifies the view
-  // responsible for showing the menu, and the bubble will point towards it.
-  // The |event_flags| are the flags of the event which triggered this menu.
-  // Returns |true| if a menu is shown.
-  bool ShowListMenuForView(const ShelfItem& item,
-                           views::View* source,
-                           const ui::Event& event,
-                           views::InkDrop* ink_drop);
-
   // Overridden from views::ContextMenuController:
   void ShowContextMenuForView(views::View* source,
                               const gfx::Point& point,
@@ -357,11 +374,10 @@ class ASH_EXPORT ShelfView : public views::View,
                 views::View* source,
                 const gfx::Point& click_point,
                 bool context_menu,
-                ui::MenuSourceType source_type,
-                views::InkDrop* ink_drop);
+                ui::MenuSourceType source_type);
 
   // Callback for MenuRunner.
-  void OnMenuClosed(views::InkDrop* ink_drop);
+  void OnMenuClosed(views::View* source);
 
   // Overridden from views::BoundsAnimatorObserver:
   void OnBoundsAnimatorProgressed(views::BoundsAnimator* animator) override;
@@ -371,6 +387,9 @@ class ASH_EXPORT ShelfView : public views::View,
   // which just closed the menu of a shelf item. If it occurs on the same shelf
   // item, we should ignore the call.
   bool IsRepostEvent(const ui::Event& event);
+
+  // Returns true if the given |item| is supposed to be shown to the user.
+  bool ShouldShowShelfItem(const ShelfItem& item);
 
   // Convenience accessor to model_->items().
   const ShelfItem* ShelfItemForView(const views::View* view) const;
@@ -422,6 +441,10 @@ class ASH_EXPORT ShelfView : public views::View,
   // The view being dragged. This is set immediately when the mouse is pressed.
   // |dragging_| is set only if the mouse is dragged far enough.
   ShelfButton* drag_view_ = nullptr;
+
+  // The view showing a context menu. This can be either a ShelfView or
+  // ShelfButton.
+  views::View* menu_owner_ = nullptr;
 
   // Position of the mouse down event in |drag_view_|'s coordinates.
   gfx::Point drag_origin_;

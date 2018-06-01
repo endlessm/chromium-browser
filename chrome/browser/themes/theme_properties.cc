@@ -161,51 +161,41 @@ constexpr char kTilingRepeatX[] = "repeat-x";
 constexpr char kTilingRepeatY[] = "repeat-y";
 constexpr char kTilingRepeat[] = "repeat";
 
-// Returns a |nullopt| if the touch-optimized UI is not enabled, or it's enabled
-// but for the given |id|, there's no touch-optimized specific colors, and we
-// should fall back to the default colors.
-// TODO(malaykeshav): Put this behind a flag separate from Touch Optimized Ui.
-// We want to be able to use it for other modes as well.
-// https://crbug/810165
-base::Optional<SkColor> MaybeGetDefaultColorForTouchOptimizedUi(
-    int id,
-    bool incognito) {
-  if (!ui::MaterialDesignController::IsTouchOptimizedUiEnabled())
+// Returns a |nullopt| if the newer material UI is not enabled (MD refresh or
+// touch-optimized UI).
+base::Optional<SkColor> MaybeGetDefaultColorForNewerMaterialUi(int id,
+                                                               bool incognito) {
+  if (!ui::MaterialDesignController::IsNewerMaterialUi())
     return base::nullopt;
 
   switch (id) {
-    // Properties stored in theme pack.
     case ThemeProperties::COLOR_FRAME:
-      // Active frame colors.
       return incognito ? gfx::kGoogleGrey900 : kDefaultTouchUiColorActiveFrame;
     case ThemeProperties::COLOR_FRAME_INACTIVE:
-      // Inactive frame colors.
       return incognito ? kDefaultTouchUiColorInactiveFrameIncognito
                        : kDefaultTouchUiColorInactiveFrame;
-
     case ThemeProperties::COLOR_TOOLBAR:
       return incognito ? kDefaultTouchUiColorInactiveFrameIncognito
                        : kDefaultTouchUiColorToolbar;
+
     case ThemeProperties::COLOR_TAB_TEXT:
     case ThemeProperties::COLOR_BOOKMARK_TEXT:
+    case ThemeProperties::COLOR_TAB_CLOSE_BUTTON_ACTIVE:
+    case ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON:
       return incognito ? gfx::kGoogleGrey100 : gfx::kGoogleGrey800;
+
     case ThemeProperties::COLOR_BACKGROUND_TAB_TEXT:
+    case ThemeProperties::COLOR_TAB_CLOSE_BUTTON_INACTIVE:
+    case ThemeProperties::COLOR_TAB_ALERT_AUDIO:
       return incognito ? gfx::kGoogleGrey400 : gfx::kGoogleGrey700;
 
-    // Properties not stored in theme pack.
     case ThemeProperties::COLOR_BACKGROUND_TAB:
       return incognito ? kDefaultTouchUiColorTabBackgroundInactiveIncognito
                        : kDefaultTouchUiColorTabBackgroundInactive;
-    case ThemeProperties::COLOR_TAB_CLOSE_BUTTON_BACKGROUND_ACTIVE:
-      return incognito ? gfx::kGoogleGrey100 : gfx::kGoogleGrey800;
-    case ThemeProperties::COLOR_TAB_CLOSE_BUTTON_BACKGROUND_INACTIVE:
-      return incognito ? gfx::kGoogleGrey400 : gfx::kGoogleGrey700;
     case ThemeProperties::COLOR_TAB_CLOSE_BUTTON_BACKGROUND_HOVER:
       return incognito ? gfx::kGoogleRedDark600 : gfx::kGoogleRed600;
     case ThemeProperties::COLOR_TAB_CLOSE_BUTTON_BACKGROUND_PRESSED:
       return incognito ? gfx::kGoogleRedDark800 : gfx::kGoogleRed800;
-    case ThemeProperties::COLOR_TAB_ALERT_AUDIO:
-      return incognito ? gfx::kGoogleGrey400 : gfx::kGoogleGrey700;
     case ThemeProperties::COLOR_TAB_ALERT_RECORDING:
       return incognito ? gfx::kGoogleGrey400 : gfx::kGoogleRed600;
     case ThemeProperties::COLOR_TAB_ALERT_CAPTURING:
@@ -305,7 +295,7 @@ color_utils::HSL ThemeProperties::GetDefaultTint(int id, bool incognito) {
 // static
 SkColor ThemeProperties::GetDefaultColor(int id, bool incognito) {
   const base::Optional<SkColor> color =
-      MaybeGetDefaultColorForTouchOptimizedUi(id, incognito);
+      MaybeGetDefaultColorForNewerMaterialUi(id, incognito);
   if (color)
     return color.value();
 

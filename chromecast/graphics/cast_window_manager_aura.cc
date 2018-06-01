@@ -46,6 +46,23 @@ gfx::Transform GetPrimaryDisplayRotationTransform() {
   return rotation;
 }
 
+gfx::Rect GetPrimaryDisplayHostBounds() {
+  display::Display display(display::Screen::GetScreen()->GetPrimaryDisplay());
+  gfx::Point display_origin_in_pixel = display.bounds().origin();
+  gfx::Size display_size_in_pixel = display.GetSizeInPixel();
+  switch (display.rotation()) {
+    case display::Display::ROTATE_90:
+    case display::Display::ROTATE_270:
+      return gfx::Rect(display_origin_in_pixel,
+                       gfx::Size(display_size_in_pixel.height(),
+                                 display_size_in_pixel.width()));
+    case display::Display::ROTATE_0:
+    case display::Display::ROTATE_180:
+      // default:
+      return gfx::Rect(display_origin_in_pixel, display_size_in_pixel);
+  }
+}
+
 }  // namespace
 
 // An ui::EventTarget that ignores events.
@@ -83,8 +100,8 @@ class CastWindowTreeHost : public aura::WindowTreeHostPlatform {
   void DispatchEvent(ui::Event* event) override;
 
   // aura::WindowTreeHost implementation
-  void UpdateRootWindowSizeInPixels(
-      const gfx::Size& host_size_in_pixels) override;
+  gfx::Rect GetTransformedRootWindowBoundsInPixels(
+      const gfx::Size& size_in_pixels) const override;
 
  private:
   const bool enable_input_;
@@ -111,13 +128,12 @@ void CastWindowTreeHost::DispatchEvent(ui::Event* event) {
   WindowTreeHostPlatform::DispatchEvent(event);
 }
 
-void CastWindowTreeHost::UpdateRootWindowSizeInPixels(
-    const gfx::Size& host_size_in_pixels) {
-  aura::WindowTreeHost::UpdateRootWindowSizeInPixels(host_size_in_pixels);
-  gfx::Rect window_bounds = window()->bounds();
-  gfx::RectF new_bounds = gfx::RectF(window_bounds);
-  new_bounds.set_origin(gfx::PointF(0, 0));
-  window()->SetBounds(gfx::ToEnclosingRect(new_bounds));
+gfx::Rect CastWindowTreeHost::GetTransformedRootWindowBoundsInPixels(
+    const gfx::Size& host_size_in_pixels) const {
+  gfx::RectF new_bounds(WindowTreeHost::GetTransformedRootWindowBoundsInPixels(
+      host_size_in_pixels));
+  new_bounds.set_origin(gfx::PointF());
+  return gfx::ToEnclosingRect(new_bounds);
 }
 
 // A layout manager owned by the root window.
@@ -224,20 +240,11 @@ void CastWindowManagerAura::Setup() {
 
   ui::InitializeInputMethodForTesting();
 
-  gfx::Size display_size =
-      display::Screen::GetScreen()->GetPrimaryDisplay().GetSizeInPixel();
-  display::Display::Rotation rotation =
-      display::Screen::GetScreen()->GetPrimaryDisplay().rotation();
-  if (rotation == display::Display::ROTATE_90 ||
-      rotation == display::Display::ROTATE_270) {
-    display_size = gfx::Size(display_size.height(), display_size.width());
-  }
+  gfx::Rect host_bounds = GetPrimaryDisplayHostBounds();
 
-  LOG(INFO) << "Starting window manager, screen size: " << display_size.width()
-            << "x" << display_size.height();
+  LOG(INFO) << "Starting window manager, bounds: " << host_bounds.ToString();
   CHECK(aura::Env::GetInstance());
-  window_tree_host_.reset(
-      new CastWindowTreeHost(enable_input_, gfx::Rect(display_size)));
+  window_tree_host_.reset(new CastWindowTreeHost(enable_input_, host_bounds));
   window_tree_host_->InitHost();
   window_tree_host_->window()->SetLayoutManager(new CastLayoutManager());
   window_tree_host_->SetRootTransform(GetPrimaryDisplayRotationTransform());
@@ -313,18 +320,15 @@ void CastWindowManagerAura::AddWindow(gfx::NativeView child) {
 
 void CastWindowManagerAura::AddSideSwipeGestureHandler(
     CastSideSwipeGestureHandlerInterface* handler) {
-  if (system_gesture_event_handler_) {
-    system_gesture_event_handler_->AddSideSwipeGestureHandler(handler);
-  }
+  DCHECK(system_gesture_event_handler_);
+  system_gesture_event_handler_->AddSideSwipeGestureHandler(handler);
 }
 
-// Remove the registration of a system side swipe event handler.
 void CastWindowManagerAura::CastWindowManagerAura::
     RemoveSideSwipeGestureHandler(
         CastSideSwipeGestureHandlerInterface* handler) {
-  if (system_gesture_event_handler_) {
-    system_gesture_event_handler_->RemoveSideSwipeGestureHandler(handler);
-  }
+  DCHECK(system_gesture_event_handler_);
+  system_gesture_event_handler_->RemoveSideSwipeGestureHandler(handler);
 }
 
 void CastWindowManagerAura::CastWindowManagerAura::SetColorInversion(

@@ -16,6 +16,7 @@
 #include "chrome/browser/android/compositor/tab_content_manager.h"
 #include "chrome/browser/android/metrics/uma_utils.h"
 #include "chrome/browser/android/tab_web_contents_delegate_android.h"
+#include "chrome/browser/android/trusted_cdn.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/bookmarks/managed_bookmark_service_factory.h"
 #include "chrome/browser/browser_about_handler.h"
@@ -23,6 +24,7 @@
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/infobars/infobar_service.h"
+#include "chrome/browser/offline_pages/offline_page_utils.h"
 #include "chrome/browser/prerender/prerender_contents.h"
 #include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/prerender/prerender_manager_factory.h"
@@ -42,9 +44,9 @@
 #include "chrome/browser/ui/android/tab_model/tab_model_list.h"
 #include "chrome/browser/ui/android/view_android_helper.h"
 #include "chrome/browser/ui/blocked_content/popup_blocker_tab_helper.h"
+#include "chrome/browser/ui/startup/bad_flags_prompt.h"
 #include "chrome/browser/ui/tab_contents/core_tab_helper.h"
 #include "chrome/browser/ui/tab_helpers.h"
-#include "chrome/common/chrome_render_frame.mojom.h"
 #include "chrome/common/url_constants.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_node.h"
@@ -64,6 +66,7 @@
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/interstitial_page.h"
 #include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -76,8 +79,8 @@
 #include "services/service_manager/public/cpp/bind_source_info.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "skia/ext/image_operations.h"
-#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
-#include "third_party/WebKit/public/platform/WebReferrerPolicy.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/platform/web_referrer_policy.h"
 #include "ui/android/view_android.h"
 #include "ui/android/window_android.h"
 #include "ui/base/layout.h"
@@ -100,6 +103,39 @@ using content::NavigationController;
 using content::WebContents;
 using navigation_interception::InterceptNavigationDelegate;
 using navigation_interception::NavigationParams;
+
+namespace {
+
+GURL GetPublisherURLForTrustedCDN(
+    content::NavigationHandle* navigation_handle) {
+  if (!trusted_cdn::IsTrustedCDN(navigation_handle->GetURL()))
+    return GURL();
+
+  // Offline pages don't have headers when they are loaded.
+  // TODO(bauerb): Consider storing the publisher URL on the offline page item.
+  if (offline_pages::OfflinePageUtils::GetOfflinePageFromWebContents(
+          navigation_handle->GetWebContents())) {
+    return GURL();
+  }
+
+  const net::HttpResponseHeaders* headers =
+      navigation_handle->GetResponseHeaders();
+  if (!headers) {
+    // TODO(https://crbug.com/829323): In some cases other than offline pages
+    // we don't have headers.
+    LOG(WARNING) << "No headers for navigation to "
+                 << navigation_handle->GetURL();
+    return GURL();
+  }
+
+  std::string publisher_url;
+  if (!headers->GetNormalizedHeader("x-amp-cache", &publisher_url))
+    return GURL();
+
+  return GURL(publisher_url);
+}
+
+}  // namespace
 
 // This class is created and owned by the MediaDownloadInProductHelpManager.
 class TabAndroid::MediaDownloadInProductHelp
@@ -163,6 +199,8 @@ void TabAndroid::AttachTabHelpers(content::WebContents* web_contents) {
 
 TabAndroid::TabAndroid(JNIEnv* env, const JavaRef<jobject>& obj)
     : weak_java_tab_(env, obj),
+      session_tab_id_(SessionID::NewUnique()),
+      session_window_id_(SessionID::InvalidValue()),
       content_layer_(cc::Layer::Create()),
       tab_content_manager_(NULL),
       synced_tab_delegate_(new browser_sync::SyncedTabDelegateAndroid(this)),
@@ -238,8 +276,15 @@ sync_sessions::SyncedTabDelegate* TabAndroid::GetSyncedTabDelegate() const {
   return synced_tab_delegate_.get();
 }
 
-void TabAndroid::SetWindowSessionID(SessionID::id_type window_id) {
-  session_window_id_.set_id(window_id);
+void TabAndroid::DeleteFrozenNavigationEntries(
+    const WebContentsState::DeletionPredicate& predicate) {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  Java_Tab_deleteNavigationEntriesFromFrozenState(
+      env, weak_java_tab_.get(env), reinterpret_cast<intptr_t>(&predicate));
+}
+
+void TabAndroid::SetWindowSessionID(SessionID window_id) {
+  session_window_id_ = window_id;
 
   if (!web_contents())
     return;
@@ -378,6 +423,7 @@ void TabAndroid::InitWebContents(
     jboolean incognito,
     jboolean is_background_tab,
     const JavaParamRef<jobject>& jweb_contents,
+    const JavaParamRef<jobject>& jparent_web_contents,
     const JavaParamRef<jobject>& jweb_contents_delegate,
     const JavaParamRef<jobject>& jcontext_menu_populator) {
   web_contents_.reset(content::WebContents::FromJavaWebContents(jweb_contents));
@@ -386,10 +432,10 @@ void TabAndroid::InitWebContents(
   AttachTabHelpers(web_contents_.get());
   WebContentsObserver::Observe(web_contents_.get());
 
-  SetWindowSessionID(session_window_id_.id());
+  SetWindowSessionID(session_window_id_);
 
-  session_tab_id_.set_id(
-      SessionTabHelper::FromWebContents(web_contents())->session_id().id());
+  session_tab_id_ =
+      SessionTabHelper::FromWebContents(web_contents())->session_id();
   ContextMenuHelper::FromWebContents(web_contents())->SetPopulator(
       jcontext_menu_populator);
   ViewAndroidHelper::FromWebContents(web_contents())->
@@ -412,7 +458,9 @@ void TabAndroid::InitWebContents(
   if (favicon_driver)
     favicon_driver->AddObserver(this);
 
-  synced_tab_delegate_->SetWebContents(web_contents());
+  WebContents* parent_web_contents =
+      content::WebContents::FromJavaWebContents(jparent_web_contents);
+  synced_tab_delegate_->SetWebContents(web_contents(), parent_web_contents);
 
   // Verify that the WebContents this tab represents matches the expected
   // off the record state.
@@ -423,6 +471,9 @@ void TabAndroid::InitWebContents(
                                                                GetProfile());
   }
   content_layer_->InsertChild(web_contents_->GetNativeView()->GetLayer(), 0);
+
+  // Shows a warning notification for dangerous flags in about:flags.
+  chrome::ShowBadFlagsPrompt(web_contents());
 }
 
 void TabAndroid::UpdateDelegates(
@@ -920,6 +971,34 @@ void TabAndroid::NavigationEntryChanged(
     const content::EntryChangedDetails& change_details) {
   JNIEnv* env = base::android::AttachCurrentThread();
   Java_Tab_onNavEntryChanged(env, weak_java_tab_.get(env));
+}
+
+void TabAndroid::DidFinishNavigation(
+    content::NavigationHandle* navigation_handle) {
+  // Skip subframe, same-document, or non-committed navigations (downloads or
+  // 204/205 responses).
+  if (!navigation_handle->IsInMainFrame() ||
+      navigation_handle->IsSameDocument() ||
+      !navigation_handle->HasCommitted()) {
+    return;
+  }
+
+  GURL publisher_url = GetPublisherURLForTrustedCDN(navigation_handle);
+  JNIEnv* env = base::android::AttachCurrentThread();
+  base::android::ScopedJavaLocalRef<jstring> j_publisher_url;
+  if (publisher_url.is_valid())
+    j_publisher_url = ConvertUTF8ToJavaString(env, publisher_url.spec());
+
+  Java_Tab_setTrustedCdnPublisherUrl(env, weak_java_tab_.get(env),
+                                     j_publisher_url);
+}
+
+bool TabAndroid::AreRendererInputEventsIgnored(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& obj) {
+  content::RenderProcessHost* render_process_host =
+      web_contents()->GetMainFrame()->GetProcess();
+  return render_process_host->IgnoreInputEvents();
 }
 
 void TabAndroid::ShowMediaDownloadInProductHelp(

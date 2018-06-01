@@ -5,6 +5,7 @@
 #ifndef CHROMECAST_BASE_CHROMECAST_SWITCHES_H_
 #define CHROMECAST_BASE_CHROMECAST_SWITCHES_H_
 
+#include <cstdint>
 #include <string>
 
 #include "build/build_config.h"
@@ -72,6 +73,11 @@ extern const char kDesktopWindow1080p[];
 
 // UI switches
 extern const char kEnableInput[];
+extern const char kSystemGestureStartWidth[];
+extern const char kSystemGestureStartHeight[];
+
+// Background color used when Chromium hasn't rendered anything yet.
+extern const char kCastAppBackgroundColor[];
 
 }  // namespace switches
 
@@ -95,6 +101,10 @@ int GetSwitchValueInt(const std::string& switch_name, const int default_value);
 // the |default_value| is returned.
 int GetSwitchValueNonNegativeInt(const std::string& switch_name,
                                  const int default_value);
+
+// Gets a color value from the format "#AARRGGBB" (hex).
+uint32_t GetSwitchValueColor(const std::string& switch_name,
+                             const uint32_t default_value);
 
 }  // namespace chromecast
 

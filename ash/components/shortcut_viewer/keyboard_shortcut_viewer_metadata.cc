@@ -26,6 +26,20 @@ namespace keyboard_shortcut_viewer {
 
 namespace {
 
+// Get all DomCodes to construct the reverse mapping from DomCode to VKEY
+// and DomKey. We want to map a VKEY value to a text label, i.e. VKEY -> DomKey.
+// But VKEY and DomKey are both outputs of layout, so we only have
+// DomCode -> (VKEY, DomKey) by KeyboardLayoutEngine::Lookup(). We need to
+// iterate over the full list of DomCodes in order to look up a corresponding
+// DomKey for a KeyboardCode we want to get the string representation for.
+// keycode_converter.cc does not expose this list, so we need to generate it
+// here.
+#define USB_KEYMAP(usb, evdev, xkb, win, mac, code, id) usb
+#define USB_KEYMAP_DECLARATION constexpr uint32_t kDomCodes[] =
+#include "ui/events/keycodes/dom/keycode_converter_data.inc"
+#undef USB_KEYMAP
+#undef USB_KEYMAP_DECLARATION
+
 // Gets the keyboard codes for modifiers.
 ui::KeyboardCode GetKeyCodeForModifier(ui::EventFlags modifier) {
   switch (modifier) {
@@ -63,6 +77,9 @@ base::Optional<base::string16> GetSpecialStringForKeyboardCode(
     case ui::VKEY_COMMAND:
       msg_id = ui::DeviceUsesKeyboardLayout2() ? IDS_KSV_MODIFIER_LAUNCHER
                                                : IDS_KSV_MODIFIER_SEARCH;
+      break;
+    case ui::VKEY_ESCAPE:
+      msg_id = IDS_KSV_KEY_ESCAPE;
       break;
     case ui::VKEY_SPACE:
       msg_id = IDS_KSV_KEY_SPACE;
@@ -122,23 +139,21 @@ base::string16 GetStringForKeyboardCode(ui::KeyboardCode key_code) {
   if (key_label)
     return key_label.value();
 
-  ui::DomCode dom_code = ui::UsLayoutKeyboardCodeToDomCode(key_code);
   ui::DomKey dom_key;
-  ui::KeyboardCode keycode_ignored;
-  if (ui::KeyboardLayoutEngineManager::GetKeyboardLayoutEngine()->Lookup(
-          dom_code, 0 /* flags */, &dom_key, &keycode_ignored)) {
-    if (dom_key.IsValid() && dom_key.IsDeadKey())
-      return base::string16();
+  ui::KeyboardCode key_code_to_compare = ui::VKEY_UNKNOWN;
+  for (const auto& code : kDomCodes) {
+    const ui::DomCode dom_code = static_cast<ui::DomCode>(code);
+    if (!ui::KeyboardLayoutEngineManager::GetKeyboardLayoutEngine()->Lookup(
+            dom_code, /*flags=*/ui::EF_NONE, &dom_key, &key_code_to_compare)) {
+      continue;
+    }
+    if (key_code_to_compare != key_code || !dom_key.IsValid() ||
+        dom_key.IsDeadKey()) {
+      continue;
+    }
     return base::UTF8ToUTF16(ui::KeycodeConverter::DomKeyToKeyString(dom_key));
   }
-
-  // Fall back to US keyboard layout.
-  const bool has_mapping = ui::DomCodeToUsLayoutDomKey(
-      dom_code, 0 /* flags */, &dom_key, &keycode_ignored);
-  DCHECK(has_mapping);
-  if (dom_key.IsValid() && dom_key.IsDeadKey())
-    return base::string16();
-  return base::UTF8ToUTF16(ui::KeycodeConverter::DomKeyToKeyString(dom_key));
+  return base::string16();
 }
 
 const gfx::VectorIcon* GetVectorIconForKeyboardCode(ui::KeyboardCode key_code) {
@@ -318,7 +333,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
         ui::VKEY_G, ui::VKEY_SHIFT, ui::VKEY_UNKNOWN, ui::VKEY_RETURN}},
 
       {// |categories|
-       {ShortcutCategory::kAccessibility},
+       {ShortcutCategory::kPageAndBrowser, ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_IDC_FOCUS_BOOKMARKS,
        IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
        // |accelerator_ids|
@@ -407,11 +422,14 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
        {{ui::VKEY_P, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
-       {ShortcutCategory::kPageAndBrowser},
+       {ShortcutCategory::kPopular, ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_RELOAD,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       IDS_KSV_SHORTCUT_IDC_RELOAD,
        // |accelerator_ids|
-       {{ui::VKEY_R, ui::EF_CONTROL_DOWN}}},
+       {},
+       // |shortcut_key_codes|
+       {ui::VKEY_BROWSER_REFRESH, ui::VKEY_CONTROL, ui::VKEY_UNKNOWN,
+        ui::VKEY_R}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
@@ -507,7 +525,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
        {{ui::VKEY_OEM_PLUS, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
-       {ShortcutCategory::kTextEditing},
+       {ShortcutCategory::kSystemAndDisplay, ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_NEXT_IME,
        IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
        // |accelerator_ids|
@@ -521,7 +539,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
        {{ui::VKEY_M, ui::EF_SHIFT_DOWN | ui::EF_ALT_DOWN}}},
 
       {// |categories|
-       {ShortcutCategory::kTextEditing},
+       {ShortcutCategory::kSystemAndDisplay, ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_PREVIOUS_IME,
        IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
        // |accelerator_ids|
@@ -651,15 +669,6 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
        {},
        // |shortcut_key_codes|
        {ui::VKEY_CONTROL, ui::VKEY_UNKNOWN}},
-
-      {// |categories|
-       {ShortcutCategory::kPopular, ShortcutCategory::kPageAndBrowser},
-       IDS_KSV_DESCRIPTION_IDC_RELOAD,
-       IDS_KSV_SHORTCUT_ONE_KEY,
-       // |accelerator_ids|
-       {},
-       // |shortcut_key_codes|
-       {ui::VKEY_BROWSER_REFRESH}},
 
       {// |categories|
        {ShortcutCategory::kPopular},
@@ -1125,6 +1134,156 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
        IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
        // |accelerator_ids|
        {{ui::VKEY_M, ui::EF_COMMAND_DOWN | ui::EF_ALT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kSystemAndDisplay},
+       IDS_KSV_DESCRIPTION_TOGGLE_APP_LIST,
+       IDS_KSV_SHORTCUT_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_LWIN}}},
+
+      {// |categories|
+       {ShortcutCategory::kTabAndWindow},
+       IDS_KSV_DESCRIPTION_TAKE_WINDOW_SCREENSHOT,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_MEDIA_LAUNCH_APP1, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kSystemAndDisplay},
+       IDS_KSV_DESCRIPTION_SUSPEND,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_L, ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kSystemAndDisplay},
+       IDS_KSV_DESCRIPTION_OPEN_GET_HELP,
+       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_OEM_2, ui::EF_CONTROL_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kSystemAndDisplay},
+       IDS_KSV_DESCRIPTION_OPEN_FEEDBACK_PAGE,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_I, ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kTabAndWindow},
+       IDS_KSV_DESCRIPTION_ROTATE_WINDOW,
+       IDS_KSV_SHORTCUT_THREE_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_BROWSER_REFRESH,
+         ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kSystemAndDisplay},
+       IDS_KSV_DESCRIPTION_SHOW_STYLUS_TOOLS,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_P, ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kTabAndWindow},
+       IDS_KSV_DESCRIPTION_TOGGLE_MAXIMIZED,
+       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_OEM_PLUS, ui::EF_ALT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kTabAndWindow},
+       IDS_KSV_DESCRIPTION_WINDOW_POSITION_CENTER,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_OEM_PLUS, ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kTabAndWindow},
+       IDS_KSV_DESCRIPTION_OPEN_CROSH,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_T, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kAccessibility},
+       IDS_KSV_DESCRIPTION_TOGGLE_DICTATION,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_S, ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kSystemAndDisplay},
+       IDS_KSV_DESCRIPTION_EXIT,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_Q, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kTabAndWindow},
+       IDS_KSV_DESCRIPTION_UNPIN,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_ESCAPE, ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kSystemAndDisplay},
+       IDS_KSV_DESCRIPTION_SHOW_IME_MENU_BUBBLE,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_K, ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kPageAndBrowser},
+       IDS_KSV_DESCRIPTION_SHOW_IDC_FOCUS_MENU_BAR,
+       IDS_KSV_SHORTCUT_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_F10}}},
+
+      {// |categories|
+       {ShortcutCategory::kPageAndBrowser},
+       IDS_KSV_DESCRIPTION_SHOW_IDC_HOME,
+       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_HOME, ui::EF_ALT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kPageAndBrowser},
+       IDS_KSV_DESCRIPTION_SHOW_IDC_CLEAR_BROWSING_DATA,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_BACK, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kPageAndBrowser},
+       IDS_KSV_DESCRIPTION_SHOW_IDC_SHOW_BOOKMARK_MANAGER,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_O, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kPageAndBrowser},
+       IDS_KSV_DESCRIPTION_IDC_DEV_TOOLS_INSPECT,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_C, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kAccessibility},
+       IDS_KSV_DESCRIPTION_IDC_FOCUS_INACTIVE_POPUP_FOR_ACCESSIBILITY,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_A, ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kPageAndBrowser},
+       IDS_KSV_DESCRIPTION_IDC_SHOW_APP_MENU,
+       IDS_KSV_SHORTCUT_IDC_SHOW_APP_MENU,
+       // |accelerator_ids|
+       {},
+       // |shortcut_key_codes|
+       {ui::VKEY_LMENU, ui::VKEY_UNKNOWN, ui::VKEY_E, ui::VKEY_F}},
   });
 
   static bool is_initialized = false;

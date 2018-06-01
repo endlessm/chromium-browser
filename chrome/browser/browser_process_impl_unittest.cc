@@ -7,7 +7,6 @@
 #include <memory>
 
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/user_metrics.h"
 #include "base/run_loop.h"
@@ -31,10 +30,9 @@ class BrowserProcessImplTest : public ::testing::Test {
       : stashed_browser_process_(g_browser_process),
         loop_(base::MessageLoop::TYPE_UI),
         ui_thread_(content::BrowserThread::UI, &loop_),
-        io_thread_(new content::TestBrowserThread(content::BrowserThread::IO)),
         command_line_(base::CommandLine::NO_PROGRAM),
-        browser_process_impl_(std::make_unique<BrowserProcessImpl>(
-            base::ThreadTaskRunnerHandle::Get().get())) {
+        browser_process_impl_(
+            new BrowserProcessImpl(base::ThreadTaskRunnerHandle::Get().get())) {
     // Create() and StartWithDefaultParams() TaskScheduler in seperate steps to
     // properly simulate the browser process' lifecycle.
     base::TaskScheduler::Create("BrowserProcessImplTest");
@@ -49,17 +47,20 @@ class BrowserProcessImplTest : public ::testing::Test {
     g_browser_process = stashed_browser_process_;
   }
 
-  // Creates the secondary thread (IO thread).
-  // The UI thread needs to be alive while BrowserProcessImpl is alive, and is
-  // managed separately.
+  // Creates the IO thread (unbound) and task scheduler threads. The UI thread
+  // needs to be alive while BrowserProcessImpl is alive, and is managed
+  // separately.
   void StartSecondaryThreads() {
     base::TaskScheduler::GetInstance()->StartWithDefaultParams();
-    io_thread_->StartIOThread();
+
+    io_thread_ = std::make_unique<content::TestBrowserThread>(
+        content::BrowserThread::IO);
+    io_thread_->StartIOThreadUnregistered();
   }
 
-  // Initializes the IO thread delegate and starts the ServiceManager.
+  // Binds the IO thread to BrowserThread::IO and starts the ServiceManager.
   void Initialize() {
-    io_thread_->InitIOThreadDelegate();
+    io_thread_->RegisterAsBrowserThread();
 
     // TestServiceManagerContext creation requires the task scheduler to be
     // started.

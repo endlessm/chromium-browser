@@ -4,10 +4,10 @@
 
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button_factory.h"
 
-#include "base/ios/ios_util.h"
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
+#import "ios/chrome/browser/ui/popup_menu/popup_menu_flags.h"
 #import "ios/chrome/browser/ui/rtl_geometry.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button_visibility_configuration.h"
@@ -19,6 +19,7 @@
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
 #include "ios/chrome/browser/ui/toolbar/toolbar_resource_macros.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
+#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ios/chrome/grit/ios_theme_resources.h"
 #import "ios/public/provider/chrome/browser/chrome_browser_provider.h"
@@ -40,6 +41,10 @@ typedef NS_ENUM(NSInteger, ToolbarButtonState) {
 
 // Number of style used for the buttons.
 const int styleCount = 2;
+// Omnibox background.
+const CGFloat kOmniboxBackgroundHeight = 38;
+const CGFloat kOmniboxBackgroundCornerRadius = 13;
+const CGFloat kOmniboxBackgroundAlpha = 0.05;
 }  // namespace
 
 @implementation ToolbarButtonFactory
@@ -98,17 +103,44 @@ const int styleCount = 2;
   return backButton;
 }
 
-- (ToolbarButton*)leadingForwardButton {
-  ToolbarButton* forwardButton = self.forwardButton;
+// Returns a forward button without visibility mask configured.
+- (ToolbarButton*)forwardButton {
+  int forwardButtonImages[styleCount][TOOLBAR_STATE_COUNT] =
+      TOOLBAR_IDR_THREE_STATE(FORWARD);
+  ToolbarButton* forwardButton = nil;
+  if (IsUIRefreshPhase1Enabled()) {
+    forwardButton = [ToolbarButton
+        toolbarButtonWithImage:[[UIImage imageNamed:@"toolbar_forward"]
+                                   imageFlippedForRightToLeftLayoutDirection]];
+    [self configureButton:forwardButton width:kAdaptiveToolbarButtonWidth];
+  } else {
+    forwardButton = [ToolbarButton
+        toolbarButtonWithImageForNormalState:NativeReversableImage(
+                                                 forwardButtonImages[self.style]
+                                                                    [DEFAULT],
+                                                 YES)
+                    imageForHighlightedState:NativeReversableImage(
+                                                 forwardButtonImages[self.style]
+                                                                    [PRESSED],
+                                                 YES)
+                       imageForDisabledState:NativeReversableImage(
+                                                 forwardButtonImages[self.style]
+                                                                    [DISABLED],
+                                                 YES)];
+    [self configureButton:forwardButton width:kToolbarButtonWidth];
+    if (!IsIPadIdiom()) {
+      forwardButton.imageEdgeInsets =
+          UIEdgeInsetsMakeDirected(0, kForwardButtonImageInset, 0, 0);
+    }
+  }
   forwardButton.visibilityMask =
-      self.visibilityConfiguration.leadingForwardButtonVisibility;
-  return forwardButton;
-}
-
-- (ToolbarButton*)trailingForwardButton {
-  ToolbarButton* forwardButton = self.forwardButton;
-  forwardButton.visibilityMask =
-      self.visibilityConfiguration.trailingForwardButtonVisibility;
+      self.visibilityConfiguration.forwardButtonVisibility;
+  DCHECK(forwardButton);
+  forwardButton.accessibilityLabel =
+      l10n_util::GetNSString(IDS_ACCNAME_FORWARD);
+  [forwardButton addTarget:self.dispatcher
+                    action:@selector(goForward)
+          forControlEvents:UIControlEventTouchUpInside];
   return forwardButton;
 }
 
@@ -193,9 +225,15 @@ const int styleCount = 2;
   } else {
     [self configureButton:toolsMenuButton width:kToolsMenuButtonWidth];
   }
-  [toolsMenuButton addTarget:self.dispatcher
-                      action:@selector(showToolsMenu)
-            forControlEvents:UIControlEventTouchUpInside];
+  if (IsUIRefreshPhase1Enabled()) {
+    [toolsMenuButton addTarget:self.dispatcher
+                        action:@selector(showToolsMenuPopup)
+              forControlEvents:UIControlEventTouchUpInside];
+  } else {
+    [toolsMenuButton addTarget:self.dispatcher
+                        action:@selector(showToolsMenu)
+              forControlEvents:UIControlEventTouchUpInside];
+  }
   toolsMenuButton.visibilityMask =
       self.visibilityConfiguration.toolsMenuButtonVisibility;
   return toolsMenuButton;
@@ -375,11 +413,24 @@ const int styleCount = 2;
   ToolbarButton* omniboxButton = [ToolbarButton
       toolbarButtonWithImage:[UIImage imageNamed:@"toolbar_search"]];
 
-  [self configureButton:omniboxButton width:kAdaptiveToolbarButtonWidth];
+  [self configureButton:omniboxButton width:kOmniboxButtonWidth];
   [omniboxButton addTarget:self.dispatcher
-                    action:@selector(focusOmnibox)
+                    action:@selector(focusOmniboxFromSearchButton)
           forControlEvents:UIControlEventTouchUpInside];
   omniboxButton.accessibilityIdentifier = kToolbarOmniboxButtonIdentifier;
+
+  UIView* background = [[UIView alloc] init];
+  background.translatesAutoresizingMaskIntoConstraints = NO;
+  background.userInteractionEnabled = NO;
+  background.backgroundColor =
+      [UIColor colorWithWhite:0 alpha:kOmniboxBackgroundAlpha];
+  background.layer.cornerRadius = kOmniboxBackgroundCornerRadius;
+  [omniboxButton addSubview:background];
+  AddSameCenterConstraints(omniboxButton, background);
+  [background.heightAnchor constraintEqualToConstant:kOmniboxBackgroundHeight]
+      .active = YES;
+  [background.widthAnchor constraintEqualToAnchor:omniboxButton.widthAnchor]
+      .active = YES;
 
   omniboxButton.visibilityMask =
       self.visibilityConfiguration.omniboxButtonVisibility;
@@ -422,6 +473,8 @@ const int styleCount = 2;
   [cancelButton addTarget:self.dispatcher
                    action:@selector(cancelOmniboxEdit)
          forControlEvents:UIControlEventTouchUpInside];
+  cancelButton.accessibilityIdentifier =
+      kToolbarCancelOmniboxEditButtonIdentifier;
   return cancelButton;
 }
 
@@ -444,19 +497,9 @@ const int styleCount = 2;
 
 - (NSArray<UIImage*>*)voiceSearchImages {
   // The voice search images can be overridden by the branded image provider.
-  int imageID;
-  if (ios::GetChromeBrowserProvider()
-          ->GetBrandedImageProvider()
-          ->GetToolbarVoiceSearchButtonImageId(&imageID)) {
-    return [NSArray
-        arrayWithObjects:NativeImage(imageID), NativeImage(imageID), nil];
-  }
-  int voiceSearchImages[styleCount][TOOLBAR_STATE_COUNT] =
-      TOOLBAR_IDR_TWO_STATE(VOICE);
-  return [NSArray
-      arrayWithObjects:NativeImage(voiceSearchImages[self.style][DEFAULT]),
-                       NativeImage(voiceSearchImages[self.style][PRESSED]),
-                       nil];
+  return ios::GetChromeBrowserProvider()
+      ->GetBrandedImageProvider()
+      ->GetToolbarVoiceSearchButtonImages(self.style == INCOGNITO);
 }
 
 - (NSArray<UIImage*>*)TTSImages {
@@ -466,43 +509,5 @@ const int styleCount = 2;
                                    nil];
 }
 
-// Returns a forward button without visibility mask configured.
-- (ToolbarButton*)forwardButton {
-  int forwardButtonImages[styleCount][TOOLBAR_STATE_COUNT] =
-      TOOLBAR_IDR_THREE_STATE(FORWARD);
-  ToolbarButton* forwardButton = nil;
-  if (IsUIRefreshPhase1Enabled()) {
-    forwardButton = [ToolbarButton
-        toolbarButtonWithImage:[[UIImage imageNamed:@"toolbar_forward"]
-                                   imageFlippedForRightToLeftLayoutDirection]];
-    [self configureButton:forwardButton width:kAdaptiveToolbarButtonWidth];
-  } else {
-    forwardButton = [ToolbarButton
-        toolbarButtonWithImageForNormalState:NativeReversableImage(
-                                                 forwardButtonImages[self.style]
-                                                                    [DEFAULT],
-                                                 YES)
-                    imageForHighlightedState:NativeReversableImage(
-                                                 forwardButtonImages[self.style]
-                                                                    [PRESSED],
-                                                 YES)
-                       imageForDisabledState:NativeReversableImage(
-                                                 forwardButtonImages[self.style]
-                                                                    [DISABLED],
-                                                 YES)];
-    [self configureButton:forwardButton width:kToolbarButtonWidth];
-    if (!IsIPadIdiom()) {
-      forwardButton.imageEdgeInsets =
-          UIEdgeInsetsMakeDirected(0, kForwardButtonImageInset, 0, 0);
-    }
-  }
-  DCHECK(forwardButton);
-  forwardButton.accessibilityLabel =
-      l10n_util::GetNSString(IDS_ACCNAME_FORWARD);
-  [forwardButton addTarget:self.dispatcher
-                    action:@selector(goForward)
-          forControlEvents:UIControlEventTouchUpInside];
-  return forwardButton;
-}
 
 @end

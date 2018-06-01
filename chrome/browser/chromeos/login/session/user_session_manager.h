@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/memory/weak_ptr.h"
@@ -109,6 +110,33 @@ class UserSessionManager
     // Starting secondary user session after browser crash.
     SECONDARY_USER_SESSION_AFTER_CRASH,
   } StartSessionType;
+
+  // Types of command-line switches for a user session. The command-line
+  // switches of all types are combined.
+  enum class CommandLineSwitchesType {
+    // Switches for controlling session initialization, such as if the profile
+    // requires enterprise policy.
+    kSessionControl,
+    // Switches derived from user policy, from user-set flags and kiosk app
+    // control switches.
+    // TODO(pmarko): Split this into multiple categories, such as kPolicy,
+    // kFlags, kKioskControl. Consider also adding sentinels automatically and
+    // pre-filling these switches from the command-line if the chrome has been
+    // started with the --login-user flag (https://crbug.com/832857).
+    kPolicyAndFlagsAndKioskControl
+  };
+
+  // Parameters to use when initializing the RLZ library.  These fields need
+  // to be retrieved from a blocking task and this structure is used to pass
+  // the data.
+  struct RlzInitParams {
+    // Set to true if RLZ is disabled.
+    bool disabled;
+
+    // The elapsed time since the device went through the OOBE.  This can
+    // be a very long time.
+    base::TimeDelta time_since_oobe_completion;
+  };
 
   // Returns UserSessionManager instance.
   static UserSessionManager* GetInstance();
@@ -264,6 +292,19 @@ class UserSessionManager
 
   void Shutdown();
 
+  // Sets the command-line switches to be set by session manager for a user
+  // session associated with |account_id| when chrome restarts. Overwrites
+  // switches for |switches_type| with |switches|. The resulting command-line
+  // switches will be the command-line switches for all types combined. Note:
+  // |account_id| is currently ignored, because session manager ignores the
+  // passed account id. For each type, only the last-set switches will be
+  // honored.
+  // TODO(pmarko): Introduce a CHECK making sure that |account_id| is the
+  // primary user (https://crbug.com/832857).
+  void SetSwitchesForUser(const AccountId& account_id,
+                          CommandLineSwitchesType switches_type,
+                          const std::vector<std::string>& switches);
+
   // Called when the user network policy has been parsed. If |send_password| is
   // true, the user's password will be sent over dbus to the session manager to
   // save in a keyring. Before the function exits, it will clear the user
@@ -364,7 +405,7 @@ class UserSessionManager
   void RestoreAuthSessionImpl(Profile* profile, bool restore_from_auth_cookies);
 
   // Initializes RLZ. If |disabled| is true, RLZ pings are disabled.
-  void InitRlzImpl(Profile* profile, bool disabled);
+  void InitRlzImpl(Profile* profile, const RlzInitParams& params);
 
   // If |user| is not a kiosk app, sets session type as seen by extensions
   // feature system according to |user|'s type.
@@ -516,6 +557,13 @@ class UserSessionManager
            scoped_refptr<quick_unlock::QuickUnlockNotificationController>,
            ProfileCompare>
       fingerprint_unlock_notification_handler_;
+
+  // Maps command-line switch types to the currently set command-line switches
+  // for that type. Note: This is not per Profile/AccountId, because session
+  // manager currently doesn't support setting command-line switches per
+  // AccountId.
+  base::flat_map<CommandLineSwitchesType, std::vector<std::string>>
+      command_line_switches_;
 
   // Manages Easy unlock cryptohome keys.
   std::unique_ptr<EasyUnlockKeyManager> easy_unlock_key_manager_;

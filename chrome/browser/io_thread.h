@@ -29,9 +29,8 @@
 #include "components/ssl_config/ssl_config_service_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/browser_thread_delegate.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "net/base/network_change_notifier.h"
-#include "net/nqe/network_quality_estimator.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "services/network/url_request_context_owner.h"
 
@@ -47,6 +46,7 @@ class ExternalDataUseObserver;
 
 namespace certificate_transparency {
 class TreeStateTracker;
+class STHObserver;
 }
 
 namespace chrome_browser_net {
@@ -66,6 +66,7 @@ class EventRouterForwarder;
 }
 
 namespace net {
+class CertVerifier;
 class CTLogVerifier;
 class HostResolver;
 class HttpAuthHandlerFactory;
@@ -75,11 +76,6 @@ class RTTAndThroughputEstimatesObserver;
 class SSLConfigService;
 class URLRequestContext;
 class URLRequestContextGetter;
-
-namespace ct {
-class STHObserver;
-}
-
 }  // namespace net
 
 namespace net_log {
@@ -131,7 +127,14 @@ class IOThread : public content::BrowserThreadDelegate {
     std::vector<scoped_refptr<const net::CTLogVerifier>> ct_logs;
     std::unique_ptr<net::HttpAuthPreferences> http_auth_preferences;
 
-    std::unique_ptr<net::NetworkQualityEstimator> network_quality_estimator;
+    // NetworkQualityEstimator only for use in dummy in-process
+    // URLRequestContext when network service is enabled.
+    // TODO(mmenke): Remove this, once all consumers only access the
+    // NetworkQualityEstimator through network service APIs. Then will no longer
+    // need to create an in-process one.
+    std::unique_ptr<net::NetworkQualityEstimator>
+        deprecated_network_quality_estimator;
+
     std::unique_ptr<net::RTTAndThroughputEstimatesObserver>
         network_quality_observer;
 
@@ -161,14 +164,10 @@ class IOThread : public content::BrowserThreadDelegate {
   ~IOThread() override;
 
   static void RegisterPrefs(PrefRegistrySimple* registry);
+  static void SetCertVerifierForTesting(net::CertVerifier* cert_verifier);
 
   // Can only be called on the IO thread.
   Globals* globals();
-
-  // Allows overriding Globals in tests where IOThread::Init() and
-  // IOThread::CleanUp() are not called.  This allows for injecting mocks into
-  // IOThread global objects.
-  void SetGlobalsForTesting(Globals* globals);
 
   net_log::ChromeNetLog* net_log();
 
@@ -195,10 +194,10 @@ class IOThread : public content::BrowserThreadDelegate {
   metrics::UpdateUsagePrefCallbackType GetMetricsDataUseForwarder();
 
   // Registers the |observer| for new STH notifications.
-  void RegisterSTHObserver(net::ct::STHObserver* observer);
+  void RegisterSTHObserver(certificate_transparency::STHObserver* observer);
 
   // Un-registers the |observer|.
-  void UnregisterSTHObserver(net::ct::STHObserver* observer);
+  void UnregisterSTHObserver(certificate_transparency::STHObserver* observer);
 
   // Returns true if the indicated proxy resolution features are
   // enabled. These features are controlled through

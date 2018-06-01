@@ -34,6 +34,7 @@ class GLSurface;
 namespace gpu {
 
 class CommandBufferDirect;
+class GpuMemoryBufferFactory;
 class ImageFactory;
 class MailboxManager;
 class SyncPointManager;
@@ -107,6 +108,11 @@ class GLManager : private GpuControl {
     use_iosurface_memory_buffers_ = use_iosurface_memory_buffers;
   }
 
+  void set_use_native_pixmap_memory_buffers(
+      bool use_native_pixmap_memory_buffers) {
+    use_native_pixmap_memory_buffers_ = use_native_pixmap_memory_buffers;
+  }
+
   void SetCommandsPaused(bool paused);
 
   gles2::GLES2Decoder* decoder() const {
@@ -157,6 +163,8 @@ class GLManager : private GpuControl {
   size_t GetSharedMemoryBytesAllocated() const;
   ContextType GetContextType() const;
 
+  void Reset();
+
  private:
   void SetupBaseContext();
 
@@ -181,10 +189,12 @@ class GLManager : private GpuControl {
   std::unique_ptr<gles2::GLES2CmdHelper> gles2_helper_;
   std::unique_ptr<TransferBuffer> transfer_buffer_;
   std::unique_ptr<gles2::GLES2Implementation> gles2_implementation_;
+  std::unique_ptr<gpu::GpuMemoryBufferFactory> gpu_memory_buffer_factory_;
 
   uint64_t next_fence_sync_release_ = 1;
 
   bool use_iosurface_memory_buffers_ = false;
+  bool use_native_pixmap_memory_buffers_ = false;
 
   Capabilities capabilities_;
 

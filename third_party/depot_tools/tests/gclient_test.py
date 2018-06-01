@@ -261,7 +261,7 @@ class GclientTest(trial_dir.TestCase):
     work_queue = gclient_utils.ExecutionQueue(options.jobs, None, False)
     for s in client.dependencies:
       work_queue.enqueue(s)
-    work_queue.flush({}, None, [], options=options)
+    work_queue.flush({}, None, [], options=options, patch_refs={})
     self.assertEqual(
         [h.action for h in client.GetHooks(options)],
         [tuple(x['action']) for x in hooks])
@@ -312,7 +312,7 @@ class GclientTest(trial_dir.TestCase):
     work_queue = gclient_utils.ExecutionQueue(options.jobs, None, False)
     for s in client.dependencies:
       work_queue.enqueue(s)
-    work_queue.flush({}, None, [], options=options)
+    work_queue.flush({}, None, [], options=options, patch_refs={})
     self.assertEqual(
         [h.action for h in client.GetHooks(options)],
         [tuple(x['action']) for x in hooks + extra_hooks + sub_hooks])
@@ -1155,6 +1155,46 @@ class GclientTest(trial_dir.TestCase):
     finally:
       self._get_processed()
 
+  def testCreatesCipdDependencies(self):
+    """Verifies something."""
+    write(
+        '.gclient',
+        'solutions = [\n'
+        '  { "name": "foo", "url": "svn://example.com/foo",\n'
+        '    "deps_file" : ".DEPS.git",\n'
+        '  },\n'
+          ']')
+    write(
+        os.path.join('foo', 'DEPS'),
+        'vars = {\n'
+        '  "lemur_version": "version:1234",\n'
+        '}\n'
+        'deps = {\n'
+        '  "bar": {\n'
+        '    "packages": [{\n'
+        '      "package": "lemur",\n'
+        '      "version": Var("lemur_version"),\n'
+        '    }],\n'
+        '    "dep_type": "cipd",\n'
+        '  }\n'
+        '}')
+    options, _ = gclient.OptionParser().parse_args([])
+    options.validate_syntax = True
+    obj = gclient.GClient.LoadCurrentConfig(options)
+
+    self.assertEquals(1, len(obj.dependencies))
+    sol = obj.dependencies[0]
+    sol._condition = 'some_condition'
+
+    sol.ParseDepsFile()
+    self.assertEquals(1, len(sol.dependencies))
+    dep = sol.dependencies[0]
+
+    self.assertIsInstance(dep, gclient.CipdDependency)
+    self.assertEquals(
+        'https://chrome-infra-packages.appspot.com/lemur@version:1234',
+        dep.url)
+
   def testSameDirAllowMultipleCipdDeps(self):
     """Verifies gclient allow multiple cipd deps under same directory."""
     parser = gclient.OptionParser()
@@ -1187,6 +1227,68 @@ class GclientTest(trial_dir.TestCase):
     dep1 = obj.dependencies[0].dependencies[1]
     self.assertEquals('https://example.com/foo_package@foo_version', dep0.url)
     self.assertEquals('https://example.com/bar_package@bar_version', dep1.url)
+
+  def testFuzzyMatchUrlByURL(self):
+    write(
+        '.gclient',
+        'solutions = [\n'
+        '  { "name": "foo", "url": "https://example.com/foo.git",\n'
+        '    "deps_file" : ".DEPS.git",\n'
+        '  },\n'
+          ']')
+    write(
+        os.path.join('foo', 'DEPS'),
+        'deps = {\n'
+        '  "bar": "https://example.com/bar.git@bar_version",\n'
+        '}')
+    options, _ = gclient.OptionParser().parse_args([])
+    obj = gclient.GClient.LoadCurrentConfig(options)
+    foo_sol = obj.dependencies[0]
+    self.assertEqual(
+        'https://example.com/foo.git',
+        foo_sol.FuzzyMatchUrl('https://example.com/foo.git',
+                                   ['https://example.com/foo.git', 'foo']))
+
+  def testFuzzyMatchUrlByURLNoGit(self):
+    write(
+        '.gclient',
+        'solutions = [\n'
+        '  { "name": "foo", "url": "https://example.com/foo.git",\n'
+        '    "deps_file" : ".DEPS.git",\n'
+        '  },\n'
+          ']')
+    write(
+        os.path.join('foo', 'DEPS'),
+        'deps = {\n'
+        '  "bar": "https://example.com/bar.git@bar_version",\n'
+        '}')
+    options, _ = gclient.OptionParser().parse_args([])
+    obj = gclient.GClient.LoadCurrentConfig(options)
+    foo_sol = obj.dependencies[0]
+    self.assertEqual(
+        'https://example.com/foo',
+        foo_sol.FuzzyMatchUrl('https://example.com/foo.git',
+                                   ['https://example.com/foo', 'foo']))
+
+  def testFuzzyMatchUrlByName(self):
+    write(
+        '.gclient',
+        'solutions = [\n'
+        '  { "name": "foo", "url": "https://example.com/foo",\n'
+        '    "deps_file" : ".DEPS.git",\n'
+        '  },\n'
+          ']')
+    write(
+        os.path.join('foo', 'DEPS'),
+        'deps = {\n'
+        '  "bar": "https://example.com/bar.git@bar_version",\n'
+        '}')
+    options, _ = gclient.OptionParser().parse_args([])
+    obj = gclient.GClient.LoadCurrentConfig(options)
+    foo_sol = obj.dependencies[0]
+    self.assertEqual(
+        'foo',
+        foo_sol.FuzzyMatchUrl('https://example.com/foo.git', ['foo']))
 
 
 if __name__ == '__main__':

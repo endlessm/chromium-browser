@@ -25,14 +25,8 @@ const char kAshDisableLoginDimAndBlur[] = "ash-disable-login-dim-and-blur";
 const char kAshDisableSmoothScreenRotation[] =
     "ash-disable-smooth-screen-rotation";
 
-// Disables autohide titlebars feature. With this flag disabled, apps in tablet
-// mode will have visible titlebars instead of autohidden titlebars.
-// TODO(crbug.com/764393): Remove this flag in M66/M67.
-const char kAshDisableTabletAutohideTitlebars[] =
-    "ash-disable-tablet-autohide-titlebars";
-
-// Disables the trilinear filtering for overview and window cycle list.
-const char kAshDisableTrilinearFiltering[] = "ash-disable-trilinear-filtering";
+// Disables the split view on tablet mode.
+const char kAshDisableTabletSplitView[] = "disable-tablet-splitview";
 
 // Disable the Touch Exploration Mode. Touch Exploration Mode will no longer be
 // turned on automatically when spoken feedback is enabled when this flag is
@@ -44,13 +38,12 @@ const char kAshDisableTouchExplorationMode[] =
 // TODO(oshima): Remove this once the feature is launched. crbug.com/749713.
 const char kAshEnableV1AppBackButton[] = "ash-enable-v1-app-back-button";
 
+// Enable cursor motion blur.
+const char kAshEnableCursorMotionBlur[] = "ash-enable-cursor-motion-blur";
+
 // Enables key bindings to scroll magnified screen.
 const char kAshEnableMagnifierKeyScroller[] =
     "ash-enable-magnifier-key-scroller";
-
-// Enables the new overview ui.
-// TODO(sammiequon): Remove this once the feature is launched. crbug.com/782330.
-const char kAshEnableNewOverviewUi[] = "ash-enable-new-overview-ui";
 
 // Enable the Night Light feature.
 const char kAshEnableNightLight[] = "ash-enable-night-light";
@@ -68,11 +61,8 @@ const char kAshSidebarDisabled[] = "disable-ash-sidebar";
 // is used to enable tablet mode on convertible devices.
 const char kAshEnableTabletMode[] = "enable-touchview";
 
-// Enables the split view on tablet mode.
-const char kAshEnableTabletSplitView[] = "enable-tablet-splitview";
-
 // Enable the wayland server.
-const char kAshEnableWaylandServer[] = "ash-enable-wayland-server";
+const char kAshEnableWaylandServer[] = "enable-wayland-server";
 
 // Enables mirrored screen.
 const char kAshEnableMirroredScreen[] = "ash-enable-mirrored-screen";
@@ -81,13 +71,19 @@ const char kAshEnableMirroredScreen[] = "ash-enable-mirrored-screen";
 // to modify the dsf of the device to any non discrete value.
 const char kAshEnableScaleSettingsTray[] = "ash-enable-scale-settings-tray";
 
-// Specifies the estimated time (in milliseconds) from VSYNC event until when
-// visible light can be noticed by the user.
-const char kAshEstimatedPresentationDelay[] =
-    "ash-estimated-presentation-delay";
-
 // Enables the stylus tools next to the status area.
 const char kAshForceEnableStylusTools[] = "force-enable-stylus-tools";
+
+// Power button position includes the power button's physical display side and
+// the percentage for power button center position to the display's
+// width/height in landscape_primary screen orientation. The value is a JSON
+// object containing a "position" property with the value "left", "right",
+// "top", or "bottom". For "left" and "right", a "y" property specifies the
+// button's center position as a fraction of the display's height (in [0.0,
+// 1.0]) relative to the top of the display. For "top" and "bottom", an "x"
+// property gives the position as a fraction of the display's width relative to
+// the left side of the display.
+const char kAshPowerButtonPosition[] = "ash-power-button-position";
 
 // Enables required things for the selected UI mode, regardless of whether the
 // Chromebook is currently in the selected UI mode.
@@ -133,21 +129,19 @@ const char kForceClamshellPowerButton[] = "force-clamshell-power-button";
 // Whether this device has an internal stylus.
 const char kHasInternalStylus[] = "has-internal-stylus";
 
-// If true, a long press of the power button in tablet mode will show the power
-// button menu.
-const char kShowPowerButtonMenu[] = "show-power-button-menu";
-
 // Draws a circle at each touch point, similar to the Android OS developer
 // option "Show taps".
 const char kShowTaps[] = "show-taps";
 
-// If true, the views login screen will be shown. This will become the default
-// in the future.
+// Forces the views login implementation.
 const char kShowViewsLogin[] = "show-views-login";
 
 // If true, the webui lock screen wil be shown. This is deprecated and will be
 // removed in the future.
 const char kShowWebUiLock[] = "show-webui-lock";
+
+// Forces the webui login implementation.
+const char kShowWebUiLogin[] = "show-webui-login";
 
 // Chromebases' touchscreens can be used to wake from suspend, unlike the
 // touchscreens on other Chrome OS devices. If set, the touchscreen is kept
@@ -174,15 +168,11 @@ bool IsSidebarEnabled() {
       switches::kAshSidebarEnabled);
 }
 
-bool IsTrilinearFilteringEnabled() {
-  static bool use_trilinear_filtering =
-      !base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kAshDisableTrilinearFiltering);
-  return use_trilinear_filtering;
-}
-
 bool IsUsingViewsLogin() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(kShowViewsLogin);
+  // Only show views login if it is forced. If both switches are present use
+  // webui.
+  base::CommandLine* cl = base::CommandLine::ForCurrentProcess();
+  return !cl->HasSwitch(kShowWebUiLogin) && cl->HasSwitch(kShowViewsLogin);
 }
 
 bool IsUsingViewsLock() {

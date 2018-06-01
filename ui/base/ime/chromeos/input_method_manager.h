@@ -14,6 +14,7 @@
 
 #include "base/memory/ref_counted.h"
 #include "ui/base/ime/chromeos/input_method_descriptor.h"
+#include "ui/base/ime/chromeos/public/interfaces/ime_keyset.mojom.h"
 #include "ui/base/ime/ui_base_ime_export.h"
 
 class Profile;
@@ -231,6 +232,15 @@ class UI_BASE_IME_EXPORT InputMethodManager {
     // are allowed.
     virtual const std::vector<std::string>& GetAllowedInputMethods() = 0;
 
+    // Methods related to custom input view of the input method.
+    // Enables custom input view of the active input method.
+    virtual void EnableInputView() = 0;
+    // Disables custom input view of the active input method.
+    // The fallback system input view will be used.
+    virtual void DisableInputView() = 0;
+    // Returns the URL of the input view of the active input method.
+    virtual const GURL& GetInputViewUrl() const = 0;
+
    protected:
     friend base::RefCounted<InputMethodManager::State>;
 
@@ -318,10 +328,9 @@ class UI_BASE_IME_EXPORT InputMethodManager {
   // is different from previous.
   virtual void MaybeNotifyImeMenuActivationChanged() = 0;
 
-  // Overrides the keyboard url ref (stuff following '#' to the end of the
-  // string) with the given keyset (emoji, hwt or voice). If |keyset| is empty,
-  // it indicates that we should override the url back with the keyboard keyset.
-  virtual void OverrideKeyboardUrlRef(const std::string& keyset) = 0;
+  // Overrides active keyset with the given keyset if the active IME supports
+  // the given keyset.
+  virtual void OverrideKeyboardKeyset(mojom::ImeKeyset keyset) = 0;
 
   // Enables or disables some advanced features, e.g. handwiring, voices input.
   virtual void SetImeMenuFeatureEnabled(ImeMenuFeature feature,

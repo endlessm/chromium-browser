@@ -7,7 +7,6 @@
 #include "base/guid.h"
 #include "base/json/json_writer.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -215,8 +214,9 @@ class WebviewLoginTest : public OobeBaseTest {
         guest_view::GuestViewManager::FromBrowserContext(browser_context);
     guest_view_manager->ForEachGuest(
         web_contents,
-        base::Bind(&WebviewLoginTest::WebViewVisited, base::Unretained(this),
-                   browser_context, storage_partition, &web_view_found));
+        base::BindRepeating(&WebviewLoginTest::WebViewVisited,
+                            base::Unretained(this), browser_context,
+                            storage_partition, &web_view_found));
 
     return web_view_found;
   }
@@ -227,12 +227,13 @@ class WebviewLoginTest : public OobeBaseTest {
 
 // Basic signin with username and password.
 IN_PROC_BROWSER_TEST_F(WebviewLoginTest, Basic) {
-  WaitForGaiaPageLoad();
+  WaitForGaiaPageLoadAndPropertyUpdate();
 
   ExpectIdentifierPage();
 
   SetSignFormField("identifier", OobeBaseTest::kFakeUserEmail);
   ClickNext();
+  WaitForGaiaPageBackButtonUpdate();
   ExpectPasswordPage();
 
   content::WindowedNotificationObserver session_start_waiter(
@@ -247,7 +248,7 @@ IN_PROC_BROWSER_TEST_F(WebviewLoginTest, Basic) {
 
 // Fails: http://crbug.com/512648.
 IN_PROC_BROWSER_TEST_F(WebviewLoginTest, DISABLED_BackButton) {
-  WaitForGaiaPageLoad();
+  WaitForGaiaPageLoadAndPropertyUpdate();
 
   // Start with identifer page.
   ExpectIdentifierPage();
@@ -255,14 +256,17 @@ IN_PROC_BROWSER_TEST_F(WebviewLoginTest, DISABLED_BackButton) {
   // Move to password page.
   SetSignFormField("identifier", OobeBaseTest::kFakeUserEmail);
   ClickNext();
+  WaitForGaiaPageBackButtonUpdate();
   ExpectPasswordPage();
 
   // Click back to identifier page.
   JS().Evaluate("$('gaia-navigation').$.backButton.click();");
+  WaitForGaiaPageBackButtonUpdate();
   ExpectIdentifierPage();
 
   // Click next to password page, user id is remembered.
   ClickNext();
+  WaitForGaiaPageBackButtonUpdate();
   ExpectPasswordPage();
 
   content::WindowedNotificationObserver session_start_waiter(
@@ -308,7 +312,7 @@ IN_PROC_BROWSER_TEST_F(WebviewLoginTest, EmailPrefill) {
 }
 
 IN_PROC_BROWSER_TEST_F(WebviewLoginTest, StoragePartitionHandling) {
-  WaitForGaiaPageLoad();
+  WaitForGaiaPageLoadAndPropertyUpdate();
 
   // Start with identifer page.
   ExpectIdentifierPage();
@@ -336,7 +340,7 @@ IN_PROC_BROWSER_TEST_F(WebviewLoginTest, StoragePartitionHandling) {
   // Press the back button at a sign-in screen without pre-existing users to
   // start a new sign-in attempt.
   JS().Evaluate("$('signin-back-button').fire('tap')");
-  WaitForGaiaPageReload();
+  WaitForGaiaPageBackButtonUpdate();
   // Expect that we got back to the identifier page, as there are no known users
   // so the sign-in screen will not display user pods.
   ExpectIdentifierPage();
@@ -572,8 +576,15 @@ class WebviewClientCertsLoginTest : public WebviewLoginTest {
 // Test that client certificate authentication using certificates from the
 // system slot is enabled in the sign-in frame. The server does not request
 // certificates signed by a specific authority.
+//
+// Disabled due to flaky timeouts: https://crbug.com/830337.
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER)
+#define MAYBE_SigninFrameNoAuthorityGiven DISABLED_SigninFrameNoAuthorityGiven
+#else
+#define MAYBE_SigninFrameNoAuthorityGiven SigninFrameNoAuthorityGiven
+#endif
 IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest,
-                       SigninFrameNoAuthorityGiven) {
+                       MAYBE_SigninFrameNoAuthorityGiven) {
   ASSERT_NO_FATAL_FAILURE(SetUpClientCertInSystemSlot());
   net::SpawnedTestServer::SSLOptions ssl_options;
   ssl_options.request_client_certificate = true;
@@ -595,8 +606,16 @@ IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest,
 
 // Test that if no client certificate is auto-selected using policy on the
 // sign-in frame, the client does not send up any client certificate.
+//
+// Disabled due to flaky timeouts: https://crbug.com/830337.
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER)
+#define MAYBE_SigninFrameCertNotAutoSelected \
+  DISABLED_SigninFrameCertNotAutoSelected
+#else
+#define MAYBE_SigninFrameCertNotAutoSelected SigninFrameCertNotAutoSelected
+#endif
 IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest,
-                       SigninFrameCertNotAutoSelected) {
+                       MAYBE_SigninFrameCertNotAutoSelected) {
   ASSERT_NO_FATAL_FAILURE(SetUpClientCertInSystemSlot());
   net::SpawnedTestServer::SSLOptions ssl_options;
   ssl_options.request_client_certificate = true;
@@ -613,7 +632,15 @@ IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest,
 // Test that client certificate authentication using certificates from the
 // system slot is enabled in the sign-in frame. The server requests
 // a certificate signed by a specific authority.
-IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest, SigninFrameAuthorityGiven) {
+//
+// Disabled due to flaky timeouts: https://crbug.com/830337.
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER)
+#define MAYBE_SigninFrameAuthorityGiven DISABLED_SigninFrameAuthorityGiven
+#else
+#define MAYBE_SigninFrameAuthorityGiven SigninFrameAuthorityGiven
+#endif
+IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest,
+                       MAYBE_SigninFrameAuthorityGiven) {
   ASSERT_NO_FATAL_FAILURE(SetUpClientCertInSystemSlot());
   net::SpawnedTestServer::SSLOptions ssl_options;
   ssl_options.request_client_certificate = true;
@@ -640,8 +667,17 @@ IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest, SigninFrameAuthorityGiven) {
 // system slot is enabled in the sign-in frame. The server requests
 // a certificate signed by a specific authority. The client doesn't have a
 // matching certificate.
+//
+// Disabled due to flaky timeouts: https://crbug.com/830337.
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER)
+#define MAYBE_SigninFrameAuthorityGivenNoMatchingCert \
+  DISABLED_SigninFrameAuthorityGivenNoMatchingCert
+#else
+#define MAYBE_SigninFrameAuthorityGivenNoMatchingCert \
+  SigninFrameAuthorityGivenNoMatchingCert
+#endif
 IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest,
-                       SigninFrameAuthorityGivenNoMatchingCert) {
+                       MAYBE_SigninFrameAuthorityGivenNoMatchingCert) {
   ASSERT_NO_FATAL_FAILURE(SetUpClientCertInSystemSlot());
   net::SpawnedTestServer::SSLOptions ssl_options;
   ssl_options.request_client_certificate = true;
@@ -666,8 +702,17 @@ IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest,
 // issued by an intermediate authority, and the intermediate authority is not
 // known on the device (it has not been made available through device ONC
 // policy).
+//
+// Disabled due to flaky timeouts: https://crbug.com/830337.
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER)
+#define MAYBE_SigninFrameIntermediateAuthorityUnknown \
+  DISABLED_SigninFrameIntermediateAuthorityUnknown
+#else
+#define MAYBE_SigninFrameIntermediateAuthorityUnknown \
+  SigninFrameIntermediateAuthorityUnknown
+#endif
 IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest,
-                       SigninFrameIntermediateAuthorityUnknown) {
+                       MAYBE_SigninFrameIntermediateAuthorityUnknown) {
   ASSERT_NO_FATAL_FAILURE(SetUpClientCertInSystemSlot());
   net::SpawnedTestServer::SSLOptions ssl_options;
   ssl_options.request_client_certificate = true;
@@ -691,8 +736,17 @@ IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest,
 // certificates signed by a root authority, the installed certificate has been
 // issued by an intermediate authority, and the intermediate authority is
 // known on the device (it has been made available through device ONC policy).
+//
+// Disabled due to flaky timeouts: https://crbug.com/830337.
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER)
+#define MAYBE_SigninFrameIntermediateAuthorityKnown \
+  DISABLED_SigninFrameIntermediateAuthorityKnown
+#else
+#define MAYBE_SigninFrameIntermediateAuthorityKnown \
+  SigninFrameIntermediateAuthorityKnown
+#endif
 IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest,
-                       SigninFrameIntermediateAuthorityKnown) {
+                       MAYBE_SigninFrameIntermediateAuthorityKnown) {
   ASSERT_NO_FATAL_FAILURE(SetUpClientCertInSystemSlot());
   net::SpawnedTestServer::SSLOptions ssl_options;
   ssl_options.request_client_certificate = true;
@@ -923,7 +977,7 @@ IN_PROC_BROWSER_TEST_F(WebviewProxyAuthLoginTest, ProxyAuthTransfer) {
   // This will re-load gaia, rotating the StoragePartition. The new
   // StoragePartition must also have the proxy auth details.
   JS().Evaluate("$('signin-back-button').fire('tap')");
-  WaitForGaiaPageReload();
+  WaitForGaiaPageBackButtonUpdate();
   // Expect that we got back to the identifier page, as there are no known users
   // so the sign-in screen will not display user pods.
   ExpectIdentifierPage();

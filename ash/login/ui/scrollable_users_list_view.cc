@@ -117,7 +117,7 @@ ScrollableUsersListView::TestApi::user_views() const {
 
 ScrollableUsersListView::ScrollableUsersListView(
     const std::vector<mojom::LoginUserInfoPtr>& users,
-    const OnUserViewTap& on_user_view_tap,
+    const ActionWithUser& on_tap_user,
     LoginDisplayStyle display_style)
     : views::ScrollView() {
   layout_params_ = GetLayoutParams(display_style);
@@ -136,7 +136,8 @@ ScrollableUsersListView::ScrollableUsersListView(
   for (std::size_t i = 1u; i < users.size(); ++i) {
     auto* view = new LoginUserView(
         layout_params_.display_style, false /*show_dropdown*/,
-        base::BindRepeating(on_user_view_tap, i - 1) /*on_tap*/);
+        false /*show_domain*/, base::BindRepeating(on_tap_user, i - 1),
+        base::RepeatingClosure(), base::RepeatingClosure());
     user_views_.push_back(view);
     view->UpdateForUser(users[i], false /*animate*/);
     contents->AddChildView(view);
@@ -157,9 +158,13 @@ ScrollableUsersListView::ScrollableUsersListView(
 
 ScrollableUsersListView::~ScrollableUsersListView() = default;
 
-LoginUserView* ScrollableUsersListView::GetUserViewAtIndex(int index) {
-  return static_cast<size_t>(index) < user_views_.size() ? user_views_[index]
-                                                         : nullptr;
+LoginUserView* ScrollableUsersListView::GetUserView(
+    const AccountId& account_id) {
+  for (auto* view : user_views_) {
+    if (view->current_user()->basic_user_info->account_id == account_id)
+      return view;
+  }
+  return nullptr;
 }
 
 void ScrollableUsersListView::Layout() {

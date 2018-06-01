@@ -154,14 +154,13 @@ void TextInput::UpdateInput(const EditedText& info) {
   hint_element_->SetVisible(info.current.text.empty());
 }
 
-bool TextInput::OnBeginFrame(const base::TimeTicks& time,
-                             const gfx::Transform& head_pose) {
-  return SetCursorBlinkState(time);
+bool TextInput::OnBeginFrame(const gfx::Transform& head_pose) {
+  return SetCursorBlinkState(last_frame_time());
 }
 
 void TextInput::OnSetSize(const gfx::SizeF& size) {
-  hint_element_->SetSize(size.width(), size.height());
-  text_element_->SetSize(size.width(), size.height());
+  hint_element_->SetFieldWidth(size.width());
+  text_element_->SetFieldWidth(size.width());
 }
 
 void TextInput::OnSetName() {

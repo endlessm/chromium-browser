@@ -85,8 +85,8 @@ public class PaymentRequestDynamicShippingSingleAddressTest implements MainActiv
         mPaymentRequestTestRule.clickCardUnmaskButtonAndWait(
                 DialogInterface.BUTTON_POSITIVE, mPaymentRequestTestRule.getDismissed());
         mPaymentRequestTestRule.expectResultContains(new String[] {"Jon Doe", "4111111111111111",
-                "12", "2050", "visa", "123", "Google", "340 Main St", "CA", "Los Angeles", "90291",
-                "+16502530000", "US", "en", "californiaShippingOption"});
+                "12", "2050", "basic-card", "123", "Google", "340 Main St", "CA", "Los Angeles",
+                "90291", "+16502530000", "US", "en", "californiaShippingOption"});
     }
 
     /** Expand the shipping address section, select an address, edit it and click "Pay." */
@@ -109,7 +109,7 @@ public class PaymentRequestDynamicShippingSingleAddressTest implements MainActiv
         mPaymentRequestTestRule.setTextInEditorAndWait(
                 new String[] {"Jane Doe"}, mPaymentRequestTestRule.getEditorTextUpdate());
         mPaymentRequestTestRule.clickInEditorAndWait(
-                R.id.payments_edit_done_button, mPaymentRequestTestRule.getReadyToPay());
+                R.id.editor_dialog_done_button, mPaymentRequestTestRule.getReadyToPay());
         mPaymentRequestTestRule.expectShippingAddressRowIsSelected(0);
 
         mPaymentRequestTestRule.clickAndWait(
@@ -119,8 +119,8 @@ public class PaymentRequestDynamicShippingSingleAddressTest implements MainActiv
         mPaymentRequestTestRule.clickCardUnmaskButtonAndWait(
                 DialogInterface.BUTTON_POSITIVE, mPaymentRequestTestRule.getDismissed());
         mPaymentRequestTestRule.expectResultContains(new String[] {"Jane Doe", "4111111111111111",
-                "12", "2050", "visa", "123", "Google", "340 Main St", "CA", "Los Angeles", "90291",
-                "+16502530000", "US", "en", "californiaShippingOption"});
+                "12", "2050", "basic-card", "123", "Google", "340 Main St", "CA", "Los Angeles",
+                "90291", "+16502530000", "US", "en", "californiaShippingOption"});
     }
 
     /** Expand the shipping address section, select address, edit but cancel editing, and "Pay". */
@@ -154,8 +154,8 @@ public class PaymentRequestDynamicShippingSingleAddressTest implements MainActiv
         mPaymentRequestTestRule.clickCardUnmaskButtonAndWait(
                 DialogInterface.BUTTON_POSITIVE, mPaymentRequestTestRule.getDismissed());
         mPaymentRequestTestRule.expectResultContains(new String[] {"Jon Doe", "4111111111111111",
-                "12", "2050", "visa", "123", "Google", "340 Main St", "CA", "Los Angeles", "90291",
-                "+16502530000", "US", "en", "californiaShippingOption"});
+                "12", "2050", "basic-card", "123", "Google", "340 Main St", "CA", "Los Angeles",
+                "90291", "+16502530000", "US", "en", "californiaShippingOption"});
     }
 
     /** Attempt to add an invalid address and cancel the transaction. */
@@ -173,7 +173,7 @@ public class PaymentRequestDynamicShippingSingleAddressTest implements MainActiv
         mPaymentRequestTestRule.clickInShippingAddressAndWait(
                 R.id.payments_add_option_button, mPaymentRequestTestRule.getReadyToEdit());
         mPaymentRequestTestRule.clickInEditorAndWait(
-                R.id.payments_edit_done_button, mPaymentRequestTestRule.getEditorValidationError());
+                R.id.editor_dialog_done_button, mPaymentRequestTestRule.getEditorValidationError());
         mPaymentRequestTestRule.clickInEditorAndWait(
                 R.id.payments_edit_cancel_button, mPaymentRequestTestRule.getReadyForInput());
 
@@ -202,7 +202,7 @@ public class PaymentRequestDynamicShippingSingleAddressTest implements MainActiv
                         "94043", "650-253-0000"},
                 mPaymentRequestTestRule.getEditorTextUpdate());
         mPaymentRequestTestRule.clickInEditorAndWait(
-                R.id.payments_edit_done_button, mPaymentRequestTestRule.getReadyToPay());
+                R.id.editor_dialog_done_button, mPaymentRequestTestRule.getReadyToPay());
         mPaymentRequestTestRule.clickAndWait(
                 R.id.button_primary, mPaymentRequestTestRule.getReadyForUnmaskInput());
         mPaymentRequestTestRule.setTextInCardUnmaskDialogAndWait(

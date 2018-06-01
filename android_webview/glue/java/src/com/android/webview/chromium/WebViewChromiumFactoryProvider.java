@@ -12,6 +12,7 @@ import android.content.pm.PackageInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.StrictMode;
+import android.os.SystemClock;
 import android.os.UserManager;
 import android.provider.Settings;
 import android.util.Log;
@@ -36,12 +37,14 @@ import org.chromium.android_webview.AwBrowserProcess;
 import org.chromium.android_webview.ResourcesContextWrapperFactory;
 import org.chromium.android_webview.WebViewChromiumRunQueue;
 import org.chromium.android_webview.command_line.CommandLineUtil;
+import org.chromium.base.BuildInfo;
 import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.PackageUtils;
 import org.chromium.base.PathUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.library_loader.NativeLibraries;
+import org.chromium.base.metrics.CachedMetrics.TimesHistogramSample;
 import org.chromium.components.autofill.AutofillProvider;
 import org.chromium.content.browser.selection.LGEmailActionModeWorkaround;
 
@@ -49,6 +52,7 @@ import java.io.File;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Entry point to the WebView. The system framework talks to this class to get instances of the
@@ -99,12 +103,7 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
 
     // Initialization guarded by mAwInit.getLock()
     private Statics mStaticsAdapter;
-
-    // TODO(gsennton) remove this when downstream doesn't depend on it anymore
-    // Guards accees to adapters.
-    // This member is not private only because the downstream subclass needs to access it,
-    // it shouldn't be accessed from anywhere else.
-    /* package */ final Object mAdapterLock = new Object();
+    private Object mServiceWorkerControllerAdapter;
 
     /**
      * Thread-safe way to set the one and only WebViewChromiumFactoryProvider.
@@ -166,6 +165,13 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
 
     @TargetApi(Build.VERSION_CODES.N) // For getSystemService() and isUserUnlocked().
     private void initialize(WebViewDelegate webViewDelegate) {
+        long startTime = SystemClock.elapsedRealtime();
+        // The package is used to locate the services for copying crash minidumps and requesting
+        // variations seeds. So it must be set before initializing variations and before a renderer
+        // has a chance to crash.
+        PackageInfo packageInfo = WebViewFactory.getLoadedPackageInfo();
+        AwBrowserProcess.setWebViewPackageName(packageInfo.packageName);
+
         mAwInit = createAwInit();
         mWebViewDelegate = webViewDelegate;
         Context ctx = mWebViewDelegate.getApplication().getApplicationContext();
@@ -202,10 +208,10 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
         }
 
         ThreadUtils.setWillOverrideUiThread();
+        BuildInfo.setBrowserPackageInfo(packageInfo);
+
         // Load chromium library.
         AwBrowserProcess.loadLibrary(mWebViewDelegate.getDataDirectorySuffix());
-
-        final PackageInfo packageInfo = WebViewFactory.getLoadedPackageInfo();
 
         StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskWrites();
         try {
@@ -233,12 +239,18 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
         } finally {
             StrictMode.setThreadPolicy(oldPolicy);
         }
+        // Now safe to use WebView data directory.
+
+        mAwInit.startVariationsInit();
 
         mShouldDisableThreadChecking =
                 shouldDisableThreadChecking(ContextUtils.getApplicationContext());
-        // Now safe to use WebView data directory.
 
         setSingleton(this);
+        TimesHistogramSample histogram = new TimesHistogramSample(
+                "Android.WebView.Startup.CreationTime.Stage1.FactoryInit",
+                TimeUnit.MILLISECONDS);
+        histogram.record(SystemClock.elapsedRealtime() - startTime);
     }
 
     /* package */ static void checkStorageIsNotDeviceProtected(Context context) {
@@ -421,7 +433,13 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
 
     @Override
     public ServiceWorkerController getServiceWorkerController() {
-        return mAwInit.getServiceWorkerController();
+        synchronized (mAwInit.getLock()) {
+            if (mServiceWorkerControllerAdapter == null) {
+                mServiceWorkerControllerAdapter =
+                        new ServiceWorkerControllerAdapter(mAwInit.getServiceWorkerController());
+            }
+        }
+        return (ServiceWorkerController) mServiceWorkerControllerAdapter;
     }
 
     @Override

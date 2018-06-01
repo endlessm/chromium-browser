@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
@@ -41,7 +40,7 @@ void SavePasswordInfoBarDelegate::Create(
 }
 
 SavePasswordInfoBarDelegate::~SavePasswordInfoBarDelegate() {
-  password_manager::metrics_util::LogUIDismissalReason(infobar_response_);
+  password_manager::metrics_util::LogSaveUIDismissalReason(infobar_response_);
   form_to_save_->metrics_recorder()->RecordUIDismissalReason(infobar_response_);
 }
 

@@ -35,19 +35,15 @@ class MockNotificationPlatformBridge : public NotificationPlatformBridge {
   // NotificationPlatformBridge implementation:
   void Display(
       NotificationHandler::Type notification_type,
-      const std::string& profile_id,
-      bool is_incognito,
+      Profile* profile,
       const message_center::Notification& notification,
       std::unique_ptr<NotificationCommon::Metadata> metadata) override {}
-  void Close(const std::string& profile_id,
-             const std::string& notification_id) override {}
-  void GetDisplayed(
-      const std::string& profile_id,
-      bool incognito,
-      const GetDisplayedNotificationsCallback& callback) const override {
+  void Close(Profile* profile, const std::string& notification_id) override {}
+  void GetDisplayed(Profile* profile,
+                    GetDisplayedNotificationsCallback callback) const override {
     auto displayed_notifications = std::make_unique<std::set<std::string>>();
-    callback.Run(std::move(displayed_notifications),
-                 false /* supports_synchronization */);
+    std::move(callback).Run(std::move(displayed_notifications),
+                            false /* supports_synchronization */);
   }
   void SetReadyCallback(NotificationBridgeReadyCallback callback) override {
     std::move(callback).Run(true /* ready */);

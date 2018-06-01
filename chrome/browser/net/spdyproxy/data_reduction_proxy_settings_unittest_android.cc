@@ -16,6 +16,7 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/base64.h"
 #include "base/memory/ref_counted.h"
+#include "base/message_loop/message_loop.h"
 #include "base/strings/string_piece.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_simple_task_runner.h"
@@ -283,6 +284,20 @@ TEST_F(DataReductionProxySettingsAndroidTest,
   scoped_list.InitFromCommandLine(
       "DataReductionProxyDecidesTransform" /* enable_features */,
       "Previews" /* disable_features */);
+  Init();
+  drp_test_context()->EnableDataReductionProxyWithSecureProxyCheckSuccess();
+
+  EXPECT_EQ("http://googleweblight.com/i?u=http://example.com/",
+            MaybeRewriteWebliteUrlAsUTF8(
+                "http://googleweblight.com/i?u=http://example.com/"));
+}
+
+TEST_F(DataReductionProxySettingsAndroidTest,
+       MaybeRewriteWebliteUrlWithHoldbackEnabled) {
+  base::FieldTrialList field_trial_list(nullptr);
+  ASSERT_TRUE(base::FieldTrialList::CreateFieldTrial(
+      "DataCompressionProxyHoldback", "Enabled"));
+
   Init();
   drp_test_context()->EnableDataReductionProxyWithSecureProxyCheckSuccess();
 

@@ -30,6 +30,9 @@ namespace {
 // each user gesture. This variable should only be accessed from the UI thread.
 bool g_accept_requests = true;
 
+ExternalProtocolHandler::Delegate* g_external_protocol_handler_delegate =
+    nullptr;
+
 constexpr const char* kDeniedSchemes[] = {
     "afp", "data", "disk", "disks",
     // ShellExecuting file:///C:/WINDOWS/system32/notepad.exe will simply
@@ -144,6 +147,11 @@ const char ExternalProtocolHandler::kHandleStateMetric[] =
     "BrowserDialogs.ExternalProtocol.HandleState";
 
 // static
+void ExternalProtocolHandler::SetDelegateForTesting(Delegate* delegate) {
+  g_external_protocol_handler_delegate = delegate;
+}
+
+// static
 ExternalProtocolHandler::BlockState ExternalProtocolHandler::GetBlockState(
     const std::string& scheme,
     Profile* profile) {
@@ -209,13 +217,11 @@ void ExternalProtocolHandler::SetBlockState(const std::string& scheme,
 }
 
 // static
-void ExternalProtocolHandler::LaunchUrlWithDelegate(
-    const GURL& url,
-    int render_process_host_id,
-    int render_view_routing_id,
-    ui::PageTransition page_transition,
-    bool has_user_gesture,
-    Delegate* delegate) {
+void ExternalProtocolHandler::LaunchUrl(const GURL& url,
+                                        int render_process_host_id,
+                                        int render_view_routing_id,
+                                        ui::PageTransition page_transition,
+                                        bool has_user_gesture) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // Escape the input scheme to be sure that the command does not
@@ -232,11 +238,11 @@ void ExternalProtocolHandler::LaunchUrlWithDelegate(
   Profile* profile = nullptr;
   if (web_contents)  // Maybe NULL during testing.
     profile = Profile::FromBrowserContext(web_contents->GetBrowserContext());
-  BlockState block_state =
-      GetBlockStateWithDelegate(escaped_url.scheme(), delegate, profile);
+  BlockState block_state = GetBlockStateWithDelegate(
+      escaped_url.scheme(), g_external_protocol_handler_delegate, profile);
   if (block_state == BLOCK) {
-    if (delegate)
-      delegate->BlockRequest();
+    if (g_external_protocol_handler_delegate)
+      g_external_protocol_handler_delegate->BlockRequest();
     return;
   }
 
@@ -247,12 +253,13 @@ void ExternalProtocolHandler::LaunchUrlWithDelegate(
   shell_integration::DefaultWebClientWorkerCallback callback = base::Bind(
       &OnDefaultProtocolClientWorkerFinished, escaped_url,
       render_process_host_id, render_view_routing_id, block_state == UNKNOWN,
-      page_transition, has_user_gesture, delegate);
+      page_transition, has_user_gesture, g_external_protocol_handler_delegate);
 
   // Start the check process running. This will send tasks to a worker task
   // runner and when the answer is known will send the result back to
   // OnDefaultProtocolClientWorkerFinished().
-  CreateShellWorker(callback, escaped_url.scheme(), delegate)
+  CreateShellWorker(callback, escaped_url.scheme(),
+                    g_external_protocol_handler_delegate)
       ->StartCheckIsDefault();
 }
 

@@ -25,9 +25,18 @@ class CastContentWindowAndroid : public CastContentWindow {
   ~CastContentWindowAndroid() override;
 
   // CastContentWindow implementation:
-  void CreateWindowForWebContents(content::WebContents* web_contents,
-                                  CastWindowManager* window_manager,
-                                  bool is_visible) override;
+  void CreateWindowForWebContents(
+      content::WebContents* web_contents,
+      CastWindowManager* window_manager,
+      bool is_visible,
+      CastWindowManager::WindowId z_order,
+      VisibilityPriority visibility_priority) override;
+
+  void EnableTouchInput(bool enabled) override;
+
+  void RequestVisibility(VisibilityPriority visibility_priority) override;
+
+  void RequestMoveOut() override;
 
   // Called through JNI.
   void OnActivityStopped(JNIEnv* env,
@@ -35,6 +44,15 @@ class CastContentWindowAndroid : public CastContentWindow {
   void OnKeyDown(JNIEnv* env,
                  const base::android::JavaParamRef<jobject>& jcaller,
                  int keycode);
+  bool ConsumeGesture(JNIEnv* env,
+                      const base::android::JavaParamRef<jobject>& jcaller,
+                      int gesture_type);
+  void OnVisibilityChange(JNIEnv* env,
+                          const base::android::JavaParamRef<jobject>& jcaller,
+                          int visibility_type);
+  base::android::ScopedJavaLocalRef<jstring> GetId(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& jcaller);
 
  private:
   friend class CastContentWindow;

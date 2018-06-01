@@ -10,7 +10,6 @@
 
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/run_loop.h"
 #include "base/strings/string16.h"
@@ -25,14 +24,10 @@
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
-#include "chrome/browser/signin/account_tracker_service_factory.h"
-#include "chrome/browser/signin/signin_manager_factory.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
-#include "components/browser_sync/profile_sync_service.h"
 #include "components/google/core/browser/google_switches.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/omnibox/browser/autocomplete_controller.h"
@@ -50,9 +45,6 @@
 #include "components/search_engines/search_terms_data.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
-#include "components/signin/core/browser/account_tracker_service.h"
-#include "components/signin/core/browser/signin_manager.h"
-#include "components/sync/base/pref_names.h"
 #include "components/variations/entropy_provider.h"
 #include "components/variations/variations_associated_data.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -77,7 +69,7 @@ ACMatches::const_iterator FindDefaultMatch(const ACMatches& matches) {
 class SuggestionDeletionHandler;
 class SearchProviderForTest : public SearchProvider {
  public:
-  SearchProviderForTest(ChromeAutocompleteProviderClient* client,
+  SearchProviderForTest(AutocompleteProviderClient* client,
                         AutocompleteProviderListener* listener,
                         Profile* profile);
   bool is_success() { return is_success_; }
@@ -92,11 +84,10 @@ class SearchProviderForTest : public SearchProvider {
 };
 
 SearchProviderForTest::SearchProviderForTest(
-    ChromeAutocompleteProviderClient* client,
+    AutocompleteProviderClient* client,
     AutocompleteProviderListener* listener,
     Profile* profile)
-    : SearchProvider(client, listener), is_success_(false) {
-}
+    : SearchProvider(client, listener), is_success_(false) {}
 
 SearchProviderForTest::~SearchProviderForTest() {
 }
@@ -105,7 +96,26 @@ void SearchProviderForTest::RecordDeletionResult(bool success) {
   is_success_ = success;
 }
 
-} // namespace
+class TestAutocompleteProviderClient : public ChromeAutocompleteProviderClient {
+ public:
+  explicit TestAutocompleteProviderClient(Profile* profile)
+      : ChromeAutocompleteProviderClient(profile),
+        is_tab_upload_to_google_active_(true) {}
+  ~TestAutocompleteProviderClient() override {}
+
+  bool IsTabUploadToGoogleActive() const override {
+    return is_tab_upload_to_google_active_;
+  }
+
+  void set_is_tab_upload_to_google_active(bool is_tab_upload_to_google_active) {
+    is_tab_upload_to_google_active_ = is_tab_upload_to_google_active;
+  }
+
+ private:
+  bool is_tab_upload_to_google_active_;
+};
+
+}  // namespace
 
 // SearchProviderTest ---------------------------------------------------------
 
@@ -153,11 +163,11 @@ class SearchProviderTest : public testing::Test,
   };
 
   SearchProviderTest()
-      : default_t_url_(NULL),
+      : default_t_url_(nullptr),
         term1_(ASCIIToUTF16("term1")),
-        keyword_t_url_(NULL),
+        keyword_t_url_(nullptr),
         keyword_term_(ASCIIToUTF16("keyword")),
-        run_loop_(NULL) {
+        run_loop_(nullptr) {
     ResetFieldTrialList();
   }
 
@@ -177,7 +187,9 @@ class SearchProviderTest : public testing::Test,
 
   // Adds a search for |term|, using the engine |t_url| to the history, and
   // returns the URL for that search.
-  GURL AddSearchToHistory(TemplateURL* t_url, base::string16 term, int visit_count);
+  GURL AddSearchToHistory(TemplateURL* t_url,
+                          base::string16 term,
+                          int visit_count);
 
   // Looks for a match in |provider_| with |contents| equal to |contents|.
   // Sets |match| to it if found.  Returns whether |match| was set.
@@ -202,7 +214,7 @@ class SearchProviderTest : public testing::Test,
                      bool prefer_keyword);
 
   // Calls QueryForInput(), finishes any suggest query, then if |wyt_match| is
-  // non-NULL, sets it to the "what you typed" entry for |text|.
+  // not nullptr, sets it to the "what you typed" entry for |text|.
   void QueryForInputAndSetWYTMatch(const base::string16& text,
                                    AutocompleteMatch* wyt_match);
 
@@ -249,10 +261,10 @@ class SearchProviderTest : public testing::Test,
 
   net::TestURLFetcherFactory test_factory_;
   TestingProfile profile_;
-  std::unique_ptr<ChromeAutocompleteProviderClient> client_;
+  std::unique_ptr<TestAutocompleteProviderClient> client_;
   scoped_refptr<SearchProviderForTest> provider_;
 
-  // If non-NULL, OnProviderUpdate quits the current |run_loop_|.
+  // If not nullptr, OnProviderUpdate quits the current |run_loop_|.
   base::RunLoop* run_loop_;
 
   DISALLOW_COPY_AND_ASSIGN(SearchProviderTest);
@@ -271,8 +283,6 @@ void SearchProviderTest::SetUp() {
   ASSERT_TRUE(profile_.CreateHistoryService(true, false));
   TemplateURLServiceFactory::GetInstance()->SetTestingFactoryAndUse(
       &profile_, &TemplateURLServiceFactory::BuildInstanceFor);
-
-  client_.reset(new ChromeAutocompleteProviderClient(&profile_));
 
   TemplateURLService* turl_model =
       TemplateURLServiceFactory::GetForProfile(&profile_);
@@ -311,6 +321,7 @@ void SearchProviderTest::SetUp() {
   AutocompleteClassifierFactory::GetInstance()->SetTestingFactoryAndUse(
       &profile_, &AutocompleteClassifierFactory::BuildInstanceFor);
 
+  client_.reset(new TestAutocompleteProviderClient(&profile_));
   provider_ = new SearchProviderForTest(client_.get(), this, &profile_);
   OmniboxFieldTrial::kDefaultMinimumTimeBetweenSuggestQueriesMs = 0;
 }
@@ -319,7 +330,7 @@ void SearchProviderTest::TearDown() {
   base::RunLoop().RunUntilIdle();
 
   // Shutdown the provider before the profile.
-  provider_ = NULL;
+  provider_ = nullptr;
 }
 
 void SearchProviderTest::RunTest(TestData* cases,
@@ -354,7 +365,7 @@ void SearchProviderTest::RunTest(TestData* cases,
 void SearchProviderTest::OnProviderUpdate(bool updated_matches) {
   if (run_loop_ && provider_->done()) {
     run_loop_->Quit();
-    run_loop_ = NULL;
+    run_loop_ = nullptr;
   }
 }
 
@@ -437,8 +448,9 @@ GURL SearchProviderTest::AddSearchToHistory(TemplateURL* t_url,
   static base::Time last_added_time;
   last_added_time = std::max(base::Time::Now(),
       last_added_time + base::TimeDelta::FromMicroseconds(1));
-  history->AddPageWithDetails(search, base::string16(), visit_count, visit_count,
-      last_added_time, false, history::SOURCE_BROWSED);
+  history->AddPageWithDetails(search, base::string16(), visit_count,
+                              visit_count, last_added_time, false,
+                              history::SOURCE_BROWSED);
   history->SetKeywordSearchTermsForURL(search, t_url->id(), term);
   return search;
 }
@@ -548,7 +560,7 @@ TEST_F(SearchProviderTest, QueryDefaultProvider) {
   // Tell the SearchProvider the suggest query is done.
   fetcher->set_response_code(200);
   fetcher->delegate()->OnURLFetchComplete(fetcher);
-  fetcher = NULL;
+  fetcher = nullptr;
 
   // Run till the history results complete.
   RunTillProviderDone();
@@ -643,7 +655,7 @@ TEST_F(SearchProviderTest, QueryKeywordProvider) {
   // Tell the SearchProvider the default suggest query is done.
   default_fetcher->set_response_code(200);
   default_fetcher->delegate()->OnURLFetchComplete(default_fetcher);
-  default_fetcher = NULL;
+  default_fetcher = nullptr;
 
   // Make sure the keyword providers suggest service was queried.
   net::TestURLFetcher* keyword_fetcher = test_factory_.GetFetcherByID(
@@ -660,7 +672,7 @@ TEST_F(SearchProviderTest, QueryKeywordProvider) {
   // Tell the SearchProvider the keyword suggest query is done.
   keyword_fetcher->set_response_code(200);
   keyword_fetcher->delegate()->OnURLFetchComplete(keyword_fetcher);
-  keyword_fetcher = NULL;
+  keyword_fetcher = nullptr;
 
   // Run till the history results complete.
   RunTillProviderDone();
@@ -725,16 +737,15 @@ TEST_F(SearchProviderTest, SendDataToSuggestAtAppropriateTimes) {
     QueryForInput(ASCIIToUTF16(cases[i].input), false, false);
     // Make sure the default provider's suggest service was or was not queried
     // as appropriate.
-    EXPECT_EQ(
-        cases[i].expect_to_send_to_default_provider,
-        test_factory_.GetFetcherByID(
-            SearchProvider::kDefaultProviderURLFetcherID) != NULL);
+    EXPECT_EQ(cases[i].expect_to_send_to_default_provider,
+              test_factory_.GetFetcherByID(
+                  SearchProvider::kDefaultProviderURLFetcherID) != nullptr);
     // Send the same input with an explicitly invoked keyword.  In all cases,
     // it's okay to send the request to the keyword suggest server.
     QueryForInput(ASCIIToUTF16("k ") + ASCIIToUTF16(cases[i].input), false,
                   false);
     EXPECT_TRUE(test_factory_.GetFetcherByID(
-        SearchProvider::kKeywordProviderURLFetcherID) != NULL);
+                    SearchProvider::kKeywordProviderURLFetcherID) != nullptr);
   }
 }
 
@@ -1941,7 +1952,7 @@ TEST_F(SearchProviderTest, KeywordFetcherSuggestRelevance) {
       ASSERT_TRUE(default_fetcher);
       default_fetcher->set_response_code(200);
       default_fetcher->delegate()->OnURLFetchComplete(default_fetcher);
-      default_fetcher = NULL;
+      default_fetcher = nullptr;
 
       // Set up a keyword fetcher with provided results.
       net::TestURLFetcher* keyword_fetcher =
@@ -1951,7 +1962,7 @@ TEST_F(SearchProviderTest, KeywordFetcherSuggestRelevance) {
       keyword_fetcher->set_response_code(200);
       keyword_fetcher->SetResponseString(cases[i].json);
       keyword_fetcher->delegate()->OnURLFetchComplete(keyword_fetcher);
-      keyword_fetcher = NULL;
+      keyword_fetcher = nullptr;
       RunTillProviderDone();
     }
 
@@ -2551,7 +2562,7 @@ TEST_F(SearchProviderTest, SpecificTypeIdentifierParsing) {
        {{"bar foo", 0}, {"bar foz", 0}}},
 
       // Check that ids stick to their suggestions when these are reordered
-      // based on suggetion relevance values.
+      // based on suggestion relevance values.
       {"e",
        "[\"e\",[\"ef\",\"http://e.com\"],[],[], "
        "{\"google:suggesttype\":[\"QUERY\", \"NAVIGATION\"],"
@@ -2730,7 +2741,6 @@ TEST_F(SearchProviderTest, NavigationInline) {
     { "ab",          "https://abc.com/path/file.htm?q=x#foo",
                      "https://abc.com/path/file.htm?q=x#foo",
                                "c.com/path/file.htm?q=x#foo",     true, false },
-
   };
 
   for (size_t i = 0; i < arraysize(cases); ++i) {
@@ -3089,7 +3099,7 @@ TEST_F(SearchProviderTest, XSSIGuardedJSONParsing_InvalidResponse) {
   const ACMatches& matches = provider_->matches();
 
   // Should have exactly one "search what you typed" match
-  ASSERT_TRUE(matches.size() == 1);
+  ASSERT_EQ(1U, matches.size());
   EXPECT_EQ(input_str, base::UTF16ToUTF8(matches[0].contents));
   EXPECT_EQ(AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED,
             matches[0].type);
@@ -3178,101 +3188,100 @@ TEST_F(SearchProviderTest, XSSIGuardedJSONParsing_ValidResponses) {
 // Test that deletion url gets set on an AutocompleteMatch when available for a
 // personalized query or a personalized URL.
 TEST_F(SearchProviderTest, ParseDeletionUrl) {
-   struct Match {
-     std::string contents;
-     std::string deletion_url;
-     AutocompleteMatchType::Type type;
-   };
+  struct Match {
+    std::string contents;
+    std::string deletion_url;
+    AutocompleteMatchType::Type type;
+  };
 
-   const Match kEmptyMatch = {
-     kNotApplicable, std::string(), AutocompleteMatchType::NUM_TYPES
-   };
+  const Match kEmptyMatch = {kNotApplicable, std::string(),
+                             AutocompleteMatchType::NUM_TYPES};
 
-   const char* url[] = {
-    "http://defaultturl/complete/deleteitems"
-       "?delq=ab&client=chrome&deltok=xsrf124",
-    "http://defaultturl/complete/deleteitems"
-       "?delq=www.amazon.com&client=chrome&deltok=xsrf123",
-   };
+  const char* url[] = {
+      "http://defaultturl/complete/deleteitems"
+      "?delq=ab&client=chrome&deltok=xsrf124",
+      "http://defaultturl/complete/deleteitems"
+      "?delq=www.amazon.com&client=chrome&deltok=xsrf123",
+  };
 
-   struct {
-       const std::string input_text;
-       const std::string response_json;
-       const Match matches[5];
-   } cases[] = {
-       // clang-format off
-       // A deletion URL on a personalized query should be reflected in the
-       // resulting AutocompleteMatch.
-       { "a",
-         "[\"a\",[\"ab\", \"ac\",\"www.amazon.com\"],[],[],"
-         "{\"google:suggesttype\":[\"PERSONALIZED_QUERY\",\"QUERY\","
-          "\"PERSONALIZED_NAVIGATION\"],"
-         "\"google:suggestrelevance\":[3, 2, 1],"
-         "\"google:suggestdetail\":[{\"du\":"
-         "\"/complete/deleteitems?delq=ab&client=chrome"
-          "&deltok=xsrf124\"}, {}, {\"du\":"
-         "\"/complete/deleteitems?delq=www.amazon.com&"
-         "client=chrome&deltok=xsrf123\"}]}]",
-         { { "a", "", AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED },
-           { "ab", url[0], AutocompleteMatchType::SEARCH_SUGGEST },
-           { "ac", "", AutocompleteMatchType::SEARCH_SUGGEST },
-           { "amazon.com", url[1],
-              AutocompleteMatchType::NAVSUGGEST_PERSONALIZED },
-           kEmptyMatch,
-         },
-       },
-       // Personalized queries or a personalized URL without deletion URLs
-       // shouldn't cause errors.
-       { "a",
-         "[\"a\",[\"ab\", \"ac\"],[],[],"
-         "{\"google:suggesttype\":[\"PERSONALIZED_QUERY\",\"QUERY\","
+  struct {
+    const std::string input_text;
+    const std::string response_json;
+    const Match matches[5];
+  } cases[] = {
+      // clang-format off
+      // A deletion URL on a personalized query should be reflected in the
+      // resulting AutocompleteMatch.
+      { "a",
+        "[\"a\",[\"ab\", \"ac\",\"www.amazon.com\"],[],[],"
+        "{\"google:suggesttype\":[\"PERSONALIZED_QUERY\",\"QUERY\","
          "\"PERSONALIZED_NAVIGATION\"],"
-         "\"google:suggestrelevance\":[1, 2],"
-         "\"google:suggestdetail\":[{}, {}]}]",
-         { { "a", "", AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED },
-           { "ac", "", AutocompleteMatchType::SEARCH_SUGGEST },
-           { "ab", "", AutocompleteMatchType::SEARCH_SUGGEST },
-           { "amazon.com", "",
-              AutocompleteMatchType::NAVSUGGEST_PERSONALIZED },
-           kEmptyMatch,
-         },
-       },
-       // Personalized queries or a personalized URL without
-       // google:suggestdetail shouldn't cause errors.
-       { "a",
-         "[\"a\",[\"ab\", \"ac\"],[],[],"
-         "{\"google:suggesttype\":[\"PERSONALIZED_QUERY\",\"QUERY\","
-         "\"PERSONALIZED_NAVIGATION\"],"
-         "\"google:suggestrelevance\":[1, 2]}]",
-         { { "a", "", AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED },
-           { "ac", "", AutocompleteMatchType::SEARCH_SUGGEST },
-           { "ab", "", AutocompleteMatchType::SEARCH_SUGGEST },
-           { "amazon.com", "",
-              AutocompleteMatchType::NAVSUGGEST_PERSONALIZED },
-           kEmptyMatch,
-         },
-       },
-       // clang-format on
-     };
+        "\"google:suggestrelevance\":[3, 2, 1],"
+        "\"google:suggestdetail\":[{\"du\":"
+        "\"/complete/deleteitems?delq=ab&client=chrome"
+         "&deltok=xsrf124\"}, {}, {\"du\":"
+        "\"/complete/deleteitems?delq=www.amazon.com&"
+        "client=chrome&deltok=xsrf123\"}]}]",
+        { { "a", "", AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED },
+          { "ab", url[0], AutocompleteMatchType::SEARCH_SUGGEST },
+          { "ac", "", AutocompleteMatchType::SEARCH_SUGGEST },
+          { "amazon.com", url[1],
+             AutocompleteMatchType::NAVSUGGEST_PERSONALIZED },
+          kEmptyMatch,
+        },
+      },
+      // Personalized queries or a personalized URL without deletion URLs
+      // shouldn't cause errors.
+      { "a",
+        "[\"a\",[\"ab\", \"ac\"],[],[],"
+        "{\"google:suggesttype\":[\"PERSONALIZED_QUERY\",\"QUERY\","
+        "\"PERSONALIZED_NAVIGATION\"],"
+        "\"google:suggestrelevance\":[1, 2],"
+        "\"google:suggestdetail\":[{}, {}]}]",
+        { { "a", "", AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED },
+          { "ac", "", AutocompleteMatchType::SEARCH_SUGGEST },
+          { "ab", "", AutocompleteMatchType::SEARCH_SUGGEST },
+          { "amazon.com", "",
+             AutocompleteMatchType::NAVSUGGEST_PERSONALIZED },
+          kEmptyMatch,
+        },
+      },
+      // Personalized queries or a personalized URL without
+      // google:suggestdetail shouldn't cause errors.
+      { "a",
+        "[\"a\",[\"ab\", \"ac\"],[],[],"
+        "{\"google:suggesttype\":[\"PERSONALIZED_QUERY\",\"QUERY\","
+        "\"PERSONALIZED_NAVIGATION\"],"
+        "\"google:suggestrelevance\":[1, 2]}]",
+        { { "a", "", AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED },
+          { "ac", "", AutocompleteMatchType::SEARCH_SUGGEST },
+          { "ab", "", AutocompleteMatchType::SEARCH_SUGGEST },
+          { "amazon.com", "",
+             AutocompleteMatchType::NAVSUGGEST_PERSONALIZED },
+          kEmptyMatch,
+        },
+      },
+      // clang-format on
+  };
 
-     for (size_t i = 0; i < arraysize(cases); ++i) {
-       QueryForInputAndWaitForFetcherResponses(
-           ASCIIToUTF16(cases[i].input_text), false, cases[i].response_json,
-           std::string());
+  for (size_t i = 0; i < arraysize(cases); ++i) {
+    QueryForInputAndWaitForFetcherResponses(ASCIIToUTF16(cases[i].input_text),
+                                            false, cases[i].response_json,
+                                            std::string());
 
-       const ACMatches& matches = provider_->matches();
-       ASSERT_FALSE(matches.empty());
+    const ACMatches& matches = provider_->matches();
+    ASSERT_FALSE(matches.empty());
 
-       SCOPED_TRACE("for input with json = " + cases[i].response_json);
+    SCOPED_TRACE("for input with json = " + cases[i].response_json);
 
-       for (size_t j = 0; j < matches.size(); ++j) {
-         const Match& match = cases[i].matches[j];
-         SCOPED_TRACE(" and match index: " + base::NumberToString(j));
-         EXPECT_EQ(match.contents, base::UTF16ToUTF8(matches[j].contents));
-         EXPECT_EQ(match.deletion_url, matches[j].GetAdditionalInfo(
-             "deletion_url"));
-       }
-     }
+    for (size_t j = 0; j < matches.size(); ++j) {
+      const Match& match = cases[i].matches[j];
+      SCOPED_TRACE(" and match index: " + base::NumberToString(j));
+      EXPECT_EQ(match.contents, base::UTF16ToUTF8(matches[j].contents));
+      EXPECT_EQ(match.deletion_url,
+                matches[j].GetAdditionalInfo("deletion_url"));
+    }
+  }
 }
 
 TEST_F(SearchProviderTest, CanSendURL) {
@@ -3283,86 +3292,75 @@ TEST_F(SearchProviderTest, CanSendURL) {
   template_url_data.id = SEARCH_ENGINE_GOOGLE;
   TemplateURL google_template_url(template_url_data);
 
-  ChromeAutocompleteProviderClient client(&profile_);
-
-  // Not signed in.
-  EXPECT_FALSE(SearchProvider::CanSendURL(
-      GURL("http://www.google.com/search"),
-      GURL("https://www.google.com/complete/search"), &google_template_url,
-      metrics::OmniboxEventProto::OTHER, SearchTermsData(), &client));
-  SigninManagerBase* signin = SigninManagerFactory::GetForProfile(&profile_);
-  signin->SetAuthenticatedAccountInfo("gaia_id", "test");
-
   // All conditions should be met.
   EXPECT_TRUE(SearchProvider::CanSendURL(
       GURL("http://www.google.com/search"),
       GURL("https://www.google.com/complete/search"), &google_template_url,
-      metrics::OmniboxEventProto::OTHER, SearchTermsData(), &client));
+      metrics::OmniboxEventProto::OTHER, SearchTermsData(), client_.get()));
 
   // Invalid page URL.
   EXPECT_FALSE(SearchProvider::CanSendURL(
-      GURL("badpageurl"),
-      GURL("https://www.google.com/complete/search"), &google_template_url,
-      metrics::OmniboxEventProto::OTHER, SearchTermsData(), &client));
+      GURL("badpageurl"), GURL("https://www.google.com/complete/search"),
+      &google_template_url, metrics::OmniboxEventProto::OTHER,
+      SearchTermsData(), client_.get()));
 
   // Invalid page classification.
   EXPECT_FALSE(SearchProvider::CanSendURL(
       GURL("http://www.google.com/search"),
       GURL("https://www.google.com/complete/search"), &google_template_url,
       metrics::OmniboxEventProto::INSTANT_NTP_WITH_FAKEBOX_AS_STARTING_FOCUS,
-      SearchTermsData(), &client));
+      SearchTermsData(), client_.get()));
 
   // Invalid page classification.
   EXPECT_FALSE(SearchProvider::CanSendURL(
       GURL("http://www.google.com/search"),
       GURL("https://www.google.com/complete/search"), &google_template_url,
       metrics::OmniboxEventProto::INSTANT_NTP_WITH_OMNIBOX_AS_STARTING_FOCUS,
-      SearchTermsData(), &client));
+      SearchTermsData(), client_.get()));
 
   // Invalid page classification.
   EXPECT_FALSE(SearchProvider::CanSendURL(
       GURL("http://www.google.com/search"),
       GURL("https://www.google.com/complete/search"), &google_template_url,
-      metrics::OmniboxEventProto::NTP, SearchTermsData(), &client));
+      metrics::OmniboxEventProto::NTP, SearchTermsData(), client_.get()));
 
   // Invalid page classification.
   EXPECT_FALSE(SearchProvider::CanSendURL(
       GURL("http://www.google.com/search"),
       GURL("https://www.google.com/complete/search"), &google_template_url,
       metrics::OmniboxEventProto::OBSOLETE_INSTANT_NTP, SearchTermsData(),
-      &client));
+      client_.get()));
 
   // HTTPS page URL on same domain as provider.
   EXPECT_TRUE(SearchProvider::CanSendURL(
       GURL("https://www.google.com/search"),
-      GURL("https://www.google.com/complete/search"),
-      &google_template_url, metrics::OmniboxEventProto::OTHER,
-      SearchTermsData(), &client));
+      GURL("https://www.google.com/complete/search"), &google_template_url,
+      metrics::OmniboxEventProto::OTHER, SearchTermsData(), client_.get()));
 
   // Non-HTTP[S] page URL on same domain as provider.
   EXPECT_FALSE(SearchProvider::CanSendURL(
       GURL("ftp://www.google.com/search"),
       GURL("https://www.google.com/complete/search"), &google_template_url,
-      metrics::OmniboxEventProto::OTHER, SearchTermsData(), &client));
+      metrics::OmniboxEventProto::OTHER, SearchTermsData(), client_.get()));
 
   // Non-HTTP page URL on different domain.
   EXPECT_TRUE(SearchProvider::CanSendURL(
       GURL("https://www.notgoogle.com/search"),
       GURL("https://www.google.com/complete/search"), &google_template_url,
-      metrics::OmniboxEventProto::OTHER, SearchTermsData(), &client));
+      metrics::OmniboxEventProto::OTHER, SearchTermsData(), client_.get()));
 
   // Non-HTTPS provider.
   EXPECT_FALSE(SearchProvider::CanSendURL(
       GURL("http://www.google.com/search"),
       GURL("http://www.google.com/complete/search"), &google_template_url,
-      metrics::OmniboxEventProto::OTHER, SearchTermsData(), &client));
+      metrics::OmniboxEventProto::OTHER, SearchTermsData(), client_.get()));
 
   // Suggest disabled.
   profile_.GetPrefs()->SetBoolean(prefs::kSearchSuggestEnabled, false);
   EXPECT_FALSE(SearchProvider::CanSendURL(
       GURL("http://www.google.com/search"),
       GURL("https://www.google.com/complete/search"), &google_template_url,
-      metrics::OmniboxEventProto::OTHER, SearchTermsData(), &client));
+      metrics::OmniboxEventProto::OTHER, SearchTermsData(), client_.get()));
   profile_.GetPrefs()->SetBoolean(prefs::kSearchSuggestEnabled, true);
 
   // Incognito.
@@ -3374,36 +3372,19 @@ TEST_F(SearchProviderTest, CanSendURL) {
       metrics::OmniboxEventProto::OTHER, SearchTermsData(),
       &client_incognito));
 
-  // Tab sync not enabled.
-  profile_.GetPrefs()->SetBoolean(syncer::prefs::kSyncKeepEverythingSynced,
-                                  false);
-  profile_.GetPrefs()->SetBoolean(syncer::prefs::kSyncTabs, false);
+  // Tab upload not active.
+  client_->set_is_tab_upload_to_google_active(false);
   EXPECT_FALSE(SearchProvider::CanSendURL(
       GURL("http://www.google.com/search"),
       GURL("https://www.google.com/complete/search"), &google_template_url,
-      metrics::OmniboxEventProto::OTHER, SearchTermsData(), &client));
-  profile_.GetPrefs()->SetBoolean(syncer::prefs::kSyncTabs, true);
-
-  // Tab sync is encrypted.
-  browser_sync::ProfileSyncService* service =
-      ProfileSyncServiceFactory::GetInstance()->GetForProfile(&profile_);
-  syncer::ModelTypeSet encrypted_types = service->GetEncryptedDataTypes();
-  encrypted_types.Put(syncer::SESSIONS);
-  service->GetEncryptionObserverForTest()->OnEncryptedTypesChanged(
-      encrypted_types, false);
-  EXPECT_FALSE(SearchProvider::CanSendURL(
-      GURL("http://www.google.com/search"),
-      GURL("https://www.google.com/complete/search"), &google_template_url,
-      metrics::OmniboxEventProto::OTHER, SearchTermsData(), &client));
-  encrypted_types.Remove(syncer::SESSIONS);
-  service->GetEncryptionObserverForTest()->OnEncryptedTypesChanged(
-      encrypted_types, false);
+      metrics::OmniboxEventProto::OTHER, SearchTermsData(), client_.get()));
+  client_->set_is_tab_upload_to_google_active(true);
 
   // Check that there were no side effects from previous tests.
   EXPECT_TRUE(SearchProvider::CanSendURL(
       GURL("http://www.google.com/search"),
       GURL("https://www.google.com/complete/search"), &google_template_url,
-      metrics::OmniboxEventProto::OTHER, SearchTermsData(), &client));
+      metrics::OmniboxEventProto::OTHER, SearchTermsData(), client_.get()));
 }
 
 TEST_F(SearchProviderTest, TestDeleteMatch) {
@@ -3587,9 +3568,21 @@ TEST_F(SearchProviderTest, AnswersCache) {
   // Inject a scored result, which will trigger answer retrieval.
   base::string16 query = base::ASCIIToUTF16("weather los angeles");
   SearchSuggestionParser::SuggestResult suggest_result(
-      query, AutocompleteMatchType::SEARCH_HISTORY, 0, query, base::string16(),
-      base::string16(), base::string16(), base::string16(), nullptr,
-      std::string(), std::string(), false, 1200, false, false, query);
+      query, AutocompleteMatchType::SEARCH_HISTORY,
+      /*subtype_identifier=*/0,
+      /*match_contents=*/query,
+      /*match_contents_prefix=*/base::string16(),
+      /*annotation=*/base::string16(),
+      /*answer_contents=*/base::string16(),
+      /*answer_type=*/base::string16(),
+      /*answer=*/nullptr,
+      /*suggest_query_params=*/std::string(),
+      /*deletion_url=*/std::string(),
+      /*from_keyword_provider=*/false,
+      /*relevance=*/1200,
+      /*relevance_from_server=*/false,
+      /*should_prefetch=*/false,
+      /*input_text=*/query);
   QueryForInput(ASCIIToUTF16("weather l"), false, false);
   provider_->transformed_default_history_results_.push_back(suggest_result);
   answer = provider_->FindAnswersPrefetchData();

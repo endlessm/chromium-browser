@@ -8,7 +8,6 @@
 #include <memory>
 
 #include "ash/system/power/power_button_controller.h"
-#include "ash/system/power/tablet_power_button_controller.h"
 #include "ash/test/ash_test_base.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "ui/events/keycodes/keyboard_codes_posix.h"
@@ -22,8 +21,8 @@ namespace ash {
 
 class LockStateController;
 class LockStateControllerTestApi;
+class PowerButtonControllerTestApi;
 class PowerButtonScreenshotController;
-class TabletPowerButtonControllerTestApi;
 enum class LoginStatus;
 
 // Base test fixture and utils for testing power button related functions.
@@ -45,14 +44,14 @@ class PowerButtonTestBase : public AshTestBase {
   // Initializes |power_button_controller_| and other members that point at
   // objects owned by it. If |initial_tablet_mode_switch_state| is not
   // UNSUPPORTED, tablet mode switch will be set and PowerButtonController will
-  // create TabletPowerButtonController and PowerButtonScreenshotController
-  // on getting the switch.
+  // set |default_turn_screen_off_for_tap_| to true and create
+  // PowerButtonScreenshotController on getting the switch.
   void InitPowerButtonControllerMembers(chromeos::PowerManagerClient::TabletMode
                                             initial_tablet_mode_switch_state);
 
-  // Sets the tablet mode switch state. And then PowerButtonController will
-  // initialize |tablet_controller_| and |screenshot_controller_| if the switch
-  // state is not UNSUPPORTED.
+  // Sets the tablet mode switch state. PowerButtonController will initialize
+  // |default_turn_screen_off_for_tap_| and |screenshot_controller_| if the
+  // switch state is not UNSUPPORTED.
   void SetTabletModeSwitchState(
       chromeos::PowerManagerClient::TabletMode tablet_mode_switch_state);
 
@@ -92,45 +91,19 @@ class PowerButtonTestBase : public AshTestBase {
   // they come too close.
   void AdvanceClockToAvoidIgnoring();
 
-  void set_has_tablet_mode_switch(bool has_tablet_mode_switch) {
-    has_tablet_mode_switch_ = has_tablet_mode_switch;
-  }
-
-  void set_show_power_button_menu(bool show_power_button_menu) {
-    show_power_button_menu_ = show_power_button_menu;
-  }
-
   // Ownership is passed on to chromeos::DBusThreadManager.
   chromeos::FakePowerManagerClient* power_manager_client_ = nullptr;
   chromeos::FakeSessionManagerClient* session_manager_client_ = nullptr;
 
   PowerButtonController* power_button_controller_ = nullptr;  // Not owned.
   LockStateController* lock_state_controller_ = nullptr;      // Not owned.
-  TabletPowerButtonController* tablet_controller_ = nullptr;  // Not owned.
   PowerButtonScreenshotController* screenshot_controller_ =
       nullptr;  // Not owned.
   std::unique_ptr<LockStateControllerTestApi> lock_state_test_api_;
-  std::unique_ptr<TabletPowerButtonControllerTestApi> tablet_test_api_;
+  std::unique_ptr<PowerButtonControllerTestApi> power_button_test_api_;
   base::SimpleTestTickClock tick_clock_;
 
-  // Indicates whether switches::kAshEnableTabletMode is appended.
-  bool has_tablet_mode_switch_ = true;
-
-  // Indicates whether switches::kShowPowerButtonMenu is appended.
-  bool show_power_button_menu_ = false;
-
   DISALLOW_COPY_AND_ASSIGN(PowerButtonTestBase);
-};
-
-// Base test fixture same as PowerButtonTestBase excepts that tablet mode swtich
-// is not set.
-class NoTabletModePowerButtonTestBase : public PowerButtonTestBase {
- public:
-  NoTabletModePowerButtonTestBase() { set_has_tablet_mode_switch(false); }
-  ~NoTabletModePowerButtonTestBase() override {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(NoTabletModePowerButtonTestBase);
 };
 
 }  // namespace ash

@@ -55,12 +55,6 @@ TestLayerTreeFrameSink::TestLayerTreeFrameSink(
 
 TestLayerTreeFrameSink::~TestLayerTreeFrameSink() {
   DCHECK(copy_requests_.empty());
-
-  // The shared_bitmap_manager() has ownership of shared memory for each
-  // SharedBitmapId that has been reported from the client. Since the client is
-  // gone that memory can be freed. If we don't then it would leak.
-  for (const auto& id : owned_bitmaps_)
-    shared_bitmap_manager()->ChildDeletedSharedBitmap(id);
 }
 
 void TestLayerTreeFrameSink::SetDisplayColorSpace(
@@ -134,6 +128,13 @@ bool TestLayerTreeFrameSink::BindToClient(
 }
 
 void TestLayerTreeFrameSink::DetachFromClient() {
+  // The shared_bitmap_manager() has ownership of shared memory for each
+  // SharedBitmapId that has been reported from the client. Since the client is
+  // gone that memory can be freed. If we don't then it would leak.
+  for (const auto& id : owned_bitmaps_)
+    shared_bitmap_manager()->ChildDeletedSharedBitmap(id);
+  owned_bitmaps_.clear();
+
   if (display_begin_frame_source_) {
     frame_sink_manager_->UnregisterBeginFrameSource(
         display_begin_frame_source_);
@@ -173,8 +174,20 @@ void TestLayerTreeFrameSink::SubmitCompositorFrame(CompositorFrame frame) {
 
   support_->SubmitCompositorFrame(local_surface_id_, std::move(frame));
 
-  for (auto& copy_request : copy_requests_)
-    support_->RequestCopyOfSurface(std::move(copy_request));
+  // TODO(vmpstr): In layout tests, we request this call. However, with site
+  // isolation we don't get an activation yet. Previously the call to the
+  // support would delete the request resulting in an empty bitmap being
+  // returned to the caller. However, with recent changes in preparation for
+  // properly capturing pixel dumps from site isolation layout tests, it now
+  // stashes the request in the pending queue and waits for an activation. Since
+  // this never happens, the tests time out instead of failing. It's important
+  // for us to not mark some of these tests as timing out, since we need to
+  // ensure that they don't time out for reasons unrelated to pixel dumps.
+  // https://crbug.com/667551 tracks the progress of fixing this.
+  if (support_->last_activated_surface_id().is_valid()) {
+    for (auto& copy_request : copy_requests_)
+      support_->RequestCopyOfOutput(local_surface_id_, std::move(copy_request));
+  }
   copy_requests_.clear();
 
   if (!display_->has_scheduler()) {

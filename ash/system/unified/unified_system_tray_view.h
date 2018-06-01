@@ -9,16 +9,71 @@
 
 namespace ash {
 
+class FeaturePodButton;
+class FeaturePodsContainerView;
+class TopShortcutsView;
+class UnifiedMessageCenterView;
+class UnifiedSystemInfoView;
 class UnifiedSystemTrayController;
 
-// View class of default view in UnifiedSystemTray.
-class UnifiedSystemTrayView : public views::View {
+// Container view of slider views. If SetExpandedAmount() is called with 1.0,
+// the behavior is same as vertiacal BoxLayout, but otherwise it shows
+// intermediate state during animation.
+class UnifiedSlidersContainerView : public views::View {
  public:
-  explicit UnifiedSystemTrayView(UnifiedSystemTrayController* controller);
-  ~UnifiedSystemTrayView() override;
+  explicit UnifiedSlidersContainerView(bool initially_expanded);
+  ~UnifiedSlidersContainerView() override;
+
+  // Change the expanded state. 0.0 if collapsed, and 1.0 if expanded.
+  // Otherwise, it shows intermediate state.
+  void SetExpandedAmount(double expanded_amount);
+
+  // views::View:
+  void Layout() override;
+  gfx::Size CalculatePreferredSize() const override;
 
  private:
+  // Update opacity of each child slider views based on |expanded_amount_|.
+  void UpdateOpacity();
+
+  double expanded_amount_;
+
+  DISALLOW_COPY_AND_ASSIGN(UnifiedSlidersContainerView);
+};
+
+// View class of the main bubble in UnifiedSystemTray.
+class UnifiedSystemTrayView : public views::View {
+ public:
+  UnifiedSystemTrayView(UnifiedSystemTrayController* controller,
+                        bool initially_expanded);
+  ~UnifiedSystemTrayView() override;
+
+  // Set the maximum height that the view can take.
+  void SetMaxHeight(int max_height);
+
+  // Add feature pod button to |feature_pods_|.
+  void AddFeaturePodButton(FeaturePodButton* button);
+
+  // Add slider view.
+  void AddSliderView(views::View* slider_view);
+
+  // Change the expanded state. 0.0 if collapsed, and 1.0 if expanded.
+  // Otherwise, it shows intermediate state.
+  void SetExpandedAmount(double expanded_amount);
+
+  // views::View:
+  void OnGestureEvent(ui::GestureEvent* event) override;
+
+ private:
+  // Unowned.
   UnifiedSystemTrayController* controller_;
+
+  // Owned by views hierarchy.
+  UnifiedMessageCenterView* message_center_view_;
+  TopShortcutsView* top_shortcuts_view_;
+  FeaturePodsContainerView* feature_pods_container_;
+  UnifiedSlidersContainerView* sliders_container_;
+  UnifiedSystemInfoView* system_info_view_;
 
   DISALLOW_COPY_AND_ASSIGN(UnifiedSystemTrayView);
 };

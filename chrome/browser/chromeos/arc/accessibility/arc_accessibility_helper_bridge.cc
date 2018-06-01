@@ -172,9 +172,9 @@ void ArcAccessibilityHelperBridge::SetNativeChromeVoxArcSupport(bool enabled) {
       ARC_GET_INSTANCE_FOR_METHOD(arc_bridge_service_->accessibility_helper(),
                                   SetNativeChromeVoxArcSupportForFocusedWindow);
   instance->SetNativeChromeVoxArcSupportForFocusedWindow(
-      enabled, base::Bind(&ArcAccessibilityHelperBridge::
-                              OnSetNativeChromeVoxArcSupportProcessed,
-                          base::Unretained(this), enabled));
+      enabled, base::BindOnce(&ArcAccessibilityHelperBridge::
+                                  OnSetNativeChromeVoxArcSupportProcessed,
+                              base::Unretained(this), enabled));
 }
 
 void ArcAccessibilityHelperBridge::OnSetNativeChromeVoxArcSupportProcessed(
@@ -283,13 +283,41 @@ void ArcAccessibilityHelperBridge::OnAccessibilityEvent(
 
     tree_source->NotifyAccessibilityEvent(event_data.get());
 
-    ui::AXTreeData tree_data;
-    if (tree_source->GetTreeData(&tree_data) && is_notification_event &&
-        event_data->event_type ==
-            arc::mojom::AccessibilityEventType::WINDOW_STATE_CHANGED) {
-      DCHECK(event_data->notification_key.has_value());
-      UpdateTreeIdOfNotificationSurface(event_data->notification_key.value(),
-                                        tree_data.tree_id);
+    if (is_notification_event) {
+      switch (event_data->event_type) {
+        case arc::mojom::AccessibilityEventType::VIEW_TEXT_SELECTION_CHANGED: {
+          // If text selection changed event is dispatched from Android, it
+          // means that user is trying to type a text in Android notification.
+          // Dispatch text selection changed event to notification content view
+          // as the view can take necessary actions, e.g. activate itself, etc.
+          auto* surface_manager = ArcNotificationSurfaceManager::Get();
+          if (!surface_manager)
+            break;
+
+          ArcNotificationSurface* surface = surface_manager->GetArcSurface(
+              event_data->notification_key.value());
+          if (!surface)
+            break;
+
+          surface->GetAttachedHost()->NotifyAccessibilityEvent(
+              ax::mojom::Event::kTextSelectionChanged, true);
+          break;
+        }
+        case arc::mojom::AccessibilityEventType::WINDOW_STATE_CHANGED: {
+          // TODO(yawano): Move this to OnNotificationStateChanged. This can be
+          // moved there if we don't need to care about backward compat.
+          ui::AXTreeData tree_data;
+          if (!tree_source->GetTreeData(&tree_data))
+            break;
+
+          DCHECK(event_data->notification_key.has_value());
+          UpdateTreeIdOfNotificationSurface(
+              event_data->notification_key.value(), tree_data.tree_id);
+          break;
+        }
+        default:
+          break;
+      }
     }
 
     return;
@@ -449,8 +477,8 @@ void ArcAccessibilityHelperBridge::OnAction(
       arc_bridge_service_->accessibility_helper(), PerformAction);
   instance->PerformAction(
       std::move(action_data),
-      base::Bind(&ArcAccessibilityHelperBridge::OnActionResult,
-                 base::Unretained(this), data));
+      base::BindOnce(&ArcAccessibilityHelperBridge::OnActionResult,
+                     base::Unretained(this), data));
 }
 
 void ArcAccessibilityHelperBridge::OnActionResult(const ui::AXActionData& data,

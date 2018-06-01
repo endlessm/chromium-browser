@@ -12,18 +12,16 @@
 #include <vector>
 
 #include "ash/app_list/model/app_list_model_export.h"
+#include "ash/public/cpp/app_list/app_list_types.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/strings/string16.h"
+#include "base/unguessable_token.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/range/range.h"
 
 namespace ui {
 class MenuModel;
-}
-
-namespace views {
-class View;
 }
 
 namespace app_list {
@@ -37,71 +35,12 @@ class TokenizedStringMatch;
 // default style.
 class APP_LIST_MODEL_EXPORT SearchResult {
  public:
-  // How the result should be displayed. Do not change the order of these as
-  // they are used for metrics.
-  enum DisplayType {
-    DISPLAY_NONE = 0,
-    DISPLAY_LIST,
-    DISPLAY_TILE,
-    DISPLAY_RECOMMENDATION,
-    DISPLAY_CARD,
-    // Add new values here.
-
-    DISPLAY_TYPE_LAST,
-  };
-
-  // Type of the search result. This should be set in corresponding subclass's
-  // constructor.
-  enum ResultType {
-    RESULT_UNKNOWN,        // Unknown type.
-    RESULT_INSTALLED_APP,  // Installed apps.
-    RESULT_PLAYSTORE_APP,  // Uninstalled apps from playstore.
-    RESULT_INSTANT_APP,    // Instant apps.
-    // Add new values here.
-  };
-
-  // A tagged range in search result text.
-  struct APP_LIST_MODEL_EXPORT Tag {
-    // Similar to ACMatchClassification::Style, the style values are not
-    // mutually exclusive.
-    enum Style {
-      NONE = 0,
-      URL = 1 << 0,
-      MATCH = 1 << 1,
-      DIM = 1 << 2,
-    };
-
-    Tag(int styles, size_t start, size_t end)
-        : styles(styles),
-          range(static_cast<uint32_t>(start), static_cast<uint32_t>(end)) {}
-
-    int styles;
-    gfx::Range range;
-  };
-  typedef std::vector<Tag> Tags;
-
-  // Data representing an action that can be performed on this search result.
-  // An action could be represented as an icon set or as a blue button with
-  // a label. Icon set is chosen if label text is empty. Otherwise, a blue
-  // button with the label text will be used.
-  struct APP_LIST_MODEL_EXPORT Action {
-    Action(const gfx::ImageSkia& base_image,
-           const gfx::ImageSkia& hover_image,
-           const gfx::ImageSkia& pressed_image,
-           const base::string16& tooltip_text);
-    Action(const base::string16& label_text,
-           const base::string16& tooltip_text);
-    Action(const Action& other);
-    ~Action();
-
-    gfx::ImageSkia base_image;
-    gfx::ImageSkia hover_image;
-    gfx::ImageSkia pressed_image;
-
-    base::string16 tooltip_text;
-    base::string16 label_text;
-  };
-  typedef std::vector<Action> Actions;
+  using ResultType = ash::SearchResultType;
+  using DisplayType = ash::SearchResultDisplayType;
+  using Tag = ash::SearchResultTag;
+  using Tags = ash::SearchResultTags;
+  using Action = ash::SearchResultAction;
+  using Actions = ash::SearchResultActions;
 
   SearchResult();
   virtual ~SearchResult();
@@ -130,8 +69,12 @@ class APP_LIST_MODEL_EXPORT SearchResult {
   const base::string16& formatted_price() const { return formatted_price_; }
   void SetFormattedPrice(const base::string16& formatted_price);
 
-  views::View* view() const { return view_; }
-  void set_view(views::View* view) { view_ = view; }
+  const base::UnguessableToken& answer_card_contents_token() const {
+    return answer_card_contents_token_;
+  }
+  void set_answer_card_contents_token(const base::UnguessableToken& token) {
+    answer_card_contents_token_ = token;
+  }
 
   const std::string& id() const { return id_; }
   const std::string& comparable_id() const { return comparable_id_; }
@@ -155,11 +98,6 @@ class APP_LIST_MODEL_EXPORT SearchResult {
   const Actions& actions() const { return actions_; }
   void SetActions(const Actions& sets);
 
-  // Whether the result can be automatically selected by a voice query.
-  // (Non-voice results can still appear in the results list to be manually
-  // selected.)
-  bool voice_result() const { return voice_result_; }
-
   bool is_installing() const { return is_installing_; }
   void SetIsInstalling(bool is_installing);
 
@@ -181,10 +119,6 @@ class APP_LIST_MODEL_EXPORT SearchResult {
   void UpdateFromMatch(const TokenizedString& title,
                        const TokenizedStringMatch& match);
 
-  // TODO(mukai): Remove this method and really simplify the ownership of
-  // SearchResult. Ideally, SearchResult will be copyable.
-  virtual std::unique_ptr<SearchResult> Duplicate() const = 0;
-
   // Invokes a custom action on the result. It does nothing by default.
   virtual void InvokeAction(int action_index, int event_flags);
 
@@ -202,7 +136,6 @@ class APP_LIST_MODEL_EXPORT SearchResult {
   void set_comparable_id(const std::string& comparable_id) {
     comparable_id_ = comparable_id;
   }
-  void set_voice_result(bool voice_result) { voice_result_ = voice_result; }
 
  private:
   friend class SearchController;
@@ -225,27 +158,27 @@ class APP_LIST_MODEL_EXPORT SearchResult {
   // Formatted price label of the app in play store. Not exist if set to empty.
   base::string16 formatted_price_;
 
-  // Unowned pointer to a view containing a rendered result, or nullptr if there
-  // is no such view for the result.
-  // The view has set_owned_by_client() property set. It's a responsibility of
-  // SearchProvider to set this property and own this view.
-  views::View* view_ = nullptr;
+  // A token used to show answer card contents. When answer card provider and ui
+  // runs in the same process (i.e classic ash, or mash before UI migration),
+  // AnswerCardContensRegistry could be used to map the token to a view.
+  // Otherwise (mash after UI migration), the token is used to embed the answer
+  // card contents.
+  base::UnguessableToken answer_card_contents_token_;
 
   std::string id_;
   // ID that can be compared across results from different providers to remove
   // duplicates. May be empty, in which case |id_| will be used for comparison.
   std::string comparable_id_;
   double relevance_ = 0;
-  DisplayType display_type_ = DISPLAY_LIST;
+  DisplayType display_type_ = ash::SearchResultDisplayType::kList;
 
-  ResultType result_type_ = RESULT_UNKNOWN;
+  ResultType result_type_ = ash::SearchResultType::kUnknown;
 
   // The Manhattan distance from the origin of all search results to this
   // result. This is logged for UMA.
   int distance_from_origin_ = -1;
 
   Actions actions_;
-  bool voice_result_ = false;
 
   bool is_installing_ = false;
   int percent_downloaded_ = 0;

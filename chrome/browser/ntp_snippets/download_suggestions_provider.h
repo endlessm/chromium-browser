@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "base/callback_forward.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/download/download_history.h"
 #include "components/ntp_snippets/callbacks.h"
@@ -64,6 +63,9 @@ class DownloadSuggestionsProvider
   void FetchSuggestionImage(
       const ntp_snippets::ContentSuggestion::ID& suggestion_id,
       ntp_snippets::ImageFetchedCallback callback) override;
+  void FetchSuggestionImageData(
+      const ntp_snippets::ContentSuggestion::ID& suggestion_id,
+      ntp_snippets::ImageDataFetchedCallback callback) override;
   void Fetch(const ntp_snippets::Category& category,
              const std::set<std::string>& known_suggestion_ids,
              ntp_snippets::FetchDoneCallback callback) override;

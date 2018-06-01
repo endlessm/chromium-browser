@@ -330,6 +330,7 @@ login.createScreen('ArcTermsOfServiceScreen', 'arc-tos', function() {
     enableButtons_: function(enable) {
       $('arc-tos-skip-button').disabled = !enable;
       $('arc-tos-accept-button').disabled = !enable;
+      $('arc-tos-next-button').disabled = !enable;
       $('arc-tos-retry-button').disabled = !enable;
       $('arc-tos-md').arcTosButtonsDisabled = !enable;
     },
@@ -414,6 +415,22 @@ login.createScreen('ArcTermsOfServiceScreen', 'arc-tos', function() {
       $('arc-tos-md')
           .getElement('arc-tos-dialog-md')
           .classList.remove(className);
+    },
+
+    /**
+     * Checks if class exsists in the list of classes of root OOBE MD style and
+     * legacy style root elements.
+     * @param {string} className class to check.
+     *
+     * @private
+     */
+    hasClass_: function(className) {
+      if (this.useMDOobe) {
+        return $('arc-tos-md')
+            .getElement('arc-tos-dialog-md')
+            .classList.contains(className);
+      }
+      return this.classList.contains(className);
     },
 
     /**
@@ -504,16 +521,33 @@ login.createScreen('ArcTermsOfServiceScreen', 'arc-tos', function() {
 
       Oobe.getInstance().headerHidden = true;
 
-      // Reload caption image in case it was not loaded during the
-      // initialization phase.
-      $('arc-tos-logo').src =
-          'https://play.google.com/about/images/play_logo.png';
-
       this.hideOverlay();
       // ToS content may be loaded before the page is shown. In that case,
       // height of ToS webview is not correctly caculated. Recaculate the
       // height here.
       this.updateTermViewHight_();
+      this.focusButton_();
+    },
+
+    /**
+     * Ensures the correct button is focused when the page is shown.
+     *
+     * @private
+     */
+    focusButton_() {
+      var id;
+      if (this.hasClass_('arc-tos-loaded')) {
+        id = 'arc-tos-next-button';
+      } else if (this.hasClass_('error')) {
+        id = 'arc-tos-retry-button';
+      }
+
+      if (typeof id === 'undefined')
+        return;
+
+      setTimeout(function() {
+        this.getElement_(id).focus();
+      }.bind(this), 0);
     },
 
     /**

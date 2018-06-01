@@ -4,6 +4,7 @@
 
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_coordinator.h"
 
+#include "ios/chrome/browser/chrome_url_constants.h"
 #import "ios/chrome/browser/tabs/tab_model.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
@@ -11,6 +12,7 @@
 #import "ios/chrome/browser/ui/main/bvc_container_view_controller.h"
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_adaptor.h"
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_mediator.h"
+#import "ios/chrome/browser/ui/tab_grid/tab_grid_paging.h"
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_transition_handler.h"
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_view_controller.h"
 
@@ -18,7 +20,9 @@
 #error "This file requires ARC support."
 #endif
 
-@interface TabGridCoordinator ()
+@interface TabGridCoordinator ()<TabPresentationDelegate>
+// Superclass property specialized for the class that this coordinator uses.
+@property(nonatomic, weak) TabGridViewController* mainViewController;
 // Commad dispatcher used while this coordinator's view controller is active.
 // (for compatibility with the TabSwitcher protocol).
 @property(nonatomic, strong) CommandDispatcher* dispatcher;
@@ -69,6 +73,30 @@
   return self.adaptor;
 }
 
+- (TabModel*)regularTabModel {
+  // Ensure tab model actually used by the mediator is returned, as it may have
+  // been updated.
+  return self.regularTabsMediator ? self.regularTabsMediator.tabModel
+                                  : _regularTabModel;
+}
+
+- (void)setRegularTabModel:(TabModel*)regularTabModel {
+  self.regularTabsMediator.tabModel = regularTabModel;
+  _regularTabModel = regularTabModel;
+}
+
+- (TabModel*)incognitoTabModel {
+  // Ensure tab model actually used by the mediator is returned, as it may have
+  // been updated.
+  return self.incognitoTabsMediator ? self.incognitoTabsMediator.tabModel
+                                    : _incognitoTabModel;
+}
+
+- (void)setIncognitoTabModel:(TabModel*)incognitoTabModel {
+  self.incognitoTabsMediator.tabModel = incognitoTabModel;
+  _incognitoTabModel = incognitoTabModel;
+}
+
 #pragma mark - MainCoordinator properties
 
 - (id<ViewControllerSwapping>)viewControllerSwapper {
@@ -82,7 +110,9 @@
       [[TabGridViewController alloc] init];
   self.transitionHandler = [[TabGridTransitionHandler alloc] init];
   self.transitionHandler.provider = mainViewController;
+  mainViewController.modalPresentationStyle = UIModalPresentationCustom;
   mainViewController.transitioningDelegate = self.transitionHandler;
+  mainViewController.tabPresentationDelegate = self;
   _mainViewController = mainViewController;
   self.window.rootViewController = self.mainViewController;
   self.adaptor = [[TabGridAdaptor alloc] init];
@@ -90,6 +120,19 @@
   self.adaptor.adaptedDispatcher =
       static_cast<id<ApplicationCommands, BrowserCommands, OmniboxFocuser,
                      ToolbarCommands>>(self.dispatcher);
+  self.adaptor.tabGridPager = mainViewController;
+
+  self.regularTabsMediator = [[TabGridMediator alloc]
+      initWithConsumer:mainViewController.regularTabsConsumer];
+  self.regularTabsMediator.tabModel = _regularTabModel;
+  self.incognitoTabsMediator = [[TabGridMediator alloc]
+      initWithConsumer:mainViewController.incognitoTabsConsumer];
+  self.incognitoTabsMediator.tabModel = _incognitoTabModel;
+  self.adaptor.incognitoMediator = self.incognitoTabsMediator;
+  mainViewController.regularTabsDelegate = self.regularTabsMediator;
+  mainViewController.incognitoTabsDelegate = self.incognitoTabsMediator;
+  mainViewController.regularTabsImageDataSource = self.regularTabsMediator;
+  mainViewController.incognitoTabsImageDataSource = self.incognitoTabsMediator;
 }
 
 - (void)stop {
@@ -170,9 +213,44 @@
                                       completion:extendedCompletion];
 }
 
+#pragma mark - TabPresentationDelegate
+
+- (void)showActiveTabInPage:(TabGridPage)page {
+  DCHECK(self.regularTabModel && self.incognitoTabModel);
+  TabModel* activeTabModel;
+  switch (page) {
+    case TabGridPageIncognitoTabs:
+      DCHECK_GT(self.incognitoTabModel.count, 0U);
+      activeTabModel = self.incognitoTabModel;
+      break;
+    case TabGridPageRegularTabs:
+      DCHECK_GT(self.regularTabModel.count, 0U);
+      activeTabModel = self.regularTabModel;
+      break;
+    case TabGridPageRemoteTabs:
+      NOTREACHED() << "It is invalid to have an active tab in remote tabs.";
+      break;
+  }
+  // Trigger the transition through the TabSwitcher delegate. This will in turn
+  // call back into this coordinator via the ViewControllerSwapping protocol.
+  [self.tabSwitcher.delegate tabSwitcher:self.tabSwitcher
+             shouldFinishWithActiveModel:activeTabModel];
+}
+
 #pragma mark - BrowserCommands
 
 - (void)openNewTab:(OpenNewTabCommand*)command {
+  DCHECK(self.regularTabModel && self.incognitoTabModel);
+  TabModel* activeTabModel =
+      command.incognito ? self.incognitoTabModel : self.regularTabModel;
+  // TODO(crbug.com/804587) : It is better to use the mediator to insert a
+  // webState and show the active tab.
+  DCHECK(self.tabSwitcher);
+  [self.tabSwitcher
+      dismissWithNewTabAnimationToModel:activeTabModel
+                                withURL:GURL(kChromeUINewTabURL)
+                                atIndex:NSNotFound
+                             transition:ui::PAGE_TRANSITION_TYPED];
 }
 
 - (void)closeAllTabs {

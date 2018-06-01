@@ -350,7 +350,7 @@ TEST_P(ComputeShaderTest, BindImageTexture)
     GLFramebuffer mFramebuffer;
     const std::string csSource =
         R"(#version 310 es
-        layout(local_size_x=2, local_size_y=2, local_size_z=1) in;
+        layout(local_size_x=1, local_size_y=1, local_size_z=1) in;
         layout(r32ui, binding = 0) writeonly uniform highp uimage2D uImage[2];
         void main()
         {
@@ -362,8 +362,8 @@ TEST_P(ComputeShaderTest, BindImageTexture)
 
     ANGLE_GL_COMPUTE_PROGRAM(program, csSource);
     glUseProgram(program.get());
-    int width = 4, height = 2;
-    GLuint inputValues[] = {200, 200, 200, 200, 200, 200, 200, 200};
+    int width = 1, height = 1;
+    GLuint inputValues[] = {200};
 
     glBindTexture(GL_TEXTURE_2D, mTexture[0]);
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, width, height);
@@ -383,11 +383,12 @@ TEST_P(ComputeShaderTest, BindImageTexture)
     glBindImageTexture(1, mTexture[1], 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R32UI);
     EXPECT_GL_NO_ERROR();
 
-    glDispatchCompute(2, 1, 1);
+    glDispatchCompute(1, 1, 1);
     EXPECT_GL_NO_ERROR();
 
+    glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
     glUseProgram(0);
-    GLuint outputValues[2][8];
+    GLuint outputValues[2][1];
     GLuint expectedValue = 100;
     glBindFramebuffer(GL_READ_FRAMEBUFFER, mFramebuffer);
 
@@ -423,7 +424,7 @@ TEST_P(ComputeShaderTest, ImageArrayWithoutBindingQualifier)
     GLFramebuffer mFramebuffer;
     const std::string csSource =
         R"(#version 310 es
-        layout(local_size_x=2, local_size_y=2, local_size_z=1) in;
+        layout(local_size_x=1, local_size_y=1, local_size_z=1) in;
         layout(r32ui) writeonly uniform highp uimage2D uImage[2];
         void main()
         {
@@ -433,8 +434,8 @@ TEST_P(ComputeShaderTest, ImageArrayWithoutBindingQualifier)
 
     ANGLE_GL_COMPUTE_PROGRAM(program, csSource);
     glUseProgram(program.get());
-    constexpr int kTextureWidth = 4, kTextureHeight = 2;
-    GLuint inputValues[] = {200, 200, 200, 200, 200, 200, 200, 200};
+    constexpr int kTextureWidth = 1, kTextureHeight = 2;
+    GLuint inputValues[] = {200, 200};
 
     glBindTexture(GL_TEXTURE_2D, mTexture);
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, kTextureWidth, kTextureHeight);
@@ -446,11 +447,12 @@ TEST_P(ComputeShaderTest, ImageArrayWithoutBindingQualifier)
     glDispatchCompute(1, 1, 1);
     EXPECT_GL_NO_ERROR();
 
+    glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
     glUseProgram(0);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, mFramebuffer);
 
     glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mTexture, 0);
-    GLuint outputValues[8];
+    GLuint outputValues[kTextureWidth * kTextureHeight];
     glReadPixels(0, 0, kTextureWidth, kTextureHeight, GL_RED_INTEGER, GL_UNSIGNED_INT,
                  outputValues);
     EXPECT_GL_NO_ERROR();
@@ -526,6 +528,80 @@ TEST_P(ComputeShaderTest, ImageSize)
     EXPECT_GL_NO_ERROR();
 }
 
+// Test that sampling texture works well in compute shader.
+TEST_P(ComputeShaderTest, TextureSampling)
+{
+    ANGLE_SKIP_TEST_IF(IsD3D11());
+
+    const std::string &csSource =
+        R"(#version 310 es
+        layout(local_size_x=16, local_size_y=16) in;
+        precision highp usampler2D;
+        uniform usampler2D tex;
+        layout(std140, binding = 0) buffer buf {
+            uint outData[16][16];
+        };
+
+        void main()
+        {
+            uint x = gl_LocalInvocationID.x;
+            uint y = gl_LocalInvocationID.y;
+            outData[y][x] = texelFetch(tex, ivec2(x, y), 0).x;
+        })";
+
+    constexpr unsigned int kWidth  = 16;
+    constexpr unsigned int kHeight = 16;
+    GLTexture tex;
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, kWidth, kHeight);
+    GLuint texels[kHeight][kWidth] = {{0}};
+    for (unsigned int y = 0; y < kHeight; ++y)
+    {
+        for (unsigned int x = 0; x < kWidth; ++x)
+        {
+            texels[y][x] = x + y * kWidth;
+        }
+    }
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT,
+                    texels);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    // The array stride are rounded up to the base alignment of a vec4 for std140 layout.
+    constexpr unsigned int kArrayStride = 16;
+    GLBuffer ssbo;
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kWidth * kHeight * kArrayStride, nullptr,
+                 GL_STREAM_DRAW);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    EXPECT_GL_NO_ERROR();
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, csSource);
+    glUseProgram(program.get());
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUniform1i(glGetUniformLocation(program, "tex"), 0);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
+
+    glDispatchCompute(1, 1, 1);
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+    void *ptr = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kWidth * kHeight * kArrayStride,
+                                 GL_MAP_READ_BIT);
+    for (unsigned int idx = 0; idx < kWidth * kHeight; idx++)
+    {
+        EXPECT_EQ(idx, *(reinterpret_cast<const GLuint *>(reinterpret_cast<const GLbyte *>(ptr) +
+                                                          idx * kArrayStride)));
+    }
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    EXPECT_GL_NO_ERROR();
+}
+
 // Use image uniform to read and write Texture2D in compute shader, and verify the contents.
 TEST_P(ComputeShaderTest, BindImageTextureWithTexture2D)
 {
@@ -533,7 +609,7 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTexture2D)
     GLFramebuffer framebuffer;
     const std::string csSource =
         R"(#version 310 es
-        layout(local_size_x=4, local_size_y=2, local_size_z=1) in;
+        layout(local_size_x=1, local_size_y=1, local_size_z=1) in;
         layout(r32ui, binding = 0) readonly uniform highp uimage2D uImage_1;
         layout(r32ui, binding = 1) writeonly uniform highp uimage2D uImage_2;
         void main()
@@ -542,9 +618,8 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTexture2D)
             imageStore(uImage_2, ivec2(gl_LocalInvocationID.xy), value);
         })";
 
-    constexpr int kWidth = 4, kHeight = 2;
-    constexpr GLuint kInputValues[2][8] = {{200, 200, 200, 200, 200, 200, 200, 200},
-                                           {100, 100, 100, 100, 100, 100, 100, 100}};
+    constexpr int kWidth = 1, kHeight = 1;
+    constexpr GLuint kInputValues[2][1] = {{200}, {100}};
 
     glBindTexture(GL_TEXTURE_2D, texture[0]);
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, kWidth, kHeight);
@@ -558,30 +633,6 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTexture2D)
                     kInputValues[1]);
     EXPECT_GL_NO_ERROR();
 
-    glUseProgram(0);
-    GLuint outputValues[8];
-    constexpr GLuint expectedValue_1 = 200;
-    constexpr GLuint expectedValue_2 = 100;
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
-
-    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture[0], 0);
-    EXPECT_GL_NO_ERROR();
-    glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT, outputValues);
-
-    for (int i = 0; i < kWidth * kHeight; i++)
-    {
-        EXPECT_EQ(expectedValue_1, outputValues[i]);
-    }
-
-    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture[1], 0);
-    EXPECT_GL_NO_ERROR();
-    glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT, outputValues);
-
-    for (int i = 0; i < kWidth * kHeight; i++)
-    {
-        EXPECT_EQ(expectedValue_2, outputValues[i]);
-    }
-
     ANGLE_GL_COMPUTE_PROGRAM(program, csSource);
     glUseProgram(program.get());
 
@@ -594,6 +645,9 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTexture2D)
     glDispatchCompute(1, 1, 1);
     EXPECT_GL_NO_ERROR();
 
+    glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
+    GLuint outputValues[kWidth * kHeight];
+    constexpr GLuint expectedValue = 200;
     glUseProgram(0);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
 
@@ -604,7 +658,7 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTexture2D)
 
     for (int i = 0; i < kWidth * kHeight; i++)
     {
-        EXPECT_EQ(expectedValue_1, outputValues[i]);
+        EXPECT_EQ(expectedValue, outputValues[i]);
     }
 }
 
@@ -624,9 +678,8 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTexture2DArray)
             imageStore(uImage_2, ivec3(gl_LocalInvocationID.xyz), value);
         })";
 
-    constexpr int kWidth = 2, kHeight = 2, kDepth = 2;
-    constexpr GLuint kInputValues[2][8] = {{200, 200, 200, 200, 200, 200, 200, 200},
-                                           {100, 100, 100, 100, 100, 100, 100, 100}};
+    constexpr int kWidth = 1, kHeight = 1, kDepth = 2;
+    constexpr GLuint kInputValues[2][2] = {{200, 200}, {100, 100}};
 
     glBindTexture(GL_TEXTURE_2D_ARRAY, texture[0]);
     glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_R32UI, kWidth, kHeight, kDepth);
@@ -640,49 +693,6 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTexture2DArray)
                     GL_UNSIGNED_INT, kInputValues[1]);
     EXPECT_GL_NO_ERROR();
 
-    glUseProgram(0);
-    GLuint outputValues[4];
-    constexpr GLuint expectedValue_1 = 200;
-    constexpr GLuint expectedValue_2 = 100;
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
-
-    glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture[0], 0, 0);
-    glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, texture[0], 0, 1);
-    EXPECT_GL_NO_ERROR();
-
-    glReadBuffer(GL_COLOR_ATTACHMENT0);
-    glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT, outputValues);
-    for (int i = 0; i < kWidth * kHeight; i++)
-    {
-        EXPECT_EQ(expectedValue_1, outputValues[i]);
-    }
-
-    glReadBuffer(GL_COLOR_ATTACHMENT1);
-    glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT, outputValues);
-
-    for (int i = 0; i < kWidth * kHeight; i++)
-    {
-        EXPECT_EQ(expectedValue_1, outputValues[i]);
-    }
-
-    glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture[1], 0, 0);
-    glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, texture[1], 0, 1);
-    EXPECT_GL_NO_ERROR();
-
-    glReadBuffer(GL_COLOR_ATTACHMENT0);
-    glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT, outputValues);
-    for (int i = 0; i < kWidth * kHeight; i++)
-    {
-        EXPECT_EQ(expectedValue_2, outputValues[i]);
-    }
-
-    glReadBuffer(GL_COLOR_ATTACHMENT1);
-    glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT, outputValues);
-    for (int i = 0; i < kWidth * kHeight; i++)
-    {
-        EXPECT_EQ(expectedValue_2, outputValues[i]);
-    }
-
     ANGLE_GL_COMPUTE_PROGRAM(program, csSource);
     glUseProgram(program.get());
 
@@ -695,6 +705,9 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTexture2DArray)
     glDispatchCompute(1, 1, 1);
     EXPECT_GL_NO_ERROR();
 
+    glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
+    GLuint outputValues[kWidth * kHeight];
+    constexpr GLuint expectedValue = 200;
     glUseProgram(0);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
 
@@ -706,14 +719,14 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTexture2DArray)
     EXPECT_GL_NO_ERROR();
     for (int i = 0; i < kWidth * kHeight; i++)
     {
-        EXPECT_EQ(expectedValue_1, outputValues[i]);
+        EXPECT_EQ(expectedValue, outputValues[i]);
     }
     glReadBuffer(GL_COLOR_ATTACHMENT1);
     glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT, outputValues);
     EXPECT_GL_NO_ERROR();
     for (int i = 0; i < kWidth * kHeight; i++)
     {
-        EXPECT_EQ(expectedValue_1, outputValues[i]);
+        EXPECT_EQ(expectedValue, outputValues[i]);
     }
 }
 
@@ -724,7 +737,7 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTexture3D)
     GLFramebuffer framebuffer;
     const std::string csSource =
         R"(#version 310 es
-        layout(local_size_x=2, local_size_y=2, local_size_z=2) in;
+        layout(local_size_x=1, local_size_y=1, local_size_z=2) in;
         layout(r32ui, binding = 0) readonly uniform highp uimage3D uImage_1;
         layout(r32ui, binding = 1) writeonly uniform highp uimage3D uImage_2;
         void main()
@@ -733,9 +746,8 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTexture3D)
             imageStore(uImage_2, ivec3(gl_LocalInvocationID.xyz), value);
         })";
 
-    constexpr int kWidth = 2, kHeight = 2, kDepth = 2;
-    constexpr GLuint kInputValues[2][8] = {{200, 200, 200, 200, 200, 200, 200, 200},
-                                           {100, 100, 100, 100, 100, 100, 100, 100}};
+    constexpr int kWidth = 1, kHeight = 1, kDepth = 2;
+    constexpr GLuint kInputValues[2][2] = {{200, 200}, {100, 100}};
 
     glBindTexture(GL_TEXTURE_3D, texture[0]);
     glTexStorage3D(GL_TEXTURE_3D, 1, GL_R32UI, kWidth, kHeight, kDepth);
@@ -749,49 +761,6 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTexture3D)
                     GL_UNSIGNED_INT, kInputValues[1]);
     EXPECT_GL_NO_ERROR();
 
-    glUseProgram(0);
-    GLuint outputValues[4];
-    constexpr GLuint expectedValue_1 = 200;
-    constexpr GLuint expectedValue_2 = 100;
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
-
-    glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture[0], 0, 0);
-    glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, texture[0], 0, 1);
-    EXPECT_GL_NO_ERROR();
-
-    glReadBuffer(GL_COLOR_ATTACHMENT0);
-    glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT, outputValues);
-    for (int i = 0; i < kWidth * kHeight; i++)
-    {
-        EXPECT_EQ(expectedValue_1, outputValues[i]);
-    }
-
-    glReadBuffer(GL_COLOR_ATTACHMENT1);
-    glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT, outputValues);
-
-    for (int i = 0; i < kWidth * kHeight; i++)
-    {
-        EXPECT_EQ(expectedValue_1, outputValues[i]);
-    }
-
-    glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture[1], 0, 0);
-    glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, texture[1], 0, 1);
-    EXPECT_GL_NO_ERROR();
-
-    glReadBuffer(GL_COLOR_ATTACHMENT0);
-    glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT, outputValues);
-    for (int i = 0; i < kWidth * kHeight; i++)
-    {
-        EXPECT_EQ(expectedValue_2, outputValues[i]);
-    }
-
-    glReadBuffer(GL_COLOR_ATTACHMENT1);
-    glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT, outputValues);
-    for (int i = 0; i < kWidth * kHeight; i++)
-    {
-        EXPECT_EQ(expectedValue_2, outputValues[i]);
-    }
-
     ANGLE_GL_COMPUTE_PROGRAM(program, csSource);
     glUseProgram(program.get());
 
@@ -804,6 +773,9 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTexture3D)
     glDispatchCompute(1, 1, 1);
     EXPECT_GL_NO_ERROR();
 
+    glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
+    GLuint outputValues[kWidth * kHeight];
+    constexpr GLuint expectedValue = 200;
     glUseProgram(0);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
 
@@ -815,14 +787,14 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTexture3D)
     EXPECT_GL_NO_ERROR();
     for (int i = 0; i < kWidth * kHeight; i++)
     {
-        EXPECT_EQ(expectedValue_1, outputValues[i]);
+        EXPECT_EQ(expectedValue, outputValues[i]);
     }
     glReadBuffer(GL_COLOR_ATTACHMENT1);
     glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT, outputValues);
     EXPECT_GL_NO_ERROR();
     for (int i = 0; i < kWidth * kHeight; i++)
     {
-        EXPECT_EQ(expectedValue_1, outputValues[i]);
+        EXPECT_EQ(expectedValue, outputValues[i]);
     }
 }
 
@@ -833,7 +805,7 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTextureCube)
     GLFramebuffer framebuffer;
     const std::string csSource =
         R"(#version 310 es
-        layout(local_size_x=2, local_size_y=2, local_size_z=1) in;
+        layout(local_size_x=1, local_size_y=1, local_size_z=1) in;
         layout(r32ui, binding = 0) readonly uniform highp uimageCube uImage_1;
         layout(r32ui, binding = 1) writeonly uniform highp uimageCube uImage_2;
         void main()
@@ -845,8 +817,8 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTextureCube)
             }
         })";
 
-    constexpr int kWidth = 2, kHeight = 2;
-    constexpr GLuint kInputValues[2][4] = {{200, 200, 200, 200}, {100, 100, 100, 100}};
+    constexpr int kWidth = 1, kHeight = 1;
+    constexpr GLuint kInputValues[2][1] = {{200}, {100}};
 
     glBindTexture(GL_TEXTURE_CUBE_MAP, texture[0]);
     glTexStorage2D(GL_TEXTURE_CUBE_MAP, 1, GL_R32UI, kWidth, kHeight);
@@ -868,36 +840,6 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTextureCube)
     }
     EXPECT_GL_NO_ERROR();
 
-    glUseProgram(0);
-    GLuint outputValues[4];
-    constexpr GLuint expectedValue_1 = 200;
-    constexpr GLuint expectedValue_2 = 100;
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
-    for (GLenum face = 0; face < 6; face++)
-    {
-        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                               GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, texture[0], 0);
-        EXPECT_GL_NO_ERROR();
-        glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT, outputValues);
-        EXPECT_GL_NO_ERROR();
-
-        for (int i = 0; i < kWidth * kHeight; i++)
-        {
-            EXPECT_EQ(expectedValue_1, outputValues[i]);
-        }
-
-        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                               GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, texture[1], 0);
-        EXPECT_GL_NO_ERROR();
-        glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT, outputValues);
-        EXPECT_GL_NO_ERROR();
-
-        for (int i = 0; i < kWidth * kHeight; i++)
-        {
-            EXPECT_EQ(expectedValue_2, outputValues[i]);
-        }
-    }
-
     ANGLE_GL_COMPUTE_PROGRAM(program, csSource);
     glUseProgram(program.get());
 
@@ -910,6 +852,9 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTextureCube)
     glDispatchCompute(1, 1, 1);
     EXPECT_GL_NO_ERROR();
 
+    glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
+    GLuint outputValues[kWidth * kHeight];
+    constexpr GLuint expectedValue = 200;
     glUseProgram(0);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
 
@@ -923,7 +868,7 @@ TEST_P(ComputeShaderTest, BindImageTextureWithTextureCube)
 
         for (int i = 0; i < kWidth * kHeight; i++)
         {
-            EXPECT_EQ(expectedValue_1, outputValues[i]);
+            EXPECT_EQ(expectedValue, outputValues[i]);
         }
     }
 }
@@ -1191,6 +1136,77 @@ TEST_P(ComputeShaderTest, QueryComputeWorkGroupSize)
     glDeleteProgram(computeProgram);
 
     ASSERT_GL_NO_ERROR();
+}
+
+// Use groupMemoryBarrier and barrier to sync reads/writes order and the execution
+// order of multiple shader invocations in compute shader.
+TEST_P(ComputeShaderTest, groupMemoryBarrierAndBarrierTest)
+{
+    // TODO(xinghua.cao@intel.com): Figure out why we get this error message
+    // that shader uses features not recognized by this D3D version.
+    ANGLE_SKIP_TEST_IF((IsAMD() || IsNVIDIA()) && IsD3D11());
+
+    GLTexture texture;
+    GLFramebuffer framebuffer;
+
+    // Each invocation first stores a single value in an image, then each invocation sums up
+    // all the values in the image and stores the sum in the image. groupMemoryBarrier is
+    // used to order reads/writes to variables stored in memory accessible to other shader
+    // invocations, and barrier is used to control the relative execution order of multiple
+    // shader invocations used to process a local work group.
+    const std::string csSource =
+        R"(#version 310 es
+        layout(local_size_x=2, local_size_y=2, local_size_z=1) in;
+        layout(r32i, binding = 0) uniform highp iimage2D image;
+        void main()
+        {
+            uint x = gl_LocalInvocationID.x;
+            uint y = gl_LocalInvocationID.y;
+            imageStore(image, ivec2(gl_LocalInvocationID.xy), ivec4(x + y));
+            groupMemoryBarrier();
+            barrier();
+            int sum = 0;
+            for (int i = 0; i < 2; i++)
+            {
+                for(int j = 0; j < 2; j++)
+                {
+                    sum += imageLoad(image, ivec2(i, j)).x;
+                }
+            }
+            groupMemoryBarrier();
+            barrier();
+            imageStore(image, ivec2(gl_LocalInvocationID.xy), ivec4(sum));
+        })";
+
+    constexpr int kWidth = 2, kHeight = 2;
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32I, kWidth, kHeight);
+    EXPECT_GL_NO_ERROR();
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, csSource);
+    glUseProgram(program.get());
+
+    glBindImageTexture(0, texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32I);
+    EXPECT_GL_NO_ERROR();
+
+    glDispatchCompute(1, 1, 1);
+    EXPECT_GL_NO_ERROR();
+
+    glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
+    GLuint outputValues[kWidth * kHeight];
+    constexpr GLuint kExpectedValue = 4;
+    glUseProgram(0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+    EXPECT_GL_NO_ERROR();
+    glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_INT, outputValues);
+    EXPECT_GL_NO_ERROR();
+
+    for (int i = 0; i < kWidth * kHeight; i++)
+    {
+        EXPECT_EQ(kExpectedValue, outputValues[i]);
+    }
 }
 
 // Check that it is not possible to create a compute shader when the context does not support ES

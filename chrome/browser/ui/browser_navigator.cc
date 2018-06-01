@@ -31,6 +31,7 @@
 #include "chrome/browser/ui/status_bubble.h"
 #include "chrome/browser/ui/tab_helpers.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/url_constants.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_url_handler.h"
@@ -40,7 +41,8 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
+#include "url/url_constants.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/ui/ash/multi_user/multi_user_window_manager.h"
@@ -52,6 +54,7 @@
 #endif
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
+#include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "extensions/browser/extension_registry.h"
@@ -134,6 +137,24 @@ bool AdjustNavigateParamsForURL(NavigateParams* params) {
 std::pair<Browser*, int> GetBrowserAndTabForDisposition(
     const NavigateParams& params) {
   Profile* profile = params.initiating_profile;
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+  if (base::FeatureList::IsEnabled(features::kDesktopPWAWindowing) &&
+      params.open_pwa_window_if_possible) {
+    const extensions::Extension* app = extensions::util::GetInstalledPwaForUrl(
+        profile, params.url, extensions::LAUNCH_CONTAINER_WINDOW);
+    if (app) {
+      std::string app_name =
+          web_app::GenerateApplicationNameFromExtensionId(app->id());
+      return {
+          new Browser(Browser::CreateParams::CreateForApp(
+              app_name,
+              true,  // trusted_source. Installed PWAs are considered trusted.
+              params.window_bounds, profile, params.user_gesture)),
+          -1};
+    }
+  }
+#endif
 
   switch (params.disposition) {
     case WindowOpenDisposition::SWITCH_TO_TAB:
@@ -600,7 +621,7 @@ void Navigate(NavigateParams* params) {
     }
 
     if (user_initiated)
-      params->target_contents->UserGestureDone();
+      params->target_contents->NavigatedByUser();
 
     if (!swapped_in_prerender) {
       // Try to handle non-navigational URLs that popup dialogs and such, these
@@ -667,20 +688,24 @@ void Navigate(NavigateParams* params) {
 
     // If the singleton tab isn't already selected, select it.
     if (params->source_contents != params->target_contents) {
+      // Use the index before the potential close below, because it could
+      // make the index refer to a different tab.
+      params->browser->tab_strip_model()->ActivateTabAt(singleton_index,
+                                                        user_initiated);
       if (params->disposition == WindowOpenDisposition::SWITCH_TO_TAB) {
-        // Close orphaned NTPs with no history when the user switches away from
-        // them.
+        // Close orphaned NTP (and the like) with no history when the user
+        // switches away from them.
         if (params->source_contents->GetController().CanGoBack() ||
             (params->source_contents->GetLastCommittedURL().spec() !=
                  chrome::kChromeUINewTabURL &&
              params->source_contents->GetLastCommittedURL().spec() !=
-                 chrome::kChromeSearchLocalNtpUrl))
+                 chrome::kChromeSearchLocalNtpUrl &&
+             params->source_contents->GetLastCommittedURL().spec() !=
+                 url::kAboutBlankURL))
           params->source_contents->Focus();
         else
           params->source_contents->Close();
       }
-      params->browser->tab_strip_model()->ActivateTabAt(singleton_index,
-                                                        user_initiated);
     }
   }
 

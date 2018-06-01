@@ -26,8 +26,13 @@ network::mojom::NetworkContext* TestStoragePartition::GetNetworkContext() {
   return network_context_;
 }
 
-scoped_refptr<SharedURLLoaderFactory>
+scoped_refptr<network::SharedURLLoaderFactory>
 TestStoragePartition::GetURLLoaderFactoryForBrowserProcess() {
+  return nullptr;
+}
+
+std::unique_ptr<network::SharedURLLoaderFactoryInfo>
+TestStoragePartition::GetURLLoaderFactoryForBrowserProcessIOThread() {
   return nullptr;
 }
 
@@ -75,6 +80,10 @@ CacheStorageContext* TestStoragePartition::GetCacheStorageContext() {
 PlatformNotificationContext*
 TestStoragePartition::GetPlatformNotificationContext() {
   return nullptr;
+}
+
+WebPackageContext* TestStoragePartition::GetWebPackageContext() {
+  return web_package_context_;
 }
 
 #if !defined(OS_ANDROID)

@@ -26,11 +26,11 @@
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
-#include "third_party/WebKit/public/platform/WebColor.h"
-#include "third_party/WebKit/public/platform/WebRuntimeFeatures.h"
-#include "third_party/WebKit/public/web/WebFrameWidget.h"
-#include "third_party/WebKit/public/web/WebSettings.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "third_party/blink/public/platform/web_color.h"
+#include "third_party/blink/public/platform/web_runtime_features.h"
+#include "third_party/blink/public/web/web_frame_widget.h"
+#include "third_party/blink/public/web/web_settings.h"
+#include "third_party/blink/public/web/web_view.h"
 
 #if defined(OS_ANDROID)
 #include "media/base/android/media_codec_util.h"
@@ -56,14 +56,6 @@
 
 namespace chromecast {
 namespace shell {
-
-namespace {
-
-// Default background color to set for WebViews. WebColor is in ARGB format
-// though the comment of WebColor says it is in RGBA.
-const blink::WebColor kColorBlack = 0xFF000000;
-
-}  // namespace
 
 CastContentRendererClient::CastContentRendererClient()
     : supported_profiles_(new media::SupportedCodecProfileLevelsMemo()),
@@ -146,7 +138,8 @@ void CastContentRendererClient::RenderViewCreated(
   blink::WebView* webview = render_view->GetWebView();
   if (webview) {
     if (auto* web_frame_widget = render_view->GetWebFrameWidget())
-      web_frame_widget->SetBaseBackgroundColor(kColorBlack);
+      web_frame_widget->SetBaseBackgroundColor(chromecast::GetSwitchValueColor(
+          switches::kCastAppBackgroundColor, SK_ColorBLACK));
 
     // Disable application cache as Chromecast doesn't support off-line
     // application running.
@@ -157,7 +150,6 @@ void CastContentRendererClient::RenderViewCreated(
 void CastContentRendererClient::RenderFrameCreated(
     content::RenderFrame* render_frame) {
   DCHECK(render_frame);
-#if BUILDFLAG(ENABLE_APPLICATION_MEDIA_CAPABILITIES)
   if (!app_media_capabilities_observer_binding_.is_bound()) {
     mojom::ApplicationMediaCapabilitiesObserverPtr observer;
     app_media_capabilities_observer_binding_.Bind(mojo::MakeRequest(&observer));
@@ -166,7 +158,6 @@ void CastContentRendererClient::RenderFrameCreated(
         mojo::MakeRequest(&app_media_capabilities));
     app_media_capabilities->AddObserver(std::move(observer));
   }
-#endif
 
 #if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
   extensions::Dispatcher* dispatcher =
@@ -181,6 +172,7 @@ void CastContentRendererClient::RenderFrameCreated(
 content::BrowserPluginDelegate*
 CastContentRendererClient::CreateBrowserPluginDelegate(
     content::RenderFrame* render_frame,
+    const content::WebPluginInfo& info,
     const std::string& mime_type,
     const GURL& original_url) {
 #if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)

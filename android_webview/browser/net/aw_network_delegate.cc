@@ -53,7 +53,7 @@ int AwNetworkDelegate::OnBeforeStartTransaction(
   DCHECK(headers);
   headers->SetHeaderIfMissing(
       "X-Requested-With",
-      base::android::BuildInfo::GetInstance()->package_name());
+      base::android::BuildInfo::GetInstance()->host_package_name());
   return net::OK;
 }
 
@@ -79,9 +79,9 @@ int AwNetworkDelegate::OnHeadersReceived(
         original_response_headers);
     BrowserThread::PostTask(
         BrowserThread::UI, FROM_HERE,
-        base::Bind(&OnReceivedHttpErrorOnUiThread,
-                   request_info->GetWebContentsGetterForRequest(),
-                   AwWebResourceRequest(*request), response_headers));
+        base::BindOnce(&OnReceivedHttpErrorOnUiThread,
+                       request_info->GetWebContentsGetterForRequest(),
+                       AwWebResourceRequest(*request), response_headers));
   }
   return net::OK;
 }

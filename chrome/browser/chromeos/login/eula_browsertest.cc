@@ -146,9 +146,10 @@ class EulaTest : public OobeBaseTest {
     auto* const owner_contents = GetLoginUI()->GetWebContents();
     auto* const manager = guest_view::GuestViewManager::FromBrowserContext(
         owner_contents->GetBrowserContext());
-    manager->ForEachGuest(owner_contents,
-                          base::Bind(&AddNamedWebContentsToSet, &frame_set,
-                                     kUniqueEulaWebviewName));
+    manager->ForEachGuest(
+        owner_contents,
+        base::BindRepeating(&AddNamedWebContentsToSet, &frame_set,
+                            kUniqueEulaWebviewName));
     EXPECT_EQ(1u, frame_set.size());
     return *frame_set.begin();
   }
@@ -191,7 +192,8 @@ IN_PROC_BROWSER_TEST_F(EulaTest, LoadOnline) {
 
 // Tests that offline version is shown when the online version is not
 // accessible.
-IN_PROC_BROWSER_TEST_F(EulaTest, LoadOffline) {
+// Disabled due to flaky timeouts; https://crbug.com/817995.
+IN_PROC_BROWSER_TEST_F(EulaTest, DISABLED_LoadOffline) {
   set_allow_online_eula(false);
   ShowEulaScreen();
 

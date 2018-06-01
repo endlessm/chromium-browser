@@ -25,7 +25,6 @@ from chromite.cbuildbot import repository
 from chromite.cbuildbot import tee
 from chromite.cbuildbot import topology
 from chromite.cbuildbot.stages import completion_stages
-from chromite.lib.const import waterfall
 from chromite.lib import builder_status_lib
 from chromite.lib import cidb
 from chromite.lib import cgroups
@@ -477,6 +476,8 @@ def _CreateParser():
                           default=False, dest='sanity_check_build',
                           api=constants.REEXEC_API_SANITY_CHECK_BUILD,
                           help='Run the build as a sanity check build.')
+  group.add_remote_option('--debug-cidb', action='store_true', default=False,
+                          help='Force Debug CIDB to be used.')
 
   parser.add_argument_group(group)
 
@@ -758,39 +759,18 @@ _ENVIRONMENT_STANDALONE = 'standalone'
 
 def _GetRunEnvironment(options, build_config):
   """Determine whether this is a prod/debug/standalone run."""
-  # Look up the buildbot waterfall.
-  wfall = os.environ.get('BUILDBOT_MASTERNAME', '')
+  if options.debug_cidb:
+    return _ENVIRONMENT_DEBUG
 
-  # Insert the override waterfall for swarming.
-  if os.environ.get('SWARMING_BOT_ID', ''):
-    wfall = waterfall.WATERFALL_SWARMING
-
-  if not wfall:
+  # One of these arguments should always be set if running on a real builder.
+  # If we aren't on a real builder, we are standalone.
+  if not options.buildbot and not options.remote_trybot:
     return _ENVIRONMENT_STANDALONE
 
-  # TODO(akeshet): Clean up this code once we have better defined flags to
-  # specify on-or-off waterfall and on-or-off production runs of cbuildbot.
-  # See crbug.com/331417
+  if build_config['debug_cidb']:
+    return _ENVIRONMENT_DEBUG
 
-  # --buildbot runs should use the production services, unless the --debug flag
-  # is also present.
-  if options.buildbot:
-    if options.debug:
-      return _ENVIRONMENT_DEBUG
-    else:
-      return _ENVIRONMENT_PROD
-
-  # --remote-trybot runs should use the debug services, with the exception of
-  # pre-cq builds, which should use the production services.
-  if options.remote_trybot:
-    if build_config['pre_cq']:
-      return _ENVIRONMENT_PROD
-    else:
-      return _ENVIRONMENT_DEBUG
-
-  # If neither --buildbot nor --remote-trybot flag was used, don't use external
-  # services.
-  return _ENVIRONMENT_STANDALONE
+  return _ENVIRONMENT_PROD
 
 
 def _SetupConnections(options, build_config):

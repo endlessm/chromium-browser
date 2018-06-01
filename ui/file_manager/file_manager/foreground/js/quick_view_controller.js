@@ -172,12 +172,11 @@ QuickViewController.prototype.init_ = function(quickView) {
  */
 QuickViewController.prototype.createQuickView_ = function() {
   return new Promise(function(resolve, reject) {
-    Polymer.Base.importHref(
-        'foreground/elements/files_quick_view.html', function() {
-          var quickView = document.querySelector('#quick-view');
-          i18nTemplate.process(quickView, loadTimeData);
-          resolve(quickView);
-        }, reject);
+    Polymer.Base.importHref(constants.FILES_QUICK_VIEW_HTML, function() {
+      var quickView = document.querySelector('#quick-view');
+      i18nTemplate.process(quickView, loadTimeData);
+      resolve(quickView);
+    }, reject);
   });
 };
 
@@ -386,29 +385,26 @@ QuickViewController.prototype.getQuickViewParameters_ = function(
           volumeInfo.volumeType) >= 0;
 
   if (!localFile) {
-    switch (type) {
-      case 'image':
-        if (item.thumbnailUrl) {
-          return this.loadThumbnailFromDrive_(item.thumbnailUrl)
-              .then(function(result) {
-                if (result.status === 'success')
-                  params.contentUrl = result.data;
-                return params;
-              }.bind(this));
-        }
-        break;
-      case 'video':
-        if (item.thumbnailUrl) {
-          return this.loadThumbnailFromDrive_(item.thumbnailUrl)
-              .then(function(result) {
-                if (result.status === 'success') {
-                  params.videoPoster = result.data;
-                }
-                return params;
-              });
-        }
-        break;
+    // For Drive files, display a thumbnail if there is one.
+    if (item.thumbnailUrl) {
+      return this.loadThumbnailFromDrive_(item.thumbnailUrl)
+          .then(function(result) {
+            if (result.status === 'success') {
+              if (params.type == 'video') {
+                params.videoPoster = result.data;
+              } else if (params.type == 'image') {
+                params.contentUrl = result.data;
+              } else {
+                // TODO(sashab): Rather than re-use 'image', create a new type
+                // here, e.g. 'thumbnail'.
+                params.type = 'image';
+                params.contentUrl = result.data;
+              }
+            }
+            return params;
+          }.bind(this));
     }
+
     // We ask user to open it with external app.
     return Promise.resolve(params);
   }
@@ -461,6 +457,8 @@ QuickViewController.prototype.getQuickViewParameters_ = function(
         });
         params.browsable = browsable;
         params.contentUrl = browsable ? URL.createObjectURL(file) : '';
+        if (params.subtype == 'PDF')
+          params.contentUrl += '#view=Fit';
         return params;
       }.bind(this))
       .catch(function(e) {

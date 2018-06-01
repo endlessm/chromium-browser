@@ -65,11 +65,9 @@ void LegacyNavigationManagerImpl::OnNavigationItemCommitted() {
   details.previous_item_index = [session_controller_ previousItemIndex];
   if (details.previous_item_index >= 0) {
     DCHECK([session_controller_ previousItem]);
-    details.previous_url = [session_controller_ previousItem]->GetURL();
     details.is_in_page = IsFragmentChangeNavigationBetweenUrls(
-        details.previous_url, details.item->GetURL());
+        [session_controller_ previousItem]->GetURL(), details.item->GetURL());
   } else {
-    details.previous_url = GURL();
     details.is_in_page = NO;
   }
 
@@ -90,8 +88,12 @@ void LegacyNavigationManagerImpl::AddTransientItem(const GURL& url) {
   NavigationItem* item = GetPendingItem();
   if (!item)
     item = GetLastCommittedNonAppSpecificItem();
-  DCHECK(item->GetUserAgentType() != UserAgentType::NONE);
-  GetTransientItem()->SetUserAgentType(item->GetUserAgentType());
+  // |item| may still be nullptr if NTP is the only entry in the session.
+  // See https://crbug.com/822908 for details.
+  if (item) {
+    DCHECK(item->GetUserAgentType() != UserAgentType::NONE);
+    GetTransientItem()->SetUserAgentType(item->GetUserAgentType());
+  }
 }
 
 void LegacyNavigationManagerImpl::AddPendingItem(
@@ -309,7 +311,7 @@ void LegacyNavigationManagerImpl::FinishGoToIndex(
     NavigationInitiationType type) {
   const ScopedNavigationItemImplList& items = [session_controller_ items];
   NavigationItem* to_item = items[index].get();
-  NavigationItem* previous_item = [session_controller_ currentItem];
+  NavigationItem* previous_item = GetLastCommittedItem();
 
   to_item->SetTransitionType(ui::PageTransitionFromInt(
       to_item->GetTransitionType() | ui::PAGE_TRANSITION_FORWARD_BACK));

@@ -9,7 +9,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/default_clock.h"
-#include "components/proximity_auth/logging/logging.h"
+#include "chromeos/components/proximity_auth/logging/logging.h"
 
 namespace chromeos {
 
@@ -225,9 +225,9 @@ void BleSynchronizer::ScheduleCommandCompletion() {
   // instance variables in this class after the object has been deleted.
   // Completing the current command as part of the next task ensures that this
   // cannot occur. See crbug.com/770863.
-  task_runner_->PostTask(FROM_HERE,
-                         base::Bind(&BleSynchronizer::CompleteCurrentCommand,
-                                    weak_ptr_factory_.GetWeakPtr()));
+  task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&BleSynchronizer::CompleteCurrentCommand,
+                                weak_ptr_factory_.GetWeakPtr()));
 }
 
 void BleSynchronizer::CompleteCurrentCommand() {

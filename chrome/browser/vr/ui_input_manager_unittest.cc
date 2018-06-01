@@ -10,6 +10,7 @@
 #include "base/time/time.h"
 #include "cc/test/geometry_test_utils.h"
 #include "chrome/browser/vr/content_input_delegate.h"
+#include "chrome/browser/vr/elements/prompt.h"
 #include "chrome/browser/vr/elements/rect.h"
 #include "chrome/browser/vr/elements/ui_element.h"
 #include "chrome/browser/vr/model/model.h"
@@ -23,7 +24,7 @@
 #include "chrome/browser/vr/ui_scene_creator.h"
 #include "chrome/browser/vr/ui_unsupported_mode.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "third_party/WebKit/public/platform/WebGestureEvent.h"
+#include "third_party/blink/public/platform/web_gesture_event.h"
 
 using ::testing::_;
 using ::testing::InSequence;
@@ -92,6 +93,7 @@ class UiInputManagerTest : public testing::Test {
     auto element = std::make_unique<StrictMock<MockTextInput>>();
     StrictMock<MockTextInput>* p_element = element.get();
     element->SetTranslate(0, 0, z_position);
+    element->SetSize(1, 0.1);
     element->set_hit_testable(true);
     scene_->AddUiElement(kRoot, std::move(element));
     scene_->OnBeginFrame(base::TimeTicks(), kStartHeadPose);
@@ -396,7 +398,7 @@ TEST_F(UiInputManagerTest, HitTestStrategy) {
 }
 
 TEST_F(UiInputManagerContentTest, NoMouseMovesDuringClick) {
-  EXPECT_TRUE(RunFor(MsToDelta(500)));
+  EXPECT_TRUE(RunForMs(500));
   // It would be nice if the controller weren't platform specific and we could
   // mock out the underlying sensor data. For now, we will hallucinate
   // parameters to HandleInput.
@@ -427,33 +429,10 @@ TEST_F(UiInputManagerContentTest, NoMouseMovesDuringClick) {
                               &reticle_model, &gesture_list);
 }
 
-TEST_F(UiInputManagerContentTest, ExitPromptHitTesting) {
-  model_->active_modal_prompt_type = kModalPromptTypeExitVRForSiteInfo;
-  EXPECT_TRUE(RunFor(MsToDelta(500)));
-
-  UiElement* exit_prompt =
-      scene_->GetUiElementByName(UiElementName::kExitPrompt);
-  gfx::Point3F exit_prompt_center = exit_prompt->GetCenter();
-  gfx::Point3F origin;
-
-  ControllerModel controller_model;
-  controller_model.laser_direction = exit_prompt_center - origin;
-  controller_model.laser_origin = origin;
-  controller_model.touchpad_button_state = UiInputManager::ButtonState::DOWN;
-  ReticleModel reticle_model;
-  GestureList gesture_list;
-  input_manager_->HandleInput(MsToTicks(1), RenderInfo(), controller_model,
-                              &reticle_model, &gesture_list);
-
-  // We should have hit the exit prompt if our math was correct.
-  ASSERT_NE(0, reticle_model.target_element_id);
-  EXPECT_EQ(exit_prompt->id(), reticle_model.target_element_id);
-}
-
 TEST_F(UiInputManagerContentTest, AudioPermissionPromptHitTesting) {
   model_->active_modal_prompt_type =
       kModalPromptTypeExitVRForVoiceSearchRecordAudioOsPermission;
-  EXPECT_TRUE(RunFor(MsToDelta(500)));
+  EXPECT_TRUE(RunForMs(500));
 
   UiElement* url_bar = scene_->GetUiElementByName(UiElementName::kUrlBar);
   gfx::Point3F url_bar_center = url_bar->GetCenter();
@@ -471,8 +450,7 @@ TEST_F(UiInputManagerContentTest, AudioPermissionPromptHitTesting) {
   // Even if the reticle is over the URL bar, the backplane should be in front
   // and should be hit.
   ASSERT_NE(0, reticle_model.target_element_id);
-  auto& backplane =
-      scene_->GetUiElementByName(kAudioPermissionPrompt)->children().front();
+  auto* backplane = scene_->GetUiElementByName(kAudioPermissionPromptBackplane);
   EXPECT_EQ(backplane->type(), kTypePromptBackplane);
   EXPECT_EQ(backplane->id(), reticle_model.target_element_id);
 }

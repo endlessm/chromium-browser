@@ -18,7 +18,7 @@
 #include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "third_party/WebKit/public/platform/WebMouseEvent.h"
+#include "third_party/blink/public/platform/web_mouse_event.h"
 
 namespace {
 
@@ -925,4 +925,75 @@ TEST_F(CorePageLoadMetricsObserverTest,
   histogram_tester().ExpectTotalCount(internal::kHistogramFirstInputDelay, 0);
   histogram_tester().ExpectTotalCount(internal::kHistogramFirstInputTimestamp,
                                       0);
+}
+
+TEST_F(CorePageLoadMetricsObserverTest, NavigationToBackNavigationWithGesture) {
+  GURL url(kDefaultTestUrl);
+
+  // Navigate once to the page with a user gesture.
+  auto simulator =
+      content::NavigationSimulator::CreateRendererInitiated(url, main_rfh());
+  simulator->SetHasUserGesture(true);
+  simulator->Commit();
+
+  // Now the user presses the back button.
+  NavigateWithPageTransitionAndCommit(
+      url, ui::PageTransitionFromInt(ui::PAGE_TRANSITION_FORWARD_BACK));
+
+  histogram_tester().ExpectTotalCount(
+      internal::kHistogramUserGestureNavigationToForwardBack, 1);
+}
+
+TEST_F(CorePageLoadMetricsObserverTest,
+       BrowserNavigationToBackNavigationWithGesture) {
+  GURL url(kDefaultTestUrl);
+
+  // Navigate once to the page with a user gesture.
+  auto simulator =
+      content::NavigationSimulator::CreateBrowserInitiated(url, web_contents());
+  simulator->SetHasUserGesture(true);
+  simulator->Commit();
+
+  // Now the user presses the back button.
+  NavigateWithPageTransitionAndCommit(
+      url, ui::PageTransitionFromInt(ui::PAGE_TRANSITION_FORWARD_BACK));
+
+  histogram_tester().ExpectTotalCount(
+      internal::kHistogramUserGestureNavigationToForwardBack, 0);
+}
+
+TEST_F(CorePageLoadMetricsObserverTest,
+       NavigationToBackNavigationWithoutGesture) {
+  GURL url(kDefaultTestUrl);
+
+  // Navigate once to the page with a user gesture.
+  auto simulator =
+      content::NavigationSimulator::CreateRendererInitiated(url, main_rfh());
+  simulator->SetHasUserGesture(false);
+  simulator->Commit();
+
+  // Now the user presses the back button.
+  NavigateWithPageTransitionAndCommit(
+      url, ui::PageTransitionFromInt(ui::PAGE_TRANSITION_FORWARD_BACK));
+
+  histogram_tester().ExpectTotalCount(
+      internal::kHistogramUserGestureNavigationToForwardBack, 0);
+}
+
+TEST_F(CorePageLoadMetricsObserverTest,
+       AbortedNavigationToBackNavigationWithGesture) {
+  GURL url(kDefaultTestUrl);
+
+  // Navigate once to the page with a user gesture.
+  auto simulator =
+      content::NavigationSimulator::CreateRendererInitiated(url, main_rfh());
+  simulator->SetHasUserGesture(true);
+  simulator->Start();
+
+  // Now the user presses the back button before the first navigation committed.
+  NavigateWithPageTransitionAndCommit(
+      url, ui::PageTransitionFromInt(ui::PAGE_TRANSITION_FORWARD_BACK));
+
+  histogram_tester().ExpectTotalCount(
+      internal::kHistogramUserGestureNavigationToForwardBack, 1);
 }

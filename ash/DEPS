@@ -3,6 +3,7 @@ include_rules = [
   "+cc/debug",
   "+cc/output",
   "+chromeos/cryptohome",
+  "+components/exo",
   "+components/pref_registry",
   "+components/prefs",
   "+components/quirks",
@@ -58,11 +59,13 @@ include_rules = [
   "+chromeos/audio",
   "+chromeos/chromeos_switches.h",
   "+chromeos/chromeos_paths.h",
+  "+chromeos/components/proximity_auth/logging/logging.h",
   "+chromeos/dbus/dbus_thread_manager.h",
   "+chromeos/dbus/fake_power_manager_client.h",
   "+chromeos/dbus/fake_session_manager_client.h",
   "+chromeos/dbus/power_manager",
   "+chromeos/dbus/power_manager_client.h",
+  "+chromeos/dbus/power_policy_controller.h",
   "+chromeos/dbus/session_manager_client.h",
   "+chromeos/dbus/shill_device_client.h",
   "+chromeos/dbus/system_clock_client.h",
@@ -71,9 +74,14 @@ include_rules = [
   "-chromeos/login/login_state.h",
   # TODO(jamescook): Eliminate this. http://crbug.com/644355
   "+chromeos/network",
+  "+chromeos/services/assistant/public" ,
+  "+chromeos/services/multidevice_setup/public/mojom",
   # TODO(jamescook): Eliminate this. http://crbug.com/644361
   "+chromeos/settings/timezone_settings.h",
   "+chromeos/system",
+
+  # InputMethodManager lives in the browser process. Use ImeController.
+  "-ui/base/ime/chromeos/input_method_manager.h"
 
   # Ozone does not run in process in mus/mash.
   "-ui/events/ozone",

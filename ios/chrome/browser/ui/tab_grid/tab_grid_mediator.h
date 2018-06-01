@@ -7,8 +7,8 @@
 
 #import <Foundation/Foundation.h>
 
-#import "ios/chrome/browser/ui/tab_grid/grid_commands.h"
-#import "ios/chrome/browser/ui/tab_grid/grid_image_data_source.h"
+#import "ios/chrome/browser/ui/tab_grid/grid/grid_commands.h"
+#import "ios/chrome/browser/ui/tab_grid/grid/grid_image_data_source.h"
 
 @protocol GridConsumer;
 @class TabModel;
@@ -19,10 +19,8 @@
 // The source tab model.
 @property(nonatomic, weak) TabModel* tabModel;
 
-// Initializer with |tabModel| as the source model. |consumer| is the receiver
-// of model layer updates.
-- (instancetype)initWithTabModel:(TabModel*)tabModel
-                        consumer:(id<GridConsumer>)consumer
+// Initializer with |consumer| as the receiver of model layer updates.
+- (instancetype)initWithConsumer:(id<GridConsumer>)consumer
     NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 @end

@@ -82,26 +82,25 @@ class ToolbarActionsBar : public ToolbarActionsModel::Observer,
                     ToolbarActionsBar* main_bar);
   ~ToolbarActionsBar() override;
 
-  // Returns the width of a browser action icon, optionally including the
-  // following padding.
-  static int IconWidth(bool include_padding);
-
-  // Returns the height of a browser action icon.
-  static int IconHeight();
-
   // Registers profile preferences.
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
+
+  // Returns the size of the area where the action icon resides.
+  static gfx::Size GetIconAreaSize();
+
+  // Returns the size of ToolbarActionView.
+  gfx::Size GetViewSize() const;
 
   // Returns the default/full size for the toolbar; this does *not* reflect any
   // animations that may be running.
   gfx::Size GetFullSize() const;
 
   // Returns the [minimum|maximum] possible width for the toolbar.
-  int GetMinimumWidth() const;
+  virtual int GetMinimumWidth() const;
   int GetMaximumWidth() const;
 
   // Returns the width for the given number of icons.
-  int IconCountToWidth(int icons) const;
+  int IconCountToWidth(size_t icons) const;
 
   // Returns the number of icons that can fit within the given width.
   size_t WidthToIconCount(int width) const;
@@ -255,6 +254,10 @@ class ToolbarActionsBar : public ToolbarActionsModel::Observer,
       int time_in_seconds);
 
  private:
+  // Returns the insets by which the icon area bounds (See GetIconAreaRect())
+  // are insetted. This defines the amount of paddings around the icon area.
+  virtual gfx::Insets GetIconAreaInsets() const;
+
   // ToolbarActionsModel::Observer:
   void OnToolbarActionAdded(const ToolbarActionsModel::ToolbarItem& item,
                             int index) override;

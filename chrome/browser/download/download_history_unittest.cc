@@ -11,19 +11,18 @@
 
 #include "base/guid.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/rand_util.h"
 #include "base/stl_util.h"
+#include "components/download/public/common/mock_download_item.h"
 #include "components/history/content/browser/download_conversions.h"
 #include "components/history/core/browser/download_constants.h"
 #include "components/history/core/browser/download_row.h"
 #include "components/history/core/browser/history_service.h"
-#include "content/public/test/mock_download_item.h"
 #include "content/public/test/mock_download_manager.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_utils.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -42,7 +41,7 @@ namespace {
 
 using IdSet = DownloadHistory::IdSet;
 using InfoVector = std::vector<history::DownloadRow>;
-using StrictMockDownloadItem = testing::StrictMock<content::MockDownloadItem>;
+using StrictMockDownloadItem = testing::StrictMock<download::MockDownloadItem>;
 
 class FakeHistoryAdapter : public DownloadHistory::HistoryAdapter {
  public:
@@ -186,7 +185,8 @@ class TestDownloadHistoryObserver : public DownloadHistory::Observer {
 class DownloadHistoryTest : public testing::Test {
  public:
   // Generic callback that receives a pointer to a StrictMockDownloadItem.
-  using DownloadItemCallback = base::Callback<void(content::MockDownloadItem*)>;
+  using DownloadItemCallback =
+      base::Callback<void(download::MockDownloadItem*)>;
 
   DownloadHistoryTest()
       : manager_(std::make_unique<content::MockDownloadManager>()) {}
@@ -195,7 +195,7 @@ class DownloadHistoryTest : public testing::Test {
   void TearDown() override { download_history_.reset(); }
 
   content::MockDownloadManager& manager() { return *manager_.get(); }
-  content::MockDownloadItem& item(size_t index) { return *items_[index]; }
+  download::MockDownloadItem& item(size_t index) { return *items_[index]; }
   DownloadHistory* download_history() { return download_history_.get(); }
 
   void SetManagerObserver(
@@ -232,7 +232,6 @@ class DownloadHistoryTest : public testing::Test {
                 this, &DownloadHistoryTest::CallOnDownloadCreatedInOrder),
             Return(&item(index))));
     }
-    EXPECT_CALL(manager(), CheckForHistoryFilesRemoval());
     history_ = new FakeHistoryAdapter();
     history_->ExpectWillQueryDownloads(std::move(infos));
     EXPECT_CALL(*manager_.get(), GetAllDownloads(_)).WillRepeatedly(Return());
@@ -430,7 +429,7 @@ class DownloadHistoryTest : public testing::Test {
 
  private:
   void CheckDownloadWasRestoredFromHistory(bool expected_value,
-                                           content::MockDownloadItem* item) {
+                                           download::MockDownloadItem* item) {
     ASSERT_TRUE(download_history_.get());
     EXPECT_EQ(expected_value, download_history_->WasRestoredFromHistory(item));
   }

@@ -11,6 +11,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
@@ -40,13 +41,18 @@
 #include "components/signin/core/browser/account_info.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/signin_manager.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/sync/protocol/user_event_specifics.pb.h"
 #include "components/sync/user_events/user_event_service.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
+#include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
+#include "google_apis/gaia/gaia_auth_util.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
 #include "url/url_util.h"
 
@@ -56,6 +62,8 @@ using GaiaPasswordReuse = UserEventSpecifics::GaiaPasswordReuse;
 using PasswordReuseDialogInteraction =
     GaiaPasswordReuse::PasswordReuseDialogInteraction;
 using PasswordReuseLookup = GaiaPasswordReuse::PasswordReuseLookup;
+using PasswordReuseEvent =
+    safe_browsing::LoginReputationClientRequest::PasswordReuseEvent;
 using SafeBrowsingStatus =
     GaiaPasswordReuse::PasswordReuseDetected::SafeBrowsingStatus;
 
@@ -142,6 +150,14 @@ int64_t GetNavigationIDFromPrefsByOrigin(PrefService* prefs,
              : 0;
 }
 
+bool AreEmailDomainsSame(const std::string& email,
+                         const std::string& email_domain) {
+  if (email_domain.empty() || email.empty())
+    return false;
+
+  return gaia::ExtractDomainName(email) == email_domain;
+}
+
 }  // namespace
 
 ChromePasswordProtectionService::ChromePasswordProtectionService(
@@ -149,7 +165,7 @@ ChromePasswordProtectionService::ChromePasswordProtectionService(
     Profile* profile)
     : PasswordProtectionService(
           sb_service->database_manager(),
-          sb_service->url_request_context(),
+          sb_service->GetURLLoaderFactory(),
           HistoryServiceFactory::GetForProfile(
               profile,
               ServiceAccessType::EXPLICIT_ACCESS),
@@ -214,19 +230,28 @@ bool ChromePasswordProtectionService::ShouldShowChangePasswordSettingUI(
 
 void ChromePasswordProtectionService::FillReferrerChain(
     const GURL& event_url,
-    int event_tab_id,
+    SessionID event_tab_id,
     LoginReputationClientRequest::Frame* frame) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   SafeBrowsingNavigationObserverManager::AttributionResult result =
       navigation_observer_manager_->IdentifyReferrerChainByEventURL(
           event_url, event_tab_id, kPasswordEventAttributionUserGestureLimit,
           frame->mutable_referrer_chain());
+  size_t referrer_chain_length = frame->referrer_chain().size();
   UMA_HISTOGRAM_COUNTS_100(
       "SafeBrowsing.ReferrerURLChainSize.PasswordEventAttribution",
-      frame->referrer_chain().size());
+      referrer_chain_length);
   UMA_HISTOGRAM_ENUMERATION(
       "SafeBrowsing.ReferrerAttributionResult.PasswordEventAttribution", result,
       SafeBrowsingNavigationObserverManager::ATTRIBUTION_FAILURE_TYPE_MAX);
+
+  // Determines how many recent navigation events to append to referrer chain.
+  size_t recent_navigations_to_collect =
+      profile_ ? SafeBrowsingNavigationObserverManager::
+                     CountOfRecentNavigationsToAppend(*profile_, result)
+               : 0u;
+  navigation_observer_manager_->AppendRecentNavigations(
+      recent_navigations_to_collect, frame->mutable_referrer_chain());
 }
 
 void ChromePasswordProtectionService::ShowModalWarning(
@@ -310,11 +335,15 @@ void ChromePasswordProtectionService::MaybeStartThreatDetailsCollection(
       web_contents->GetMainFrame()->GetProcess()->GetID(),
       web_contents->GetMainFrame()->GetRoutingID());
   resource.token = token;
-  // Ignores the return of |StartCollectingThreatDetails()| here and let
-  // TriggerManager decide whether it should start data collection.
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory =
+      content::BrowserContext::GetDefaultStoragePartition(profile_)
+          ->GetURLLoaderFactoryForBrowserProcess();
+  // Ignores the return of |StartCollectingThreatDetails()| here and
+  // let TriggerManager decide whether it should start data
+  // collection.
   trigger_manager_->StartCollectingThreatDetails(
       safe_browsing::TriggerType::GAIA_PASSWORD_REUSE, web_contents, resource,
-      profile_->GetRequestContext(), /*history_service=*/nullptr,
+      url_loader_factory, /*history_service=*/nullptr,
       TriggerManager::GetSBErrorDisplayOptions(*profile_->GetPrefs(),
                                                *web_contents));
 }
@@ -445,19 +474,19 @@ void ChromePasswordProtectionService::LogPasswordReuseDialogInteraction(
   user_event_service->RecordUserEvent(std::move(specifics));
 }
 
-LoginReputationClientRequest::PasswordReuseEvent::SyncAccountType
+PasswordReuseEvent::SyncAccountType
 ChromePasswordProtectionService::GetSyncAccountType() const {
   const AccountInfo account_info = GetAccountInfo();
   if (account_info.account_id.empty() || account_info.hosted_domain.empty()) {
-    return LoginReputationClientRequest::PasswordReuseEvent::NOT_SIGNED_IN;
+    return PasswordReuseEvent::NOT_SIGNED_IN;
   }
 
   // For gmail or googlemail account, the hosted_domain will always be
   // kNoHostedDomainFound.
   return account_info.hosted_domain ==
                  std::string(AccountTrackerService::kNoHostedDomainFound)
-             ? LoginReputationClientRequest::PasswordReuseEvent::GMAIL
-             : LoginReputationClientRequest::PasswordReuseEvent::GSUITE;
+             ? PasswordReuseEvent::GMAIL
+             : PasswordReuseEvent::GSUITE;
 }
 
 std::unique_ptr<UserEventSpecifics>
@@ -832,20 +861,34 @@ MaybeCreateNavigationThrottle(content::NavigationHandle* navigation_handle) {
 PasswordProtectionTrigger
 ChromePasswordProtectionService::GetPasswordProtectionTriggerPref(
     const std::string& pref_name) const {
-  if (!base::FeatureList::IsEnabled(kEnterprisePasswordProtectionV1))
-    return PHISHING_REUSE;
-
-  const PrefService::Preference* warning_trigger =
-      profile_->GetPrefs()->FindPreference(pref_name);
+  DCHECK(pref_name == prefs::kPasswordProtectionWarningTrigger ||
+         pref_name == prefs::kPasswordProtectionRiskTrigger);
   bool is_policy_managed =
-      (warning_trigger && warning_trigger->IsManaged()) ||
-      GetSyncAccountType() ==
-          LoginReputationClientRequest::PasswordReuseEvent::GSUITE;
-  // TODO(jialiul): Remove the special treatment for GSUITE, when password
-  // protection enterprise control is ready.
-  return is_policy_managed ? static_cast<PasswordProtectionTrigger>(
-                                 profile_->GetPrefs()->GetInteger(pref_name))
-                           : PHISHING_REUSE;
+      base::FeatureList::IsEnabled(kEnterprisePasswordProtectionV1) &&
+      profile_->GetPrefs()->HasPrefPath(pref_name);
+  PasswordProtectionTrigger trigger_level =
+      static_cast<PasswordProtectionTrigger>(
+          profile_->GetPrefs()->GetInteger(pref_name));
+  PasswordReuseEvent::SyncAccountType account_type = GetSyncAccountType();
+  switch (account_type) {
+    case (PasswordReuseEvent::NOT_SIGNED_IN):
+      return PASSWORD_PROTECTION_OFF;
+    case (PasswordReuseEvent::GMAIL):
+      return is_policy_managed ? trigger_level : PHISHING_REUSE;
+    case (PasswordReuseEvent::GSUITE): {
+      // For GSuite account, we should also check if the current sign-in account
+      // matches the configured enterprise email domain.
+      const AccountInfo account_info = GetAccountInfo();
+      std::string enterprise_email_domain = profile_->GetPrefs()->GetString(
+          prefs::kPasswordProtectionEnterpriseEmailDomain);
+      return is_policy_managed && AreEmailDomainsSame(account_info.email,
+                                                      enterprise_email_domain)
+                 ? trigger_level
+                 : PASSWORD_PROTECTION_OFF;
+    }
+  }
+  NOTREACHED();
+  return PASSWORD_PROTECTION_OFF;
 }
 
 bool ChromePasswordProtectionService::IsURLWhitelistedForPasswordEntry(
@@ -874,6 +917,24 @@ bool ChromePasswordProtectionService::IsURLWhitelistedForPasswordEntry(
   }
 
   return false;
+}
+
+base::string16 ChromePasswordProtectionService::GetWarningDetailText() {
+  if (!base::FeatureList::IsEnabled(
+          safe_browsing::kEnterprisePasswordProtectionV1) ||
+      GetSyncAccountType() != safe_browsing::LoginReputationClientRequest::
+                                  PasswordReuseEvent::GSUITE) {
+    return l10n_util::GetStringUTF16(IDS_PAGE_INFO_CHANGE_PASSWORD_DETAILS);
+  }
+
+  std::string enterprise_name =
+      profile_->GetPrefs()->GetString(prefs::kPasswordProtectionEnterpriseName);
+  return enterprise_name.empty()
+             ? l10n_util::GetStringUTF16(
+                   IDS_PAGE_INFO_CHANGE_PASSWORD_DETAILS_ENTERPRISE)
+             : l10n_util::GetStringFUTF16(
+                   IDS_PAGE_INFO_CHANGE_PASSWORD_DETAILS_ENTERPRISE_WITH_ORG_NAME,
+                   base::UTF8ToUTF16(enterprise_name));
 }
 
 }  // namespace safe_browsing

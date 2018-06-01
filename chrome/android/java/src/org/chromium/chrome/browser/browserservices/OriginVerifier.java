@@ -14,6 +14,7 @@ import android.support.customtabs.CustomTabsService.Relation;
 import android.support.v4.util.Pair;
 import android.text.TextUtils;
 
+import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
@@ -21,6 +22,7 @@ import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.library_loader.LibraryProcessType;
+import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.UrlConstants;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -57,13 +59,13 @@ public class OriginVerifier {
     private static final String USE_AS_ORIGIN = "delegate_permission/common.use_as_origin";
     private static final String HANDLE_ALL_URLS = "delegate_permission/common.handle_all_urls";
 
-    private static Map<Pair<String, Integer>, Set<Uri>> sPackageToCachedOrigins;
+    private static Map<Pair<String, Integer>, Set<Origin>> sPackageToCachedOrigins;
     private final OriginVerificationListener mListener;
     private final String mPackageName;
     private final String mSignatureFingerprint;
     private final @Relation int mRelation;
     private long mNativeOriginVerifier = 0;
-    private Uri mOrigin;
+    private Origin mOrigin;
 
     /** Small helper class to post a result of origin verification. */
     private class VerifiedCallback implements Runnable {
@@ -79,9 +81,10 @@ public class OriginVerifier {
         }
     }
 
-    static Uri getPostMessageOriginFromVerifiedOrigin(String packageName, Uri verifiedOrigin) {
+    public static Uri getPostMessageUriFromVerifiedOrigin(String packageName,
+            Origin verifiedOrigin) {
         return Uri.parse(IntentHandler.ANDROID_APP_REFERRER_SCHEME + "://"
-                + verifiedOrigin.getHost() + "/" + packageName);
+                + verifiedOrigin.uri().getHost() + "/" + packageName);
     }
 
     /** Clears all known relations. */
@@ -98,15 +101,14 @@ public class OriginVerifier {
      * @param relation The Digital Asset Links relation verified.
      */
     public static void addVerifiedOriginForPackage(
-            String packageName, Uri origin, @Relation int relation) {
+            String packageName, Origin origin, @Relation int relation) {
         ThreadUtils.assertOnUiThread();
         if (sPackageToCachedOrigins == null) sPackageToCachedOrigins = new HashMap<>();
-        Set<Uri> cachedOrigins =
-                sPackageToCachedOrigins.get(new Pair<String, Integer>(packageName, relation));
+        Set<Origin> cachedOrigins =
+                sPackageToCachedOrigins.get(new Pair<>(packageName, relation));
         if (cachedOrigins == null) {
-            cachedOrigins = new HashSet<Uri>();
-            sPackageToCachedOrigins.put(
-                    new Pair<String, Integer>(packageName, relation), cachedOrigins);
+            cachedOrigins = new HashSet<>();
+            sPackageToCachedOrigins.put(new Pair<>(packageName, relation), cachedOrigins);
         }
         cachedOrigins.add(origin);
     }
@@ -121,11 +123,10 @@ public class OriginVerifier {
      * @param origin The origin to verify
      * @param relation The Digital Asset Links relation to verify for.
      */
-    public static boolean isValidOrigin(String packageName, Uri origin, @Relation int relation) {
+    public static boolean isValidOrigin(String packageName, Origin origin, @Relation int relation) {
         ThreadUtils.assertOnUiThread();
         if (sPackageToCachedOrigins == null) return false;
-        Set<Uri> cachedOrigins =
-                sPackageToCachedOrigins.get(new Pair<String, Integer>(packageName, relation));
+        Set<Origin> cachedOrigins = sPackageToCachedOrigins.get(new Pair<>(packageName, relation));
         if (cachedOrigins == null) return false;
         return cachedOrigins.contains(origin);
     }
@@ -140,12 +141,12 @@ public class OriginVerifier {
          * @param origin The origin that was declared on the query for this result.
          * @param verified Whether the given origin was verified to correspond to the given package.
          */
-        void onOriginVerified(String packageName, Uri origin, boolean verified);
+        void onOriginVerified(String packageName, Origin origin, boolean verified);
     }
 
     /**
      * Main constructor.
-     * Use {@link OriginVerifier#start(Uri)}
+     * Use {@link OriginVerifier#start(Origin)}
      * @param listener The listener who will get the verification result.
      * @param packageName The package for the Android application for verification.
      * @param relation Digital Asset Links {@link Relation} to use during verification.
@@ -164,18 +165,32 @@ public class OriginVerifier {
      * profile as context.
      * @param origin The postMessage origin the application is claiming to have. Can't be null.
      */
-    public void start(@NonNull Uri origin) {
+    public void start(@NonNull Origin origin) {
         ThreadUtils.assertOnUiThread();
         mOrigin = origin;
-        String scheme = mOrigin.getScheme();
+
+        // Website to app Digital Asset Link verification can be skipped for a specific URL by
+        // passing a command line flag to ease development.
+        String disableDalUrl = CommandLine.getInstance().getSwitchValue(
+                ChromeSwitches.DISABLE_DIGITAL_ASSET_LINK_VERIFICATION);
+        if (!TextUtils.isEmpty(disableDalUrl)
+                && mOrigin.equals(new Origin(disableDalUrl))) {
+            Log.i(TAG, "Verification skipped for %s due to command line flag.", origin);
+            ThreadUtils.runOnUiThread(new VerifiedCallback(true));
+            return;
+        }
+
+        String scheme = mOrigin.uri().getScheme();
         if (TextUtils.isEmpty(scheme)
                 || !UrlConstants.HTTPS_SCHEME.equals(scheme.toLowerCase(Locale.US))) {
+            Log.i(TAG, "Verification failed for %s as not https.", origin);
             ThreadUtils.runOnUiThread(new VerifiedCallback(false));
             return;
         }
 
         // If this origin is cached as verified already, use that.
         if (isValidOrigin(mPackageName, origin, mRelation)) {
+            Log.i(TAG, "Verification succeeded for %s, it was cached.", origin);
             ThreadUtils.runOnUiThread(new VerifiedCallback(true));
             return;
         }
@@ -272,9 +287,9 @@ public class OriginVerifier {
 
     @CalledByNative
     private void originVerified(boolean originVerified) {
+        Log.i(TAG, "Verification %s.", (originVerified ? "succeeded" : "failed"));
         if (originVerified) {
             addVerifiedOriginForPackage(mPackageName, mOrigin, mRelation);
-            mOrigin = getPostMessageOriginFromVerifiedOrigin(mPackageName, mOrigin);
         }
         if (mListener != null) mListener.onOriginVerified(mPackageName, mOrigin, originVerified);
         cleanUp();

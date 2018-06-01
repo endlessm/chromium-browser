@@ -29,7 +29,7 @@
 #include "net/android/network_change_notifier_factory_android.h"
 #include "net/base/network_change_notifier.h"
 #include "net/proxy_resolution/proxy_config_service_android.h"
-#include "net/proxy_resolution/proxy_service.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
 #include "url/url_features.h"
 #include "url/url_util.h"
 
@@ -155,8 +155,8 @@ std::unique_ptr<net::ProxyConfigService> CreateProxyConfigService(
   return service;
 }
 
-// Creates a proxy service appropriate for this platform.
-std::unique_ptr<net::ProxyResolutionService> CreateProxyService(
+// Creates a proxy resolution service appropriate for this platform.
+std::unique_ptr<net::ProxyResolutionService> CreateProxyResolutionService(
     std::unique_ptr<net::ProxyConfigService> proxy_config_service,
     net::NetLog* net_log) {
   // Android provides a local HTTP proxy server that handles proxying when a PAC

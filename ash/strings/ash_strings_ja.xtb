@@ -26,11 +26,13 @@
 <translation id="1537254971476575106">拡大鏡（全画面）</translation>
 <translation id="15373452373711364">大きいマウス カーソル</translation>
 <translation id="1550523713251050646">クリックするとその他のオプションが表示されます</translation>
+<translation id="1567387640189251553">前回のパスワード入力時以降に別のキーボードが接続されました。キー入力が読み取られる可能性があります。</translation>
 <translation id="1608626060424371292">このユーザーを削除</translation>
 <translation id="1621499497873603021">バッテリーが空になるまであと: <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">パスワードをまだ確認できません。注: パスワードを最近変更した場合、新しいパスワードはログアウトした後に適用されます。こちらでは古いパスワードを使用してください。</translation>
 <translation id="1677472565718498478">あと <ph name="TIME" /></translation>
 <translation id="1698760176351776263">IPv6 アドレス: <ph name="ADDRESS" /></translation>
+<translation id="170389796989115980">端末の管理者によりアクティビティが監視される可能性があります。</translation>
 <translation id="1734367976349034509">このデバイスは会社が管理しています</translation>
 <translation id="1746730358044914197">入力方法は管理者によって設定されています。</translation>
 <translation id="1747827819627189109">画面キーボードが有効です</translation>
@@ -41,9 +43,11 @@
 <translation id="1882897271359938046"><ph name="DISPLAY_NAME" /> へミラーリング</translation>
 <translation id="1919743966458266018">タスク マネージャを起動するショートカットが変わりました。<ph name="OLD_SHORTCUT" /> ではなく <ph name="NEW_SHORTCUT" /> をご使用ください。</translation>
 <translation id="1923539912171292317">自動クリック</translation>
+<translation id="1928739107511554905">アップデートを取得するには、キーボードが接続された状態で、タッチスクリーンを使って Chromebook を再起動してください。</translation>
 <translation id="1942830294380034169">オーバーフロー ボタン</translation>
 <translation id="1951012854035635156">アシスタント</translation>
 <translation id="1957803754585243749">0°</translation>
+<translation id="1957958912175573503">言語を設定</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" />（USB）</translation>
 <translation id="1995660704900986789">電源を切る</translation>
 <translation id="2012624427112548395">Ctrl+検索+H</translation>
@@ -63,6 +67,7 @@
 <translation id="2292698582925480719">表示スケール</translation>
 <translation id="2303600792989757991">ウィンドウ切り替えの概要</translation>
 <translation id="2338501278241028356">近くのデバイスを検出するには Bluetooth をオンにしてください</translation>
+<translation id="2351266942280602854">言語と入力</translation>
 <translation id="2352467521400612932">タッチペンの設定</translation>
 <translation id="2354174487190027830"><ph name="NAME" /> を有効にしています</translation>
 <translation id="2365393535144473978">モバイルデータ通信を有効にすると、Bluetooth も有効になります。</translation>
@@ -78,6 +83,9 @@
 <translation id="2653659639078652383">送信</translation>
 <translation id="2675319268637823299"><ph name="USER_EMAIL" /> のマルチログインは、管理者によって禁止されています。
     続行するには、すべてのユーザーがログアウトする必要があります。</translation>
+<translation id="2696763960464195425">ログアウトすると利用時の情報は削除されます。<ph name="LEARN_MORE" /></translation>
+<translation id="2700493154570097719">キーボードを設定</translation>
+<translation id="2718395828230677721">読書灯</translation>
 <translation id="2727977024730340865">低電力の充電器に接続しています。バッテリーが充電されない可能性があります。</translation>
 <translation id="2761704814324807722">ステータス トレイ、時刻 <ph name="TIME" />、<ph name="BATTERY" /></translation>
 <translation id="277257480934873581"><ph name="NAME" /> に再接続しています</translation>
@@ -100,9 +108,11 @@
 <translation id="3077734595579995578">shift</translation>
 <translation id="3087734570205094154">下</translation>
 <translation id="3105990244222795498"><ph name="DEVICE_NAME" />（Bluetooth）</translation>
+<translation id="3112378005171663295">折りたたむ</translation>
 <translation id="3126069444801937830">再起動して更新</translation>
 <translation id="3147142846278915599">ランチャー（アプリを同期中...）</translation>
 <translation id="315116470104423982">モバイル データ</translation>
+<translation id="3151786313568798007">向き</translation>
 <translation id="3153444934357957346">マルチログインに使用できるのは <ph name="MULTI_PROFILE_USER_LIMIT" /> アカウントまでです。</translation>
 <translation id="3236488194889173876">利用できるモバイル ネットワークがありません</translation>
 <translation id="3294437725009624529">ゲスト</translation>
@@ -124,6 +134,7 @@
 <translation id="3621202678540785336">入力</translation>
 <translation id="3626281679859535460">輝度</translation>
 <translation id="3631369015426612114">以下からの通知を許可</translation>
+<translation id="3705722231355495246">-</translation>
 <translation id="3712407551474845318">一部分をキャプチャ</translation>
 <translation id="371370241367527062">前方のマイク</translation>
 <translation id="3771549900096082774">ハイ コントラスト モード</translation>
@@ -168,6 +179,7 @@
 <translation id="4905614135390995787">ハイ コントラスト モードを切り替えるショートカットが変わりました。これまでの <ph name="OLD_SHORTCUT" /> キーではなく <ph name="NEW_SHORTCUT" /> キーを使用してください。</translation>
 <translation id="4918086044614829423">承諾</translation>
 <translation id="4961318399572185831">画面をキャスト</translation>
+<translation id="5136175204352732067">別のキーボードが接続されています</translation>
 <translation id="5168181903108465623">キャスト デバイスを利用できます</translation>
 <translation id="5207949376430453814">テキスト カーソルをハイライト表示する</translation>
 <translation id="5222676887888702881">ログアウト</translation>
@@ -179,6 +191,7 @@
 <translation id="5431825016875453137">OpenVPN / L2TP</translation>
 <translation id="544691375626129091">該当するすべてのユーザーをこのセッションに追加済みです。</translation>
 <translation id="5457599981699367932">ゲストとしてブラウジング</translation>
+<translation id="54609108002486618">管理</translation>
 <translation id="553675580533261935">セッションの終了</translation>
 <translation id="5548285847212963613">拡張機能「<ph name="EXTENSION_NAME" />」はこのネットワークへの接続をサポートします。</translation>
 <translation id="5571066253365925590">Bluetooth オン</translation>
@@ -203,6 +216,7 @@
 <translation id="5977415296283489383">ヘッドホン</translation>
 <translation id="5978382165065462689">リモート サポート経由で画面の制御を共有しています。</translation>
 <translation id="5980301590375426705">ゲスト セッションを終了</translation>
+<translation id="598882571027504733">アップデートを取得するには、キーボードを接続した状態で Chromebook を再起動してください。</translation>
 <translation id="5992218262414051481">ハイコントラスト モードが有効になりました。無効にするには、Ctrl+検索+H キーをもう一度押します。</translation>
 <translation id="6018164090099858612">ミラーモードを終了しています</translation>
 <translation id="6043212731627905357">このモニターは <ph name="DEVICE_TYPE" /> では使用できません（サポートされていません）。</translation>
@@ -239,6 +253,7 @@
 <translation id="6650933572246256093">Bluetooth デバイス「<ph name="DEVICE_NAME" />」がペア設定の権限をリクエストしています。このデバイスに次のパスキーを入力してください: <ph name="PASSKEY" /></translation>
 <translation id="6657585470893396449">パスワード</translation>
 <translation id="6691659475504239918">検索+Shift+H</translation>
+<translation id="6696025732084565524">お使いのキーボード（取り外し可能）に重要なアップデートを適用する必要があります</translation>
 <translation id="6700713906295497288">IME メニューボタン</translation>
 <translation id="6713285437468012787">Bluetooth デバイス「<ph name="DEVICE_NAME" />」がペア設定されました。すべてのユーザーはこのデバイスを使用できます。[設定] から、このペア設定を削除することもできます。</translation>
 <translation id="6715542151869432661">モバイル端末が見つかりませんでした。</translation>
@@ -258,6 +273,7 @@
 <translation id="7098389117866926363">USB-C デバイス（背面左のポート）</translation>
 <translation id="7131634465328662194">制限時間になると自動的にログアウトします。</translation>
 <translation id="7165278925115064263">Alt+Shift+K</translation>
+<translation id="7165511658052620796">（TEMP）WebUI のログイン画面を表示: 使用したファイルにバグが発生した場合（crbug.com）、またはフィードバックを送信する場合（Alt+Shift+i）</translation>
 <translation id="7168224885072002358"><ph name="TIMEOUT_SECONDS" /> 秒後に元の解像度に戻ります</translation>
 <translation id="7256634071279256947">後方のマイク</translation>
 <translation id="726276584504105859">分割画面を使用するにはここにドラッグします</translation>
@@ -318,6 +334,8 @@
 <translation id="8652175077544655965">設定を閉じます</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">低電力の充電器に接続されています</translation>
+<translation id="8734991477317290293">キー入力が読み取られる可能性があります</translation>
+<translation id="8809737090443522491">アプリまたはドキュメントの名前を入力</translation>
 <translation id="8814190375133053267">Wi-Fi</translation>
 <translation id="8814715559352963456">ウィンドウを別のデスクトップに移動すると、予期しない動作が起こることがあります。
 
@@ -331,6 +349,7 @@
 <translation id="8921624153894383499">Google アシスタントはこの言語に対応していません。</translation>
 <translation id="8938800817013097409">USB-C デバイス（背面右のポート）</translation>
 <translation id="8940956008527784070">バッテリー残量: 少（<ph name="PERCENTAGE" />%）</translation>
+<translation id="8995603266996330174">管理ドメイン: <ph name="DOMAIN" /></translation>
 <translation id="9074739597929991885">Bluetooth</translation>
 <translation id="9079731690316798640">Wi-Fi: <ph name="ADDRESS" /></translation>
 <translation id="9080206825613744995">マイクは使用中です。</translation>

@@ -26,11 +26,13 @@
 <translation id="1537254971476575106">Lupa de pantalla completa</translation>
 <translation id="15373452373711364">Cursor del ratolí gran</translation>
 <translation id="1550523713251050646">Feu clic per veure més opcions</translation>
+<translation id="1567387640189251553">S'ha connectat un altre teclat des de la darrera vegada que vas introduir la contrasenya. Pot ser que estigui provant de robar-te les combinacions de tecles.</translation>
 <translation id="1608626060424371292">Suprimeix aquest usuari</translation>
 <translation id="1621499497873603021">Temps que queda fins que no s'esgoti la bateria: <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">Encara no s'ha pogut verificar la contrasenya. Nota: si fa poc que has canviat la contrasenya, la nova s'aplicarà un cop hagis tancat la sessió. Fes servir la contrasenya anterior aquí.</translation>
 <translation id="1677472565718498478">Temps restant: <ph name="TIME" /></translation>
 <translation id="1698760176351776263">Adreça IPv6: <ph name="ADDRESS" /></translation>
+<translation id="170389796989115980">Pot ser que l'administrador del dispositiu pugui supervisar la teva activitat.</translation>
 <translation id="1734367976349034509">Aquest dispositiu està gestionat per una empresa</translation>
 <translation id="1746730358044914197">Els mètodes d'introducció estan configurats per l'administrador.</translation>
 <translation id="1747827819627189109">Teclat en pantalla activat</translation>
@@ -41,9 +43,11 @@
 <translation id="1882897271359938046">S'està replicant <ph name="DISPLAY_NAME" /></translation>
 <translation id="1919743966458266018">La drecera per obrir el gestor de tasques ha canviat. Utilitzeu <ph name="NEW_SHORTCUT" /> en lloc de la drecera <ph name="OLD_SHORTCUT" />.</translation>
 <translation id="1923539912171292317">Clics automàtics</translation>
+<translation id="1928739107511554905">Per obtenir l'actualització, utilitza la pantalla tàctil per reiniciar Chromebook amb el teclat connectat.</translation>
 <translation id="1942830294380034169">Botó de desbordament</translation>
 <translation id="1951012854035635156">Assistent</translation>
 <translation id="1957803754585243749">0°</translation>
+<translation id="1957958912175573503">Estableix el teu idioma</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
 <translation id="1995660704900986789">Apaga</translation>
 <translation id="2012624427112548395">Ctrl+Cerca+H</translation>
@@ -63,6 +67,7 @@
 <translation id="2292698582925480719">Escala de visualització</translation>
 <translation id="2303600792989757991">Commuta la visió general de la finestra</translation>
 <translation id="2338501278241028356">Activa el Bluetooth per detectar dispositius propers</translation>
+<translation id="2351266942280602854">Idioma i introducció de text</translation>
 <translation id="2352467521400612932">Configuració del llapis òptic</translation>
 <translation id="2354174487190027830">S'està activant <ph name="NAME" /></translation>
 <translation id="2365393535144473978">En activar les dades mòbils s'activarà el Bluetooth.</translation>
@@ -78,6 +83,9 @@
 <translation id="2653659639078652383">Envia</translation>
 <translation id="2675319268637823299">Un administrador ha desactivat l'inici de sessió múltiple per a <ph name="USER_EMAIL" />.
     Tots els usuaris han de tancar la sessió per continuar.</translation>
+<translation id="2696763960464195425">La teva informació se suprimirà quan tanquis la sessió. <ph name="LEARN_MORE" />.</translation>
+<translation id="2700493154570097719">Defineix el teu teclat</translation>
+<translation id="2718395828230677721">Llum nocturna</translation>
 <translation id="2727977024730340865">S'ha connectat a un carregador de baix consum. És possible que la càrrega de la bateria no sigui fiable.</translation>
 <translation id="2761704814324807722">Safata d'estat. Hora: <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581">S'està tornant a connectar a la xarxa <ph name="NAME" /></translation>
@@ -100,9 +108,11 @@
 <translation id="3077734595579995578">maj</translation>
 <translation id="3087734570205094154">Part inferior</translation>
 <translation id="3105990244222795498"><ph name="DEVICE_NAME" /> (Bluetooth)</translation>
+<translation id="3112378005171663295">Redueix</translation>
 <translation id="3126069444801937830">Reinicia per actualitzar</translation>
 <translation id="3147142846278915599">Launcher (s'estan sincronitzant les aplicacions...)</translation>
 <translation id="315116470104423982">Dades mòbils</translation>
+<translation id="3151786313568798007">Orientació</translation>
 <translation id="3153444934357957346">Només pots tenir <ph name="MULTI_PROFILE_USER_LIMIT" /> comptes com a màxim en un inici de sessió múltiple.</translation>
 <translation id="3236488194889173876">No hi ha cap xarxa mòbil disponible</translation>
 <translation id="3294437725009624529">Convidat</translation>
@@ -124,6 +134,7 @@
 <translation id="3621202678540785336">Entrada</translation>
 <translation id="3626281679859535460">Brillantor</translation>
 <translation id="3631369015426612114">Permet notificacions de les fonts següents:</translation>
+<translation id="3705722231355495246">-</translation>
 <translation id="3712407551474845318">Captura una part</translation>
 <translation id="371370241367527062">Micròfon frontal</translation>
 <translation id="3771549900096082774">Mode d'alt contrast</translation>
@@ -168,6 +179,7 @@
 <translation id="4905614135390995787">La drecera per activar/desactivar el mode d'alt contrast ha canviat. A partir d'ara, utilitza <ph name="NEW_SHORTCUT" /> en lloc de la drecera <ph name="OLD_SHORTCUT" />.</translation>
 <translation id="4918086044614829423">Accepta</translation>
 <translation id="4961318399572185831">Emet la pantalla</translation>
+<translation id="5136175204352732067">S'ha connectat un altre teclat</translation>
 <translation id="5168181903108465623">Dispositius d'emissió disponibles</translation>
 <translation id="5207949376430453814">Ressalta la marca d'inserció de text</translation>
 <translation id="5222676887888702881">Tanca la sessió</translation>
@@ -176,9 +188,10 @@
 <translation id="5331975486040154427">Dispositiu USB-C (port posterior esquerre)</translation>
 <translation id="5397578532367286026">El gestor (<ph name="MANAGER_EMAIL" />) pot revisar l'ús i l'historial d'aquest usuari a chrome.com.</translation>
 <translation id="5430931332414098647">Compartició de xarxa instantània</translation>
-<translation id="5431825016875453137">VPN oberta / L2TP</translation>
+<translation id="5431825016875453137">OpenVPN/L2TP</translation>
 <translation id="544691375626129091">Ja s'han afegit tots els usuaris disponibles a aquesta sessió.</translation>
 <translation id="5457599981699367932">Navega com a convidat</translation>
+<translation id="54609108002486618">Gestionat</translation>
 <translation id="553675580533261935">S'està tancant la sessió</translation>
 <translation id="5548285847212963613">L'extensió "<ph name="EXTENSION_NAME" />" pot ajudar a connectar-se a aquesta xarxa.</translation>
 <translation id="5571066253365925590">S'ha activat el Bluetooth</translation>
@@ -203,6 +216,7 @@
 <translation id="5977415296283489383">Auricular</translation>
 <translation id="5978382165065462689">Es comparteix el control de la pantalla mitjançant l'Assistència remota.</translation>
 <translation id="5980301590375426705">Surt de la sessió de convidat</translation>
+<translation id="598882571027504733">Per obtenir l'actualització, reinicia Chromebook amb el teclat connectat.</translation>
 <translation id="5992218262414051481">El mode d'alt contrast està activat. Torna a prémer Ctrl+Cerca+H per desactivar-lo.</translation>
 <translation id="6018164090099858612">S'està sortint del mode de rèplica</translation>
 <translation id="6043212731627905357">Aquest monitor i el teu <ph name="DEVICE_TYPE" /> no s'entenen (el monitor no és compatible).</translation>
@@ -239,6 +253,7 @@ Utilitza aquesta funció només amb comptes de confiança.</translation>
 <translation id="6650933572246256093">El dispositiu Bluetooth "<ph name="DEVICE_NAME" />" sol·licita permís per emparellar-se. Introduïu-hi aquesta contrasenya: <ph name="PASSKEY" />.</translation>
 <translation id="6657585470893396449">Contrasenya</translation>
 <translation id="6691659475504239918">Cerca+Maj+H</translation>
+<translation id="6696025732084565524">El teclat extraïble necessita una actualització molt important</translation>
 <translation id="6700713906295497288">Botó del menú d'IME</translation>
 <translation id="6713285437468012787">El dispositiu Bluetooth "<ph name="DEVICE_NAME" />" s'ha vinculat i ja està disponible per a tots els usuaris. Podeu eliminar la vinculació a Configuració.</translation>
 <translation id="6715542151869432661">No s'ha trobat cap dispositiu mòbil.</translation>
@@ -258,6 +273,7 @@ Utilitza aquesta funció només amb comptes de confiança.</translation>
 <translation id="7098389117866926363">Dispositiu USB-C (port posterior esquerre)</translation>
 <translation id="7131634465328662194">La sessió es tancarà automàticament.</translation>
 <translation id="7165278925115064263">Alt+Maj+K</translation>
+<translation id="7165511658052620796">(TEMP.) Mostra l'inici de sessió de la interfície d'usuari web; si s'utilitza un registre d'errors (crbug.com) o suggeriments (Alt+Maj+i)</translation>
 <translation id="7168224885072002358">Es revertirà a la resolució anterior d'aquí a <ph name="TIMEOUT_SECONDS" /></translation>
 <translation id="7256634071279256947">Micròfon posterior</translation>
 <translation id="726276584504105859">Arrossega-la aquí per utilitzar la pantalla dividida</translation>
@@ -317,6 +333,8 @@ Utilitza aquesta funció només amb comptes de confiança.</translation>
 <translation id="8652175077544655965">Tanca la configuració</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">S'ha connectat un carregador de baix consum</translation>
+<translation id="8734991477317290293">Pot ser que estigui provant de robar-te les combinacions de tecles</translation>
+<translation id="8809737090443522491">Escriu el nom d'una aplicació o d'un document</translation>
 <translation id="8814190375133053267">Wi-Fi</translation>
 <translation id="8814715559352963456">Si moveu finestres a un altre escriptori, pot provocar un comportament imprevist.
 
@@ -330,6 +348,7 @@ Utilitza aquesta funció només amb comptes de confiança.</translation>
 <translation id="8921624153894383499">L'Assistent de Google no parla aquest idioma.</translation>
 <translation id="8938800817013097409">Dispositiu USB-C (port posterior dret)</translation>
 <translation id="8940956008527784070">Bateria baixa (<ph name="PERCENTAGE" />%)</translation>
+<translation id="8995603266996330174">Gestionat per <ph name="DOMAIN" /></translation>
 <translation id="9074739597929991885">Bluetooth</translation>
 <translation id="9079731690316798640">Wi-Fi: <ph name="ADDRESS" /></translation>
 <translation id="9080206825613744995">S'està fent servir el micròfon.</translation>

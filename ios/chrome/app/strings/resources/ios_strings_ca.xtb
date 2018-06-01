@@ -104,7 +104,7 @@ Per exemple, pot ser que, per respondre a aquesta sol·licitud, alguns llocs web
 <translation id="283291358677939992">Cerca a la pàgina...</translation>
 <translation id="2834956026595107950"><ph name="TITLE" />, <ph name="STATE" />, <ph name="URL" /></translation>
 <translation id="2843803966603263712">Restableix config. Traductor</translation>
-<translation id="285960592395650245">Torna a baixar</translation>
+<translation id="285960592395650245">Torna a provar la baixada</translation>
 <translation id="2870560284913253234">Lloc</translation>
 <translation id="2871695793448672541">Contrasenya amagada</translation>
 <translation id="2898963176829412617">Carpeta nova…</translation>
@@ -137,6 +137,7 @@ Per exemple, pot ser que, per respondre a aquesta sol·licitud, alguns llocs web
 <translation id="3393920035788932672">Finestres emergents permeses</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> min</translation>
 <translation id="3448016392200048164">Visualització dividida</translation>
+<translation id="3469166899695866866">Vols aturar la baixada?</translation>
 <translation id="3474624961160222204">Continua com a <ph name="NAME" /></translation>
 <translation id="3474649192738347024">S'han emplenat els formularis.</translation>
 <translation id="3478058380795961209">Mes de caducitat</translation>
@@ -159,6 +160,7 @@ Per exemple, pot ser que, per respondre a aquesta sol·licitud, alguns llocs web
 <translation id="3789841737615482174">Instal·la</translation>
 <translation id="385051799172605136">Enrere</translation>
 <translation id="3897092660631435901">Menú</translation>
+<translation id="3915450441834151894">Informació del lloc web</translation>
 <translation id="3928666092801078803">Combina les meves dades</translation>
 <translation id="3950820424414687140">Inicia la sessió</translation>
 <translation id="3963231839620026525">Pestanya d'incògnit nova</translation>
@@ -167,6 +169,7 @@ Per exemple, pot ser que, per respondre a aquesta sol·licitud, alguns llocs web
 <translation id="4002066346123236978">Títol</translation>
 <translation id="4038354071007134711">Cap aplicació del dispos. no pot obrir el fitxer.</translation>
 <translation id="4049507953662678203">Assegureu-vos que teniu una connexió de xarxa i torneu-ho a provar.</translation>
+<translation id="4084682180776658562">Adreça d'interès</translation>
 <translation id="411254640334432676">S'ha produït un error durant la baixada.</translation>
 <translation id="4121993058175073134">Definiu el vostre compte de correu electrònic a l'aplicació Configuració per enviar dades d'exportació de xarxa.</translation>
 <translation id="4124987746317609294">Interval de temps</translation>
@@ -191,6 +194,7 @@ Per exemple, pot ser que, per respondre a aquesta sol·licitud, alguns llocs web
 <translation id="4536418791685807335">Torna a iniciar la sessió.</translation>
 <translation id="457386861538956877">Més...</translation>
 <translation id="461440297010471931">S'està cercant amb Google</translation>
+<translation id="4619615317237390068">Pestanyes d'altres dispositius</translation>
 <translation id="4620246317052452550">Pàgines que has llegit</translation>
 <translation id="4636930964841734540">Informació</translation>
 <translation id="4659667755519643272">Entra al selector de pestanyes</translation>
@@ -221,6 +225,7 @@ Les vostres dades estan encriptades amb la vostra frase de contrasenya de sincro
 <translation id="5197255632782567636">Internet</translation>
 <translation id="5228579091201413441">Activa la sincronització</translation>
 <translation id="5244474230056479698">S'està sincronitzant amb <ph name="EMAIL" /></translation>
+<translation id="527973086555161537">Obre una pestanya per navegar pel web de manera privada.</translation>
 <translation id="5300589172476337783">Mostra</translation>
 <translation id="5317780077021120954">Desa</translation>
 <translation id="5327248766486351172">Nom</translation>
@@ -319,6 +324,7 @@ Les vostres dades es van encriptar el dia <ph name="TIME" /> amb la vostra frase
 <translation id="6914783257214138813">Tothom que pugui veure el fitxer exportat podrà veure també les teves contrasenyes.</translation>
 <translation id="6945221475159498467">Selecciona</translation>
 <translation id="6973630695168034713">Carpetes</translation>
+<translation id="6979158407327259162">Google Drive</translation>
 <translation id="7004499039102548441">Pestanyes recents</translation>
 <translation id="7006788746334555276">Configuració del contingut</translation>
 <translation id="7029809446516969842">Contrasenyes</translation>
@@ -364,22 +370,26 @@ Les vostres dades es van encriptar el dia <ph name="TIME" /> amb la vostra frase
 <translation id="7856733331829174190">No s'ha pogut baixar</translation>
 <translation id="7859704718976024901">Historial de navegació</translation>
 <translation id="7938254975914653459">FaceTime</translation>
-<translation id="7939128259257418052">Exporta contrasenyes</translation>
+<translation id="7939128259257418052">Exporta les contrasenyes</translation>
 <translation id="7947953824732555851">Acc. i inicia sessió</translation>
 <translation id="7961015016161918242">Mai</translation>
 <translation id="7971521879845308059">Bloqueig de finestres emerg.</translation>
 <translation id="7982789257301363584">Xarxa</translation>
 <translation id="8019783059653722575">Això et permet desar i penjar fotos.</translation>
+<translation id="802154636333426148">Error de baixada</translation>
 <translation id="8023878949384262191">Desplega la secció.</translation>
 <translation id="8059533439631660104">Replega la secció.</translation>
 <translation id="806745655614357130">Mantén les meves dades separades</translation>
+<translation id="8073670137947914548">La baixada ha finalitzat</translation>
 <translation id="8076014560081431679">La configuració desada del lloc no se suprimirà i és possible que reflecteixi els vostres hàbits de navegació. <ph name="BEGIN_LINK" />Més informació<ph name="END_LINK" /></translation>
 <translation id="8080028325999236607">Tanca totes les pestanyes</translation>
+<translation id="8114753159095730575">La baixada de fitxers està disponible. Opcions disponibles a la part inferior de la pantalla.</translation>
 <translation id="8205564605687841303">Cancel·la</translation>
 <translation id="8225985093977202398">Fitxers i imatges a memòria cau</translation>
 <translation id="8261506727792406068">Suprimeix</translation>
 <translation id="8272426682713568063">Targetes de crèdit</translation>
 <translation id="8281781826761538115">Idioma predeterminat: <ph name="DEFAULT_LOCALE" /></translation>
+<translation id="8328777765163860529">Tanca-ho tot</translation>
 <translation id="8381750437846184350">Controleu com utilitza Google el vostre historial de navegació per personalitzar la Cerca, els anuncis i altres serveis de Google</translation>
 <translation id="842017693807136194">S'ha iniciat la sessió amb</translation>
 <translation id="8428045167754449968">Ciutat/població</translation>
@@ -409,7 +419,7 @@ Les vostres dades es van encriptar el dia <ph name="TIME" /> amb la vostra frase
 <translation id="8870413625673593573">Tancades recentment</translation>
 <translation id="8881801611828450202">Cerca aquesta imatge a <ph name="SEARCH_ENGINE" /></translation>
 <translation id="8904976895050290827">Sincronització de Google Chrome</translation>
-<translation id="895541991026785598">Informeu d'un problema</translation>
+<translation id="895541991026785598">Informa d'un problema</translation>
 <translation id="8971089644512329999">D'acord</translation>
 <translation id="8981454092730389528">Controls d'activitat de Google</translation>
 <translation id="8985320356172329008">Heu iniciat la sessió a Google com a</translation>
@@ -422,7 +432,6 @@ Les vostres dades es van encriptar el dia <ph name="TIME" /> amb la vostra frase
 <translation id="9083392325882095631">1 element</translation>
 <translation id="9100610230175265781">S'ha d'introduir una frase de contrasenya </translation>
 <translation id="9148126808321036104">Torneu a iniciar la sessió</translation>
-<translation id="915371508759614899">Vols cancel·lar la baixada?</translation>
 <translation id="9157836665414082580">Suprimeix quadres de diàleg</translation>
 <translation id="9188680907066685419">Tanqueu la sessió del compte gestionat</translation>
 <translation id="9203116392574189331">Handoff</translation>

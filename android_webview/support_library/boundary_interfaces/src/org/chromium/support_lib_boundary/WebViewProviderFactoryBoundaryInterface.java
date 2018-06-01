@@ -14,4 +14,6 @@ public interface WebViewProviderFactoryBoundaryInterface {
     /* SupportLibraryWebViewChromium */ InvocationHandler createWebView(WebView webview);
     /* SupportLibWebkitToCompatConverter */ InvocationHandler getWebkitToCompatConverter();
     /* StaticsAdapter */ InvocationHandler getStatics();
+    String[] getSupportedFeatures();
+    /* SupportLibraryServiceWorkerController */ InvocationHandler getServiceWorkerController();
 }

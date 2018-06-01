@@ -16,7 +16,6 @@
 #include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -43,10 +42,6 @@ class MagnificationManagerImpl
  public:
   MagnificationManagerImpl()
       : profile_(NULL),
-        magnifier_enabled_pref_handler_(
-            ash::prefs::kAccessibilityScreenMagnifierEnabled),
-        magnifier_scale_pref_handler_(
-            ash::prefs::kAccessibilityScreenMagnifierScale),
         enabled_(false),
         keep_focus_centered_(false),
         scale_(0.0),
@@ -125,9 +120,6 @@ class MagnificationManagerImpl
               base::Unretained(this)));
     }
 
-    magnifier_enabled_pref_handler_.HandleProfileChanged(profile_, profile);
-    magnifier_scale_pref_handler_.HandleProfileChanged(profile_, profile);
-
     profile_ = profile;
     UpdateMagnifierFromPrefs();
   }
@@ -190,8 +182,7 @@ class MagnificationManagerImpl
     }
 
     AccessibilityStatusEventDetails details(
-        ACCESSIBILITY_TOGGLE_SCREEN_MAGNIFIER, enabled_,
-        ash::A11Y_NOTIFICATION_NONE);
+        ACCESSIBILITY_TOGGLE_SCREEN_MAGNIFIER, enabled_);
 
     if (!AccessibilityManager::Get())
       return;
@@ -252,9 +243,6 @@ class MagnificationManagerImpl
   }
 
   Profile* profile_;
-
-  AccessibilityManager::PrefHandler magnifier_enabled_pref_handler_;
-  AccessibilityManager::PrefHandler magnifier_scale_pref_handler_;
 
   bool enabled_;
   bool keep_focus_centered_;

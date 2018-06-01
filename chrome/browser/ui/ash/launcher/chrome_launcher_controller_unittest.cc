@@ -15,7 +15,7 @@
 #include <vector>
 
 #include "ash/display/display_configuration_controller.h"
-#include "ash/display/screen_orientation_controller_chromeos.h"
+#include "ash/display/screen_orientation_controller.h"
 #include "ash/public/cpp/shelf_item.h"
 #include "ash/public/cpp/shelf_item_delegate.h"
 #include "ash/public/cpp/shelf_model.h"
@@ -50,7 +50,6 @@
 #include "chrome/browser/ui/app_list/arc/arc_default_app_list.h"
 #include "chrome/browser/ui/apps/chrome_app_delegate.h"
 #include "chrome/browser/ui/ash/chrome_launcher_prefs.h"
-#include "chrome/browser/ui/ash/fake_tablet_mode_controller.h"
 #include "chrome/browser/ui/ash/launcher/app_window_launcher_controller.h"
 #include "chrome/browser/ui/ash/launcher/arc_app_deferred_launcher_controller.h"
 #include "chrome/browser/ui/ash/launcher/arc_app_window.h"
@@ -63,7 +62,6 @@
 #include "chrome/browser/ui/ash/multi_user/multi_user_window_manager.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_window_manager_chromeos.h"
 #include "chrome/browser/ui/ash/session_controller_client.h"
-#include "chrome/browser/ui/ash/tablet_mode_client.h"
 #include "chrome/browser/ui/ash/test_wallpaper_controller.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/browser/ui/browser.h"
@@ -106,6 +104,7 @@
 #include "extensions/browser/app_window/native_app_window.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_constants.h"
+#include "extensions/common/switches.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/aura/client/window_parenting_client.h"
 #include "ui/aura/window.h"
@@ -122,7 +121,7 @@ using base::ASCIIToUTF16;
 using extensions::Extension;
 using extensions::Manifest;
 using extensions::UnloadedExtensionReason;
-using arc::mojom::OrientationLock;
+using arc::mojom::OrientationLockDeprecated;
 
 namespace {
 constexpr char kOfflineGmailUrl[] = "https://mail.google.com/mail/mu/u";
@@ -335,6 +334,15 @@ void SelectItem(ash::ShelfItemDelegate* delegate) {
                          ash::LAUNCH_FROM_UNKNOWN, base::DoNothing());
 }
 
+// Helper that waits for idle and extracts the bitmap from the last updated item
+// in shelf controller.
+SkBitmap GetLastItemImage(TestShelfController* shelf_controller) {
+  base::RunLoop().RunUntilIdle();
+  const SkBitmap* bitmap = shelf_controller->last_item().image.bitmap();
+  CHECK(bitmap);
+  return *bitmap;
+}
+
 }  // namespace
 
 // A test ChromeLauncherController subclass that uses TestShelfController.
@@ -380,6 +388,10 @@ class ChromeLauncherControllerTest : public BrowserWithTestWindowTest {
     base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
     command_line->AppendSwitch(switches::kUseFirstDisplayAsInternal);
 
+    // TODO(devlin): Remove this. See https://crbug.com/816679.
+    command_line->AppendSwitch(
+        extensions::switches::kAllowLegacyExtensionManifests);
+
     app_list::AppListSyncableServiceFactory::SetUseInTesting();
 
     BrowserWithTestWindowTest::SetUp();
@@ -387,10 +399,6 @@ class ChromeLauncherControllerTest : public BrowserWithTestWindowTest {
     model_observer_ = std::make_unique<TestShelfModelObserver>();
     model_ = std::make_unique<ash::ShelfModel>();
     model_->AddObserver(model_observer_.get());
-
-    tablet_mode_client_ = std::make_unique<TabletModeClient>();
-    tablet_mode_client_->InitForTesting(
-        fake_tablet_mode_controller_.CreateInterfacePtr());
 
     base::DictionaryValue manifest;
     manifest.SetString(extensions::manifest_keys::kName,
@@ -916,7 +924,10 @@ class ChromeLauncherControllerTest : public BrowserWithTestWindowTest {
   }
 
   void EnableTabletMode(bool enable) {
-    TabletModeClient::Get()->OnTabletModeToggled(enable);
+    // TODO(oshima|xutan): Remove this once orientation code is moved to
+    // exo. https://crbug.com/823634.
+    ash::Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(
+        enable);
   }
 
   void ValidateArcState(bool arc_enabled,
@@ -934,7 +945,6 @@ class ChromeLauncherControllerTest : public BrowserWithTestWindowTest {
   views::Widget* CreateArcWindow(const std::string& window_app_id) {
     views::Widget::InitParams params(views::Widget::InitParams::TYPE_WINDOW);
     params.bounds = gfx::Rect(5, 5, 20, 20);
-    params.context = GetContext();
     views::Widget* widget = new views::Widget();
     widget->Init(params);
     // Set ARC id before showing the window to be recognized in
@@ -949,12 +959,12 @@ class ChromeLauncherControllerTest : public BrowserWithTestWindowTest {
   arc::mojom::AppInfo CreateAppInfo(const std::string& name,
                                     const std::string& activity,
                                     const std::string& package_name,
-                                    OrientationLock lock) {
+                                    OrientationLockDeprecated lock) {
     arc::mojom::AppInfo appinfo;
     appinfo.name = name;
     appinfo.package_name = package_name;
     appinfo.activity = activity;
-    appinfo.orientation_lock = lock;
+    appinfo.orientation_lock_deprecated = lock;
     return appinfo;
   }
 
@@ -966,7 +976,7 @@ class ChromeLauncherControllerTest : public BrowserWithTestWindowTest {
         app_info.activity, std::string() /* intent_uri */,
         std::string() /* icon_resource_id */, false /* sticky */,
         true /* notifications_enabled */, false /* shortcut */,
-        true /* launchable */, app_info.orientation_lock);
+        true /* launchable */, app_info.orientation_lock_deprecated);
     const std::string app_id =
         ArcAppListPrefs::GetAppId(app_info.package_name, app_info.activity);
     EXPECT_TRUE(prefs->GetApp(app_id));
@@ -981,9 +991,9 @@ class ChromeLauncherControllerTest : public BrowserWithTestWindowTest {
   }
 
   void NotifyOnTaskOrientationLockRequested(int32_t task_id,
-                                            OrientationLock lock) {
+                                            OrientationLockDeprecated lock) {
     ArcAppListPrefs* const prefs = arc_test_.arc_app_list_prefs();
-    prefs->OnTaskOrientationLockRequested(task_id, lock);
+    prefs->OnTaskOrientationLockRequestedDeprecated(task_id, lock);
   }
 
   // Needed for extension service & friends to work.
@@ -1004,9 +1014,6 @@ class ChromeLauncherControllerTest : public BrowserWithTestWindowTest {
   std::unique_ptr<TestChromeLauncherController> launcher_controller_;
   std::unique_ptr<TestShelfModelObserver> model_observer_;
   std::unique_ptr<ash::ShelfModel> model_;
-
-  FakeTabletModeController fake_tablet_mode_controller_;
-  std::unique_ptr<TabletModeClient> tablet_mode_client_;
 
   // |item_delegate_manager_| owns |test_controller_|.
   ash::ShelfItemDelegate* test_controller_ = nullptr;
@@ -1991,8 +1998,6 @@ TEST_P(ChromeLauncherControllerMultiProfileWithArcTest, ArcMultiUser) {
   SendListOfArcApps();
 
   InitLauncherController();
-  // TODO(crbug.com/654622): This test breaks with a non-null static instance.
-  ChromeLauncherController::set_instance_for_test(nullptr);
 
   SetLauncherControllerHelper(new TestLauncherControllerHelper);
 
@@ -2167,7 +2172,7 @@ TEST_P(ChromeLauncherControllerWithArcTest, OverrideAppItemController) {
   SendListOfArcApps();
   arc::mojom::AppInfo app_info =
       CreateAppInfo("Play Store", arc::kPlayStoreActivity,
-                    arc::kPlayStorePackage, OrientationLock::NONE);
+                    arc::kPlayStorePackage, OrientationLockDeprecated::NONE);
   EXPECT_EQ(arc::kPlayStoreAppId, AddArcAppAndShortcut(app_info));
 
   std::string window_app_id("org.chromium.arc.1");
@@ -2360,6 +2365,10 @@ TEST_P(ChromeLauncherControllerWithArcTest, ArcAppPinOptOutOptIn) {
 TEST_P(ChromeLauncherControllerWithArcTest, ArcCustomAppIcon) {
   InitLauncherController();
 
+  TestShelfController* shelf_controller =
+      launcher_controller_->test_shelf_controller();
+  ASSERT_TRUE(shelf_controller);
+
   ArcAppIcon::DisableSafeDecodingForTesting();
 
   // Register fake ARC apps.
@@ -2394,36 +2403,55 @@ TEST_P(ChromeLauncherControllerWithArcTest, ArcCustomAppIcon) {
       model_->GetShelfItemDelegate(ash::ShelfID(arc_app_id));
   ASSERT_TRUE(item_delegate);
 
+  const SkBitmap default_icon = GetLastItemImage(shelf_controller);
+
   // No custom icon set. Acitivating windows should not change icon.
-  EXPECT_FALSE(item_delegate->image_set_by_controller());
   window1->Activate();
-  EXPECT_FALSE(item_delegate->image_set_by_controller());
+  EXPECT_TRUE(gfx::test::AreBitmapsEqual(default_icon,
+                                         GetLastItemImage(shelf_controller)));
   window2->Activate();
-  EXPECT_FALSE(item_delegate->image_set_by_controller());
+  EXPECT_TRUE(gfx::test::AreBitmapsEqual(default_icon,
+                                         GetLastItemImage(shelf_controller)));
 
   // Set custom icon on active item. Icon should change to custom.
   arc_test_.app_instance()->SendTaskDescription(2, std::string(), png_data);
-  base::RunLoop().RunUntilIdle();
-  EXPECT_TRUE(item_delegate->image_set_by_controller());
+  const SkBitmap custom_icon = GetLastItemImage(shelf_controller);
+  EXPECT_FALSE(gfx::test::AreBitmapsEqual(default_icon, custom_icon));
 
   // Switch back to the item without custom icon. Icon should be changed to
   // default.
   window1->Activate();
-  EXPECT_FALSE(item_delegate->image_set_by_controller());
+  EXPECT_TRUE(gfx::test::AreBitmapsEqual(default_icon,
+                                         GetLastItemImage(shelf_controller)));
+
   // Test that setting an invalid icon should not change custom icon.
   arc_test_.app_instance()->SendTaskDescription(1, std::string(), png_data);
-  EXPECT_TRUE(item_delegate->image_set_by_controller());
+  EXPECT_TRUE(gfx::test::AreBitmapsEqual(custom_icon,
+                                         GetLastItemImage(shelf_controller)));
   arc_test_.app_instance()->SendTaskDescription(1, std::string(),
                                                 invalid_png_data);
-  EXPECT_TRUE(item_delegate->image_set_by_controller());
+  EXPECT_TRUE(gfx::test::AreBitmapsEqual(custom_icon,
+                                         GetLastItemImage(shelf_controller)));
 
   // Check window removing with active custom icon. Reseting custom icon of
   // inactive window doesn't reset shelf icon.
   arc_test_.app_instance()->SendTaskDescription(2, std::string(),
                                                 std::string());
-  EXPECT_TRUE(item_delegate->image_set_by_controller());
+  EXPECT_TRUE(gfx::test::AreBitmapsEqual(custom_icon,
+                                         GetLastItemImage(shelf_controller)));
+  // Set custom icon back to validate closing active window later.
+  arc_test_.app_instance()->SendTaskDescription(2, std::string(), png_data);
+  EXPECT_TRUE(gfx::test::AreBitmapsEqual(custom_icon,
+                                         GetLastItemImage(shelf_controller)));
+
+  // Reseting custom icon of active window resets shelf icon.
+  arc_test_.app_instance()->SendTaskDescription(1, std::string(),
+                                                std::string());
+  EXPECT_TRUE(gfx::test::AreBitmapsEqual(default_icon,
+                                         GetLastItemImage(shelf_controller)));
   window1->CloseNow();
-  EXPECT_FALSE(item_delegate->image_set_by_controller());
+  EXPECT_TRUE(gfx::test::AreBitmapsEqual(custom_icon,
+                                         GetLastItemImage(shelf_controller)));
 }
 
 // Check that with multi profile V1 apps are properly added / removed from the
@@ -3764,8 +3792,9 @@ TEST_F(ChromeLauncherControllerTest, MultipleAppIconLoaders) {
 
 TEST_P(ChromeLauncherControllerWithArcTest, ArcAppPinPolicy) {
   InitLauncherControllerWithBrowser();
-  arc::mojom::AppInfo appinfo = CreateAppInfo(
-      "Some App", "SomeActivity", "com.example.app", OrientationLock::NONE);
+  arc::mojom::AppInfo appinfo =
+      CreateAppInfo("Some App", "SomeActivity", "com.example.app",
+                    OrientationLockDeprecated::NONE);
   const std::string app_id = AddArcAppAndShortcut(appinfo);
 
   // Set policy, that makes pins ARC app. Unlike native extension, for ARC app
@@ -3847,8 +3876,8 @@ TEST_P(ChromeLauncherControllerWithArcTest, ArcManaged) {
 TEST_P(ChromeLauncherControllerWithArcTest, ShelfItemWithMultipleWindows) {
   InitLauncherControllerWithBrowser();
 
-  arc::mojom::AppInfo appinfo =
-      CreateAppInfo("Test1", "test", "com.example.app", OrientationLock::NONE);
+  arc::mojom::AppInfo appinfo = CreateAppInfo(
+      "Test1", "test", "com.example.app", OrientationLockDeprecated::NONE);
   AddArcAppAndShortcut(appinfo);
 
   // Widgets will be deleted by the system.
@@ -3911,15 +3940,16 @@ class ChromeLauncherControllerOrientationTest
 
  protected:
   void InitApps() {
-    appinfo_none_ =
-        CreateAppInfo("None", "None", "com.example.app", OrientationLock::NONE);
+    appinfo_none_ = CreateAppInfo("None", "None", "com.example.app",
+                                  OrientationLockDeprecated::NONE);
     appinfo_landscape_ =
         CreateAppInfo("Landscape", "Landscape", "com.example.app",
-                      OrientationLock::LANDSCAPE);
+                      OrientationLockDeprecated::LANDSCAPE);
     appinfo_portrait_ = CreateAppInfo("Portrait", "Portrait", "com.example.app",
-                                      OrientationLock::PORTRAIT);
-    appinfo_current_ = CreateAppInfo(
-        "LockCurrent", "current", "com.example.app", OrientationLock::CURRENT);
+                                      OrientationLockDeprecated::PORTRAIT);
+    appinfo_current_ =
+        CreateAppInfo("LockCurrent", "current", "com.example.app",
+                      OrientationLockDeprecated::CURRENT);
 
     AddArcAppAndShortcut(appinfo_none_);
     AddArcAppAndShortcut(appinfo_landscape_);
@@ -4043,12 +4073,13 @@ TEST_P(ChromeLauncherControllerOrientationTest,
 
   std::string app_id1("org.chromium.arc.1");
   int task_id1 = 1;
-  arc::mojom::AppInfo appinfo1 =
-      CreateAppInfo("Test1", "test", "com.example.app", OrientationLock::NONE);
+  arc::mojom::AppInfo appinfo1 = CreateAppInfo(
+      "Test1", "test", "com.example.app", OrientationLockDeprecated::NONE);
 
   AddArcAppAndShortcut(appinfo1);
   NotifyOnTaskCreated(appinfo1, task_id1);
-  NotifyOnTaskOrientationLockRequested(task_id1, OrientationLock::PORTRAIT);
+  NotifyOnTaskOrientationLockRequested(task_id1,
+                                       OrientationLockDeprecated::PORTRAIT);
 
   // Widgets will be deleted by the system.
   CreateArcWindow(app_id1);
@@ -4062,12 +4093,13 @@ TEST_P(ChromeLauncherControllerOrientationTest,
 
   std::string app_id2("org.chromium.arc.2");
   int task_id2 = 2;
-  arc::mojom::AppInfo appinfo2 =
-      CreateAppInfo("Test2", "test", "com.example.app", OrientationLock::NONE);
+  arc::mojom::AppInfo appinfo2 = CreateAppInfo(
+      "Test2", "test", "com.example.app", OrientationLockDeprecated::NONE);
   // Create in tablet mode.
   AddArcAppAndShortcut(appinfo2);
   NotifyOnTaskCreated(appinfo2, task_id2);
-  NotifyOnTaskOrientationLockRequested(task_id2, OrientationLock::LANDSCAPE);
+  NotifyOnTaskOrientationLockRequested(task_id2,
+                                       OrientationLockDeprecated::LANDSCAPE);
   EXPECT_TRUE(controller->rotation_locked());
   EXPECT_EQ(display::Display::ROTATE_270,
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
@@ -4128,20 +4160,20 @@ TEST_P(ChromeLauncherControllerOrientationTest, ArcOrientationLock) {
 
   // OnTaskOrientationLockRequested can overwrite the current lock.
   NotifyOnTaskOrientationLockRequested(task_id_landscape_,
-                                       OrientationLock::NONE);
+                                       OrientationLockDeprecated::NONE);
   EXPECT_FALSE(controller->rotation_locked());
   EXPECT_EQ(display::Display::ROTATE_0,
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
   NotifyOnTaskOrientationLockRequested(task_id_landscape_,
-                                       OrientationLock::PORTRAIT);
+                                       OrientationLockDeprecated::PORTRAIT);
   EXPECT_TRUE(controller->rotation_locked());
   EXPECT_EQ(display::Display::ROTATE_270,
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
   // Non active window won't change the lock.
   NotifyOnTaskOrientationLockRequested(task_id_none_,
-                                       OrientationLock::LANDSCAPE);
+                                       OrientationLockDeprecated::LANDSCAPE);
   EXPECT_TRUE(controller->rotation_locked());
   EXPECT_EQ(display::Display::ROTATE_270,
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
@@ -4159,7 +4191,7 @@ TEST_P(ChromeLauncherControllerOrientationTest, ArcOrientationLock) {
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
   NotifyOnTaskOrientationLockRequested(task_id_none_,
-                                       OrientationLock::PORTRAIT);
+                                       OrientationLockDeprecated::PORTRAIT);
   EXPECT_FALSE(controller->rotation_locked());
   EXPECT_EQ(display::Display::ROTATE_0,
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
@@ -4172,7 +4204,8 @@ TEST_P(ChromeLauncherControllerOrientationTest, ArcOrientationLock) {
             display::Screen::GetScreen()->GetPrimaryDisplay().rotation());
 
   // Manually unlock first.
-  NotifyOnTaskOrientationLockRequested(task_id_none_, OrientationLock::NONE);
+  NotifyOnTaskOrientationLockRequested(task_id_none_,
+                                       OrientationLockDeprecated::NONE);
   EXPECT_FALSE(controller->rotation_locked());
 }
 
@@ -4202,14 +4235,22 @@ TEST_P(ChromeLauncherControllerArcDefaultAppsTest, DefaultApps) {
   EXPECT_TRUE(arc::LaunchApp(profile(), app_id, ui::EF_LEFT_MOUSE_BUTTON));
   EXPECT_TRUE(arc::IsArcPlayStoreEnabledForProfile(profile()));
   EXPECT_TRUE(launcher_controller_->GetItem(ash::ShelfID(app_id)));
+
+  ash::ShelfItemDelegate* item_delegate =
+      model_->GetShelfItemDelegate(ash::ShelfID(app_id));
+  ASSERT_TRUE(item_delegate);
   EXPECT_TRUE(launcher_controller_->GetArcDeferredLauncher()->HasApp(app_id));
+  EXPECT_FALSE(item_delegate->image_set_by_controller());
 
   std::string window_app_id("org.chromium.arc.1");
   CreateArcWindow(window_app_id);
   arc_test_.app_instance()->SendTaskCreated(1, arc_test_.fake_default_apps()[0],
                                             std::string());
   EXPECT_TRUE(launcher_controller_->GetItem(ash::ShelfID(app_id)));
+  item_delegate = model_->GetShelfItemDelegate(ash::ShelfID(app_id));
+  ASSERT_TRUE(item_delegate);
   EXPECT_FALSE(launcher_controller_->GetArcDeferredLauncher()->HasApp(app_id));
+  EXPECT_TRUE(item_delegate->image_set_by_controller());
 }
 
 TEST_P(ChromeLauncherControllerArcDefaultAppsTest, PlayStoreDeferredLaunch) {

@@ -65,7 +65,7 @@ class FakeContentSuggestionsService : public ContentSuggestionsService {
  public:
   FakeContentSuggestionsService(PrefService* prefs, base::Clock* clock)
       : ContentSuggestionsService(
-            ContentSuggestionsService::ENABLED,
+            ContentSuggestionsService::State::ENABLED,
             /*identity_manager=*/nullptr,
             /*history_service=*/nullptr,
             /*large_icon_cache=*/nullptr,
@@ -100,6 +100,12 @@ class FakeArticleProvider : public ContentSuggestionsProvider {
   void FetchSuggestionImage(const ContentSuggestion::ID& id,
                             ImageFetchedCallback callback) override {
     std::move(callback).Run(gfx::Image());
+  }
+
+  void FetchSuggestionImageData(
+      const ContentSuggestion::ID& suggestion_id,
+      ntp_snippets::ImageDataFetchedCallback callback) override {
+    std::move(callback).Run(std::string());
   }
 
   void DismissSuggestion(const ContentSuggestion::ID& id) override {

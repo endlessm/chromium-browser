@@ -4,16 +4,24 @@
 
 package org.chromium.content.browser;
 
+import android.view.HapticFeedbackConstants;
+import android.view.View;
+
 import org.chromium.base.ObserverList;
 import org.chromium.base.ObserverList.RewindableIterator;
+import org.chromium.base.TraceEvent;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
+import org.chromium.content.browser.input.ImeAdapterImpl;
+import org.chromium.content.browser.selection.SelectionPopupControllerImpl;
 import org.chromium.content.browser.webcontents.WebContentsImpl;
 import org.chromium.content.browser.webcontents.WebContentsUserData;
-import org.chromium.content.browser.webcontents.WebContentsUserData.UserDataFactory;
+import org.chromium.content_public.browser.ContentViewCore.InternalAccessDelegate;
 import org.chromium.content_public.browser.GestureListenerManager;
 import org.chromium.content_public.browser.GestureStateListener;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.content_public.browser.WebContents.UserDataFactory;
+import org.chromium.ui.base.GestureEventType;
 
 /**
  * Implementation of the interface {@link GestureListenerManager}. Manages
@@ -32,12 +40,21 @@ public class GestureListenerManagerImpl implements GestureListenerManager, Windo
     private final WebContentsImpl mWebContents;
     private final ObserverList<GestureStateListener> mListeners;
     private final RewindableIterator<GestureStateListener> mIterator;
+    private View mContainerView;
+    private InternalAccessDelegate mScrollDelegate;
 
     // The outstanding fling start events that hasn't got fling end yet. It may be > 1 because
     // onFlingEnd() is called asynchronously.
     private int mPotentiallyActiveFlingCount;
 
     private long mNativeGestureListenerManager;
+
+    /**
+     * Whether a touch scroll sequence is active, used to hide text selection
+     * handles. Note that a scroll sequence will *always* bound a pinch
+     * sequence, so this will also be true for the duration of a pinch gesture.
+     */
+    private boolean mIsTouchScrollInProgress;
 
     /**
      * @param webContents {@link WebContents} object.
@@ -63,6 +80,14 @@ public class GestureListenerManagerImpl implements GestureListenerManager, Windo
         if (mNativeGestureListenerManager != 0) nativeReset(mNativeGestureListenerManager);
     }
 
+    public void setContainerView(View containerView) {
+        mContainerView = containerView;
+    }
+
+    public void setScrollDelegate(InternalAccessDelegate scrollDelegate) {
+        mScrollDelegate = scrollDelegate;
+    }
+
     @Override
     public void addListener(GestureStateListener listener) {
         mListeners.addObserver(listener);
@@ -74,7 +99,8 @@ public class GestureListenerManagerImpl implements GestureListenerManager, Windo
     }
 
     /** Update all the listeners after touch down event occurred. */
-    public void updateOnTouchDown() {
+    @CalledByNative
+    private void updateOnTouchDown() {
         for (mIterator.rewind(); mIterator.hasNext();) mIterator.next().onTouchDown();
     }
 
@@ -105,6 +131,7 @@ public class GestureListenerManagerImpl implements GestureListenerManager, Windo
 
     /** Update all the listeners after scrolling end event occurred. */
     public void updateOnScrollEnd() {
+        setTouchScrollInProgress(false);
         for (mIterator.rewind(); mIterator.hasNext();) {
             mIterator.next().onScrollEnded(verticalScrollOffset(), verticalScrollExtent());
         }
@@ -132,6 +159,9 @@ public class GestureListenerManagerImpl implements GestureListenerManager, Windo
     @CalledByNative
     private void onFlingEnd() {
         if (mPotentiallyActiveFlingCount > 0) mPotentiallyActiveFlingCount--;
+        // Note that mTouchScrollInProgress should normally be false at this
+        // point, but we reset it anyway as another failsafe.
+        setTouchScrollInProgress(false);
         for (mIterator.rewind(); mIterator.hasNext();) {
             mIterator.next().onFlingEndGesture(verticalScrollOffset(), verticalScrollExtent());
         }
@@ -140,6 +170,7 @@ public class GestureListenerManagerImpl implements GestureListenerManager, Windo
     @CalledByNative
     private void onFlingStartEventConsumed() {
         mPotentiallyActiveFlingCount++;
+        setTouchScrollInProgress(false);
         for (mIterator.rewind(); mIterator.hasNext();) {
             mIterator.next().onFlingStartGesture(verticalScrollOffset(), verticalScrollExtent());
         }
@@ -147,6 +178,7 @@ public class GestureListenerManagerImpl implements GestureListenerManager, Windo
 
     @CalledByNative
     private void onScrollBeginEventAck() {
+        setTouchScrollInProgress(true);
         for (mIterator.rewind(); mIterator.hasNext();) {
             mIterator.next().onScrollStarted(verticalScrollOffset(), verticalScrollExtent());
         }
@@ -159,6 +191,8 @@ public class GestureListenerManagerImpl implements GestureListenerManager, Windo
 
     @CalledByNative
     private void onScrollUpdateGestureConsumed() {
+        SelectionPopupControllerImpl controller = getSelectionPopupController();
+        if (controller != null) controller.destroyPastePopup();
         for (mIterator.rewind(); mIterator.hasNext();) {
             mIterator.next().onScrollUpdateGestureConsumed();
         }
@@ -176,12 +210,25 @@ public class GestureListenerManagerImpl implements GestureListenerManager, Windo
 
     @CalledByNative
     private void onSingleTapEventAck(boolean consumed) {
+        SelectionPopupControllerImpl controller = getSelectionPopupController();
+        if (controller != null) controller.destroyPastePopup();
         for (mIterator.rewind(); mIterator.hasNext();) mIterator.next().onSingleTap(consumed);
     }
 
     @CalledByNative
     private void onLongPressAck() {
+        mContainerView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
         for (mIterator.rewind(); mIterator.hasNext();) mIterator.next().onLongPress();
+    }
+
+    @CalledByNative
+    private void resetPopupsAndInput(boolean renderProcessGone) {
+        PopupController.hidePopupsAndClearSelection(mWebContents);
+        resetScrollInProgress();
+        if (renderProcessGone) {
+            ImeAdapterImpl imeAdapter = ImeAdapterImpl.fromWebContents(mWebContents);
+            if (imeAdapter != null) imeAdapter.resetAndHideKeyboard();
+        }
     }
 
     @CalledByNative
@@ -189,6 +236,107 @@ public class GestureListenerManagerImpl implements GestureListenerManager, Windo
         for (mIterator.rewind(); mIterator.hasNext();) mIterator.next().onDestroyed();
         mListeners.clear();
         mNativeGestureListenerManager = 0;
+    }
+
+    /**
+     * Called just prior to a tap or press gesture being forwarded to the renderer.
+     */
+    @SuppressWarnings("unused")
+    @CalledByNative
+    private boolean filterTapOrPressEvent(int type, int x, int y) {
+        if (type == GestureEventType.LONG_PRESS && offerLongPressToEmbedder()) {
+            return true;
+        }
+
+        TapDisambiguator tapDisambiguator = TapDisambiguator.fromWebContents(mWebContents);
+        if (!tapDisambiguator.isShowing()) tapDisambiguator.setLastTouch(x, y);
+
+        return false;
+    }
+
+    @SuppressWarnings("unused")
+    @CalledByNative
+    private void updateScrollInfo(float scrollOffsetX, float scrollOffsetY, float pageScaleFactor,
+            float minPageScaleFactor, float maxPageScaleFactor, float contentWidth,
+            float contentHeight, float viewportWidth, float viewportHeight, float topBarShownPix,
+            boolean topBarChanged) {
+        TraceEvent.begin("GestureListenerManagerImpl:updateScrollInfo");
+        RenderCoordinates rc = mWebContents.getRenderCoordinates();
+
+        // Adjust contentWidth/Height to be always at least as big as
+        // the actual viewport (as set by onSizeChanged).
+        final float deviceScale = rc.getDeviceScaleFactor();
+        contentWidth =
+                Math.max(contentWidth, mContainerView.getWidth() / (deviceScale * pageScaleFactor));
+        contentHeight = Math.max(
+                contentHeight, mContainerView.getHeight() / (deviceScale * pageScaleFactor));
+
+        final boolean contentSizeChanged = contentWidth != rc.getContentWidthCss()
+                || contentHeight != rc.getContentHeightCss();
+        final boolean scaleLimitsChanged = minPageScaleFactor != rc.getMinPageScaleFactor()
+                || maxPageScaleFactor != rc.getMaxPageScaleFactor();
+        final boolean pageScaleChanged = pageScaleFactor != rc.getPageScaleFactor();
+        final boolean scrollChanged = pageScaleChanged || scrollOffsetX != rc.getScrollX()
+                || scrollOffsetY != rc.getScrollY();
+
+        if (contentSizeChanged || scrollChanged)
+            TapDisambiguator.fromWebContents(mWebContents).hidePopup(true);
+
+        if (scrollChanged) {
+            mScrollDelegate.onScrollChanged((int) rc.fromLocalCssToPix(scrollOffsetX),
+                    (int) rc.fromLocalCssToPix(scrollOffsetY), (int) rc.getScrollXPix(),
+                    (int) rc.getScrollYPix());
+        }
+
+        // TODO(jinsukkim): Consider updating the info directly through RenderCoordinates.
+        rc.updateFrameInfo(scrollOffsetX, scrollOffsetY, contentWidth, contentHeight, viewportWidth,
+                viewportHeight, pageScaleFactor, minPageScaleFactor, maxPageScaleFactor,
+                topBarShownPix);
+
+        if (scrollChanged || topBarChanged) {
+            updateOnScrollChanged(verticalScrollOffset(), verticalScrollExtent());
+        }
+        if (scaleLimitsChanged) updateOnScaleLimitsChanged(minPageScaleFactor, maxPageScaleFactor);
+        TraceEvent.end("GestureListenerManagerImpl:updateScrollInfo");
+    }
+
+    @Override
+    public boolean isScrollInProgress() {
+        return mIsTouchScrollInProgress || hasPotentiallyActiveFling();
+    }
+
+    void setTouchScrollInProgress(boolean touchScrollInProgress) {
+        mIsTouchScrollInProgress = touchScrollInProgress;
+
+        // Use the active touch scroll signal for hiding. The animation movement
+        // by fling will naturally hide the ActionMode by invalidating its content rect.
+        getSelectionPopupController().setScrollInProgress(touchScrollInProgress);
+    }
+
+    /**
+     * Reset scroll and fling accounting, notifying listeners as appropriate.
+     * This is useful as a failsafe when the input stream may have been interruped.
+     */
+    void resetScrollInProgress() {
+        if (!isScrollInProgress()) return;
+
+        final boolean touchScrollInProgress = mIsTouchScrollInProgress;
+        setTouchScrollInProgress(false);
+        if (touchScrollInProgress) updateOnScrollEnd();
+        resetFlingGesture();
+    }
+
+    private SelectionPopupControllerImpl getSelectionPopupController() {
+        return SelectionPopupControllerImpl.fromWebContents(mWebContents);
+    }
+
+    /**
+     * Offer a long press gesture to the embedding View, primarily for WebView compatibility.
+     *
+     * @return true if the embedder handled the event.
+     */
+    private boolean offerLongPressToEmbedder() {
+        return mContainerView.performLongClick();
     }
 
     private int verticalScrollOffset() {

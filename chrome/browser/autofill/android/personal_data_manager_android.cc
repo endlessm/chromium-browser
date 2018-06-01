@@ -13,7 +13,6 @@
 #include "base/android/jni_string.h"
 #include "base/command_line.h"
 #include "base/format_macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "chrome/browser/android/resource_mapper.h"
@@ -475,7 +474,8 @@ PersonalDataManagerAndroid::GetCreditCardGUIDsToSuggest(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& unused_obj) {
   return GetCreditCardGUIDs(env,
-                            personal_data_manager_->GetCreditCardsToSuggest());
+                            personal_data_manager_->GetCreditCardsToSuggest(
+                                /*include_server_cards=*/true));
 }
 
 ScopedJavaLocalRef<jobject> PersonalDataManagerAndroid::GetCreditCardByGUID(
@@ -759,6 +759,12 @@ void PersonalDataManagerAndroid::CancelPendingGetSubKeys(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& unused_obj) {
   subkey_requester_.CancelPendingGetSubKeys();
+}
+
+void PersonalDataManagerAndroid::SetSyncServiceForTesting(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& unused_obj) {
+  personal_data_manager_->SetSyncingForTest(true);
 }
 
 ScopedJavaLocalRef<jobjectArray> PersonalDataManagerAndroid::GetProfileGUIDs(

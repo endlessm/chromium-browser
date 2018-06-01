@@ -10,10 +10,10 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/default_clock.h"
+#include "chromeos/components/proximity_auth/logging/logging.h"
 #include "chromeos/network/network_handler.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
-#include "components/proximity_auth/logging/logging.h"
 #include "components/session_manager/core/session_manager.h"
 
 namespace chromeos {
@@ -86,7 +86,7 @@ HostScanSchedulerImpl::~HostScanSchedulerImpl() {
 }
 
 void HostScanSchedulerImpl::ScheduleScan() {
-  EnsureScan();
+  AttemptScan();
 }
 
 void HostScanSchedulerImpl::DefaultNetworkChanged(const NetworkState* network) {
@@ -102,12 +102,12 @@ void HostScanSchedulerImpl::DefaultNetworkChanged(const NetworkState* network) {
   // NetworkStateHandlerObservers are finished running. Processing the
   // network change immediately can cause crashes; see https://crbug.com/800370.
   task_runner_->PostTask(FROM_HERE,
-                         base::Bind(&HostScanSchedulerImpl::EnsureScan,
-                                    weak_ptr_factory_.GetWeakPtr()));
+                         base::BindOnce(&HostScanSchedulerImpl::AttemptScan,
+                                        weak_ptr_factory_.GetWeakPtr()));
 }
 
 void HostScanSchedulerImpl::ScanRequested() {
-  EnsureScan();
+  AttemptScan();
 }
 
 void HostScanSchedulerImpl::ScanFinished() {
@@ -142,7 +142,7 @@ void HostScanSchedulerImpl::OnSessionStateChanged() {
   delay_scan_after_unlock_timer_->Start(
       FROM_HERE,
       base::TimeDelta::FromSeconds(kNumSecondsToDelayScanAfterUnlock),
-      base::Bind(&HostScanSchedulerImpl::EnsureScan,
+      base::Bind(&HostScanSchedulerImpl::AttemptScan,
                  weak_ptr_factory_.GetWeakPtr()));
 }
 
@@ -158,8 +158,16 @@ void HostScanSchedulerImpl::SetTestDoubles(
   task_runner_ = test_task_runner;
 }
 
-void HostScanSchedulerImpl::EnsureScan() {
+void HostScanSchedulerImpl::AttemptScan() {
+  // If already scanning, there is nothing to do.
   if (host_scanner_->IsScanActive())
+    return;
+
+  // If the screen is locked, a host scan should not occur.  A scan during the
+  // lock screen could cause bad interactions with EasyUnlock. See
+  // https://crbug.com/763604.
+  // Note: Once the SecureChannel API is available, this check can be removed.
+  if (session_manager_->IsScreenLocked())
     return;
 
   // If the timer is running, this new scan is part of the same batch as the

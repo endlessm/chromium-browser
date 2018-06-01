@@ -68,6 +68,7 @@
 #include "chrome/common/url_constants.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/crx_file/id_util.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/storage_partition.h"
@@ -297,7 +298,8 @@ ExtensionService::ExtensionService(Profile* profile,
       ready_(ready),
       shared_module_service_(new extensions::SharedModuleService(profile_)),
       app_data_migrator_(new extensions::AppDataMigrator(profile_, registry_)),
-      extension_registrar_(profile_, this) {
+      extension_registrar_(profile_, this),
+      forced_extensions_tracker_(registry_, profile_->GetPrefs()) {
   CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   TRACE_EVENT0("browser,startup", "ExtensionService::ExtensionService::ctor");
 
@@ -324,22 +326,9 @@ ExtensionService::ExtensionService(Profile* profile,
 
   // Set up the ExtensionUpdater.
   if (autoupdate_enabled) {
-    int update_frequency = extensions::kDefaultUpdateFrequencySeconds;
-    bool is_extensions_update_frequency_switch_used =
-        command_line->HasSwitch(switches::kExtensionsUpdateFrequency);
-    if (is_extensions_update_frequency_switch_used) {
-      base::StringToInt(command_line->GetSwitchValueASCII(
-          switches::kExtensionsUpdateFrequency),
-          &update_frequency);
-    }
-    UMA_HISTOGRAM_BOOLEAN("Extensions.UpdateFrequencyCommandLineFlagIsUsed",
-                          is_extensions_update_frequency_switch_used);
     updater_.reset(new extensions::ExtensionUpdater(
-        this,
-        extension_prefs,
-        profile->GetPrefs(),
-        profile,
-        update_frequency,
+        this, extension_prefs, profile->GetPrefs(), profile,
+        extensions::kDefaultUpdateFrequencySeconds,
         extensions::ExtensionsBrowserClient::Get()->GetExtensionCache(),
         base::Bind(ChromeExtensionDownloaderFactory::CreateForProfile,
                    profile)));
@@ -1211,9 +1200,9 @@ void ExtensionService::AddExtension(const Extension* extension) {
   // TODO(jstritar): We may be able to get rid of this branch by overriding the
   // default extension state to DISABLED when the --disable-extensions flag
   // is set (http://crbug.com/29067).
-  if (!extensions_enabled() && !extension->is_theme() &&
-      extension->location() != Manifest::COMPONENT &&
-      !Manifest::IsExternalLocation(extension->location()) &&
+  if (!extensions_enabled_ &&
+      !Manifest::ShouldAlwaysLoadExtension(extension->location(),
+                                           extension->is_theme()) &&
       disable_flag_exempted_extensions_.count(extension->id()) == 0) {
     return;
   }

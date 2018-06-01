@@ -4,6 +4,7 @@
 
 #include "chrome/browser/vr/elements/omnibox_formatting.h"
 
+#include "base/strings/utf_string_conversions.h"
 #include "ui/gfx/font.h"
 #include "ui/gfx/range/range.h"
 #include "ui/gfx/render_text.h"
@@ -16,7 +17,7 @@ TextFormatting ConvertClassification(
     size_t text_length,
     const ColorScheme& color_scheme) {
   TextFormatting formatting;
-  formatting.push_back(TextFormattingAttribute(color_scheme.suggestion_text,
+  formatting.push_back(TextFormattingAttribute(color_scheme.url_bar_text,
                                                gfx::Range(0, text_length)));
 
   for (size_t i = 0; i < classifications.size(); ++i) {
@@ -41,11 +42,8 @@ TextFormatting ConvertClassification(
     }
 
     if (classifications[i].style & ACMatchClassification::URL) {
-      formatting.push_back(TextFormattingAttribute(
-          color_scheme.suggestion_url_text, current_range));
-    } else if (classifications[i].style & ACMatchClassification::DIM) {
-      formatting.push_back(TextFormattingAttribute(
-          color_scheme.suggestion_dim_text, current_range));
+      formatting.push_back(
+          TextFormattingAttribute(color_scheme.hyperlink, current_range));
     } else if (classifications[i].style & ACMatchClassification::INVISIBLE) {
       formatting.push_back(
           TextFormattingAttribute(SK_ColorTRANSPARENT, current_range));
@@ -65,8 +63,7 @@ ElisionParameters GetElisionParameters(const GURL& gurl,
                                        gfx::RenderText* render_text,
                                        int min_path_pixels) {
   // In situations where there is no host, do not attempt to position the TLD.
-  bool allow_offset =
-      gurl.IsStandard() && !gurl.SchemeIsFile() && parsed.host.is_nonempty();
+  bool allow_offset = gurl.IsStandard() && parsed.host.is_nonempty();
   int total_width = render_text->GetContentWidth();
 
   ElisionParameters result;
@@ -96,6 +93,58 @@ ElisionParameters GetElisionParameters(const GURL& gurl,
   }
 
   return result;
+}
+
+TextFormatting CreateUrlFormatting(const base::string16& formatted_url,
+                                   const url::Parsed& parsed,
+                                   SkColor emphasized_color,
+                                   SkColor deemphasized_color) {
+  const url::Component& scheme = parsed.scheme;
+  const url::Component& host = parsed.host;
+
+  const base::string16 url_scheme =
+      formatted_url.substr(scheme.begin, scheme.len);
+
+  // Data URLs are rarely human-readable and can be used for spoofing, so draw
+  // attention to the scheme to emphasize "this is just a bunch of data".  For
+  // normal URLs, the host is the best proxy for "identity".
+  // TODO(cjgrant): Handle extensions, if required, for desktop.
+  enum DeemphasizeComponents {
+    ALL_BUT_SCHEME,
+    ALL_BUT_HOST,
+    NOTHING,
+  } deemphasize_mode = NOTHING;
+  if (url_scheme == base::UTF8ToUTF16(url::kDataScheme))
+    deemphasize_mode = ALL_BUT_SCHEME;
+  else if (host.is_nonempty())
+    deemphasize_mode = ALL_BUT_HOST;
+
+  gfx::Range scheme_range = scheme.is_nonempty()
+                                ? gfx::Range(scheme.begin, scheme.end())
+                                : gfx::Range::InvalidRange();
+  TextFormatting formatting;
+  switch (deemphasize_mode) {
+    case NOTHING:
+      formatting.push_back(TextFormattingAttribute(emphasized_color,
+                                                   gfx::Range::InvalidRange()));
+      break;
+    case ALL_BUT_SCHEME:
+      DCHECK(scheme_range.IsValid());
+      formatting.push_back(TextFormattingAttribute(deemphasized_color,
+                                                   gfx::Range::InvalidRange()));
+      formatting.push_back(
+          TextFormattingAttribute(emphasized_color, scheme_range));
+
+      break;
+    case ALL_BUT_HOST:
+      formatting.push_back(TextFormattingAttribute(deemphasized_color,
+                                                   gfx::Range::InvalidRange()));
+      formatting.push_back(TextFormattingAttribute(
+          emphasized_color, gfx::Range(host.begin, host.end())));
+      break;
+  }
+
+  return formatting;
 }
 
 }  // namespace vr

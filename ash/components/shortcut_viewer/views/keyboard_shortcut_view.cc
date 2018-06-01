@@ -13,14 +13,18 @@
 #include "ash/components/shortcut_viewer/views/keyboard_shortcut_item_view.h"
 #include "ash/components/shortcut_viewer/views/ksv_search_box_view.h"
 #include "ash/components/strings/grit/ash_components_strings.h"
+#include "ash/public/cpp/app_list/internal_app_id_constants.h"
 #include "ash/public/cpp/shelf_item.h"
 #include "ash/public/cpp/window_properties.h"
+#include "ash/resources/grit/ash_resources.h"
 #include "base/bind.h"
 #include "base/i18n/string_search.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
+#include "base/strings/string_number_conversions.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
+#include "ui/base/accelerators/accelerator.h"
 #include "ui/base/default_style.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -104,7 +108,7 @@ views::Widget* KeyboardShortcutView::Show(gfx::NativeWindow context) {
     constexpr gfx::Size kKSVWindowSize(800, 512);
     gfx::Rect window_bounds(kKSVWindowSize);
     if (context) {
-      window_bounds = context->GetRootWindow()->bounds();
+      window_bounds = context->GetRootWindow()->GetBoundsInScreen();
       window_bounds.ClampToCenteredSize(kKSVWindowSize);
     }
     views::Widget::CreateWindowWithContextAndBounds(new KeyboardShortcutView(),
@@ -116,12 +120,7 @@ views::Widget* KeyboardShortcutView::Show(gfx::NativeWindow context) {
     window->SetProperty(ash::kFrameInactiveColorKey, SK_ColorWHITE);
 
     // Set shelf icon.
-    // An app id for keyboard shortcut viewer window, also used to identify the
-    // shelf item. Generated as
-    // crx_file::id_util::GenerateId("org.chromium.keyboardshortcutviewer")
-    static constexpr char kKeyboardShortcutViewerId[] =
-        "dieikdblbimmfmfinbibdlalidbnbchd";
-    const ash::ShelfID shelf_id(kKeyboardShortcutViewerId);
+    const ash::ShelfID shelf_id(app_list::kInternalAppIdKeyboardShortcutViewer);
     window->SetProperty(ash::kShelfIDKey,
                         new std::string(shelf_id.Serialize()));
     window->SetProperty<int>(ash::kShelfItemTypeKey, ash::TYPE_DIALOG);
@@ -130,18 +129,99 @@ views::Widget* KeyboardShortcutView::Show(gfx::NativeWindow context) {
     // shelf uses the window title to set the shelf item's tooltip text. The
     // shelf observes changes to the |kWindowIconKey| property and handles that
     // by initializing the shelf item including its tooltip text.
+    // TODO(wutao): we can remove resource id IDS_KSV_TITLE after implementing
+    // internal app shelf launcher.
     window->SetTitle(l10n_util::GetStringUTF16(IDS_KSV_TITLE));
     gfx::ImageSkia* icon =
         ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
-            IDR_KEYBOARD_SHORTCUT_VIEWER_APP_ICON);
+            IDR_KEYBOARD_SHORTCUT_VIEWER_LOGO_192);
     // The new gfx::ImageSkia instance is owned by the window itself.
     window->SetProperty(aura::client::kWindowIconKey,
                         new gfx::ImageSkia(*icon));
 
+    g_ksv_view->AddAccelerator(
+        ui::Accelerator(ui::VKEY_W, ui::EF_CONTROL_DOWN));
+
     g_ksv_view->GetWidget()->Show();
-    g_ksv_view->RequestFocusForActiveTab();
+    g_ksv_view->search_box_view_->search_box()->RequestFocus();
   }
   return g_ksv_view->GetWidget();
+}
+
+bool KeyboardShortcutView::AcceleratorPressed(
+    const ui::Accelerator& accelerator) {
+  DCHECK_EQ(ui::VKEY_W, accelerator.key_code());
+  DCHECK_EQ(ui::EF_CONTROL_DOWN, accelerator.modifiers());
+  GetWidget()->Close();
+  return true;
+}
+
+void KeyboardShortcutView::Layout() {
+  gfx::Rect content_bounds(GetContentsBounds());
+  if (content_bounds.IsEmpty())
+    return;
+
+  constexpr int kSearchBoxTopPadding = 8;
+  constexpr int kSearchBoxBottomPadding = 16;
+  constexpr int kSearchBoxHorizontalPadding = 30;
+  const int left = content_bounds.x();
+  const int top = content_bounds.y();
+  gfx::Rect search_box_bounds(search_box_view_->GetPreferredSize());
+  search_box_bounds.set_width(
+      std::min(search_box_bounds.width(),
+               content_bounds.width() - 2 * kSearchBoxHorizontalPadding));
+  search_box_bounds.set_x(
+      left + (content_bounds.width() - search_box_bounds.width()) / 2);
+  search_box_bounds.set_y(top + kSearchBoxTopPadding);
+  search_box_view_->SetBoundsRect(search_box_bounds);
+
+  views::View* content_view = categories_tabbed_pane_->visible()
+                                  ? categories_tabbed_pane_
+                                  : search_results_container_;
+  const int search_box_used_height = search_box_bounds.height() +
+                                     kSearchBoxTopPadding +
+                                     kSearchBoxBottomPadding;
+  content_view->SetBounds(left, top + search_box_used_height,
+                          content_bounds.width(),
+                          content_bounds.height() - search_box_used_height);
+}
+
+void KeyboardShortcutView::QueryChanged(search_box::SearchBoxViewBase* sender) {
+  const bool query_empty = sender->IsSearchBoxTrimmedQueryEmpty();
+  if (is_search_box_empty_ != query_empty) {
+    is_search_box_empty_ = query_empty;
+    UpdateViewsLayout(/*is_search_box_active=*/true);
+  }
+
+  debounce_timer_.Stop();
+  // If search box is empty, do not show |search_results_container_|.
+  if (query_empty)
+    return;
+
+  // TODO(wutao): This timeout value is chosen based on subjective search
+  // latency tests on Minnie. Objective method or UMA is desired.
+  constexpr base::TimeDelta kTimeOut(base::TimeDelta::FromMilliseconds(250));
+  debounce_timer_.Start(
+      FROM_HERE, kTimeOut,
+      base::Bind(&KeyboardShortcutView::ShowSearchResults,
+                 base::Unretained(this), sender->search_box()->text()));
+}
+
+void KeyboardShortcutView::BackButtonPressed() {
+  search_box_view_->ClearSearch();
+  search_box_view_->SetSearchBoxActive(false);
+}
+
+void KeyboardShortcutView::ActiveChanged(
+    search_box::SearchBoxViewBase* sender) {
+  const bool is_search_box_active = sender->is_search_box_active();
+  is_search_box_empty_ = sender->IsSearchBoxTrimmedQueryEmpty();
+  sender->ShowBackOrGoogleIcon(is_search_box_active);
+  if (is_search_box_active) {
+    base::RecordAction(
+        base::UserMetricsAction("KeyboardShortcutViewer.Search"));
+  }
+  UpdateViewsLayout(is_search_box_active);
 }
 
 KeyboardShortcutView::KeyboardShortcutView() {
@@ -172,6 +252,9 @@ void KeyboardShortcutView::InitViews() {
   AddChildView(search_results_container_);
 
   // Init views of KeyboardShortcutItemView.
+  // TODO(https://crbug.com/843394): Observe changes in keyboard layout and
+  // clear the cache.
+  KeyboardShortcutItemView::ClearKeycodeToString16Cache();
   for (const auto& item : GetKeyboardShortcutItemList()) {
     for (auto category : item.categories) {
       shortcut_views_.emplace_back(
@@ -235,99 +318,6 @@ void KeyboardShortcutView::InitCategoriesTabbedPane() {
   }
 }
 
-void KeyboardShortcutView::RequestFocusForActiveTab() {
-  // Get the |tab_strip_| of the |categories_tabbed_pane_| in order to set focus
-  // on the selected tab.
-  categories_tabbed_pane_->child_at(0)
-      ->child_at(active_tab_index_)
-      ->RequestFocus();
-}
-
-bool KeyboardShortcutView::CanMaximize() const {
-  return false;
-}
-
-bool KeyboardShortcutView::CanMinimize() const {
-  return true;
-}
-
-bool KeyboardShortcutView::CanResize() const {
-  return false;
-}
-
-views::ClientView* KeyboardShortcutView::CreateClientView(
-    views::Widget* widget) {
-  return new views::ClientView(widget, this);
-}
-
-void KeyboardShortcutView::Layout() {
-  gfx::Rect content_bounds(GetContentsBounds());
-  if (content_bounds.IsEmpty())
-    return;
-
-  constexpr int kSearchBoxTopPadding = 8;
-  constexpr int kSearchBoxBottomPadding = 16;
-  constexpr int kSearchBoxHorizontalPadding = 30;
-  const int left = content_bounds.x();
-  const int top = content_bounds.y();
-  gfx::Rect search_box_bounds(search_box_view_->GetPreferredSize());
-  search_box_bounds.set_width(
-      std::min(search_box_bounds.width(),
-               content_bounds.width() - 2 * kSearchBoxHorizontalPadding));
-  search_box_bounds.set_x(
-      left + (content_bounds.width() - search_box_bounds.width()) / 2);
-  search_box_bounds.set_y(top + kSearchBoxTopPadding);
-  search_box_view_->SetBoundsRect(search_box_bounds);
-
-  views::View* content_view = categories_tabbed_pane_->visible()
-                                  ? categories_tabbed_pane_
-                                  : search_results_container_;
-  const int search_box_used_height = search_box_bounds.height() +
-                                     kSearchBoxTopPadding +
-                                     kSearchBoxBottomPadding;
-  content_view->SetBounds(left, top + search_box_used_height,
-                          content_bounds.width(),
-                          content_bounds.height() - search_box_used_height);
-}
-
-void KeyboardShortcutView::BackButtonPressed() {
-  search_box_view_->ClearSearch();
-  search_box_view_->SetSearchBoxActive(false);
-}
-
-void KeyboardShortcutView::QueryChanged(search_box::SearchBoxViewBase* sender) {
-  const bool query_empty = sender->IsSearchBoxTrimmedQueryEmpty();
-  if (is_search_box_empty_ != query_empty) {
-    is_search_box_empty_ = query_empty;
-    UpdateViewsLayout(/*is_search_box_active=*/true);
-  }
-
-  debounce_timer_.Stop();
-  // If search box is empty, do not show |search_results_container_|.
-  if (query_empty)
-    return;
-
-  // TODO(wutao): This timeout value is chosen based on subjective search
-  // latency tests on Minnie. Objective method or UMA is desired.
-  constexpr base::TimeDelta kTimeOut(base::TimeDelta::FromMilliseconds(250));
-  debounce_timer_.Start(
-      FROM_HERE, kTimeOut,
-      base::Bind(&KeyboardShortcutView::ShowSearchResults,
-                 base::Unretained(this), sender->search_box()->text()));
-}
-
-void KeyboardShortcutView::ActiveChanged(
-    search_box::SearchBoxViewBase* sender) {
-  const bool is_search_box_active = sender->is_search_box_active();
-  is_search_box_empty_ = sender->IsSearchBoxTrimmedQueryEmpty();
-  sender->ShowBackOrGoogleIcon(is_search_box_active);
-  if (is_search_box_active) {
-    base::RecordAction(
-        base::UserMetricsAction("KeyboardShortcutViewer.Search"));
-  }
-  UpdateViewsLayout(is_search_box_active);
-}
-
 void KeyboardShortcutView::UpdateViewsLayout(bool is_search_box_active) {
   // 1. Search box is not active: show |categories_tabbed_pane_| and focus on
   //    active tab.
@@ -348,8 +338,6 @@ void KeyboardShortcutView::UpdateViewsLayout(bool is_search_box_active) {
       // Select the category that was active before entering search mode.
       categories_tabbed_pane_->SelectTabAt(active_tab_index_);
     }
-    if (!is_search_box_active)
-      RequestFocusForActiveTab();
   }
   categories_tabbed_pane_->SetVisible(!should_show_search_results);
   search_results_container_->SetVisible(should_show_search_results);
@@ -366,6 +354,7 @@ void KeyboardShortcutView::ShowSearchResults(
       search_query);
   ShortcutCategory current_category = ShortcutCategory::kUnknown;
   bool has_category_item = false;
+  int number_search_results = 0;
   for (const auto& item_view : shortcut_views_) {
     base::string16 description_text =
         item_view->description_label_view()->text();
@@ -405,10 +394,15 @@ void KeyboardShortcutView::ShowSearchResults(
       }
 
       found_items_list_view->AddChildView(item_view.get());
+      ++number_search_results;
     }
   }
 
+  std::vector<base::string16> replacement_strings;
   if (found_items_list_view->has_children()) {
+    replacement_strings.emplace_back(
+        base::NumberToString16(number_search_results));
+
     // To offset the padding between the bottom of the |search_box_view_| and
     // the top of the |search_results_container_|.
     constexpr int kTopPadding = -16;
@@ -419,10 +413,32 @@ void KeyboardShortcutView::ShowSearchResults(
     scroller->SetContents(found_items_list_view.release());
     search_container_content_view = scroller;
   }
-
+  replacement_strings.emplace_back(search_query);
+  search_box_view_->SetAccessibleValue(l10n_util::GetStringFUTF16(
+      number_search_results == 0
+          ? IDS_KSV_SEARCH_BOX_ACCESSIBILITY_VALUE_WITHOUT_RESULTS
+          : IDS_KSV_SEARCH_BOX_ACCESSIBILITY_VALUE_WITH_RESULTS,
+      replacement_strings, nullptr));
   search_results_container_->AddChildView(search_container_content_view);
   Layout();
   SchedulePaint();
+}
+
+bool KeyboardShortcutView::CanMaximize() const {
+  return false;
+}
+
+bool KeyboardShortcutView::CanMinimize() const {
+  return true;
+}
+
+bool KeyboardShortcutView::CanResize() const {
+  return false;
+}
+
+views::ClientView* KeyboardShortcutView::CreateClientView(
+    views::Widget* widget) {
+  return new views::ClientView(widget, this);
 }
 
 KeyboardShortcutView* KeyboardShortcutView::GetInstanceForTesting() {
@@ -436,6 +452,10 @@ int KeyboardShortcutView::GetTabCountForTesting() const {
 const std::vector<std::unique_ptr<KeyboardShortcutItemView>>&
 KeyboardShortcutView::GetShortcutViewsForTesting() const {
   return shortcut_views_;
+}
+
+KSVSearchBoxView* KeyboardShortcutView::GetSearchBoxViewForTesting() {
+  return search_box_view_.get();
 }
 
 }  // namespace keyboard_shortcut_viewer

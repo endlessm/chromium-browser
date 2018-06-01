@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "ash/frame/caption_buttons/caption_button_model.h"
 #include "ash/frame/caption_buttons/frame_back_button.h"
 #include "ash/frame/caption_buttons/frame_caption_button_container_view.h"
 #include "ash/frame/custom_frame_view_ash.h"
@@ -19,15 +20,16 @@
 namespace ash {
 
 HeaderView::HeaderView(views::Widget* target_widget,
-                       mojom::WindowStyle window_style)
+                       mojom::WindowStyle window_style,
+                       std::unique_ptr<CaptionButtonModel> model)
     : target_widget_(target_widget),
       avatar_icon_(nullptr),
       caption_button_container_(nullptr),
       fullscreen_visible_fraction_(0),
       should_paint_(true) {
   caption_button_container_ =
-      new FrameCaptionButtonContainerView(target_widget_);
-  caption_button_container_->UpdateSizeButtonVisibility();
+      new FrameCaptionButtonContainerView(target_widget_, std::move(model));
+  caption_button_container_->UpdateCaptionButtonState(false /*=animate*/);
   AddChildView(caption_button_container_);
 
   frame_header_ = std::make_unique<DefaultFrameHeader>(
@@ -50,13 +52,7 @@ void HeaderView::ResetWindowControls() {
 }
 
 int HeaderView::GetPreferredOnScreenHeight() {
-  const bool should_hide_titlebar_in_tablet_mode =
-      Shell::Get()->tablet_mode_controller() &&
-      Shell::Get()->tablet_mode_controller()->ShouldAutoHideTitlebars(
-          target_widget_);
-
-  if (is_immersive_delegate_ &&
-      (target_widget_->IsFullscreen() || should_hide_titlebar_in_tablet_mode)) {
+  if (is_immersive_delegate_ && in_immersive_mode_) {
     return static_cast<int>(GetPreferredHeight() *
                             fullscreen_visible_fraction_);
   }
@@ -93,24 +89,26 @@ void HeaderView::SetAvatarIcon(const gfx::ImageSkia& avatar) {
   Layout();
 }
 
-void HeaderView::SetBackButtonState(FrameBackButtonState state) {
-  if (state != FrameBackButtonState::kInvisible) {
-    if (!back_button_) {
-      back_button_ = new FrameBackButton();
-      AddChildView(back_button_);
-    }
-    back_button_->SetEnabled(state == FrameBackButtonState::kVisibleEnabled);
-  } else {
-    delete back_button_;
-    back_button_ = nullptr;
-  }
-  frame_header_->set_back_button(back_button_);
-  Layout();
-}
-
-void HeaderView::SizeConstraintsChanged() {
+void HeaderView::UpdateCaptionButtons() {
   caption_button_container_->ResetWindowControls();
-  caption_button_container_->UpdateSizeButtonVisibility();
+  caption_button_container_->UpdateCaptionButtonState(true /*=animate*/);
+
+  bool has_back_button =
+      caption_button_container_->model()->IsVisible(CAPTION_BUTTON_ICON_BACK);
+  FrameCaptionButton* back_button = frame_header_->back_button();
+  if (has_back_button) {
+    if (!back_button) {
+      back_button = new FrameBackButton();
+      AddChildView(back_button);
+      frame_header_->set_back_button(back_button);
+    }
+    back_button->SetEnabled(caption_button_container_->model()->IsEnabled(
+        CAPTION_BUTTON_ICON_BACK));
+  } else {
+    delete back_button;
+    frame_header_->set_back_button(nullptr);
+  }
+
   Layout();
 }
 
@@ -127,13 +125,15 @@ SkColor HeaderView::GetInactiveFrameColor() const {
   return frame_header_->GetInactiveFrameColor();
 }
 
+void HeaderView::OnShowStateChanged(ui::WindowShowState show_state) {
+  frame_header_->OnShowStateChanged(show_state);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // HeaderView, views::View overrides:
 
 void HeaderView::Layout() {
   did_layout_ = true;
-  if (back_button_)
-    back_button_->set_use_light_images(frame_header_->ShouldUseLightImages());
   frame_header_->LayoutHeader();
 }
 
@@ -160,16 +160,16 @@ void HeaderView::ChildPreferredSizeChanged(views::View* child) {
 }
 
 void HeaderView::OnTabletModeStarted() {
-  caption_button_container_->UpdateSizeButtonVisibility();
+  caption_button_container_->UpdateCaptionButtonState(true /*=animate*/);
   parent()->Layout();
   if (Shell::Get()->tablet_mode_controller()->ShouldAutoHideTitlebars(
-          nullptr)) {
+          target_widget_)) {
     target_widget_->non_client_view()->Layout();
   }
 }
 
 void HeaderView::OnTabletModeEnded() {
-  caption_button_container_->UpdateSizeButtonVisibility();
+  caption_button_container_->UpdateCaptionButtonState(true /*=animate*/);
   parent()->Layout();
   target_widget_->non_client_view()->Layout();
 }
@@ -187,6 +187,10 @@ void HeaderView::SetShouldPaintHeader(bool paint) {
   SchedulePaint();
 }
 
+FrameCaptionButton* HeaderView::GetBackButton() {
+  return frame_header_->back_button();
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // HeaderView,
 //   ImmersiveFullscreenControllerDelegate overrides:
@@ -194,6 +198,12 @@ void HeaderView::SetShouldPaintHeader(bool paint) {
 void HeaderView::OnImmersiveRevealStarted() {
   fullscreen_visible_fraction_ = 0;
   SetPaintToLayer();
+  // AppWindow may call this before being added to the widget.
+  // https://crbug.com/825260.
+  if (layer()->parent()) {
+    // The immersive layer should always be top.
+    layer()->parent()->StackAtTop(layer());
+  }
   parent()->Layout();
 }
 
@@ -203,7 +213,12 @@ void HeaderView::OnImmersiveRevealEnded() {
   parent()->Layout();
 }
 
+void HeaderView::OnImmersiveFullscreenEntered() {
+  in_immersive_mode_ = true;
+}
+
 void HeaderView::OnImmersiveFullscreenExited() {
+  in_immersive_mode_ = false;
   fullscreen_visible_fraction_ = 0;
   DestroyLayer();
   parent()->Layout();

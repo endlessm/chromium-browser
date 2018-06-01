@@ -54,7 +54,8 @@ public class AppBannerUiDelegateAndroid
 
     @Override
     public void onDialogDismissed() {
-        destroy();
+        mDialog = null;
+        mInstallerDelegate = null;
     }
 
     @Override
@@ -76,6 +77,11 @@ public class AppBannerUiDelegateAndroid
     @CalledByNative
     public void createInstallerDelegate(InstallerDelegate.Observer observer) {
         mInstallerDelegate = new InstallerDelegate(Looper.getMainLooper(), observer);
+    }
+
+    @CalledByNative
+    private AddToHomescreenDialog getDialogForTesting() {
+        return mDialog;
     }
 
     @CalledByNative
@@ -102,7 +108,7 @@ public class AppBannerUiDelegateAndroid
         createInstallerDelegate(this);
         mDialog = new AddToHomescreenDialog(mTab.getActivity(), this);
         mDialog.show();
-        mDialog.onUserTitleAvailable(title, appData.rating());
+        mDialog.onUserTitleAvailable(title, appData.installButtonText(), appData.rating());
         mDialog.onIconAvailable(iconBitmap);
         return true;
     }

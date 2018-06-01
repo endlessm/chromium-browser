@@ -29,12 +29,12 @@ namespace {
 const char kTestURL[] = "http://example.com/hello.mhtml";
 const char kNonExistentURL[] = "http://example.com/non_existent.mhtml";
 // Size of chrome/test/data/offline_pages/hello.mhtml
-const int64_t kTestFileSize = 450LL;
+const int64_t kTestFileSize = 471LL;
 const base::string16 kTestTitle = base::UTF8ToUTF16("a title");
 // SHA256 Hash of chrome/test/data/offline_pages/hello.mhtml
 const std::string kTestDigest(
-    "\x90\x64\xF9\x7C\x94\xE5\x9E\x91\x83\x3D\x41\xB0\x36\x90\x0A\xDF\xB3\xB1"
-    "\x5C\x13\xBE\xB8\x35\x8C\xF6\x5B\xC4\xB5\x5A\xFC\x3A\xCC",
+    "\x43\x60\x62\x02\x06\x15\x0f\x3e\x77\x99\x3d\xed\xdc\xd4\xe2\x0d\xbe\xbd"
+    "\x77\x1a\xfb\x32\x00\x51\x7e\x63\x7d\x3b\x2e\x46\x63\xf6",
     32);
 
 class TestMHTMLArchiver : public OfflinePageMHTMLArchiver {
@@ -53,9 +53,10 @@ class TestMHTMLArchiver : public OfflinePageMHTMLArchiver {
 
  private:
   void GenerateMHTML(const base::FilePath& archives_dir,
+                     content::WebContents* web_contents,
                      const CreateArchiveParams& create_archive_params) override;
-  bool HasConnectionSecurityError() override;
-  content::PageType GetPageType() override;
+  bool HasConnectionSecurityError(content::WebContents* web_contents) override;
+  content::PageType GetPageType(content::WebContents* web_contents) override;
 
   const GURL url_;
   const TestScenario test_scenario_;
@@ -74,6 +75,7 @@ TestMHTMLArchiver::~TestMHTMLArchiver() {
 
 void TestMHTMLArchiver::GenerateMHTML(
     const base::FilePath& archives_dir,
+    content::WebContents* web_contents,
     const CreateArchiveParams& create_archive_params) {
   if (test_scenario_ == TestScenario::WEB_CONTENTS_MISSING) {
     ReportFailure(ArchiverResult::ERROR_CONTENT_UNAVAILABLE);
@@ -88,16 +90,18 @@ void TestMHTMLArchiver::GenerateMHTML(
   base::FilePath archive_file_path =
       archives_dir.AppendASCII(url_.ExtractFileName());
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&TestMHTMLArchiver::OnGenerateMHTMLDone,
-                            base::Unretained(this), url_, archive_file_path,
-                            kTestTitle, kTestFileSize));
+      FROM_HERE, base::BindOnce(&TestMHTMLArchiver::OnGenerateMHTMLDone,
+                                base::Unretained(this), url_, archive_file_path,
+                                kTestTitle, kTestFileSize));
 }
 
-bool TestMHTMLArchiver::HasConnectionSecurityError() {
+bool TestMHTMLArchiver::HasConnectionSecurityError(
+    content::WebContents* web_contents) {
   return test_scenario_ == TestScenario::CONNECTION_SECURITY_ERROR;
 }
 
-content::PageType TestMHTMLArchiver::GetPageType() {
+content::PageType TestMHTMLArchiver::GetPageType(
+    content::WebContents* web_contents) {
   if (test_scenario_ == TestScenario::ERROR_PAGE)
     return content::PageType::PAGE_TYPE_ERROR;
   if (test_scenario_ == TestScenario::INTERSTITIAL_PAGE)
@@ -185,7 +189,7 @@ std::unique_ptr<TestMHTMLArchiver> OfflinePageMHTMLArchiverTest::CreateArchive(
   std::unique_ptr<TestMHTMLArchiver> archiver(
       new TestMHTMLArchiver(url, scenario));
   archiver->CreateArchive(archive_dir_path_,
-                          OfflinePageArchiver::CreateArchiveParams(),
+                          OfflinePageArchiver::CreateArchiveParams(), nullptr,
                           callback());
   PumpLoop();
   return archiver;

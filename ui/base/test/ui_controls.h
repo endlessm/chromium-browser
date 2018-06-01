@@ -60,7 +60,7 @@ bool SendKeyPressNotifyWhenDone(gfx::NativeWindow window,
                                 bool shift,
                                 bool alt,
                                 bool command,
-                                const base::Closure& task);
+                                base::OnceClosure task);
 
 // Simulate a mouse move.
 bool SendMouseMove(long screen_x, long screen_y);
@@ -69,7 +69,7 @@ bool SendMouseMove(long screen_x, long screen_y);
 // belonging to the current process.
 bool SendMouseMoveNotifyWhenDone(long screen_x,
                                  long screen_y,
-                                 const base::Closure& task);
+                                 base::OnceClosure task);
 
 enum MouseButton {
   LEFT = 0,
@@ -91,7 +91,7 @@ enum TouchType { PRESS = 1 << 0, RELEASE = 1 << 1, MOVE = 1 << 2 };
 bool SendMouseEvents(MouseButton type, int state);
 bool SendMouseEventsNotifyWhenDone(MouseButton type,
                                    int state,
-                                   const base::Closure& task);
+                                   base::OnceClosure task);
 
 // Same as SendMouseEvents with UP | DOWN.
 bool SendMouseClick(MouseButton type);
@@ -104,11 +104,6 @@ bool SendMouseClick(MouseButton type);
 // pointers, |screen_x| and |screen_y| are the screen coordinates of a touch
 // pointer.
 bool SendTouchEvents(int action, int num, int screen_x, int screen_y);
-#endif
-
-#if defined(TOOLKIT_VIEWS)
-// Runs |closure| after processing all pending ui events.
-void RunClosureAfterAllPendingUIEvents(const base::Closure& closure);
 #endif
 
 #if defined(USE_AURA)

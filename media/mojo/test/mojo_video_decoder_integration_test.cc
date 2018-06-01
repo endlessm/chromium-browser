@@ -78,19 +78,21 @@ class MockVideoDecoder : public VideoDecoder {
   MOCK_CONST_METHOD0(GetDisplayName, std::string());
 
   // Initialize() records values before delegating to the mock method.
-  void Initialize(const VideoDecoderConfig& config,
-                  bool low_delay,
-                  CdmContext* cdm_context,
-                  const InitCB& init_cb,
-                  const OutputCB& output_cb) override {
+  void Initialize(
+      const VideoDecoderConfig& config,
+      bool /* low_delay */,
+      CdmContext* /* cdm_context */,
+      const InitCB& init_cb,
+      const OutputCB& output_cb,
+      const WaitingForDecryptionKeyCB& /* waiting_for_decryption_key_cb */)
+      override {
     config_ = config;
     output_cb_ = output_cb;
     DoInitialize(init_cb);
   }
 
   MOCK_METHOD2(Decode,
-               void(const scoped_refptr<DecoderBuffer>& buffer,
-                    const DecodeCB&));
+               void(scoped_refptr<DecoderBuffer> buffer, const DecodeCB&));
   MOCK_METHOD1(Reset, void(const base::Closure&));
   MOCK_CONST_METHOD0(NeedsBitstreamConversion, bool());
   MOCK_CONST_METHOD0(CanReadWithoutStalling, bool());
@@ -109,7 +111,7 @@ class MockVideoDecoder : public VideoDecoder {
 
   // Returns an output frame immediately.
   // TODO(sandersd): Extend to support tests of MojoVideoFrame frames.
-  void DoDecode(const scoped_refptr<DecoderBuffer>& buffer,
+  void DoDecode(scoped_refptr<DecoderBuffer> buffer,
                 const DecodeCB& decode_cb) {
     if (!buffer->end_of_stream()) {
       gpu::MailboxHolder mailbox_holders[VideoFrame::kMaxPlanes];
@@ -205,13 +207,14 @@ class MojoVideoDecoderIntegrationTest : public ::testing::Test {
     EXPECT_CALL(init_cb, Run(_)).WillOnce(SaveArg<0>(&result));
 
     client_->Initialize(TestVideoConfig::Normal(), false, nullptr,
-                        init_cb.Get(), output_cb_.Get());
+                        init_cb.Get(), output_cb_.Get(),
+                        VideoDecoder::WaitingForDecryptionKeyCB());
     RunUntilIdle();
 
     return result;
   }
 
-  DecodeStatus Decode(const scoped_refptr<DecoderBuffer>& buffer,
+  DecodeStatus Decode(scoped_refptr<DecoderBuffer> buffer,
                       VideoFrame::ReleaseMailboxCB release_cb =
                           VideoFrame::ReleaseMailboxCB()) {
     DecodeStatus result = DecodeStatus::DECODE_ERROR;

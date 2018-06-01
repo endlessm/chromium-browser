@@ -10,8 +10,10 @@
 
 package org.webrtc;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.webrtc.NetworkMonitorAutoDetect.ConnectionType;
 import static org.webrtc.NetworkMonitorAutoDetect.ConnectivityManagerDelegate;
@@ -33,6 +35,7 @@ import android.support.test.annotation.UiThreadTest;
 import android.support.test.filters.MediumTest;
 import android.support.test.filters.SmallTest;
 import android.support.test.rule.UiThreadTestRule;
+import javax.annotation.Nullable;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.junit.Before;
 import org.junit.Rule;
@@ -145,7 +148,7 @@ public class NetworkMonitorTest {
   }
 
   private static final Object lock = new Object();
-  private static Handler uiThreadHandler = null;
+  private static @Nullable Handler uiThreadHandler = null;
 
   private NetworkMonitorAutoDetect receiver;
   private MockConnectivityManagerDelegate connectivityDelegate;
@@ -153,10 +156,11 @@ public class NetworkMonitorTest {
 
   private static Handler getUiThreadHandler() {
     synchronized (lock) {
-      if (uiThreadHandler == null) {
-        uiThreadHandler = new Handler(Looper.getMainLooper());
+      Handler handler = uiThreadHandler;
+      if (handler != null) {
+        return handler;
       }
-      return uiThreadHandler;
+      return uiThreadHandler = new Handler(Looper.getMainLooper());
     }
   }
 
@@ -165,7 +169,7 @@ public class NetworkMonitorTest {
    */
   private void createTestMonitor() {
     Context context = InstrumentationRegistry.getTargetContext();
-    receiver = NetworkMonitor.getAutoDetectorForTest(context);
+    receiver = NetworkMonitor.createAndSetAutoDetectForTest(context);
     assertNotNull(receiver);
 
     connectivityDelegate = new MockConnectivityManagerDelegate();
@@ -285,5 +289,21 @@ public class NetworkMonitorTest {
     NetworkMonitorAutoDetect ncn =
         new NetworkMonitorAutoDetect(observer, InstrumentationRegistry.getTargetContext());
     ncn.getDefaultNetId();
+  }
+
+  /**
+   * Tests startMonitoring and stopMonitoring correctly set the autoDetect and number of observers.
+   */
+  @Test
+  @SmallTest
+  public void testStartStopMonitoring() {
+    NetworkMonitor networkMonitor = NetworkMonitor.getInstance();
+    Context context = ContextUtils.getApplicationContext();
+    networkMonitor.startMonitoring(context);
+    assertEquals(1, networkMonitor.getNumObservers());
+    assertNotNull(networkMonitor.getNetworkMonitorAutoDetect());
+    networkMonitor.stopMonitoring();
+    assertEquals(0, networkMonitor.getNumObservers());
+    assertNull(networkMonitor.getNetworkMonitorAutoDetect());
   }
 }

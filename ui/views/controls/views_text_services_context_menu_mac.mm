@@ -6,12 +6,15 @@
 
 #import <Cocoa/Cocoa.h>
 
-#include "base/memory/ptr_util.h"
+#include "base/feature_list.h"
 #include "ui/base/cocoa/text_services_context_menu.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/simple_menu_model.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/gfx/decorated_text.h"
 #import "ui/gfx/decorated_text_mac.h"
+#include "ui/resources/grit/ui_resources.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/view.h"
@@ -30,15 +33,20 @@ class ViewsTextServicesContextMenuMac
  public:
   ViewsTextServicesContextMenuMac(ui::SimpleMenuModel* menu, Textfield* client)
       : text_services_menu_(this), client_(client) {
-    // The menu index for "Look Up".
-    constexpr int kLookupMenuIndex = 0;
+    // The index to use when inserting items into the menu.
+    int index = 0;
 
     base::string16 text = GetSelectedText();
     if (!text.empty()) {
       menu->InsertItemAt(
-          kLookupMenuIndex, IDS_CONTENT_CONTEXT_LOOK_UP,
+          index++, IDS_CONTENT_CONTEXT_LOOK_UP,
           l10n_util::GetStringFUTF16(IDS_CONTENT_CONTEXT_LOOK_UP, text));
-      menu->InsertSeparatorAt(kLookupMenuIndex + 1, ui::NORMAL_SEPARATOR);
+      menu->InsertSeparatorAt(index++, ui::NORMAL_SEPARATOR);
+    }
+    if (base::FeatureList::IsEnabled(features::kEnableEmojiContextMenu)) {
+      menu->InsertItemWithStringIdAt(index++, IDS_CONTENT_CONTEXT_EMOJI,
+                                     IDS_CONTENT_CONTEXT_EMOJI);
+      menu->InsertSeparatorAt(index++, ui::NORMAL_SEPARATOR);
     }
     text_services_menu_.AppendToContextMenu(menu);
     text_services_menu_.AppendEditableItems(menu);
@@ -48,7 +56,9 @@ class ViewsTextServicesContextMenuMac
 
   // ViewsTextServicesContextMenu:
   bool SupportsCommand(int command_id) const override {
-    return command_id == IDS_CONTENT_CONTEXT_LOOK_UP;
+    return text_services_menu_.SupportsCommand(command_id) ||
+           command_id == IDS_CONTENT_CONTEXT_EMOJI ||
+           command_id == IDS_CONTENT_CONTEXT_LOOK_UP;
   }
 
   bool IsCommandIdChecked(int command_id) const override {
@@ -57,17 +67,38 @@ class ViewsTextServicesContextMenuMac
   }
 
   bool IsCommandIdEnabled(int command_id) const override {
-    DCHECK_EQ(IDS_CONTENT_CONTEXT_LOOK_UP, command_id);
-    return true;
+    if (text_services_menu_.SupportsCommand(command_id))
+      return text_services_menu_.IsCommandIdEnabled(command_id);
+
+    switch (command_id) {
+      case IDS_CONTENT_CONTEXT_EMOJI:
+        return true;
+
+      case IDS_CONTENT_CONTEXT_LOOK_UP:
+        return true;
+
+      default:
+        return false;
+    }
   }
 
   void ExecuteCommand(int command_id) override {
-    DCHECK_EQ(IDS_CONTENT_CONTEXT_LOOK_UP, command_id);
-    LookUpInDictionary();
+    switch (command_id) {
+      case IDS_CONTENT_CONTEXT_EMOJI:
+        [NSApp orderFrontCharacterPalette:nil];
+        break;
+
+      case IDS_CONTENT_CONTEXT_LOOK_UP:
+        LookUpInDictionary();
+        break;
+    }
   }
 
   // TextServicesContextMenu::Delegate:
   base::string16 GetSelectedText() const override {
+    if (client_->GetTextInputType() == ui::TEXT_INPUT_TYPE_PASSWORD)
+      return base::string16();
+
     return client_->GetSelectedText();
   }
 

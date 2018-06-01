@@ -36,6 +36,7 @@ import org.robolectric.shadows.ShadowLog;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Feature;
+import org.chromium.content.browser.PopupController;
 import org.chromium.content.browser.RenderCoordinates;
 import org.chromium.content.browser.webcontents.WebContentsImpl;
 import org.chromium.content_public.browser.SelectionClient;
@@ -61,6 +62,7 @@ public class SelectionPopupControllerTest {
     private SmartSelectionMetricsLogger mLogger;
     private RenderCoordinates mRenderCoordinates;
     private ContentResolver mContentResolver;
+    private PopupController mPopupController;
 
     private static final String MOUNTAIN_FULL = "585 Franklin Street, Mountain View, CA 94041";
     private static final String MOUNTAIN = "Mountain";
@@ -77,9 +79,6 @@ public class SelectionPopupControllerTest {
 
         @Override
         public void onSelectionEvent(int eventType, float posXPix, float poxYPix) {}
-
-        @Override
-        public void showUnhandledTapUIIfNeeded(int x, int y) {}
 
         @Override
         public void selectWordAroundCaretAck(boolean didSelect, int startAdjust, int endAdjust) {}
@@ -131,6 +130,7 @@ public class SelectionPopupControllerTest {
         mPackageManager = Mockito.mock(PackageManager.class);
         mRenderCoordinates = Mockito.mock(RenderCoordinates.class);
         mLogger = Mockito.mock(SmartSelectionMetricsLogger.class);
+        mPopupController = Mockito.mock(PopupController.class);
 
         mContentResolver = RuntimeEnvironment.application.getContentResolver();
         // To let isDeviceProvisioned() call in showSelectionMenu() return true.
@@ -142,7 +142,7 @@ public class SelectionPopupControllerTest {
         when(mRenderCoordinates.getDeviceScaleFactor()).thenReturn(1.f);
 
         mController = SelectionPopupControllerImpl.createForTesting(
-                mContext, mWindowAndroid, mWebContents, mView);
+                mContext, mWindowAndroid, mWebContents, mView, mPopupController);
     }
 
     @Test

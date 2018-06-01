@@ -57,10 +57,6 @@ class PasswordsModelDelegate {
   virtual password_manager::metrics_util::CredentialSourceType
   GetCredentialSource() const = 0;
 
-  // True if the password for previously stored account was overridden, i.e. in
-  // newly submitted form the password is different from stored one.
-  virtual bool IsPasswordOverridden() const = 0;
-
   // Returns current local forms for the current page.
   virtual const std::vector<std::unique_ptr<autofill::PasswordForm>>&
   GetCurrentForms() const = 0;
@@ -111,7 +107,8 @@ class PasswordsModelDelegate {
   virtual void NavigateToPasswordManagerSettingsPage() = 0;
   // Called by the view when the "Sign in to Chrome" button or the "Sync to"
   // button in the promo bubble are clicked.
-  virtual void EnableSync(const AccountInfo& account) = 0;
+  virtual void EnableSync(const AccountInfo& account,
+                          bool is_default_promo_account) = 0;
 
   // Called from the dialog controller when the dialog is hidden.
   virtual void OnDialogHidden() = 0;

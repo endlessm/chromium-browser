@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/files/file_util.h"
 #include "base/memory/weak_ptr.h"
 #include "dbus/bus.h"
 #include "dbus/message.h"
@@ -45,9 +46,19 @@ smbprovider::ErrorType GetErrorAndProto(
   return smbprovider::ERROR_OK;
 }
 
+bool ParseDeleteList(const base::ScopedFD& fd,
+                     int32_t bytes_written,
+                     smbprovider::DeleteListProto* delete_list) {
+  DCHECK(delete_list);
+  std::vector<uint8_t> buffer(bytes_written);
+  return base::ReadFromFD(fd.get(), reinterpret_cast<char*>(buffer.data()),
+                          buffer.size()) &&
+         delete_list->ParseFromArray(buffer.data(), buffer.size());
+}
+
 class SmbProviderClientImpl : public SmbProviderClient {
  public:
-  SmbProviderClientImpl() : weak_ptr_factory_(this) {}
+  SmbProviderClientImpl() = default;
 
   ~SmbProviderClientImpl() override {}
 
@@ -57,6 +68,15 @@ class SmbProviderClientImpl : public SmbProviderClient {
     options.set_path(share_path.value());
     CallMethod(smbprovider::kMountMethod, options,
                &SmbProviderClientImpl::HandleMountCallback, &callback);
+  }
+
+  void Remount(const base::FilePath& share_path,
+               int32_t mount_id,
+               StatusCallback callback) override {
+    smbprovider::RemountOptionsProto options;
+    options.set_path(share_path.value());
+    options.set_mount_id(mount_id);
+    CallDefaultMethod(smbprovider::kRemountMethod, options, &callback);
   }
 
   void Unmount(int32_t mount_id, StatusCallback callback) override {
@@ -208,6 +228,26 @@ class SmbProviderClientImpl : public SmbProviderClient {
     CallDefaultMethod(smbprovider::kCopyEntryMethod, options, &callback);
   }
 
+  void GetDeleteList(int32_t mount_id,
+                     const base::FilePath& entry_path,
+                     GetDeleteListCallback callback) override {
+    smbprovider::GetDeleteListOptionsProto options;
+    options.set_mount_id(mount_id);
+    options.set_entry_path(entry_path.value());
+    CallMethod(smbprovider::kGetDeleteListMethod, options,
+               &SmbProviderClientImpl::HandleGetDeleteListCallback, &callback);
+  }
+
+  void GetShares(const base::FilePath& server_url,
+                 ReadDirectoryCallback callback) override {
+    smbprovider::GetSharesOptionsProto options;
+    options.set_server_url(server_url.value());
+    CallMethod(smbprovider::kGetSharesMethod, options,
+               &SmbProviderClientImpl::HandleProtoCallback<
+                   smbprovider::DirectoryEntryListProto>,
+               &callback);
+  }
+
  protected:
   // DBusClient override.
   void Init(dbus::Bus* bus) override {
@@ -239,9 +279,9 @@ class SmbProviderClientImpl : public SmbProviderClient {
   void CallMethod(dbus::MethodCall* method_call,
                   CallbackHandler handler,
                   Callback callback) {
-    proxy_->CallMethod(method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-                       base::BindOnce(handler, weak_ptr_factory_.GetWeakPtr(),
-                                      base::Passed(callback)));
+    proxy_->CallMethod(
+        method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        base::BindOnce(handler, GetWeakPtr(), std::move(*callback)));
   }
 
   // Calls the D-Bus method |name|, passing the |protobuf| as an argument.
@@ -263,8 +303,8 @@ class SmbProviderClientImpl : public SmbProviderClient {
     proxy_->CallMethod(
         method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
         base::BindOnce(&SmbProviderClientImpl::HandleDefaultCallback,
-                       weak_ptr_factory_.GetWeakPtr(), method_call->GetMember(),
-                       base::Passed(callback)));
+                       GetWeakPtr(), method_call->GetMember(),
+                       std::move(*callback)));
   }
 
   // Handles D-Bus callback for mount.
@@ -335,6 +375,39 @@ class SmbProviderClientImpl : public SmbProviderClient {
     std::move(callback).Run(smbprovider::ERROR_OK, fd);
   }
 
+  // Handles D-Bus callback for GetDeleteList.
+  void HandleGetDeleteListCallback(GetDeleteListCallback callback,
+                                   dbus::Response* response) {
+    base::ScopedFD fd;
+    smbprovider::DeleteListProto delete_list;
+    if (!response) {
+      LOG(ERROR) << "GetDeleteList: failed to call smbprovider";
+      std::move(callback).Run(smbprovider::ERROR_DBUS_PARSE_FAILED,
+                              delete_list);
+      return;
+    }
+
+    dbus::MessageReader reader(response);
+    smbprovider::ErrorType error = GetErrorFromReader(&reader);
+    if (error != smbprovider::ERROR_OK) {
+      std::move(callback).Run(error, delete_list);
+      return;
+    }
+
+    int32_t bytes_written;
+    bool success = reader.PopFileDescriptor(&fd) &&
+                   reader.PopInt32(&bytes_written) &&
+                   ParseDeleteList(fd, bytes_written, &delete_list);
+    if (!success) {
+      LOG(ERROR) << "GetDeleteList: parse failure.";
+      std::move(callback).Run(smbprovider::ERROR_DBUS_PARSE_FAILED,
+                              delete_list);
+      return;
+    }
+
+    std::move(callback).Run(smbprovider::ERROR_OK, delete_list);
+  }
+
   // Default callback handler for D-Bus calls.
   void HandleDefaultCallback(const std::string& method_name,
                              StatusCallback callback,
@@ -359,11 +432,11 @@ class SmbProviderClientImpl : public SmbProviderClient {
     std::move(callback).Run(error, proto);
   }
 
-  dbus::ObjectProxy* proxy_ = nullptr;
+  base::WeakPtr<SmbProviderClientImpl> GetWeakPtr() {
+    return base::AsWeakPtr(this);
+  }
 
-  // Note: This should remain the last member so it'll be destroyed and
-  // invalidate its weak pointers before any other members are destroyed.
-  base::WeakPtrFactory<SmbProviderClientImpl> weak_ptr_factory_;
+  dbus::ObjectProxy* proxy_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(SmbProviderClientImpl);
 };

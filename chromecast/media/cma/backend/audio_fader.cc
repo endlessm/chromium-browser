@@ -43,7 +43,7 @@ int AudioFader::FillFrames(int num_frames, ::media::AudioBus* buffer) {
 
   // Move data in fade_buffer_ to start.
   for (int c = 0; c < fade_buffer_->channels(); ++c) {
-    float* channel_data = buffer->channel(c);
+    float* channel_data = fade_buffer_->channel(c);
     memmove(channel_data, channel_data + filled_frames,
             buffered_frames_ * sizeof(float));
   }
@@ -84,7 +84,8 @@ void AudioFader::CompleteFill(::media::AudioBus* buffer, int filled_frames) {
     case State::kFadingOut:
       // Fade back in.
       state_ = State::kFadingIn;
-      fade_frames_remaining_ = fade_frames_ - fade_frames_remaining_;
+      fade_frames_remaining_ =
+          std::max(0, fade_frames_ - fade_frames_remaining_ - 1);
       break;
   }
   FadeIn(buffer, filled_frames);
@@ -100,7 +101,8 @@ void AudioFader::IncompleteFill(::media::AudioBus* buffer, int filled_frames) {
     case State::kFadingIn:
       // Fade back out.
       state_ = State::kFadingOut;
-      fade_frames_remaining_ = fade_frames_ - fade_frames_remaining_;
+      fade_frames_remaining_ =
+          std::max(0, fade_frames_ - fade_frames_remaining_ - 1);
       break;
     case State::kPlaying:
       // Fade out.

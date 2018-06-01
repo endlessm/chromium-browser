@@ -51,6 +51,7 @@
 #include "ui/gfx/geometry/rect.h"
 
 #if defined(OS_ANDROID)
+#include "chrome/browser/android/chrome_feature_list.h"
 #include "chrome/browser/android/preferences/preferences_launcher.h"
 #include "chrome/browser/android/signin/signin_promo_util_android.h"
 #include "chrome/browser/infobars/infobar_service.h"
@@ -299,6 +300,11 @@ bool ChromeAutofillClient::IsAutocompleteEnabled() {
   return GetPrefs()->GetBoolean(prefs::kAutofillEnabled);
 }
 
+bool ChromeAutofillClient::AreServerCardsSupported() {
+  // When in VR, server side cards are not supported.
+  return !vr::VrTabHelper::IsInVr(web_contents());
+}
+
 void ChromeAutofillClient::MainFrameWasResized(bool width_changed) {
 #if defined(OS_ANDROID)
   // Ignore virtual keyboard showing and hiding a strip of suggestions.
@@ -427,9 +433,10 @@ void ChromeAutofillClient::ShowHttpNotSecureExplanation() {
 }
 
 bool ChromeAutofillClient::IsAutofillSupported() {
-  // VR browsing does not support popups at the moment.
-  if (vr::VrTabHelper::IsInVr(web_contents())) {
-    vr::VrTabHelper::UISuppressed(vr::UiSuppressedElement::kAutofill);
+  // VR browsing supports the autofill behind a flag. When the flag is removed
+  // we can remove this condition.
+  if (vr::VrTabHelper::IsUiSuppressedInVr(web_contents(),
+                                          vr::UiSuppressedElement::kAutofill)) {
     return false;
   }
 

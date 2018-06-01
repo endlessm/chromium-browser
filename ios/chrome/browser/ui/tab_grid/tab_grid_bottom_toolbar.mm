@@ -4,119 +4,83 @@
 
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_bottom_toolbar.h"
 
-#include "base/logging.h"
+#import "ios/chrome/browser/ui/tab_grid/tab_grid_constants.h"
+#import "ios/chrome/browser/ui/tab_grid/tab_grid_new_tab_button.h"
+#import "ios/chrome/browser/ui/uikit_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-namespace {
-// Height of the toolbar.
-const CGFloat kToolbarHeight = 44.0f;
-// Diameter of the center round button.
-const CGFloat kRoundButtonDiameter = 44.0f;
-}  // namespace
-
 @implementation TabGridBottomToolbar
-@synthesize theme = _theme;
 @synthesize leadingButton = _leadingButton;
 @synthesize trailingButton = _trailingButton;
-@synthesize roundButton = _roundButton;
+@synthesize centerButton = _centerButton;
 
-- (instancetype)init {
-  if (self = [super initWithFrame:CGRectZero]) {
-    UIVisualEffect* blurEffect =
-        [UIBlurEffect effectWithStyle:UIBlurEffectStyleDark];
-    UIVisualEffectView* toolbar =
-        [[UIVisualEffectView alloc] initWithEffect:blurEffect];
-    toolbar.translatesAutoresizingMaskIntoConstraints = NO;
-    [self addSubview:toolbar];
-
-    UIButton* leadingButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    leadingButton.translatesAutoresizingMaskIntoConstraints = NO;
-
-    [leadingButton setTitle:@"Button" forState:UIControlStateNormal];
-
-    UIButton* trailingButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    trailingButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [trailingButton setTitle:@"Button" forState:UIControlStateNormal];
-
-    UIButton* roundButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    roundButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [roundButton setTitle:@"Btn" forState:UIControlStateNormal];
-    roundButton.layer.cornerRadius = 22.f;
-    roundButton.layer.masksToBounds = YES;
-
-    [toolbar.contentView addSubview:leadingButton];
-    [toolbar.contentView addSubview:trailingButton];
-    [toolbar.contentView addSubview:roundButton];
-    _leadingButton = leadingButton;
-    _trailingButton = trailingButton;
-    _roundButton = roundButton;
-
-    NSArray* constraints = @[
-      [toolbar.topAnchor constraintEqualToAnchor:self.topAnchor],
-      [toolbar.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
-      [toolbar.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
-      [toolbar.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
-      [leadingButton.heightAnchor constraintEqualToConstant:kToolbarHeight],
-      [leadingButton.leadingAnchor
-          constraintEqualToAnchor:toolbar.layoutMarginsGuide.leadingAnchor],
-      [leadingButton.topAnchor constraintEqualToAnchor:toolbar.topAnchor],
-      [roundButton.widthAnchor constraintEqualToConstant:kRoundButtonDiameter],
-      [roundButton.heightAnchor constraintEqualToConstant:kRoundButtonDiameter],
-      [roundButton.centerXAnchor constraintEqualToAnchor:toolbar.centerXAnchor],
-      [roundButton.topAnchor constraintEqualToAnchor:toolbar.topAnchor],
-      [trailingButton.heightAnchor constraintEqualToConstant:kToolbarHeight],
-      [trailingButton.trailingAnchor
-          constraintEqualToAnchor:toolbar.layoutMarginsGuide.trailingAnchor],
-      [trailingButton.topAnchor constraintEqualToAnchor:toolbar.topAnchor],
-    ];
-    [NSLayoutConstraint activateConstraints:constraints];
-  }
-  return self;
-}
+#pragma mark - UIView
 
 - (CGSize)intrinsicContentSize {
-  return CGSizeMake(UIViewNoIntrinsicMetric, kToolbarHeight);
+  return CGSizeMake(UIViewNoIntrinsicMetric, kTabGridBottomToolbarHeight);
 }
 
-#pragma mark - Public
-
-- (void)setTheme:(TabGridBottomToolbarTheme)theme {
-  if (_theme == theme)
-    return;
-  switch (theme) {
-    case TabGridBottomToolbarThemeWhiteRoundButton:
-      self.trailingButton.enabled = YES;
-      self.roundButton.enabled = YES;
-      self.roundButton.backgroundColor = [UIColor whiteColor];
-      self.roundButton.tintColor = [UIColor blackColor];
-      self.leadingButton.tintColor = [UIColor whiteColor];
-      self.trailingButton.tintColor = [UIColor whiteColor];
-      break;
-    case TabGridBottomToolbarThemeBlueRoundButton:
-      self.trailingButton.enabled = YES;
-      self.roundButton.enabled = YES;
-      self.roundButton.backgroundColor =
-          [UIColor colorWithRed:0.0 green:122.0 / 255.0 blue:1.0 alpha:1.0];
-      self.roundButton.tintColor = [UIColor whiteColor];
-      self.leadingButton.tintColor = [UIColor whiteColor];
-      self.trailingButton.tintColor = [UIColor whiteColor];
-      break;
-    case TabGridBottomToolbarThemePartiallyDisabled:
-      self.trailingButton.enabled = NO;
-      self.roundButton.enabled = NO;
-      self.roundButton.backgroundColor = [UIColor grayColor];
-      self.roundButton.tintColor = [UIColor blackColor];
-      self.leadingButton.tintColor = [UIColor whiteColor];
-      self.trailingButton.tintColor = [UIColor whiteColor];
-      break;
-    default:
-      NOTREACHED() << "Invalid theme for TabGridBottomToolbar.";
-      break;
+- (void)willMoveToSuperview:(UIView*)newSuperview {
+  // The first time this moves to a superview, perform the view setup.
+  if (newSuperview && self.subviews.count == 0) {
+    [self setupViews];
   }
-  _theme = theme;
+}
+
+#pragma mark - Private
+
+- (void)setupViews {
+  self.layoutMargins = UIEdgeInsetsMake(0, kTabGridToolbarHorizontalInset, 0,
+                                        kTabGridToolbarHorizontalInset);
+
+  UIVisualEffect* blurEffect =
+      [UIBlurEffect effectWithStyle:UIBlurEffectStyleDark];
+  UIVisualEffectView* toolbar =
+      [[UIVisualEffectView alloc] initWithEffect:blurEffect];
+  toolbar.translatesAutoresizingMaskIntoConstraints = NO;
+  [self addSubview:toolbar];
+
+  UIButton* leadingButton = [UIButton buttonWithType:UIButtonTypeSystem];
+  leadingButton.translatesAutoresizingMaskIntoConstraints = NO;
+  leadingButton.tintColor = UIColorFromRGB(kTabGridToolbarTextButtonColor);
+  UIButton* trailingButton = [UIButton buttonWithType:UIButtonTypeSystem];
+  trailingButton.translatesAutoresizingMaskIntoConstraints = NO;
+  trailingButton.tintColor = UIColorFromRGB(kTabGridToolbarTextButtonColor);
+  TabGridNewTabButton* centerButton = [TabGridNewTabButton
+      buttonWithSizeClass:TabGridNewTabButtonSizeClassSmall];
+  centerButton.translatesAutoresizingMaskIntoConstraints = NO;
+
+  [toolbar.contentView addSubview:leadingButton];
+  [toolbar.contentView addSubview:trailingButton];
+  [toolbar.contentView addSubview:centerButton];
+  _leadingButton = leadingButton;
+  _trailingButton = trailingButton;
+  _centerButton = centerButton;
+
+  NSArray* constraints = @[
+    [toolbar.topAnchor constraintEqualToAnchor:self.topAnchor],
+    [toolbar.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+    [toolbar.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+    [toolbar.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
+    [leadingButton.heightAnchor
+        constraintEqualToConstant:kTabGridBottomToolbarHeight],
+    [leadingButton.leadingAnchor
+        constraintEqualToAnchor:self.layoutMarginsGuide.leadingAnchor],
+    [leadingButton.topAnchor constraintEqualToAnchor:toolbar.topAnchor],
+    [centerButton.centerXAnchor constraintEqualToAnchor:toolbar.centerXAnchor],
+    [centerButton.centerYAnchor
+        constraintEqualToAnchor:toolbar.topAnchor
+                       constant:kTabGridBottomToolbarHeight / 2.0f],
+    [trailingButton.heightAnchor
+        constraintEqualToConstant:kTabGridBottomToolbarHeight],
+    [trailingButton.trailingAnchor
+        constraintEqualToAnchor:self.layoutMarginsGuide.trailingAnchor],
+    [trailingButton.topAnchor constraintEqualToAnchor:toolbar.topAnchor],
+  ];
+  [NSLayoutConstraint activateConstraints:constraints];
 }
 
 @end

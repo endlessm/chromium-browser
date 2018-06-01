@@ -11,12 +11,13 @@
 #include "base/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/synchronization/lock.h"
 #include "components/password_manager/core/browser/password_manager.h"
+#include "content/public/browser/login_delegate.h"
 #include "content/public/browser/notification_observer.h"
-#include "content/public/browser/resource_dispatcher_host_login_delegate.h"
 #include "content/public/browser/resource_request_info.h"
 
 class GURL;
@@ -36,7 +37,7 @@ class AuthCredentials;
 // This is the base implementation for the OS-specific classes that route
 // authentication info to the net::URLRequest that needs it. These functions
 // must be implemented in a thread safe manner.
-class LoginHandler : public content::ResourceDispatcherHostLoginDelegate,
+class LoginHandler : public content::LoginDelegate,
                      public password_manager::LoginModelObserver,
                      public content::NotificationObserver {
  public:
@@ -63,7 +64,7 @@ class LoginHandler : public content::ResourceDispatcherHostLoginDelegate,
 
   // Builds the platform specific LoginHandler. Used from within
   // CreateLoginPrompt() which creates tasks.
-  static LoginHandler* Create(
+  static scoped_refptr<LoginHandler> Create(
       net::AuthChallengeInfo* auth_info,
       content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
       const base::Callback<void(const base::Optional<net::AuthCredentials>&)>&
@@ -74,7 +75,7 @@ class LoginHandler : public content::ResourceDispatcherHostLoginDelegate,
     interstitial_delegate_ = delegate;
   }
 
-  // ResourceDispatcherHostLoginDelegate implementation:
+  // LoginDelegate implementation:
   void OnRequestCancelled() override;
 
   // Use this to build a view with password manager support. |password_manager|
@@ -144,7 +145,7 @@ class LoginHandler : public content::ResourceDispatcherHostLoginDelegate,
   virtual void CloseDialog() = 0;
 
  private:
-  friend LoginHandler* CreateLoginPrompt(
+  friend scoped_refptr<LoginHandler> CreateLoginPrompt(
       net::AuthChallengeInfo* auth_info,
       content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
       bool is_main_frame,
@@ -255,6 +256,13 @@ class LoginHandler : public content::ResourceDispatcherHostLoginDelegate,
 
   base::WeakPtr<LoginInterstitialDelegate> interstitial_delegate_;
 
+  // Default to |false|. Must be set to |true| anytime the login handler is
+  // shown.
+  bool has_shown_login_handler_;
+
+  // ReleaseSoon() should be called exactly once to destroy the object.
+  bool release_soon_has_been_called_;
+
 #if !defined(OS_ANDROID)
   std::unique_ptr<PopunderPreventer> popunder_preventer_;
 #endif
@@ -309,7 +317,7 @@ class AuthSuppliedLoginNotificationDetails : public LoginNotificationDetails {
 // which can be used to set or cancel authentication programmatically.  The
 // caller must invoke OnRequestCancelled() on this LoginHandler before
 // destroying the net::URLRequest.
-LoginHandler* CreateLoginPrompt(
+scoped_refptr<LoginHandler> CreateLoginPrompt(
     net::AuthChallengeInfo* auth_info,
     content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
     bool is_main_frame,

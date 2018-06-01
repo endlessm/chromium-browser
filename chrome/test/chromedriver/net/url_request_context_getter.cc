@@ -7,7 +7,6 @@
 #include <memory>
 #include <string>
 
-#include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
 #include "net/proxy_resolution/proxy_config_service_fixed.h"
 #include "net/url_request/url_request_context.h"
@@ -27,7 +26,7 @@ net::URLRequestContext* URLRequestContextGetter::GetURLRequestContext() {
     builder.DisableHttpCache();
     builder.set_proxy_config_service(
         std::make_unique<net::ProxyConfigServiceFixed>(
-            net::ProxyConfig::CreateDirect()));
+            net::ProxyConfigWithAnnotation::CreateDirect()));
     url_request_context_ = builder.Build();
   }
   return url_request_context_.get();

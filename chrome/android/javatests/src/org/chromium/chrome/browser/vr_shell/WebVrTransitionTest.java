@@ -6,13 +6,17 @@ package org.chromium.chrome.browser.vr_shell;
 
 import static org.chromium.chrome.browser.vr_shell.TestFramework.PAGE_LOAD_TIMEOUT_S;
 import static org.chromium.chrome.browser.vr_shell.VrTestFramework.PAGE_LOAD_TIMEOUT_S;
+import static org.chromium.chrome.browser.vr_shell.VrTestFramework.POLL_CHECK_INTERVAL_LONG_MS;
 import static org.chromium.chrome.browser.vr_shell.VrTestFramework.POLL_CHECK_INTERVAL_SHORT_MS;
 import static org.chromium.chrome.browser.vr_shell.VrTestFramework.POLL_TIMEOUT_LONG_MS;
 import static org.chromium.chrome.browser.vr_shell.VrTestFramework.POLL_TIMEOUT_SHORT_MS;
 import static org.chromium.chrome.test.util.ChromeRestriction.RESTRICTION_TYPE_DON_ENABLED;
 import static org.chromium.chrome.test.util.ChromeRestriction.RESTRICTION_TYPE_VIEWER_DAYDREAM;
 
+import android.annotation.TargetApi;
 import android.app.Activity;
+import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.os.Build;
 import android.os.SystemClock;
 import android.support.test.InstrumentationRegistry;
@@ -35,6 +39,7 @@ import org.chromium.base.test.params.ParameterizedRunner;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.base.test.util.Restriction;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.customtabs.CustomTabActivity;
@@ -53,6 +58,8 @@ import org.chromium.content_public.browser.WebContents;
 import java.lang.ref.WeakReference;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -64,6 +71,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @UseRunnerDelegate(ChromeJUnit4RunnerDelegate.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE, "enable-webvr"})
 @MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT) // WebVR and WebXR are only supported on K+
+@TargetApi(Build.VERSION_CODES.KITKAT) // Necessary to allow taking screenshots with UiAutomation
 public class WebVrTransitionTest {
     @ClassParameter
     private static List<ParameterSet> sClassParams =
@@ -115,6 +123,34 @@ public class WebVrTransitionTest {
         framework.loadUrlAndAwaitInitialization(url, PAGE_LOAD_TIMEOUT_S);
         TransitionUtils.enterPresentationOrFail(framework);
         Assert.assertTrue("VrShellDelegate is in VR", VrShellDelegate.isInVr());
+
+        // Initial Pixel Test - Verify that the Canvas is blue.
+        // The Canvas is set to blue while presenting.
+        final UiDevice uiDevice =
+                UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
+
+        CriteriaHelper.pollInstrumentationThread(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                Bitmap screenshot = InstrumentationRegistry.getInstrumentation()
+                                            .getUiAutomation()
+                                            .takeScreenshot();
+
+                if (screenshot != null) {
+                    // Calculate center of eye coordinates.
+                    int height = uiDevice.getDisplayHeight() / 2;
+                    int width = uiDevice.getDisplayWidth() / 4;
+
+                    // Verify screen is blue.
+                    int pixel = screenshot.getPixel(width, height);
+                    // Workaround for the immersive mode popup sometimes being rendered over the
+                    // screen on K, which causes the pure blue to be darkened to (0, 0, 127).
+                    // TODO(https://crbug.com/819021): Only check pure blue.
+                    return pixel == Color.BLUE || pixel == Color.rgb(0, 0, 127);
+                }
+                return false;
+            }
+        }, POLL_TIMEOUT_LONG_MS, POLL_CHECK_INTERVAL_LONG_MS);
     }
 
     /**
@@ -288,8 +324,8 @@ public class WebVrTransitionTest {
 
         // Send an autopresent intent, which will open the link in a CCT
         VrTransitionUtils.sendVrLaunchIntent(
-                VrTestFramework.getHtmlTestFile("test_webvr_autopresent"),
-                mTestRule.getActivity(), true /* autopresent */);
+                VrTestFramework.getHtmlTestFile("test_webvr_autopresent"), mTestRule.getActivity(),
+                true /* autopresent */, true /* avoidRelaunch */);
 
         // Wait until a CCT is opened due to the intent
         final AtomicReference<CustomTabActivity> cct = new AtomicReference<CustomTabActivity>();
@@ -370,6 +406,7 @@ public class WebVrTransitionTest {
     @Test
     @MediumTest
     @VrActivityRestriction({VrActivityRestriction.SupportedActivity.ALL})
+    @RetryOnFailure
     public void testWindowRafStopsFiringWhilePresenting() throws InterruptedException {
         windowRafStopsFiringWhilePresentingImpl(
                 VrTestFramework.getHtmlTestFile("test_window_raf_stops_firing_while_presenting"),
@@ -398,7 +435,12 @@ public class WebVrTransitionTest {
         framework.loadUrlAndAwaitInitialization(url, PAGE_LOAD_TIMEOUT_S);
         TestFramework.executeStepAndWait(
                 "stepVerifyBeforePresent()", framework.getFirstTabWebContents());
+        // Pausing of window.rAF is done asynchronously, so wait until that's done.
+        final CountDownLatch vsyncPausedLatch = new CountDownLatch(1);
+        TestVrShellDelegate.getInstance().setVrShellOnVSyncPausedCallback(
+                () -> { vsyncPausedLatch.countDown(); });
         TransitionUtils.enterPresentationOrFail(framework);
+        vsyncPausedLatch.await(POLL_TIMEOUT_SHORT_MS, TimeUnit.MILLISECONDS);
         TestFramework.executeStepAndWait(
                 "stepVerifyDuringPresent()", framework.getFirstTabWebContents());
         TransitionUtils.forceExitVr();
@@ -439,5 +481,46 @@ public class WebVrTransitionTest {
         TransitionUtils.enterPresentationOrFail(framework);
         framework.simulateRendererKilled();
         Assert.assertTrue("Browser is in VR", VrShellDelegate.isInVr());
+    }
+
+    /**
+     * Tests that window.rAF continues to fire when we have a non-exclusive session.
+     */
+    @Test
+    @MediumTest
+    @CommandLineFlags.Remove({"enable-webvr"})
+    @CommandLineFlags.Add({"enable-features=WebXR"})
+    @VrActivityRestriction({VrActivityRestriction.SupportedActivity.ALL})
+    public void testWindowRafFiresDuringNonExclusiveSession() throws InterruptedException {
+        mXrTestFramework.loadUrlAndAwaitInitialization(
+                XrTestFramework.getHtmlTestFile(
+                        "test_window_raf_fires_during_non_exclusive_session"),
+                PAGE_LOAD_TIMEOUT_S);
+        XrTestFramework.waitOnJavaScriptStep(mXrTestFramework.getFirstTabWebContents());
+        XrTestFramework.endTest(mXrTestFramework.getFirstTabWebContents());
+    }
+
+    /**
+     * Tests that non-exclusive sessions stop receiving rAFs during an exclusive session, but resume
+     * once the exclusive session ends.
+     */
+    @Test
+    @MediumTest
+    @CommandLineFlags.Remove({"enable-webvr"})
+    @CommandLineFlags.Add({"enable-features=WebXR"})
+    @VrActivityRestriction({VrActivityRestriction.SupportedActivity.ALL})
+    public void testNonExclusiveStopsDuringExclusive() throws InterruptedException {
+        mXrTestFramework.loadUrlAndAwaitInitialization(
+                XrTestFramework.getHtmlTestFile("test_non_exclusive_stops_during_exclusive"),
+                PAGE_LOAD_TIMEOUT_S);
+        XrTestFramework.executeStepAndWait(
+                "stepBeforeExclusive()", mXrTestFramework.getFirstTabWebContents());
+        TransitionUtils.enterPresentationOrFail(mXrTestFramework);
+        XrTestFramework.executeStepAndWait(
+                "stepDuringExclusive()", mXrTestFramework.getFirstTabWebContents());
+        TransitionUtils.forceExitVr();
+        XrTestFramework.executeStepAndWait(
+                "stepAfterExclusive()", mXrTestFramework.getFirstTabWebContents());
+        XrTestFramework.endTest(mXrTestFramework.getFirstTabWebContents());
     }
 }

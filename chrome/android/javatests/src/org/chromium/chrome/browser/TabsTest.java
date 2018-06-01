@@ -998,7 +998,8 @@ public class TabsTest {
                 "getStack must be executed on the ui thread", ThreadUtils.runningOnUiThread());
         LayoutManagerChromePhone layoutManagerPhone = (LayoutManagerChromePhone) layoutManager;
         StackLayout layout = (StackLayout) layoutManagerPhone.getOverviewLayout();
-        return (layout).getTabStack(isIncognito);
+        return (layout).getTabStackAtIndex(
+                isIncognito ? StackLayout.INCOGNITO_STACK_INDEX : StackLayout.NORMAL_STACK_INDEX);
     }
 
     private int getLayoutTabInStackCount(final boolean isIncognito) {
@@ -1383,8 +1384,7 @@ public class TabsTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
             WebContents webContents =
                     mActivityTestRule.getActivity().getActivityTab().getWebContents();
-            webContents.getEventForwarder().onStartFling(
-                    SystemClock.uptimeMillis(), 0, -2000, false);
+            webContents.getEventForwarder().startFling(SystemClock.uptimeMillis(), 0, -2000, false);
         });
         ChromeTabUtils.closeCurrentTab(
                 InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());

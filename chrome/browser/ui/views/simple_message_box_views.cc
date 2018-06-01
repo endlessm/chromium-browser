@@ -59,9 +59,7 @@ chrome::MessageBoxResult ShowSync(gfx::NativeWindow parent,
 
   // TODO(pkotwicz): Exit message loop when the dialog is closed by some other
   // means than |Cancel| or |Accept|. crbug.com/404385
-  base::MessageLoopForUI* loop = base::MessageLoopForUI::current();
-  base::MessageLoopForUI::ScopedNestableTaskAllower allow_nested(loop);
-  base::RunLoop run_loop;
+  base::RunLoop run_loop(base::RunLoop::Type::kNestableTasksAllowed);
 
   SimpleMessageBoxViews::Show(
       parent, title, message, type, yes_text, no_text, checkbox_text,
@@ -208,6 +206,12 @@ const views::Widget* SimpleMessageBoxViews::GetWidget() const {
   return message_box_view_->GetWidget();
 }
 
+void SimpleMessageBoxViews::OnWidgetActivationChanged(views::Widget* widget,
+                                                      bool active) {
+  if (!active)
+    GetWidget()->Close();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // SimpleMessageBoxViews, private:
 
@@ -242,9 +246,12 @@ SimpleMessageBoxViews::SimpleMessageBoxViews(
   chrome::RecordDialogCreation(chrome::DialogIdentifier::SIMPLE_MESSAGE_BOX);
 }
 
-SimpleMessageBoxViews::~SimpleMessageBoxViews() {}
+SimpleMessageBoxViews::~SimpleMessageBoxViews() {
+  GetWidget()->RemoveObserver(this);
+}
 
 void SimpleMessageBoxViews::Run(MessageBoxResultCallback result_callback) {
+  GetWidget()->AddObserver(this);
   result_callback_ = std::move(result_callback);
 }
 

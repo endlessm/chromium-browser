@@ -10,8 +10,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "ash/app_list/model/search/search_result.h"
 #include "chrome/browser/ui/app_list/app_list_model_updater.h"
+#include "chrome/browser/ui/app_list/search/chrome_search_result.h"
 
 class ChromeAppListItem;
 
@@ -20,9 +20,6 @@ class FakeAppListModelUpdater : public AppListModelUpdater {
   FakeAppListModelUpdater();
   ~FakeAppListModelUpdater() override;
 
-  // AppListModelUpdater:
-  app_list::AppListModel* GetModel() override;
-  app_list::SearchModel* GetSearchModel() override;
   // For AppListModel:
   void AddItem(std::unique_ptr<ChromeAppListItem> item) override;
   void AddItemToFolder(std::unique_ptr<ChromeAppListItem> item,
@@ -30,9 +27,12 @@ class FakeAppListModelUpdater : public AppListModelUpdater {
   void AddItemToOemFolder(
       std::unique_ptr<ChromeAppListItem> item,
       app_list::AppListSyncableService::SyncItem* oem_sync_item,
-      const std::string& oem_folder_id,
       const std::string& oem_folder_name,
       const syncer::StringOrdinal& preferred_oem_position) override;
+  void UpdateAppItemFromSyncItem(
+      app_list::AppListSyncableService::SyncItem* sync_item,
+      bool update_name,
+      bool update_folder) override;
   void RemoveItem(const std::string& id) override;
   void RemoveUninstalledItem(const std::string& id) override;
   void MoveItemToFolder(const std::string& id,
@@ -40,7 +40,7 @@ class FakeAppListModelUpdater : public AppListModelUpdater {
   // For SearchModel:
   void SetSearchEngineIsGoogle(bool is_google) override;
   void PublishSearchResults(
-      std::vector<std::unique_ptr<app_list::SearchResult>> results) override;
+      std::vector<std::unique_ptr<ChromeSearchResult>> results) override;
 
   void ActivateChromeItem(const std::string& id, int event_flags) override;
 
@@ -55,22 +55,26 @@ class FakeAppListModelUpdater : public AppListModelUpdater {
   size_t BadgedItemCount() override;
   // For SearchModel:
   bool SearchEngineIsGoogle() override;
-  app_list::SearchResult* FindSearchResult(
-      const std::string& result_id) override;
-  const std::vector<std::unique_ptr<app_list::SearchResult>>& search_results()
+  ChromeSearchResult* FindSearchResult(const std::string& result_id) override;
+  ChromeSearchResult* GetResultByTitle(const std::string& title) override;
+  const std::vector<std::unique_ptr<ChromeSearchResult>>& search_results()
       const {
     return search_results_;
   }
 
-  void SetDelegate(AppListModelUpdaterDelegate* delegate) override {}
+  void OnFolderCreated(ash::mojom::AppListItemMetadataPtr folder) override {}
+  void OnFolderDeleted(ash::mojom::AppListItemMetadataPtr item) override {}
+  void OnItemUpdated(ash::mojom::AppListItemMetadataPtr item) override {}
+
+  void SetDelegate(AppListModelUpdaterDelegate* delegate) override;
 
  private:
   bool search_engine_is_google_ = false;
   std::vector<std::unique_ptr<ChromeAppListItem>> items_;
-  std::vector<std::unique_ptr<app_list::SearchResult>> search_results_;
+  std::vector<std::unique_ptr<ChromeSearchResult>> search_results_;
+  AppListModelUpdaterDelegate* delegate_ = nullptr;
 
   ash::mojom::AppListItemMetadataPtr FindOrCreateOemFolder(
-      const std::string& oem_folder_id,
       const std::string& oem_folder_name,
       const syncer::StringOrdinal& preferred_oem_position);
   syncer::StringOrdinal GetOemFolderPos();

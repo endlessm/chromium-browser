@@ -89,7 +89,7 @@ class RemoteCommandsQueueTest : public testing::Test {
   RemoteCommandsQueue queue_;
   StrictMock<MockRemoteCommandsQueueObserver> observer_;
   base::TimeTicks test_start_time_;
-  base::TickClock* clock_;
+  const base::TickClock* clock_;
 
  private:
   void VerifyCommandIssuedTime(RemoteCommandJob* job,
@@ -107,11 +107,9 @@ RemoteCommandsQueueTest::RemoteCommandsQueueTest()
 }
 
 void RemoteCommandsQueueTest::SetUp() {
-  std::unique_ptr<base::TickClock> clock(task_runner_->GetMockTickClock());
-  test_start_time_ = clock->NowTicks();
-
-  clock_ = clock.get();
-  queue_.SetClockForTesting(std::move(clock));
+  clock_ = task_runner_->GetMockTickClock();
+  test_start_time_ = clock_->NowTicks();
+  queue_.SetClockForTesting(clock_);
   queue_.AddObserver(&observer_);
 }
 

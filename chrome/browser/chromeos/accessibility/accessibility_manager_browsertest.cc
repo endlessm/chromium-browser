@@ -4,7 +4,6 @@
 
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 
-#include "ash/public/cpp/accessibility_types.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "base/command_line.h"
 #include "base/macros.h"
@@ -44,7 +43,8 @@ namespace chromeos {
 
 namespace {
 
-constexpr char kTestUserName[] = "owner@invalid.domain";
+// Use a real domain to avoid policy loading problems.
+constexpr char kTestUserName[] = "owner@gmail.com";
 constexpr char kTestUserGaiaId[] = "9876543210";
 
 constexpr int kTestAutoclickDelayMs = 2000;
@@ -119,8 +119,7 @@ bool IsHighContrastEnabled() {
 }
 
 void SetSpokenFeedbackEnabled(bool enabled) {
-  AccessibilityManager::Get()->EnableSpokenFeedback(
-      enabled, ash::A11Y_NOTIFICATION_NONE);
+  AccessibilityManager::Get()->EnableSpokenFeedback(enabled);
 }
 
 bool IsSpokenFeedbackEnabled() {
@@ -200,36 +199,6 @@ void SetVirtualKeyboardEnabledPref(bool enabled) {
 void SetMonoAudioEnabledPref(bool enabled) {
   GetActiveUserPrefs()->SetBoolean(ash::prefs::kAccessibilityMonoAudioEnabled,
                                    enabled);
-}
-
-bool GetLargeCursorEnabledFromPref() {
-  return GetActiveUserPrefs()->GetBoolean(
-      ash::prefs::kAccessibilityLargeCursorEnabled);
-}
-
-bool GetHighContrastEnabledFromPref() {
-  return GetActiveUserPrefs()->GetBoolean(
-      ash::prefs::kAccessibilityHighContrastEnabled);
-}
-
-bool GetSpokenFeedbackEnabledFromPref() {
-  return GetActiveUserPrefs()->GetBoolean(
-      ash::prefs::kAccessibilitySpokenFeedbackEnabled);
-}
-
-bool GetAutoclickEnabledFromPref() {
-  return GetActiveUserPrefs()->GetBoolean(
-      ash::prefs::kAccessibilityAutoclickEnabled);
-}
-
-int GetAutoclickDelayFromPref() {
-  return GetActiveUserPrefs()->GetInteger(
-      ash::prefs::kAccessibilityAutoclickDelayMs);
-}
-
-bool GetMonoAudioEnabledFromPref() {
-  return GetActiveUserPrefs()->GetBoolean(
-      ash::prefs::kAccessibilityMonoAudioEnabled);
 }
 
 bool IsBrailleImeActive() {
@@ -606,29 +575,6 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerLoginTest, Login) {
   EXPECT_TRUE(IsMonoAudioEnabled());
 }
 
-IN_PROC_BROWSER_TEST_F(AccessibilityManagerLoginTest, ResumeSavedPref) {
-  WaitForSigninScreen();
-  // Sets the prefs on signin screen.
-  SetLargeCursorEnabledPref(true);
-  SetSpokenFeedbackEnabledPref(true);
-  SetHighContrastEnabledPref(true);
-  SetAutoclickEnabledPref(true);
-  SetAutoclickDelayPref(kTestAutoclickDelayMs);
-  SetVirtualKeyboardEnabledPref(true);
-  SetMonoAudioEnabledPref(true);
-
-  CreateSession(test_account_id_);
-  StartUserSession(test_account_id_);
-
-  EXPECT_EQ(GetActiveUserProfile(), AccessibilityManager::Get()->profile());
-  EXPECT_TRUE(GetLargeCursorEnabledFromPref());
-  EXPECT_TRUE(GetSpokenFeedbackEnabledFromPref());
-  EXPECT_TRUE(GetHighContrastEnabledFromPref());
-  EXPECT_TRUE(GetAutoclickEnabledFromPref());
-  EXPECT_EQ(kTestAutoclickDelayMs, GetAutoclickDelayFromPref());
-  EXPECT_TRUE(GetMonoAudioEnabledFromPref());
-}
-
 class AccessibilityManagerUserTypeTest : public AccessibilityManagerTest,
                                          public WithParamInterface<AccountId> {
  protected:
@@ -719,70 +665,6 @@ IN_PROC_BROWSER_TEST_P(AccessibilityManagerUserTypeTest, BrailleWhenLoggedIn) {
   SetBrailleDisplayAvailability(true);
   EXPECT_TRUE(IsSpokenFeedbackEnabled());
   EXPECT_TRUE(IsBrailleImeActive());
-}
-
-class AccessibilityManagerUserTypeLoginTest
-    : public AccessibilityManagerLoginTest,
-      public WithParamInterface<AccountId> {
- protected:
-  AccessibilityManagerUserTypeLoginTest() = default;
-  virtual ~AccessibilityManagerUserTypeLoginTest() = default;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AccessibilityManagerUserTypeLoginTest);
-};
-
-// TODO(yoshiki): Enable a test for retail mode (i.e. RetailAccountId).
-INSTANTIATE_TEST_CASE_P(
-    UserTypeInstantiation,
-    AccessibilityManagerUserTypeLoginTest,
-    ::testing::Values(AccountId::FromUserEmailGaiaId(kTestUserName,
-                                                     kTestUserGaiaId),
-                      user_manager::GuestAccountId(),
-                      AccountId::FromUserEmail(kTestSupervisedUserName)));
-
-IN_PROC_BROWSER_TEST_P(AccessibilityManagerUserTypeLoginTest,
-                       EnableOnLoginScreenAndLogin) {
-  WaitForSigninScreen();
-  SetLargeCursorEnabled(true);
-  EXPECT_TRUE(IsLargeCursorEnabled());
-  SetSpokenFeedbackEnabled(true);
-  EXPECT_TRUE(IsSpokenFeedbackEnabled());
-  SetHighContrastEnabled(true);
-  EXPECT_TRUE(IsHighContrastEnabled());
-  SetAutoclickEnabled(true);
-  EXPECT_TRUE(IsAutoclickEnabled());
-  SetAutoclickDelay(kTestAutoclickDelayMs);
-  EXPECT_EQ(kTestAutoclickDelayMs, GetAutoclickDelay());
-  SetMonoAudioEnabled(true);
-  EXPECT_TRUE(IsMonoAudioEnabled());
-
-  CreateSession(GetParam());
-
-  EXPECT_TRUE(IsLargeCursorEnabled());
-  EXPECT_TRUE(IsSpokenFeedbackEnabled());
-  EXPECT_TRUE(IsHighContrastEnabled());
-  EXPECT_TRUE(IsAutoclickEnabled());
-  EXPECT_EQ(kTestAutoclickDelayMs, GetAutoclickDelay());
-  EXPECT_TRUE(IsMonoAudioEnabled());
-
-  session_manager::SessionManager::Get()->SessionStarted();
-
-  // Confirms that the features keep enabled after session starts.
-  EXPECT_TRUE(IsLargeCursorEnabled());
-  EXPECT_TRUE(IsSpokenFeedbackEnabled());
-  EXPECT_TRUE(IsHighContrastEnabled());
-  EXPECT_TRUE(IsAutoclickEnabled());
-  EXPECT_EQ(kTestAutoclickDelayMs, GetAutoclickDelay());
-  EXPECT_TRUE(IsMonoAudioEnabled());
-
-  // Confirms that the prefs have been copied to the user's profile.
-  EXPECT_TRUE(GetLargeCursorEnabledFromPref());
-  EXPECT_TRUE(GetSpokenFeedbackEnabledFromPref());
-  EXPECT_TRUE(GetHighContrastEnabledFromPref());
-  EXPECT_TRUE(GetAutoclickEnabledFromPref());
-  EXPECT_EQ(kTestAutoclickDelayMs, GetAutoclickDelayFromPref());
-  EXPECT_TRUE(GetMonoAudioEnabledFromPref());
 }
 
 }  // namespace chromeos

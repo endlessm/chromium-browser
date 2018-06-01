@@ -10,6 +10,7 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "extensions/browser/extension_registrar.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/one_shot_event.h"
 
@@ -27,7 +28,8 @@ class ValueStoreFactory;
 
 // A simplified version of ExtensionSystem for cast_shell. Allows
 // cast_shell to skip initialization of services it doesn't need.
-class CastExtensionSystem : public ExtensionSystem {
+class CastExtensionSystem : public ExtensionSystem,
+                            public ExtensionRegistrar::Delegate {
  public:
   explicit CastExtensionSystem(content::BrowserContext* browser_context);
   ~CastExtensionSystem() override;
@@ -85,7 +87,22 @@ class CastExtensionSystem : public ExtensionSystem {
   bool FinishDelayedInstallationIfReady(const std::string& extension_id,
                                         bool install_immediately) override;
 
+  // ExtensionRegistrar::Delegate implementation:
+  void PreAddExtension(const Extension* extension,
+                       const Extension* old_extension) override;
+  void PostActivateExtension(scoped_refptr<const Extension> extension) override;
+  void PostDeactivateExtension(
+      scoped_refptr<const Extension> extension) override;
+  void LoadExtensionForReload(
+      const ExtensionId& extension_id,
+      const base::FilePath& path,
+      ExtensionRegistrar::LoadErrorBehavior load_error_behavior) override;
+  bool CanEnableExtension(const Extension* extension) override;
+  bool CanDisableExtension(const Extension* extension) override;
+  bool ShouldBlockExtension(const Extension* extension) override;
+
  private:
+  void PostLoadExtension(const scoped_refptr<extensions::Extension>& extension);
   void OnExtensionRegisteredWithRequestContexts(
       scoped_refptr<Extension> extension);
   content::BrowserContext* browser_context_;  // Not owned.
@@ -97,6 +114,8 @@ class CastExtensionSystem : public ExtensionSystem {
   std::unique_ptr<RuntimeData> runtime_data_;
   std::unique_ptr<QuotaService> quota_service_;
   std::unique_ptr<AppSorting> app_sorting_;
+  std::unique_ptr<SharedUserScriptMaster> shared_user_script_master_;
+  std::unique_ptr<ExtensionRegistrar> extension_registrar_;
 
   scoped_refptr<ValueStoreFactory> store_factory_;
 

@@ -74,7 +74,6 @@
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/experiments/memory_ablation_experiment.h"
 #include "chrome/browser/first_run/first_run.h"
-#include "chrome/browser/gpu/three_d_api_observer.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
 #include "chrome/browser/metrics/expired_histograms_array.h"
@@ -160,6 +159,7 @@
 #include "components/variations/service/variations_service.h"
 #include "components/variations/synthetic_trials_active_group_id_provider.h"
 #include "components/variations/variations_associated_data.h"
+#include "components/variations/variations_crash_keys.h"
 #include "components/variations/variations_http_header_provider.h"
 #include "components/variations/variations_switches.h"
 #include "components/version_info/version_info.h"
@@ -175,17 +175,17 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
 #include "content/public/common/service_manager_connection.h"
-#include "device/vr/features/features.h"
-#include "extensions/features/features.h"
+#include "device/vr/buildflags/buildflags.h"
+#include "extensions/buildflags/buildflags.h"
 #include "media/base/localized_strings.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 #include "net/base/net_module.h"
 #include "net/cookies/cookie_monster.h"
 #include "net/http/http_network_layer.h"
 #include "net/http/http_stream_factory.h"
 #include "net/url_request/url_request.h"
-#include "printing/features/features.h"
-#include "rlz/features/features.h"
+#include "printing/buildflags/buildflags.h"
+#include "rlz/buildflags/buildflags.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/layout.h"
 #include "ui/base/material_design/material_design_controller.h"
@@ -714,7 +714,7 @@ const char kMissingLocaleDataMessage[] =
 #if !defined(OS_ANDROID)
 // A TaskRunner that defers tasks until the real task runner is up and running.
 // This is used during early initialization, before the real task runner has
-// been created. DeferredTaskRunner has the following states.
+// been created. DeferringTaskRunner has the following states.
 //
 // . kInstalled: the initial state. Tasks are added to |deferred_runner_|. In
 //   this state this is installed as the active ThreadTaskRunnerHandle.
@@ -847,8 +847,9 @@ ChromeBrowserMainParts::ChromeBrowserMainParts(
       result_code_(content::RESULT_CODE_NORMAL_EXIT),
       startup_watcher_(new StartupTimeBomb()),
       shutdown_watcher_(new ShutdownWatcherHelper()),
-      ui_thread_profiler_(ThreadProfiler::CreateAndStartOnMainThread(
-          metrics::CallStackProfileParams::UI_THREAD)),
+      ui_thread_profiler_(ThreadProfiler::CreateAndStartOnMainThread()),
+      should_call_pre_main_loop_start_startup_on_variations_service_(
+          !parameters.ui_task),
       profile_(NULL),
       run_message_loop_(true) {
   // If we're running tests (ui_task is non-null).
@@ -908,6 +909,7 @@ void ChromeBrowserMainParts::SetupFieldTrials() {
       cc::switches::kEnableGpuBenchmarking, switches::kEnableFeatures,
       switches::kDisableFeatures, unforceable_field_trials, variation_ids,
       std::move(feature_list), &browser_field_trials_);
+  variations::InitCrashKeys();
 
   // Initialize FieldTrialSynchronizer system. This is a singleton and is used
   // for posting tasks via base::Bind. Its deleted when it goes out of scope.
@@ -1342,7 +1344,7 @@ int ChromeBrowserMainParts::PreCreateThreadsImpl() {
 
 #if defined(OS_LINUX) || defined(OS_OPENBSD)
   // Set the product channel for crash reports.
-  breakpad::SetChannelCrashKey(chrome::GetChannelString());
+  breakpad::SetChannelCrashKey(chrome::GetChannelName());
 #endif  // defined(OS_LINUX) || defined(OS_OPENBSD)
 
 #if defined(OS_MACOSX)
@@ -1505,72 +1507,10 @@ void ChromeBrowserMainParts::PostProfileInit() {
     chrome_extra_parts_[i]->PostProfileInit();
 }
 
-#if defined(SYZYASAN)
-
-// This function must be in the global namespace as it needs to be friended
-// by ChromeMetricsServiceAccessor.
-void SyzyASANRegisterExperiment(const char* name, const char* group) {
-  ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial(name, group);
-}
-
-namespace {
-
-void WINAPI SyzyASANExperimentCallback(const char* name, const char* group) {
-  // Indirect through the function above, so that the friend declaration doesn't
-  // need the ugly calling convention.
-  SyzyASANRegisterExperiment(name, group);
-}
-
-void SetupSyzyASAN() {
-  typedef VOID(WINAPI* SyzyASANExperimentCallbackFn)(const char* name,
-                                                     const char* group);
-  typedef VOID(WINAPI* SyzyASANEnumExperimentsFn)(SyzyASANExperimentCallbackFn);
-  HMODULE syzyasan_handle = ::GetModuleHandle(L"syzyasan_rtl.dll");
-  if (!syzyasan_handle)
-    return;
-
-  // Export the SyzyASAN experiments as synthetic field trials.
-  SyzyASANEnumExperimentsFn syzyasan_enum_experiments =
-      reinterpret_cast<SyzyASANEnumExperimentsFn>(
-            ::GetProcAddress(syzyasan_handle, "asan_EnumExperiments"));
-  if (syzyasan_enum_experiments) {
-    syzyasan_enum_experiments(&SyzyASANExperimentCallback);
-  }
-
-  // Enable the deferred free mechanism in the syzyasan module, which helps the
-  // performance by deferring some work on the critical path to a background
-  // thread. Note that this is now enabled by default, the feature is kept as a
-  // kill switch.
-  if (base::FeatureList::IsEnabled(features::kSyzyasanDeferredFree)) {
-    typedef VOID(WINAPI * SyzyasanEnableDeferredFreeThreadFunc)(VOID);
-    bool success = false;
-    SyzyasanEnableDeferredFreeThreadFunc syzyasan_enable_deferred_free =
-        reinterpret_cast<SyzyasanEnableDeferredFreeThreadFunc>(
-            ::GetProcAddress(syzyasan_handle,
-                             "asan_EnableDeferredFreeThread"));
-    if (syzyasan_enable_deferred_free) {
-      syzyasan_enable_deferred_free();
-      success = true;
-    }
-    UMA_HISTOGRAM_BOOLEAN("Syzyasan.DeferredFreeWasEnabled", success);
-  }
-}
-
-}  // namespace
-
-#endif  // SYZYASAN
-
-
 void ChromeBrowserMainParts::PreBrowserStart() {
   TRACE_EVENT0("startup", "ChromeBrowserMainParts::PreBrowserStart");
   for (size_t i = 0; i < chrome_extra_parts_.size(); ++i)
     chrome_extra_parts_[i]->PreBrowserStart();
-
-  three_d_observer_.reset(new ThreeDAPIObserver());
-
-#if defined(SYZYASAN)
-  SetupSyzyASAN();
-#endif
 
 // Start the tab manager here so that we give the most amount of time for the
 // other services to start up before we start adjusting the oom priority.
@@ -2046,8 +1986,6 @@ int ChromeBrowserMainParts::PreMainMessageLoopRunImpl() {
     // will be initialized when the app enters foreground mode.
     variations_service->set_policy_pref_service(profile_->GetPrefs());
   }
-  translate::TranslateDownloadManager::RequestLanguageList(
-      profile_->GetPrefs());
 
 #else
   // Most general initialization is behind us, but opening a
@@ -2107,18 +2045,12 @@ int ChromeBrowserMainParts::PreMainMessageLoopRunImpl() {
     const base::TimeDelta delta = base::TimeTicks::Now() - browser_open_start;
     startup_metric_utils::RecordBrowserOpenTabsDelta(delta);
 
-    // If we're running tests (ui_task is non-null), then we don't want to
-    // call RequestLanguageList or StartRepeatedVariationsSeedFetch or
-    // RequestLanguageList
-    if (parameters().ui_task == NULL) {
+    if (should_call_pre_main_loop_start_startup_on_variations_service_) {
       // Request new variations seed information from server.
       variations::VariationsService* variations_service =
           browser_process_->variations_service();
       if (variations_service)
         variations_service->PerformPreMainMessageLoopStartup();
-
-      translate::TranslateDownloadManager::RequestLanguageList(
-          profile_->GetPrefs());
     }
   }
   run_message_loop_ = started;
@@ -2230,23 +2162,6 @@ void ChromeBrowserMainParts::PostMainMessageLoopRun() {
 
   restart_last_session_ = browser_shutdown::ShutdownPreThreadsStop();
   browser_process_->StartTearDown();
-
-#if defined(SYZYASAN)
-  // Disable the deferred free mechanism in the syzyasan module. This is needed
-  // to avoid a potential crash when the syzyasan module is unloaded.
-  if (base::FeatureList::IsEnabled(features::kSyzyasanDeferredFree)) {
-    typedef VOID(WINAPI * SyzyasanDisableDeferredFreeThreadFunc)(VOID);
-    HMODULE syzyasan_handle = ::GetModuleHandle(L"syzyasan_rtl.dll");
-    if (syzyasan_handle) {
-      SyzyasanDisableDeferredFreeThreadFunc syzyasan_disable_deferred_free =
-          reinterpret_cast<SyzyasanDisableDeferredFreeThreadFunc>(
-              ::GetProcAddress(syzyasan_handle,
-                               "asan_DisableDeferredFreeThread"));
-      if (syzyasan_disable_deferred_free)
-        syzyasan_disable_deferred_free();
-    }
-  }
-#endif  // defined(SYZYASAN)
 #endif  // defined(OS_ANDROID)
 }
 

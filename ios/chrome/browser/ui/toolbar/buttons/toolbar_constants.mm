@@ -34,6 +34,7 @@ const CGFloat kProgressBarHeight = 2.0f;
 const CGFloat kToolsMenuButtonWidth = 44.0f;
 const CGFloat kAdaptiveToolbarButtonHeight = 44.0f;
 const CGFloat kAdaptiveToolbarButtonWidth = 44.0f;
+const CGFloat kOmniboxButtonWidth = 70.0f;
 const CGFloat kToolbarButtonWidth = 48.0f;
 const CGFloat kLeadingLocationBarButtonWidth = 40.0f;
 const CGFloat kToolbarButtonTitleNormalColor = 0x555555;
@@ -76,6 +77,8 @@ NSString* const kToolbarShareButtonIdentifier =
     @"kToolbarShareButtonIdentifier";
 NSString* const kToolbarOmniboxButtonIdentifier =
     @"kToolbarOmniboxButtonIdentifier";
+NSString* const kToolbarCancelOmniboxEditButtonIdentifier =
+    @"kToolbarCancelOmniboxEditButtonIdentifier";
 
 const NSInteger kStackButtonMaxTabCount = 99;
 

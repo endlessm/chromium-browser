@@ -6,6 +6,7 @@
 
 #include "build/build_config.h"
 #include "chrome/browser/ui/layout_constants.h"
+#include "chrome/browser/ui/omnibox/omnibox_theme.h"
 #include "chrome/browser/ui/views/location_bar/background_with_1_px_border.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "ui/compositor/layer.h"
@@ -14,14 +15,24 @@
 #if defined(USE_AURA)
 #include "ui/aura/window.h"
 #include "ui/aura/window_targeter.h"
-#include "ui/wm/core/shadow.h"
-#include "ui/wm/core/shadow_controller.h"
 #endif
 
 namespace {
 
 // Value from the spec controlling appearance of the shadow.
 constexpr int kElevation = 16;
+
+// View at the top of the frame which paints transparent pixels to make a hole
+// so that the location bar shows through.
+class TopBackgroundView : public views::View {
+ public:
+  explicit TopBackgroundView(SkColor color) {
+    auto background =
+        std::make_unique<BackgroundWith1PxBorder>(SK_ColorTRANSPARENT, color);
+    background->set_blend_mode(SkBlendMode::kSrc);
+    SetBackground(std::move(background));
+  }
+};
 
 // Insets used to position |contents_| within |contents_host_|.
 gfx::Insets GetContentInsets(views::View* location_bar) {
@@ -31,18 +42,6 @@ gfx::Insets GetContentInsets(views::View* location_bar) {
          gfx::Insets(location_bar->height(), 0, 0, 0);
 }
 
-#if defined(USE_AURA)
-// A ui::EventTargeter that allows mouse and touch events in the top portion of
-// the Widget to pass through to the omnibox beneath it.
-class ResultsTargeter : public aura::WindowTargeter {
- public:
-  explicit ResultsTargeter(int top_inset) {
-    const gfx::Insets event_insets(top_inset, 0, 0, 0);
-    SetInsets(event_insets, event_insets);
-  }
-};
-#endif  // USE_AURA
-
 }  // namespace
 
 constexpr gfx::Insets RoundedOmniboxResultsFrame::kLocationBarAlignmentInsets;
@@ -50,15 +49,17 @@ constexpr gfx::Insets RoundedOmniboxResultsFrame::kLocationBarAlignmentInsets;
 RoundedOmniboxResultsFrame::RoundedOmniboxResultsFrame(
     views::View* contents,
     LocationBarView* location_bar)
-    : content_insets_(GetContentInsets(location_bar)), contents_(contents) {
+    : content_insets_(GetContentInsets(location_bar)),
+      location_bar_height_(location_bar->height()),
+      contents_(contents) {
   // Host the contents in its own View to simplify layout and clipping.
   contents_host_ = new views::View();
   contents_host_->SetPaintToLayer();
   contents_host_->layer()->SetFillsBoundsOpaquely(false);
 
   // Use a solid background. Note this is clipped to get rounded corners.
-  SkColor background_color = GetNativeTheme()->GetSystemColor(
-      ui::NativeTheme::kColorId_ResultsTableNormalBackground);
+  SkColor background_color =
+      GetOmniboxColor(OmniboxPart::RESULTS_BACKGROUND, location_bar->tint());
   contents_host_->SetBackground(views::CreateSolidBackground(background_color));
 
   // Use a textured mask to clip contents. This doesn't work on Windows
@@ -72,19 +73,10 @@ RoundedOmniboxResultsFrame::RoundedOmniboxResultsFrame(
   contents_mask_->layer()->SetFillsBoundsOpaquely(false);
   contents_host_->layer()->SetMaskLayer(contents_mask_->layer());
 
-  // Paint the omnibox border with transparent pixels to make a hole.
-  views::View* top_background = new views::View();
-  auto background = std::make_unique<BackgroundWith1PxBorder>(
-      SK_ColorTRANSPARENT, background_color);
-  background->set_blend_mode(SkBlendMode::kSrc);
-  top_background->SetBackground(std::move(background));
-  gfx::Size location_bar_size = location_bar->bounds().size();
-  top_background->SetBounds(
-      kLocationBarAlignmentInsets.left(), kLocationBarAlignmentInsets.top(),
-      location_bar_size.width(), location_bar_size.height());
-
-  contents_host_->AddChildView(top_background);
+  top_background_ = new TopBackgroundView(background_color);
+  contents_host_->AddChildView(top_background_);
   contents_host_->AddChildView(contents_);
+
   AddChildView(contents_host_);
 }
 
@@ -117,9 +109,15 @@ void RoundedOmniboxResultsFrame::Layout() {
   // the Widget is fast on ChromeOS, but slow on other platforms, and can't be
   // animated smoothly.
   // TODO(tapted): Investigate using a static Widget size.
-  gfx::Rect bounds = GetLocalBounds();
+  const gfx::Rect bounds = GetLocalBounds();
   contents_host_->SetBoundsRect(bounds);
-  contents_mask_->layer()->SetBounds(gfx::Rect(bounds.size()));
+  contents_mask_->layer()->SetBounds(bounds);
+
+  // Manual layout.
+  gfx::Rect top_bounds = bounds;
+  top_bounds.Inset(kLocationBarAlignmentInsets);
+  top_bounds.set_height(location_bar_height_);
+  top_background_->SetBoundsRect(top_bounds);
 
   gfx::Rect results_bounds = gfx::Rect(bounds.size());
   results_bounds.Inset(content_insets_);
@@ -128,7 +126,10 @@ void RoundedOmniboxResultsFrame::Layout() {
 
 void RoundedOmniboxResultsFrame::AddedToWidget() {
 #if defined(USE_AURA)
-  GetWidget()->GetNativeWindow()->SetEventTargeter(
-      std::make_unique<ResultsTargeter>(content_insets_.top()));
+  // Use a ui::EventTargeter that allows mouse and touch events in the top
+  // portion of the Widget to pass through to the omnibox beneath it.
+  auto results_targeter = std::make_unique<aura::WindowTargeter>();
+  results_targeter->SetInsets(gfx::Insets(content_insets_.top(), 0, 0, 0));
+  GetWidget()->GetNativeWindow()->SetEventTargeter(std::move(results_targeter));
 #endif
 }

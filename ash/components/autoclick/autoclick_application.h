@@ -24,6 +24,9 @@ class Widget;
 
 namespace autoclick {
 
+// AutoclickApplication is a mojo mini-app that implements the accessibility
+// autoclick feature. The feature watches for the mouse to stop moving then
+// generates a click after a short delay.
 class AutoclickApplication : public service_manager::Service,
                              public mash::mojom::Launchable,
                              public mojom::AutoclickController,
@@ -54,10 +57,10 @@ class AutoclickApplication : public service_manager::Service,
 
   // ash::AutoclickControllerCommonDelegate:
   views::Widget* CreateAutoclickRingWidget(
-      const gfx::Point& event_location) override;
+      const gfx::Point& point_in_screen) override;
   void UpdateAutoclickRingWidget(views::Widget* widget,
-                                 const gfx::Point& event_location) override;
-  void DoAutoclick(const gfx::Point& event_location,
+                                 const gfx::Point& point_in_screen) override;
+  void DoAutoclick(const gfx::Point& point_in_screen,
                    const int mouse_event_flags) override;
   void OnAutoclickCanceled() override;
 

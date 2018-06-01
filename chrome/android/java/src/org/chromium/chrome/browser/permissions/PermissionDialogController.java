@@ -166,15 +166,14 @@ public class PermissionDialogController
         // whereby the tab is obscured so modals don't pop up on top of (e.g.) the tab switcher or
         // the three-dot menu.
         final BottomSheet bottomSheet = activity.getBottomSheet();
-        if (bottomSheet == null || !bottomSheet.isVisible()) {
+        if (bottomSheet == null || !bottomSheet.isSheetOpen()) {
             showDialog();
         } else {
             bottomSheet.addObserver(new EmptyBottomSheetObserver() {
                 @Override
                 public void onSheetClosed(int reason) {
                     bottomSheet.removeObserver(this);
-                    if (reason == BottomSheet.StateChangeReason.NAVIGATION
-                            || reason == BottomSheet.StateChangeReason.NEW_TAB) {
+                    if (reason == BottomSheet.StateChangeReason.NAVIGATION) {
                         // Dismiss the prompt as it would otherwise be dismissed momentarily once
                         // the navigation completes.
                         // TODO(timloh): This logs a dismiss (and we also already logged a show),

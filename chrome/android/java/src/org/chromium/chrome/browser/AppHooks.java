@@ -48,6 +48,7 @@ import org.chromium.chrome.browser.sync.GmsCoreSyncListener;
 import org.chromium.chrome.browser.tab.AuthenticatorNavigationInterceptor;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.webapps.GooglePlayWebApkInstallDelegate;
+import org.chromium.chrome.browser.webauth.U2fApiHandler;
 import org.chromium.components.signin.AccountManagerDelegate;
 import org.chromium.components.signin.SystemAccountManagerDelegate;
 import org.chromium.policy.AppRestrictionsProvider;
@@ -312,6 +313,14 @@ public abstract class AppHooks {
     }
 
     /**
+     * @return A list of whitelisted app package names whose completed notifications
+     * we should suppress.
+     */
+    public List<String> getOfflinePagesSuppressNotificationPackages() {
+        return Collections.emptyList();
+    }
+
+    /**
      * @return An iterator of partner bookmarks.
      */
     @Nullable
@@ -333,5 +342,12 @@ public abstract class AppHooks {
      */
     public FeedbackSourceProvider getAdditionalFeedbackSources() {
         return new FeedbackSourceProvider() {};
+    }
+
+    /**
+     * @return a new {@link U2fApiHandler} instance.
+     */
+    public U2fApiHandler createU2fApiHandler() {
+        return new U2fApiHandler();
     }
 }

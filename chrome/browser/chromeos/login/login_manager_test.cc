@@ -6,11 +6,11 @@
 
 #include <string>
 
+#include "ash/public/cpp/ash_switches.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
-#include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "chrome/browser/browser_process.h"
@@ -103,6 +103,7 @@ void LoginManagerTest::TearDownOnMainThread() {
 }
 
 void LoginManagerTest::SetUpCommandLine(base::CommandLine* command_line) {
+  command_line->AppendSwitch(ash::switches::kShowWebUiLogin);
   command_line->AppendSwitch(chromeos::switches::kLoginManager);
   command_line->AppendSwitch(chromeos::switches::kForceLoginManagerInTests);
 

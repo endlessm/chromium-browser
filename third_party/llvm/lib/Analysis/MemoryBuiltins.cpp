@@ -21,6 +21,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Analysis/TargetFolder.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/Analysis/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/Attributes.h"
@@ -40,7 +41,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Utils/Local.h"
 #include <cassert>
 #include <cstdint>
 #include <iterator>
@@ -238,7 +238,7 @@ bool llvm::isCallocLikeFn(const Value *V, const TargetLibraryInfo *TLI,
 }
 
 /// \brief Tests if a value is a call or invoke to a library function that
-/// allocates memory similiar to malloc or calloc.
+/// allocates memory similar to malloc or calloc.
 bool llvm::isMallocOrCallocLikeFn(const Value *V, const TargetLibraryInfo *TLI,
                                   bool LookThroughBitCast) {
   return getAllocationData(V, MallocOrCallocLike, TLI,

@@ -129,6 +129,7 @@ function defaultTaskDialog(expectedTaskId, windowId) {
         chrome.test.assertTrue(result);
       });
 
+  var caller = getCaller();
   // Wait for the list of menu item is added as expected.
   var menuPreparedPromise = menuClickedPromise.then(function() {
     return repeatUntil(function() {
@@ -144,9 +145,9 @@ function defaultTaskDialog(expectedTaskId, windowId) {
         if (chrome.test.checkDeepEq(expectedLabels, actualLabels)) {
           return true;
         } else {
-          return pending('Tasks do not match, expected: %j, actual: %j.',
-                         expectedLabels,
-                         actualLabels);
+          return pending(
+              caller, 'Tasks do not match, expected: %j, actual: %j.',
+              expectedLabels, actualLabels);
         }
       });
     });
@@ -185,17 +186,30 @@ function defaultTaskDialog(expectedTaskId, windowId) {
   });
 
   // Execute the new default task.
-  var taskButtonClicked = dialogHiddenPromise.
-      then(function() {
-        return remoteCall.callRemoteTestUtil(
-            'fakeEvent', windowId, ['#tasks', 'click']);
-      }).
-      then(function(result) {
-        chrome.test.assertTrue(result);
-      });
+  var taskButtonClicked =
+      dialogHiddenPromise
+          .then(function() {
+            // Click on "Open ▼" button.
+            remoteCall.callRemoteTestUtil(
+                'fakeMouseClick', windowId, ['#tasks']);
+            // Wait for dropdown menu to show.
+            return remoteCall.waitForElement(
+                windowId, '#tasks-menu cr-menu-item');
+          })
+          .then(function(result) {
+            // Click on first menu item.
+            remoteCall.callRemoteTestUtil(
+                'fakeMouseClick', windowId,
+                ['#tasks-menu cr-menu-item:nth-child(1)']);
+            // Wait dropdown menu to hide.
+            return remoteCall.waitForElement(windowId, '#tasks-menu[hidden]');
+          })
+          .then(function(result) {
+            chrome.test.assertTrue(!!result);
+          });
 
   // Check the executed tasks.
-  return dialogHiddenPromise.then(function() {
+  return taskButtonClicked.then(function() {
     return remoteCall.waitUntilTaskExecutes(windowId, expectedTaskId);
   });
 }
@@ -251,4 +265,4 @@ testcase.genericAndNonGenericTasksAreMixed = function() {
 
   testPromise(setupTaskTest(RootPath.DOWNLOADS, tasks).then(
     executeDefaultTask.bind(null, 'dummytaskid-2|open-with')));
-}
+};

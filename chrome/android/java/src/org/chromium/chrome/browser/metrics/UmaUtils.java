@@ -8,6 +8,7 @@ import android.os.SystemClock;
 
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
+import org.chromium.base.annotations.MainDex;
 import org.chromium.base.metrics.RecordHistogram;
 
 import java.util.concurrent.TimeUnit;
@@ -22,16 +23,18 @@ public class UmaUtils {
 
     // All these values originate from SystemClock.uptimeMillis().
     private static long sApplicationStartTimeMs;
+    private static long sActivityStartTimeMs;
     private static long sForegroundStartTimeMs;
     private static long sBackgroundTimeMs;
 
-    // Event duration recorded from the |sApplicationStartTimeMs|.
+    // Event duration recorded from the |sActivityStartTimeMs|.
     private static long sFirstCommitTimeMs;
 
     /**
      * Record the time in the application lifecycle at which Chrome code first runs
      * (Application.attachBaseContext()).
      */
+    @MainDex
     public static void recordMainEntryPointTime() {
         // We can't simply pass this down through a JNI call, since the JNI for chrome
         // isn't initialized until we start the native content browser component, and we
@@ -39,6 +42,10 @@ public class UmaUtils {
         // save it in a static that the C++ can fetch once it has initialized the JNI.
         sApplicationStartWallClockMs = System.currentTimeMillis();
         sApplicationStartTimeMs = SystemClock.uptimeMillis();
+    }
+
+    public static void recordActivityStartTime() {
+        sActivityStartTimeMs = SystemClock.uptimeMillis();
     }
 
     /**
@@ -66,9 +73,10 @@ public class UmaUtils {
      */
     public static void registerFinishNavigation(boolean isTrackedPage) {
         if (!isRunningApplicationStart()) return;
+        assert sActivityStartTimeMs != 0;
 
         if (isTrackedPage && hasComeToForeground() && !hasComeToBackground()) {
-            sFirstCommitTimeMs = SystemClock.uptimeMillis() - sApplicationStartTimeMs;
+            sFirstCommitTimeMs = SystemClock.uptimeMillis() - sActivityStartTimeMs;
             RecordHistogram.recordLongTimesHistogram100(
                     "Startup.Android.Experimental.Cold.TimeToFirstNavigationCommit",
                     sFirstCommitTimeMs, TimeUnit.MILLISECONDS);
@@ -89,7 +97,7 @@ public class UmaUtils {
         if (hasComeToForeground() && !hasComeToBackground()) {
             RecordHistogram.recordLongTimesHistogram100(
                     "Startup.Android.Experimental.Cold.TimeToFirstContentfulPaint",
-                    firstContentfulPaintMs - sApplicationStartTimeMs, TimeUnit.MILLISECONDS);
+                    firstContentfulPaintMs - sActivityStartTimeMs, TimeUnit.MILLISECONDS);
         }
     }
 

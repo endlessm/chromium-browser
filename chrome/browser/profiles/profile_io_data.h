@@ -28,19 +28,18 @@
 #include "components/prefs/pref_member.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/resource_context.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "net/cookies/cookie_store.h"
 #include "net/http/http_cache.h"
 #include "net/http/http_network_session.h"
-#include "net/net_features.h"
+#include "net/net_buildflags.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_interceptor.h"
 #include "net/url_request/url_request_job_factory.h"
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "services/network/url_request_context_owner.h"
 
-class ChromeHttpUserAgentSettings;
 class ChromeNetworkDelegate;
 class ChromeURLRequestContextGetter;
 class ChromeExpectCTReporter;
@@ -56,7 +55,6 @@ class LoadingPredictorObserver;
 }
 
 namespace certificate_transparency {
-class CTPolicyManager;
 class TreeStateTracker;
 }
 
@@ -461,9 +459,6 @@ class ProfileIOData {
       net::HttpTransactionFactory* main_http_factory,
       std::unique_ptr<net::HttpCache::BackendFactory> backend) const;
 
-  void SetCookieSettingsForTesting(
-      content_settings::CookieSettings* cookie_settings);
-
  private:
   class ResourceContext : public content::ResourceContext {
    public:
@@ -584,7 +579,6 @@ class ProfileIOData {
 
   // Member variables which are pointed to by the various context objects.
   mutable BooleanPrefMember enable_referrers_;
-  mutable BooleanPrefMember enable_do_not_track_;
   mutable BooleanPrefMember force_google_safesearch_;
   mutable IntegerPrefMember force_youtube_restrict_;
   mutable BooleanPrefMember safe_browsing_enabled_;
@@ -632,8 +626,6 @@ class ProfileIOData {
   // URLRequestContextStorage), and must be disconnected from it before it's
   // destroyed.
   mutable std::unique_ptr<net::ReportSender> certificate_report_sender_;
-  mutable std::unique_ptr<certificate_transparency::CTPolicyManager>
-      ct_policy_manager_;
 
   mutable std::unique_ptr<net::URLRequestContext> extensions_request_context_;
   // One URLRequestContext per isolated app for main and media requests.
@@ -648,9 +640,6 @@ class ProfileIOData {
 
   mutable std::unique_ptr<chrome_browser_net::LoadingPredictorObserver>
       loading_predictor_observer_;
-
-  mutable std::unique_ptr<ChromeHttpUserAgentSettings>
-      chrome_http_user_agent_settings_;
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   // Is NULL if switches::kDisableExtensionsHttpThrottling is on.

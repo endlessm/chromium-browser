@@ -26,27 +26,28 @@
 #include "chrome/renderer/prerender/prerender_helper.h"
 #include "chrome/renderer/web_apps.h"
 #include "components/crash/core/common/crash_key.h"
+#include "components/offline_pages/buildflags/buildflags.h"
 #include "components/translate/content/renderer/translate_helper.h"
 #include "content/public/common/bindings_policy.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_view.h"
 #include "content/public/renderer/window_features_converter.h"
 #include "extensions/common/constants.h"
-#include "printing/features/features.h"
+#include "printing/buildflags/buildflags.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "skia/ext/image_operations.h"
-#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_provider.h"
-#include "third_party/WebKit/public/common/associated_interfaces/associated_interface_registry.h"
-#include "third_party/WebKit/public/platform/WebImage.h"
-#include "third_party/WebKit/public/platform/WebURLRequest.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebDocumentLoader.h"
-#include "third_party/WebKit/public/web/WebElement.h"
-#include "third_party/WebKit/public/web/WebFrameContentDumper.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebNode.h"
-#include "third_party/WebKit/public/web/WebSecurityPolicy.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
+#include "third_party/blink/public/platform/web_image.h"
+#include "third_party/blink/public/platform/web_url_request.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_document_loader.h"
+#include "third_party/blink/public/web/web_element.h"
+#include "third_party/blink/public/web/web_frame_content_dumper.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_node.h"
+#include "third_party/blink/public/web/web_security_policy.h"
+#include "third_party/blink/public/web/web_view.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/codec/jpeg_codec.h"
 #include "ui/gfx/codec/png_codec.h"
@@ -59,6 +60,10 @@
 
 #if defined(FULL_SAFE_BROWSING)
 #include "chrome/renderer/safe_browsing/phishing_classifier_delegate.h"
+#endif
+
+#if BUILDFLAG(ENABLE_OFFLINE_PAGES)
+#include "chrome/common/mhtml_page_notifier.mojom.h"
 #endif
 
 #if BUILDFLAG(ENABLE_PRINTING)
@@ -337,6 +342,31 @@ void ChromeRenderFrameObserver::DidFinishLoad() {
     osdd_handler->PageHasOpenSearchDescriptionDocument(
         frame->GetDocument().Url(), osdd_url);
   }
+}
+
+void ChromeRenderFrameObserver::DidCreateNewDocument() {
+#if BUILDFLAG(ENABLE_OFFLINE_PAGES)
+  DCHECK(render_frame());
+  if (!render_frame()->IsMainFrame())
+    return;
+
+  DCHECK(render_frame()->GetWebFrame());
+  blink::WebDocumentLoader* doc_loader =
+      render_frame()->GetWebFrame()->GetDocumentLoader();
+  DCHECK(doc_loader);
+  if (!doc_loader->IsArchive())
+    return;
+
+  // Connect to Mojo service on browser to notify it of the page's archive
+  // properties.
+  offline_pages::mojom::MhtmlPageNotifierAssociatedPtr mhtml_notifier;
+  render_frame()->GetRemoteAssociatedInterfaces()->GetInterface(
+      &mhtml_notifier);
+  DCHECK(mhtml_notifier);
+  blink::WebArchiveInfo info = doc_loader->GetArchiveInfo();
+
+  mhtml_notifier->NotifyIsMhtmlPage(info.url, info.date);
+#endif
 }
 
 void ChromeRenderFrameObserver::DidStartProvisionalLoad(

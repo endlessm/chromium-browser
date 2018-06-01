@@ -22,11 +22,9 @@ class GURL;
 @class OpenInController;
 @class OverscrollActionsController;
 @protocol OverscrollActionsControllerDelegate;
-@protocol PassKitDialogProvider;
 @class PasswordController;
 @class SnapshotManager;
 @class FormSuggestionController;
-@protocol TabDelegate;
 @protocol TabDialogDelegate;
 @class Tab;
 @protocol TabHeadersDelegate;
@@ -79,9 +77,6 @@ extern NSString* const kProxyPassthroughHeaderValue;
 // Browser state associated with this Tab.
 @property(nonatomic, readonly) ios::ChromeBrowserState* browserState;
 
-// The Passkit Dialog provider used to show the UI to download a passkit object.
-@property(nonatomic, weak) id<PassKitDialogProvider> passKitDialogProvider;
-
 // The current title of the tab.
 @property(nonatomic, readonly) NSString* title;
 
@@ -95,7 +90,6 @@ extern NSString* const kProxyPassthroughHeaderValue;
 
 @property(nonatomic, readonly) BOOL canGoBack;
 @property(nonatomic, readonly) BOOL canGoForward;
-@property(nonatomic, weak) id<TabDelegate> delegate;
 @property(nonatomic, weak) id<TabHeadersDelegate> tabHeadersDelegate;
 
 @property(nonatomic, readonly)

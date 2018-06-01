@@ -10,7 +10,7 @@
 #include "chrome/browser/ui/toolbar/app_menu_icon_controller.h"
 #include "chrome/browser/ui/views/feature_promos/incognito_window_promo_bubble_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/browser/ui/views/toolbar/app_menu_button.h"
+#include "chrome/browser/ui/views/toolbar/browser_app_menu_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "chrome/common/pref_names.h"
 #include "components/feature_engagement/public/event_constants.h"
@@ -23,13 +23,13 @@ constexpr int kDefaultIncognitoWindowPromoShowTimeInHours = 2;
 constexpr char kIncognitoWindowObservedSessionTimeKey[] =
     "incognito_window_in_product_help_observed_session_time_key";
 
-AppMenuButton* GetAppMenuButton() {
+// Note: May return null.
+BrowserAppMenuButton* GetAppMenuButton() {
   auto* browser = BrowserView::GetBrowserViewForBrowser(
       BrowserList::GetInstance()->GetLastActive());
   DCHECK(browser);
   DCHECK(browser->IsActive());
   DCHECK(browser->toolbar());
-  DCHECK(browser->toolbar()->app_menu_button());
   return browser->toolbar()->app_menu_button();
 }
 
@@ -53,7 +53,6 @@ void IncognitoWindowTracker::OnIncognitoWindowOpened() {
 
 void IncognitoWindowTracker::OnBrowsingDataCleared() {
   auto* app_menu_button = GetAppMenuButton();
-  // TODO(bdea): Remove early return once https://crbug.com/811982 is fixed.
   if (!app_menu_button)
     return;
 
@@ -87,7 +86,9 @@ void IncognitoWindowTracker::OnWidgetDestroying(views::Widget* widget) {
 
   if (incognito_promo_observer_.IsObserving(widget)) {
     incognito_promo_observer_.Remove(widget);
-    GetAppMenuButton()->SetIsProminent(false);
+    BrowserAppMenuButton* app_menu_button = GetAppMenuButton();
+    if (app_menu_button)
+      app_menu_button->SetIsProminent(false);
   }
 }
 

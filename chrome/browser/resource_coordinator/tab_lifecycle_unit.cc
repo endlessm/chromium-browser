@@ -6,6 +6,7 @@
 
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/process/process_metrics.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
 #include "chrome/browser/profiles/profile.h"
@@ -41,8 +42,7 @@ TabLifecycleUnitSource::TabLifecycleUnit::~TabLifecycleUnit() {
 
 void TabLifecycleUnitSource::TabLifecycleUnit::SetTabStripModel(
     TabStripModel* tab_strip_model) {
-  DCHECK(tab_strip_model);
-  tab_strip_model = tab_strip_model_;
+  tab_strip_model_ = tab_strip_model;
 }
 
 void TabLifecycleUnitSource::TabLifecycleUnit::SetWebContents(
@@ -95,21 +95,64 @@ std::string TabLifecycleUnitSource::TabLifecycleUnit::GetIconURL() const {
   return favicon.valid ? favicon.url.spec() : std::string();
 }
 
+base::ProcessHandle TabLifecycleUnitSource::TabLifecycleUnit::GetProcessHandle()
+    const {
+  content::RenderFrameHost* main_frame = GetWebContents()->GetMainFrame();
+  if (!main_frame)
+    return base::ProcessHandle();
+  content::RenderProcessHost* process = main_frame->GetProcess();
+  if (!process)
+    return base::ProcessHandle();
+  return process->GetHandle();
+}
+
 LifecycleUnit::SortKey TabLifecycleUnitSource::TabLifecycleUnit::GetSortKey()
     const {
   return SortKey(last_focused_time_);
 }
 
+content::Visibility TabLifecycleUnitSource::TabLifecycleUnit::GetVisibility()
+    const {
+  return GetWebContents()->GetVisibility();
+}
+
+bool TabLifecycleUnitSource::TabLifecycleUnit::Freeze() {
+  // Can't freeze tabs that are already discarded or frozen.
+  // TODO(fmeawad): Don't freeze already frozen tabs.
+  if (GetState() != State::LOADED)
+    return false;
+
+  GetWebContents()->FreezePage();
+  return true;
+}
+
 int TabLifecycleUnitSource::TabLifecycleUnit::
     GetEstimatedMemoryFreedOnDiscardKB() const {
+#if defined(OS_CHROMEOS)
+  std::unique_ptr<base::ProcessMetrics> process_metrics(
+      base::ProcessMetrics::CreateProcessMetrics(GetProcessHandle()));
+  base::ProcessMetrics::TotalsSummary summary =
+      process_metrics->GetTotalsSummary();
+  return summary.private_clean_kb + summary.private_dirty_kb + summary.swap_kb;
+#else
   // TODO(fdoray): Implement this. https://crbug.com/775644
   return 0;
+#endif
+}
+
+bool TabLifecycleUnitSource::TabLifecycleUnit::CanPurge() const {
+  // A renderer can be purged if it's not playing media.
+  return !IsMediaTab();
 }
 
 bool TabLifecycleUnitSource::TabLifecycleUnit::CanDiscard(
     DiscardReason reason) const {
+  // Can't discard a tab that isn't in a TabStripModel.
+  if (!tab_strip_model_)
+    return false;
+
   // Can't discard a tab that is already discarded.
-  if (GetState() == State::DISCARDED)
+  if (IsDiscarded())
     return false;
 
   if (GetWebContents()->IsCrashed())
@@ -137,7 +180,7 @@ bool TabLifecycleUnitSource::TabLifecycleUnit::CanDiscard(
   if (GetWebContents()->GetPageImportanceSignals().had_form_interaction)
     return false;
 
-  // Do discard media tabs as it's too distruptive to the user experience.
+  // Do not discard media tabs as it's too distruptive to the user experience.
   if (IsMediaTab())
     return false;
 
@@ -165,17 +208,12 @@ bool TabLifecycleUnitSource::TabLifecycleUnit::CanDiscard(
   if (discard_count_ > 0)
     return false;
 
-  // Do not discard a tab that has recently been focused.
-  const base::TimeDelta time_since_focused = NowTicks() - last_focused_time_;
-  if (time_since_focused < kTabFocusedProtectionTime)
-    return false;
-
   return true;
 }
 
 bool TabLifecycleUnitSource::TabLifecycleUnit::Discard(
     DiscardReason discard_reason) {
-  if (IsDiscarded())
+  if (!tab_strip_model_ || IsDiscarded())
     return false;
 
   UMA_HISTOGRAM_BOOLEAN(
@@ -232,6 +270,10 @@ bool TabLifecycleUnitSource::TabLifecycleUnit::Discard(
   DCHECK_NE(index, TabStripModel::kNoTab);
   tab_strip_model_->ReplaceWebContentsAt(index, null_contents);
   DCHECK_EQ(GetWebContents(), null_contents);
+
+  // This ensures that on reload after discard, the document has
+  // "wasDiscarded" set to true.
+  null_contents->SetWasDiscarded(true);
 
   // Discard the old tab's renderer.
   // TODO(jamescook): This breaks script connections with other tabs. Find a
@@ -290,6 +332,10 @@ bool TabLifecycleUnitSource::TabLifecycleUnit::DiscardTab() {
   return Discard(DiscardReason::kExternal);
 }
 
+bool TabLifecycleUnitSource::TabLifecycleUnit::FreezeTab() {
+  return Freeze();
+}
+
 bool TabLifecycleUnitSource::TabLifecycleUnit::IsDiscarded() const {
   return GetState() == State::DISCARDED;
 }
@@ -313,6 +359,11 @@ void TabLifecycleUnitSource::TabLifecycleUnit::DidStartLoading() {
     SetState(State::LOADED);
     OnDiscardedStateChange();
   }
+}
+
+void TabLifecycleUnitSource::TabLifecycleUnit::OnVisibilityChanged(
+    content::Visibility visibility) {
+  OnLifecycleUnitVisibilityChanged(visibility);
 }
 
 }  // namespace resource_coordinator

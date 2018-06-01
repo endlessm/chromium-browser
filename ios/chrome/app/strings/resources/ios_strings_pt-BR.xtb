@@ -138,6 +138,7 @@ Por exemplo, alguns websites podem reagir a esse pedido mostrando anúncios que 
 <translation id="3393920035788932672">Pop-ups permitidos</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> minutos</translation>
 <translation id="3448016392200048164">Visualização dividida</translation>
+<translation id="3469166899695866866">Interromper o download?</translation>
 <translation id="3474624961160222204">Continuar como <ph name="NAME" /></translation>
 <translation id="3474649192738347024">Formulários preenchidos.</translation>
 <translation id="3478058380795961209">Mês de vencimento</translation>
@@ -160,6 +161,7 @@ Por exemplo, alguns websites podem reagir a esse pedido mostrando anúncios que 
 <translation id="3789841737615482174">Instalar</translation>
 <translation id="385051799172605136">Voltar</translation>
 <translation id="3897092660631435901">Menu</translation>
+<translation id="3915450441834151894">Informações do site</translation>
 <translation id="3928666092801078803">Combinar meus dados</translation>
 <translation id="3950820424414687140">Fazer login</translation>
 <translation id="3963231839620026525">Nova guia anônima</translation>
@@ -168,6 +170,7 @@ Por exemplo, alguns websites podem reagir a esse pedido mostrando anúncios que 
 <translation id="4002066346123236978">Título</translation>
 <translation id="4038354071007134711">Nenhum app deste dispositivo pode abrir o arquivo.</translation>
 <translation id="4049507953662678203">Verifique se você tem uma conexão de rede e tente novamente.</translation>
+<translation id="4084682180776658562">Favorito</translation>
 <translation id="411254640334432676">Falha no download.</translation>
 <translation id="4121993058175073134">Para enviar dados de exportação líquida, configure sua conta de e-mail no aplicativo "Configurações".</translation>
 <translation id="4124987746317609294">Intervalo de tempo</translation>
@@ -192,6 +195,7 @@ Por exemplo, alguns websites podem reagir a esse pedido mostrando anúncios que 
 <translation id="4536418791685807335">Tente fazer login novamente.</translation>
 <translation id="457386861538956877">Mais...</translation>
 <translation id="461440297010471931">Pesquisando com o Google</translation>
+<translation id="4619615317237390068">Guias de outros dispositivos</translation>
 <translation id="4620246317052452550">Páginas lidas</translation>
 <translation id="4636930964841734540">Informações</translation>
 <translation id="4659667755519643272">Entrar no alternador de guias</translation>
@@ -222,6 +226,7 @@ Seus dados são criptografados com sua senha longa de sincronização. Informe-a
 <translation id="5197255632782567636">Internet</translation>
 <translation id="5228579091201413441">Ativar sincronização</translation>
 <translation id="5244474230056479698">Sincronizado com <ph name="EMAIL" /></translation>
+<translation id="527973086555161537">Abra uma guia para navegar na Web com privacidade.</translation>
 <translation id="5300589172476337783">Mostrar</translation>
 <translation id="5317780077021120954">Salvar</translation>
 <translation id="5327248766486351172">Nome</translation>
@@ -320,6 +325,7 @@ Seus dados foram criptografados com sua senha longa de sincronização no dia <p
 <translation id="6914783257214138813">Suas senhas ficarão visíveis para qualquer pessoa que tiver acesso ao arquivo exportado.</translation>
 <translation id="6945221475159498467">Selecionar</translation>
 <translation id="6973630695168034713">Pastas</translation>
+<translation id="6979158407327259162">Google Drive</translation>
 <translation id="7004499039102548441">Guias recentes</translation>
 <translation id="7006788746334555276">Configurações de conteúdo</translation>
 <translation id="7029809446516969842">Senhas</translation>
@@ -371,16 +377,20 @@ Seus dados foram criptografados com sua senha longa de sincronização no dia <p
 <translation id="7971521879845308059">Bloquear pop-ups</translation>
 <translation id="7982789257301363584">Rede</translation>
 <translation id="8019783059653722575">Isso permite que você salve fotos e faça upload delas.</translation>
+<translation id="802154636333426148">Falha no download</translation>
 <translation id="8023878949384262191">Expande a seção.</translation>
 <translation id="8059533439631660104">Recolhe a seção.</translation>
 <translation id="806745655614357130">Manter meus dados separados</translation>
+<translation id="8073670137947914548">Download concluído</translation>
 <translation id="8076014560081431679">As configurações salvas em sites não são excluídas e podem refletir seus hábitos de navegação. <ph name="BEGIN_LINK" />Saiba mais<ph name="END_LINK" /></translation>
 <translation id="8080028325999236607">Fechar todas as guias</translation>
+<translation id="8114753159095730575">O download de arquivo está disponível. Opções disponíveis perto da parte inferior da tela.</translation>
 <translation id="8205564605687841303">Cancelar</translation>
 <translation id="8225985093977202398">Imagens e arquivos armazenados em cache</translation>
 <translation id="8261506727792406068">Excluir</translation>
 <translation id="8272426682713568063">Cartões de crédito</translation>
 <translation id="8281781826761538115">Padrão: <ph name="DEFAULT_LOCALE" /></translation>
+<translation id="8328777765163860529">Fechar todos</translation>
 <translation id="8381750437846184350">Controlar a maneira como o Google usa seu histórico de navegação para personalizar a Pesquisa Google, os anúncios e outros serviços nossos</translation>
 <translation id="842017693807136194">Conectado com</translation>
 <translation id="8428045167754449968">Cidade</translation>
@@ -423,7 +433,6 @@ Seus dados foram criptografados com sua senha longa de sincronização no dia <p
 <translation id="9083392325882095631">1 item</translation>
 <translation id="9100610230175265781">Senha necessária</translation>
 <translation id="9148126808321036104">Faça login novamente</translation>
-<translation id="915371508759614899">Cancelar download?</translation>
 <translation id="9157836665414082580">Bloquear caixas de diálogo</translation>
 <translation id="9188680907066685419">Sair da conta gerenciada</translation>
 <translation id="9203116392574189331">Transição</translation>

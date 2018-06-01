@@ -44,7 +44,10 @@ const int kDistanceBetweenUserViewAndPasswordDp = 28;
 const int kDistanceBetweenPasswordFieldAndPinKeyboard = 20;
 
 // Distance from the end of pin keyboard to the bottom of the big user view.
-const int kDistanceFromPinKeyboardToBigUserViewBottom = 48;
+const int kDistanceFromPinKeyboardToBigUserViewBottom = 50;
+
+// Distance from the top of the user view to the user icon.
+constexpr int kDistanceFromTopOfBigUserViewToUserIconDp = 54;
 
 // Returns an observer that will hide |view| when it fires. The observer will
 // delete itself after firing. Make sure to call |observer->SetReady()| after
@@ -98,20 +101,33 @@ LoginPinView* LoginAuthUserView::TestApi::pin_view() const {
   return view_->pin_view_;
 }
 
-LoginAuthUserView::LoginAuthUserView(
-    const mojom::LoginUserInfoPtr& user,
-    const OnAuthCallback& on_auth,
-    const LoginUserView::OnTap& on_tap,
-    const OnEasyUnlockIconHovered& on_easy_unlock_icon_hovered,
-    const OnEasyUnlockIconTapped& on_easy_unlock_icon_tapped)
+LoginAuthUserView::Callbacks::Callbacks() = default;
+
+LoginAuthUserView::Callbacks::Callbacks(const Callbacks& other) = default;
+
+LoginAuthUserView::Callbacks::~Callbacks() = default;
+
+LoginAuthUserView::LoginAuthUserView(const mojom::LoginUserInfoPtr& user,
+                                     const Callbacks& callbacks)
     : NonAccessibleView(kLoginAuthUserViewClassName),
-      on_auth_(on_auth),
-      on_tap_(on_tap),
+      on_auth_(callbacks.on_auth),
+      on_tap_(callbacks.on_tap),
       weak_factory_(this) {
+  DCHECK(callbacks.on_auth);
+  DCHECK(callbacks.on_tap);
+  DCHECK(callbacks.on_remove_warning_shown);
+  DCHECK(callbacks.on_remove);
+  DCHECK(callbacks.on_easy_unlock_icon_hovered);
+  DCHECK(callbacks.on_easy_unlock_icon_tapped);
+  DCHECK_NE(user->basic_user_info->type,
+            user_manager::USER_TYPE_PUBLIC_ACCOUNT);
+
   // Build child views.
   user_view_ = new LoginUserView(
-      LoginDisplayStyle::kLarge, true /*show_dropdown*/,
-      base::Bind(&LoginAuthUserView::OnUserViewTap, base::Unretained(this)));
+      LoginDisplayStyle::kLarge, true /*show_dropdown*/, false /*show_domain*/,
+      base::BindRepeating(&LoginAuthUserView::OnUserViewTap,
+                          base::Unretained(this)),
+      callbacks.on_remove_warning_shown, callbacks.on_remove);
 
   password_view_ = new LoginPasswordView();
   password_view_->SetPaintToLayer();  // Needed for opacity animation.
@@ -131,9 +147,9 @@ LoginAuthUserView::LoginAuthUserView(
       base::Bind(&LoginAuthUserView::OnAuthSubmit, base::Unretained(this)),
       base::Bind(&LoginPinView::OnPasswordTextChanged,
                  base::Unretained(pin_view_)),
-      on_easy_unlock_icon_hovered, on_easy_unlock_icon_tapped);
+      callbacks.on_easy_unlock_icon_hovered,
+      callbacks.on_easy_unlock_icon_tapped);
 
-  // Child views animate outside view bounds.
   SetPaintToLayer(ui::LayerType::LAYER_NOT_DRAWN);
 
   // Build layout.
@@ -164,6 +180,7 @@ LoginAuthUserView::LoginAuthUserView(
   };
 
   // Add views in rendering order.
+  add_padding(kDistanceFromTopOfBigUserViewToUserIconDp);
   add_view(wrapped_user_view);
   add_padding(kDistanceBetweenUserViewAndPasswordDp);
   add_view(password_view_);
@@ -179,6 +196,8 @@ LoginAuthUserView::LoginAuthUserView(
 LoginAuthUserView::~LoginAuthUserView() = default;
 
 void LoginAuthUserView::SetAuthMethods(uint32_t auth_methods) {
+  bool had_password = HasAuthMethod(AUTH_PASSWORD);
+
   auth_methods_ = static_cast<AuthMethods>(auth_methods);
   bool has_password = HasAuthMethod(AUTH_PASSWORD);
   bool has_pin = HasAuthMethod(AUTH_PIN);
@@ -188,7 +207,7 @@ void LoginAuthUserView::SetAuthMethods(uint32_t auth_methods) {
   password_view_->SetFocusEnabledForChildViews(has_password);
   password_view_->layer()->SetOpacity(has_password ? 1 : 0);
 
-  if (has_password)
+  if (!had_password && has_password)
     password_view_->RequestFocus();
 
   pin_view_->SetVisible(has_pin);

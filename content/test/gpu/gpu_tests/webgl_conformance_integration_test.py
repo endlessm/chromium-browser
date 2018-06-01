@@ -193,6 +193,7 @@ class WebGLConformanceIntegrationTest(gpu_integration_test.GpuIntegrationTest):
         'WEBGL_compressed_texture_s3tc_srgb',
         'WEBGL_debug_renderer_info',
         'WEBGL_debug_shaders',
+        'WEBGL_get_buffer_sub_data_async',
         'WEBGL_lose_context',
       ]
 
@@ -264,11 +265,14 @@ class WebGLConformanceIntegrationTest(gpu_integration_test.GpuIntegrationTest):
       '--disable-domain-blocking-for-3d-apis',
       '--disable-gpu-process-crash-limit',
       '--test-type=gpu',
-      '--enable-experimental-canvas-features',
+      '--enable-experimental-web-platform-features',
       # Try disabling the GPU watchdog to see if this affects the
       # intermittent GPU process hangs that have been seen on the
       # waterfall. crbug.com/596622 crbug.com/609252
-      '--disable-gpu-watchdog'
+      '--disable-gpu-watchdog',
+      # TODO(http://crbug.com/832952): Remove this when WebXR spec is more
+      # stable and setCompatibleXRDevice is part of the conformance test.
+      '--disable-blink-features=WebXR'
     ]
     # Note that the overriding of the default --js-flags probably
     # won't interact well with RestartBrowserIfNecessaryWithArgs, but

@@ -7,8 +7,9 @@
 
 #include <memory>
 
+#include "ash/accessibility/accessibility_observer.h"
 #include "ash/shell_observer.h"
-#include "ash/system/accessibility_observer.h"
+#include "ash/wallpaper/wallpaper_controller_observer.h"
 #include "ash/wm/splitview/split_view_controller.h"
 #include "base/macros.h"
 
@@ -44,7 +45,8 @@ class BackdropDelegate;
 // 3) Active ARC window when the spoken feedback is enabled.
 class BackdropController : public ShellObserver,
                            public AccessibilityObserver,
-                           public SplitViewController::Observer {
+                           public SplitViewController::Observer,
+                           public WallpaperControllerObserver {
  public:
   explicit BackdropController(aura::Window* container);
   ~BackdropController() override;
@@ -71,13 +73,16 @@ class BackdropController : public ShellObserver,
   void OnSplitViewModeEnded() override;
 
   // AccessibilityObserver:
-  void OnAccessibilityStatusChanged(
-      AccessibilityNotificationVisibility notify) override;
+  void OnAccessibilityStatusChanged() override;
 
   // SplitViewController::Observer:
   void OnSplitViewStateChanged(SplitViewController::State previous_state,
                                SplitViewController::State state) override;
   void OnSplitViewDividerPositionChanged() override;
+
+  // WallpaperControllerObserver:
+  void OnWallpaperDataChanged() override;
+  void OnWallpaperPreviewStarted() override;
 
  private:
   friend class WorkspaceControllerTestApi;
@@ -96,12 +101,6 @@ class BackdropController : public ShellObserver,
 
   // Hide the backdrop window.
   void Hide();
-
-  // Increment |force_hidden_counter_| and then update backdrop state.
-  void AddForceHidden();
-
-  // Decrement |force_hidden_counter_| and then update backdrop state.
-  void RemoveForceHidden();
 
   // Returns true if the backdrop window should be fullscreen. It should not be
   // fullscreen only if 1) split view is active and 2) there is only one snapped
@@ -132,10 +131,6 @@ class BackdropController : public ShellObserver,
 
   // If true, the |RestackOrHideWindow| might recurse.
   bool in_restacking_ = false;
-
-  // Hide the backdrop if the counter is larger than 0. The counter is
-  // maintained by overview mode, split view and app list visibility state.
-  int force_hidden_counter_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(BackdropController);
 };

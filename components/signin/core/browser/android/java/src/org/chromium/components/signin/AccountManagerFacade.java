@@ -61,6 +61,13 @@ public class AccountManagerFacade {
     @VisibleForTesting
     public static final String FEATURE_IS_CHILD_ACCOUNT_KEY = "service_uca";
 
+    /**
+     * An account feature (corresponding to a Gaia service flag) that specifies whether the account
+     * is a USM account.
+     */
+    @VisibleForTesting
+    public static final String FEATURE_IS_USM_ACCOUNT_KEY = "service_usm";
+
     @VisibleForTesting
     public static final String ACCOUNT_RESTRICTION_PATTERNS_KEY = "RestrictAccountsToPatterns";
 
@@ -512,28 +519,26 @@ public class AccountManagerFacade {
     }
 
     @MainThread
-    public void checkChildAccount(Account account, Callback<Boolean> callback) {
-        hasFeatures(account, new String[] {FEATURE_IS_CHILD_ACCOUNT_KEY}, callback);
-    }
-
-    private boolean hasFeatures(Account account, String[] features) {
-        return mDelegate.hasFeatures(account, features);
-    }
-
-    private void hasFeatures(
-            final Account account, final String[] features, final Callback<Boolean> callback) {
+    public void checkChildAccountStatus(Account account, Callback<Integer> callback) {
         ThreadUtils.assertOnUiThread();
-        new AsyncTask<Void, Void, Boolean>() {
+        new AsyncTask<Void, Void, Integer>() {
             @Override
-            public Boolean doInBackground(Void... params) {
-                return hasFeatures(account, features);
+            public @ChildAccountStatus.Status Integer doInBackground(Void... params) {
+                if (hasFeature(account, FEATURE_IS_CHILD_ACCOUNT_KEY)) {
+                    return ChildAccountStatus.REGULAR_CHILD;
+                }
+                if (hasFeature(account, FEATURE_IS_USM_ACCOUNT_KEY)) {
+                    return ChildAccountStatus.USM_CHILD;
+                }
+                return ChildAccountStatus.NOT_CHILD;
             }
 
             @Override
-            public void onPostExecute(Boolean value) {
+            public void onPostExecute(@ChildAccountStatus.Status Integer value) {
                 callback.onResult(value);
             }
-        }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+        }
+                .executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
 
     /**
@@ -579,6 +584,10 @@ public class AccountManagerFacade {
     public boolean isUpdatePending() {
         ThreadUtils.assertOnUiThread();
         return mUpdateTasksCounter > 0;
+    }
+
+    private boolean hasFeature(Account account, String feature) {
+        return mDelegate.hasFeatures(account, new String[] {feature});
     }
 
     private void updateAccounts() {

@@ -124,6 +124,16 @@ class WebRtcLoggingHandlerHost : public content::BrowserMessageFilter {
                    size_t packet_length,
                    bool incoming);
 
+  // Start remote-bound event logging for a specific peer connection,
+  // indicated by its ID, for which remote-bound event logging was not active.
+  // The callback will be posted back, indicating |true| if and only if an
+  // event log was successfully started.
+  // This function must be called on the UI thread.
+  void StartEventLogging(const std::string& peer_connection_id,
+                         size_t max_log_size_bytes,
+                         const std::string& metadata,
+                         const GenericDoneCallback& callback);
+
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
   // Ensures that the WebRTC Logs directory exists and then grants render
   // process access to the 'WebRTC Logs' directory, and invokes |callback| with
@@ -210,8 +220,8 @@ class WebRtcLoggingHandlerHost : public content::BrowserMessageFilter {
   // The render process ID this object belongs to.
   const int render_process_id_;
 
-  // The browser context associated with our renderer process.
-  content::BrowserContext* const browser_context_;
+  // The browser context directory path associated with our renderer process.
+  const base::FilePath browser_context_directory_path_;
 
   // Only accessed on the IO thread.
   bool upload_log_on_render_close_;

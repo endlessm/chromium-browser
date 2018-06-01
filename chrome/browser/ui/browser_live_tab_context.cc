@@ -29,7 +29,7 @@ void BrowserLiveTabContext::ShowBrowserWindow() {
   browser_->window()->Show();
 }
 
-const SessionID& BrowserLiveTabContext::GetSessionID() const {
+SessionID BrowserLiveTabContext::GetSessionID() const {
   return browser_->session_id();
 }
 
@@ -174,7 +174,7 @@ sessions::LiveTabContext* BrowserLiveTabContext::FindContextForWebContents(
 
 // static
 sessions::LiveTabContext* BrowserLiveTabContext::FindContextWithID(
-    SessionID::id_type desired_id) {
+    SessionID desired_id) {
   Browser* browser = chrome::FindBrowserWithID(desired_id);
   return browser ? browser->live_tab_context() : nullptr;
 }

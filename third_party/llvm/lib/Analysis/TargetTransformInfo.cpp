@@ -159,6 +159,10 @@ bool TargetTransformInfo::canMacroFuseCmp() const {
   return TTIImpl->canMacroFuseCmp();
 }
 
+bool TargetTransformInfo::shouldFavorPostInc() const {
+  return TTIImpl->shouldFavorPostInc();
+}
+
 bool TargetTransformInfo::isLegalMaskedStore(Type *DataType) const {
   return TTIImpl->isLegalMaskedStore(DataType);
 }
@@ -332,6 +336,10 @@ unsigned TargetTransformInfo::getRegisterBitWidth(bool Vector) const {
 
 unsigned TargetTransformInfo::getMinVectorRegisterBitWidth() const {
   return TTIImpl->getMinVectorRegisterBitWidth();
+}
+
+bool TargetTransformInfo::shouldMaximizeVectorBandwidth(bool OptSize) const {
+  return TTIImpl->shouldMaximizeVectorBandwidth(OptSize);
 }
 
 bool TargetTransformInfo::shouldConsiderAddressTypePromotion(
@@ -553,6 +561,16 @@ void TargetTransformInfo::getMemcpyLoopResidualLoweringType(
 bool TargetTransformInfo::areInlineCompatible(const Function *Caller,
                                               const Function *Callee) const {
   return TTIImpl->areInlineCompatible(Caller, Callee);
+}
+
+bool TargetTransformInfo::isIndexedLoadLegal(MemIndexedMode Mode,
+                                             Type *Ty) const {
+  return TTIImpl->isIndexedLoadLegal(Mode, Ty);
+}
+
+bool TargetTransformInfo::isIndexedStoreLegal(MemIndexedMode Mode,
+                                              Type *Ty) const {
+  return TTIImpl->isIndexedStoreLegal(Mode, Ty);
 }
 
 unsigned TargetTransformInfo::getLoadStoreVecRegBitWidth(unsigned AS) const {

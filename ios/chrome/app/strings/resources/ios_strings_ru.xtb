@@ -137,6 +137,7 @@
 <translation id="3393920035788932672">Вспл. окна разрешены</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> мин.</translation>
 <translation id="3448016392200048164">Режим Split View</translation>
+<translation id="3469166899695866866">Остановить скачивание?</translation>
 <translation id="3474624961160222204">Продолжить как <ph name="NAME" /></translation>
 <translation id="3474649192738347024">Формы заполнены</translation>
 <translation id="3478058380795961209">Месяц</translation>
@@ -159,6 +160,7 @@
 <translation id="3789841737615482174">Установить</translation>
 <translation id="385051799172605136">Назад</translation>
 <translation id="3897092660631435901">Меню</translation>
+<translation id="3915450441834151894">Информация о сайте</translation>
 <translation id="3928666092801078803">Объединить данные</translation>
 <translation id="3950820424414687140">Вход</translation>
 <translation id="3963231839620026525">Новая вкладка инкогнито</translation>
@@ -167,6 +169,7 @@
 <translation id="4002066346123236978">Название</translation>
 <translation id="4038354071007134711">Нет приложения, чтобы открыть этот файл.</translation>
 <translation id="4049507953662678203">Проверьте подключение к Интернету и повторите попытку.</translation>
+<translation id="4084682180776658562">Закладка</translation>
 <translation id="411254640334432676">Ошибка при скачивании</translation>
 <translation id="4121993058175073134">Чтобы отправлять очищенные данные для экспорта, задайте соответствующие параметры аккаунта электронной почты в приложении "Настройки".</translation>
 <translation id="4124987746317609294">Временной диапазон</translation>
@@ -191,6 +194,7 @@
 <translation id="4536418791685807335">Войдите в аккаунт снова.</translation>
 <translation id="457386861538956877">Ещё...</translation>
 <translation id="461440297010471931">Поиск с помощью Google</translation>
+<translation id="4619615317237390068">Вкладки с других устройств</translation>
 <translation id="4620246317052452550">Прочитанные</translation>
 <translation id="4636930964841734540">Информация</translation>
 <translation id="4659667755519643272">Открыть переключатель вкладок</translation>
@@ -221,6 +225,7 @@
 <translation id="5197255632782567636">Интернет</translation>
 <translation id="5228579091201413441">Включить синхронизацию</translation>
 <translation id="5244474230056479698">Синхронизация с <ph name="EMAIL" /></translation>
+<translation id="527973086555161537">Чтобы начать работу в режиме инкогнито, откройте новую вкладку.</translation>
 <translation id="5300589172476337783">Показать</translation>
 <translation id="5317780077021120954">Сохранить</translation>
 <translation id="5327248766486351172">Название</translation>
@@ -319,6 +324,7 @@
 <translation id="6914783257214138813">Ваши пароли будут видны всем, у кого есть доступ к файлу экспорта.</translation>
 <translation id="6945221475159498467">Выбрать</translation>
 <translation id="6973630695168034713">Папки</translation>
+<translation id="6979158407327259162">Google Диск</translation>
 <translation id="7004499039102548441">Недавние вкладки</translation>
 <translation id="7006788746334555276">Настройки контента</translation>
 <translation id="7029809446516969842">Пароли</translation>
@@ -370,16 +376,20 @@
 <translation id="7971521879845308059">Блок. вспл. окна</translation>
 <translation id="7982789257301363584">Сеть</translation>
 <translation id="8019783059653722575">Это нужно, чтобы сохранять и загружать фотографии</translation>
+<translation id="802154636333426148">Ошибка скачивания</translation>
 <translation id="8023878949384262191">Разворачивает раздел.</translation>
 <translation id="8059533439631660104">Сворачивает раздел.</translation>
 <translation id="806745655614357130">Не объединять данные</translation>
+<translation id="8073670137947914548">Скачивание завершено</translation>
 <translation id="8076014560081431679">Настройки сайтов не изменятся, поэтому данные о вашей работе в Интернете сохранятся. <ph name="BEGIN_LINK" />Подробнее…<ph name="END_LINK" /></translation>
 <translation id="8080028325999236607">Закрыть все вкладки</translation>
+<translation id="8114753159095730575">Файл доступен для скачивания. Параметры указаны в нижней части экрана.</translation>
 <translation id="8205564605687841303">Отмена</translation>
 <translation id="8225985093977202398">Файлы, сохраненные в кеше</translation>
 <translation id="8261506727792406068">Удалить</translation>
 <translation id="8272426682713568063">Кредитные карты</translation>
 <translation id="8281781826761538115">Язык по умолчанию: <ph name="DEFAULT_LOCALE" /></translation>
+<translation id="8328777765163860529">Закрыть все</translation>
 <translation id="8381750437846184350">Укажите, как Google может использовать историю просмотров для персонализации Поиска, Рекламы и других сервисов.</translation>
 <translation id="842017693807136194">Выполнен вход через</translation>
 <translation id="8428045167754449968">Город</translation>
@@ -422,7 +432,6 @@
 <translation id="9083392325882095631">Закладок: 1</translation>
 <translation id="9100610230175265781">Необходима кодовая фраза</translation>
 <translation id="9148126808321036104">Повторите вход</translation>
-<translation id="915371508759614899">Отменить скачивание?</translation>
 <translation id="9157836665414082580">Блокировать диалоговые окна</translation>
 <translation id="9188680907066685419">Выход из управляемого аккаунта</translation>
 <translation id="9203116392574189331">Handoff</translation>

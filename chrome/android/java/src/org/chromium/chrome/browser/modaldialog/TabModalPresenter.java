@@ -4,6 +4,8 @@
 
 package org.chromium.chrome.browser.modaldialog;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.content.res.Resources;
 import android.view.Gravity;
 import android.view.View;
@@ -18,15 +20,24 @@ import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayPanel;
 import org.chromium.chrome.browser.contextualsearch.ContextualSearchManager;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabBrowserControlsOffsetHelper;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetObserver;
 import org.chromium.chrome.browser.widget.bottomsheet.EmptyBottomSheetObserver;
 import org.chromium.content_public.browser.ContentViewCore;
+import org.chromium.content_public.browser.SelectionPopupController;
+import org.chromium.content_public.browser.WebContents;
+import org.chromium.ui.UiUtils;
+import org.chromium.ui.interpolators.BakedBezierInterpolator;
 
 /**
  * The presenter that displays a single tab modal dialog.
  */
-public class TabModalPresenter extends ModalDialogManager.Presenter {
+public class TabModalPresenter
+        extends ModalDialogManager.Presenter implements TabBrowserControlsOffsetHelper.Observer {
+    // TODO(huayinz): Confirm duration with UX.
+    private static final int ENTER_EXIT_ANIMATION_DURATION_MS = 200;
+
     /** The activity displaying the dialogs. */
     private final ChromeActivity mChromeActivity;
 
@@ -48,8 +59,17 @@ public class TabModalPresenter extends ModalDialogManager.Presenter {
     /** The container view that a dialog to be shown will be attached to. */
     private ViewGroup mDialogContainer;
 
+    /** The view that is the direct parent of the dialog view. */
+    private ViewGroup mViewContainer;
+
     /** Whether the dialog container is brought to the front in its parent. */
     private boolean mContainerIsAtFront;
+
+    /**
+     * Whether an enter animation on the dialog container should run when
+     * {@link #onBrowserControlsFullyVisible} is called.
+     */
+    private boolean mRunEnterAnimationOnCallback;
 
     /** Whether the action bar on selected text is temporarily cleared for showing dialogs. */
     private boolean mDidClearTextControls;
@@ -61,6 +81,9 @@ public class TabModalPresenter extends ModalDialogManager.Presenter {
      */
     private View mDefaultNextSiblingView;
 
+    /** Enter and exit animation duration that can be overwritten in tests. */
+    private int mEnterExitAnimationDurationMs;
+
     /**
      * Constructor for initializing dialog container.
      * @param chromeActivity The activity displaying the dialogs.
@@ -68,6 +91,7 @@ public class TabModalPresenter extends ModalDialogManager.Presenter {
     public TabModalPresenter(ChromeActivity chromeActivity) {
         mChromeActivity = chromeActivity;
         mHasBottomControls = mChromeActivity.getBottomSheet() != null;
+        mEnterExitAnimationDurationMs = ENTER_EXIT_ANIMATION_DURATION_MS;
 
         if (mHasBottomControls) {
             mBottomSheetObserver = new EmptyBottomSheetObserver() {
@@ -88,20 +112,37 @@ public class TabModalPresenter extends ModalDialogManager.Presenter {
     protected void addDialogView(View dialogView) {
         if (mDialogContainer == null) initDialogContainer();
         setBrowserControlsAccess(true);
-        mDialogContainer.setVisibility(View.VISIBLE);
-
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                MarginLayoutParams.MATCH_PARENT, MarginLayoutParams.WRAP_CONTENT, Gravity.CENTER);
-        mDialogContainer.addView(dialogView, params);
+        // Don't show the dialog container before browser controls are guaranteed fully visible.
+        if (mActiveTab.getControlsOffsetHelper().areBrowserControlsFullyVisible()) {
+            runEnterAnimation(dialogView);
+        } else {
+            mRunEnterAnimationOnCallback = true;
+        }
         mChromeActivity.addViewObscuringAllTabs(mDialogContainer);
     }
 
     @Override
     protected void removeDialogView(View dialogView) {
         setBrowserControlsAccess(false);
-        mDialogContainer.removeView(dialogView);
-        mDialogContainer.setVisibility(View.GONE);
+        // Don't run exit animation if enter animation has not yet started.
+        if (mRunEnterAnimationOnCallback) {
+            mRunEnterAnimationOnCallback = false;
+        } else {
+            // Clear focus so that keyboard can hide accordingly while entering tab switcher.
+            dialogView.clearFocus();
+            runExitAnimation(dialogView);
+        }
         mChromeActivity.removeViewObscuringAllTabs(mDialogContainer);
+    }
+
+    @Override
+    public void onBrowserControlsFullyVisible(Tab tab) {
+        if (getModalDialog() == null) return;
+        assert mActiveTab == tab;
+        if (mRunEnterAnimationOnCallback) {
+            mRunEnterAnimationOnCallback = false;
+            runEnterAnimation(getModalDialog().getView());
+        }
     }
 
     /**
@@ -110,14 +151,24 @@ public class TabModalPresenter extends ModalDialogManager.Presenter {
      * @param toFront Whether the dialog container should be brought to the front.
      */
     void updateContainerHierarchy(boolean toFront) {
+        View dialogView = getModalDialog().getView();
+        if (toFront) {
+            dialogView.announceForAccessibility(getModalDialog().getContentDescription());
+            dialogView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+            dialogView.requestFocus();
+        } else {
+            dialogView.clearFocus();
+            dialogView.setImportantForAccessibility(
+                    View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        }
+
         if (toFront == mContainerIsAtFront) return;
         mContainerIsAtFront = toFront;
         if (toFront) {
             mDialogContainer.bringToFront();
         } else {
-            mContainerParent.removeView(mDialogContainer);
-            mContainerParent.addView(
-                    mDialogContainer, mContainerParent.indexOfChild(mDefaultNextSiblingView));
+            UiUtils.removeViewFromParent(mDialogContainer);
+            UiUtils.insertBefore(mContainerParent, mDialogContainer, mDefaultNextSiblingView);
         }
     }
 
@@ -130,6 +181,8 @@ public class TabModalPresenter extends ModalDialogManager.Presenter {
         dialogContainerStub.setLayoutResource(R.layout.modal_dialog_container);
 
         mDialogContainer = (ViewGroup) dialogContainerStub.inflate();
+        mDialogContainer.setVisibility(View.GONE);
+        mViewContainer = (ViewGroup) mDialogContainer.findViewById(R.id.dialog_view_container);
         mContainerParent = (ViewGroup) mDialogContainer.getParent();
         // The default sibling view is the next view of the dialog container stub in main.xml and
         // should not be removed from its parent.
@@ -176,6 +229,7 @@ public class TabModalPresenter extends ModalDialogManager.Presenter {
             assert mActiveTab
                     != null : "Tab modal dialogs should be shown on top of an active tab.";
 
+            mActiveTab.getControlsOffsetHelper().addObserver(this);
             // Hide contextual search panel so that bottom toolbar will not be
             // obscured and back press is not overridden.
             ContextualSearchManager contextualSearchManager =
@@ -186,17 +240,20 @@ public class TabModalPresenter extends ModalDialogManager.Presenter {
             }
 
             // Dismiss the action bar that obscures the dialogs but preserve the text selection.
-            ContentViewCore contentViewCore = mActiveTab.getContentViewCore();
-            if (contentViewCore != null) {
-                contentViewCore.preserveSelectionOnNextLossOfFocus();
-                contentViewCore.getContainerView().clearFocus();
-                contentViewCore.updateTextSelectionUI(false);
+            WebContents webContents = mActiveTab.getWebContents();
+            if (webContents != null) {
+                SelectionPopupController controller =
+                        SelectionPopupController.fromWebContents(webContents);
+                controller.setPreserveSelectionOnNextLossOfFocus(true);
+                ContentViewCore.fromWebContents(webContents).getContainerView().clearFocus();
+                controller.updateTextSelectionUI(false);
                 mDidClearTextControls = true;
             }
 
+            // Hide app menu in case it is opened.
+            mChromeActivity.getAppMenuHandler().hideAppMenu();
+
             // Force toolbar to show and disable overflow menu.
-            // TODO(huayinz): figure out a way to avoid |UpdateBrowserControlsState| being blocked
-            // by render process stalled due to javascript dialog.
             mActiveTab.onTabModalDialogStateChanged(true);
 
             if (mHasBottomControls) {
@@ -206,14 +263,15 @@ public class TabModalPresenter extends ModalDialogManager.Presenter {
                 mChromeActivity.getToolbarManager().setUrlBarFocus(false);
             }
             menuButton.setEnabled(false);
-            updateContainerHierarchy(true);
         } else {
+            mActiveTab.getControlsOffsetHelper().removeObserver(this);
             // Show the action bar back if it was dismissed when the dialogs were showing.
-            ContentViewCore contentViewCore = mActiveTab.getContentViewCore();
             if (mDidClearTextControls) {
                 mDidClearTextControls = false;
-                if (contentViewCore != null) {
-                    contentViewCore.updateTextSelectionUI(true);
+                WebContents webContents = mActiveTab.getWebContents();
+                if (webContents != null) {
+                    SelectionPopupController.fromWebContents(webContents)
+                            .updateTextSelectionUI(true);
                 }
             }
 
@@ -224,6 +282,50 @@ public class TabModalPresenter extends ModalDialogManager.Presenter {
         }
     }
 
+    /**
+     * Helper method to run fade-in animation when the specified dialog view is shown.
+     * @param dialogView The dialog view to be shown.
+     */
+    private void runEnterAnimation(View dialogView) {
+        mDialogContainer.animate().cancel();
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                MarginLayoutParams.WRAP_CONTENT, MarginLayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        mViewContainer.addView(dialogView, params);
+        mDialogContainer.setAlpha(0f);
+        mDialogContainer.setVisibility(View.VISIBLE);
+        mDialogContainer.animate()
+                .setDuration(mEnterExitAnimationDurationMs)
+                .alpha(1f)
+                .setInterpolator(BakedBezierInterpolator.FADE_IN_CURVE)
+                .setListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        updateContainerHierarchy(true);
+                    }
+                })
+                .start();
+    }
+
+    /**
+     * Helper method to run fade-out animation when the specified dialog view is dismissed.
+     * @param dialogView The dismissed dialog view.
+     */
+    private void runExitAnimation(View dialogView) {
+        mDialogContainer.animate().cancel();
+        mDialogContainer.animate()
+                .setDuration(mEnterExitAnimationDurationMs)
+                .alpha(0f)
+                .setInterpolator(BakedBezierInterpolator.FADE_OUT_CURVE)
+                .setListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        mDialogContainer.setVisibility(View.GONE);
+                        mViewContainer.removeView(dialogView);
+                    }
+                })
+                .start();
+    }
+
     @VisibleForTesting
     View getDialogContainerForTest() {
         return mDialogContainer;
@@ -232,5 +334,10 @@ public class TabModalPresenter extends ModalDialogManager.Presenter {
     @VisibleForTesting
     ViewGroup getContainerParentForTest() {
         return mContainerParent;
+    }
+
+    @VisibleForTesting
+    void disableAnimationForTest() {
+        mEnterExitAnimationDurationMs = 0;
     }
 }

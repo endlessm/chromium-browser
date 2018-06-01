@@ -32,7 +32,7 @@ enum class ExportState {
 
 // Posts a task to write the data in |data| to the file at |fileURL| and
 // executes |handler| when the writing is finished.
-- (void)writeData:(NSString*)data
+- (void)writeData:(NSData*)data
             toURL:(NSURL*)fileURL
           handler:(void (^)(WriteToURLStatus))handler;
 
@@ -95,6 +95,9 @@ enum class ExportState {
 
 // Called when the user cancels the export operation.
 - (void)cancelExport;
+
+// Called to re-enable export functionality when the export UI flow finishes.
+- (void)resetExportState;
 
 // State of the export operation.
 @property(nonatomic, readonly, assign) ExportState exportState;

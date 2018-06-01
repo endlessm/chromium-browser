@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 
+#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
@@ -15,19 +16,26 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/location_bar/zoom_bubble_view.h"
 #include "chrome/browser/ui/views/location_bar/zoom_view.h"
+#include "chrome/browser/ui/views/omnibox/omnibox_view_views.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "chrome/test/views/scoped_macviews_browser_mode.h"
 #include "components/security_state/core/security_state.h"
 #include "components/toolbar/toolbar_field_trial.h"
 #include "components/toolbar/toolbar_model_impl.h"
 #include "components/zoom/zoom_controller.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/common/page_zoom.h"
+#include "content/public/test/url_loader_interceptor.h"
 #include "net/cert/ct_policy_status.h"
+#include "net/ssl/ssl_info.h"
 #include "net/test/cert_test_util.h"
 #include "net/test/test_data_directory.h"
 #include "net/test/url_request/url_request_mock_http_job.h"
 #include "net/url_request/url_request_filter.h"
+#include "services/network/public/cpp/features.h"
+#include "ui/base/ui_base_switches.h"
 
 class LocationBarViewBrowserTest : public InProcessBrowserTest {
  public:
@@ -40,6 +48,7 @@ class LocationBarViewBrowserTest : public InProcessBrowserTest {
   }
 
  private:
+  test::ScopedMacViewsBrowserMode views_mode_{true};
   DISALLOW_COPY_AND_ASSIGN(LocationBarViewBrowserTest);
 };
 
@@ -86,6 +95,94 @@ IN_PROC_BROWSER_TEST_F(LocationBarViewBrowserTest, LocationBarDecoration) {
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(zoom_view->visible());
   EXPECT_FALSE(ZoomBubbleView::GetZoomBubble());
+}
+
+// Ensure that location bar bubbles close when the webcontents hides.
+IN_PROC_BROWSER_TEST_F(LocationBarViewBrowserTest, BubblesCloseOnHide) {
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  zoom::ZoomController* zoom_controller =
+      zoom::ZoomController::FromWebContents(web_contents);
+  ZoomView* zoom_view = GetLocationBarView()->zoom_view();
+
+  ASSERT_TRUE(zoom_view);
+  EXPECT_FALSE(zoom_view->visible());
+
+  zoom_controller->SetZoomLevel(content::ZoomFactorToZoomLevel(1.5));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(zoom_view->visible());
+  EXPECT_TRUE(ZoomBubbleView::GetZoomBubble());
+
+  chrome::NewTab(browser());
+  chrome::SelectNextTab(browser());
+
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(ZoomBubbleView::GetZoomBubble());
+}
+
+class TouchLocationBarViewBrowserTest : public LocationBarViewBrowserTest {
+ public:
+  TouchLocationBarViewBrowserTest() = default;
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    command_line->AppendSwitchASCII(
+        switches::kTopChromeMD, switches::kTopChromeMDMaterialTouchOptimized);
+    LocationBarViewBrowserTest::SetUpCommandLine(command_line);
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(TouchLocationBarViewBrowserTest);
+};
+
+// Test the corners of the OmniboxViewViews do not get drawn on top of the
+// rounded corners of the omnibox in touch mode.
+IN_PROC_BROWSER_TEST_F(TouchLocationBarViewBrowserTest, OmniboxViewViewsSize) {
+  // Make sure all the LocationBarView children are invisible. This should
+  // ensure there are no trailing decorations at the end of the omnibox
+  // (currently, the LocationIconView is *always* added as a leading decoration,
+  // so it's not possible to test the leading side).
+  views::View* omnibox_view_views = GetLocationBarView()->omnibox_view();
+  for (int i = 0; i < GetLocationBarView()->child_count(); ++i) {
+    views::View* child = GetLocationBarView()->child_at(i);
+    if (child != omnibox_view_views)
+      child->SetVisible(false);
+  }
+
+  GetLocationBarView()->Layout();
+  // Check |omnibox_view_views| is not wider than the LocationBarView with its
+  // rounded ends removed.
+  EXPECT_LE(omnibox_view_views->width(),
+            GetLocationBarView()->width() - GetLocationBarView()->height());
+  // Check the trailing edge of |omnibox_view_views| does not exceed the
+  // trailing edge of the LocationBarView with its endcap removed.
+  EXPECT_LE(omnibox_view_views->bounds().right(),
+            GetLocationBarView()->GetLocalBoundsWithoutEndcaps().right());
+}
+
+// Make sure the IME autocomplete selection text is positioned correctly when
+// there are no trailing decorations.
+IN_PROC_BROWSER_TEST_F(TouchLocationBarViewBrowserTest,
+                       IMEInlineAutocompletePosition) {
+  // Make sure all the LocationBarView children are invisible. This should
+  // ensure there are no trailing decorations at the end of the omnibox.
+  OmniboxViewViews* omnibox_view_views = GetLocationBarView()->omnibox_view();
+  views::Label* ime_inline_autocomplete_view =
+      GetLocationBarView()->ime_inline_autocomplete_view_;
+  for (int i = 0; i < GetLocationBarView()->child_count(); ++i) {
+    views::View* child = GetLocationBarView()->child_at(i);
+    if (child != omnibox_view_views)
+      child->SetVisible(false);
+  }
+  omnibox_view_views->SetText(base::UTF8ToUTF16("谷"));
+  GetLocationBarView()->SetImeInlineAutocompletion(base::UTF8ToUTF16("歌"));
+  EXPECT_TRUE(ime_inline_autocomplete_view->visible());
+
+  GetLocationBarView()->Layout();
+
+  // Make sure the IME inline autocomplete view starts at the end of
+  // |omnibox_view_views|.
+  EXPECT_EQ(omnibox_view_views->bounds().right(),
+            ime_inline_autocomplete_view->x());
 }
 
 // After AddUrlHandler() is called, requests to this hostname will be mocked
@@ -191,21 +288,56 @@ class SecurityIndicatorTest : public InProcessBrowserTest {
   }
 
   void SetUpInterceptor(net::CertStatus cert_status) {
-    base::FilePath serve_file;
-    PathService::Get(chrome::DIR_TEST_DATA, &serve_file);
-    serve_file = serve_file.Append(FILE_PATH_LITERAL("title1.html"));
-    content::BrowserThread::PostTask(
-        content::BrowserThread::IO, FROM_HERE,
-        base::BindOnce(&AddUrlHandler, serve_file, cert_, cert_status));
+    // TODO(crbug.com/821557): Remove the non network service code path once
+    // the URLLoader intercepts frame requests.
+    if (base::FeatureList::IsEnabled(network::features::kNetworkService)) {
+      url_loader_interceptor_ = std::make_unique<content::URLLoaderInterceptor>(
+          base::BindRepeating(&SecurityIndicatorTest::InterceptURLLoad,
+                              base::Unretained(this), cert_status));
+    } else {
+      base::FilePath serve_file;
+      PathService::Get(chrome::DIR_TEST_DATA, &serve_file);
+      serve_file = serve_file.Append(FILE_PATH_LITERAL("title1.html"));
+      content::BrowserThread::PostTask(
+          content::BrowserThread::IO, FROM_HERE,
+          base::BindOnce(&AddUrlHandler, serve_file, cert_, cert_status));
+    }
   }
 
   void ResetInterceptor() {
-    content::BrowserThread::PostTask(content::BrowserThread::IO, FROM_HERE,
-                                     base::BindOnce(&RemoveUrlHandler));
+    if (base::FeatureList::IsEnabled(network::features::kNetworkService)) {
+      url_loader_interceptor_.reset();
+    } else {
+      content::BrowserThread::PostTask(content::BrowserThread::IO, FROM_HERE,
+                                       base::BindOnce(&RemoveUrlHandler));
+    }
+  }
+
+  bool InterceptURLLoad(net::CertStatus cert_status,
+                        content::URLLoaderInterceptor::RequestParams* params) {
+    if (params->url_request.url.host() != kMockSecureHostname)
+      return false;
+    net::SSLInfo ssl_info;
+    ssl_info.cert = cert_;
+    ssl_info.cert_status = cert_status;
+    ssl_info.ct_policy_compliance =
+        net::ct::CTPolicyCompliance::CT_POLICY_COMPLIES_VIA_SCTS;
+    network::ResourceResponseHead resource_response;
+    resource_response.mime_type = "text/html";
+    resource_response.ssl_info = ssl_info;
+    params->client->OnReceiveResponse(resource_response,
+                                      /*downloaded_file=*/nullptr);
+    network::URLLoaderCompletionStatus completion_status;
+    completion_status.ssl_info = ssl_info;
+    params->client->OnComplete(completion_status);
+    return true;
   }
 
  private:
   scoped_refptr<net::X509Certificate> cert_;
+  test::ScopedMacViewsBrowserMode views_mode_{true};
+
+  std::unique_ptr<content::URLLoaderInterceptor> url_loader_interceptor_;
 
   DISALLOW_COPY_AND_ASSIGN(SecurityIndicatorTest);
 };

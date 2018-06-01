@@ -4,6 +4,8 @@
 
 #include "chromecast/browser/cast_display_configurator.h"
 
+#include <math.h>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
@@ -66,8 +68,28 @@ display::Display::Rotation GetRotationFromCommandLine() {
 }
 
 float GetDeviceScaleFactor(gfx::Size display_resolution) {
-  // Device scale factor computed relative to 720p display
-  return display_resolution.height() / 720.0f;
+  // TODO(spang): Look into tightening up the allowed scale factors here
+  // rather than allowing all scales >= 1.f
+  int smaller_dimension =
+      std::min(display_resolution.width(), display_resolution.height());
+  float ratio = smaller_dimension / 720.f;
+  if (ratio < 1.f)
+    return 1.f;
+  return ratio;
+}
+
+gfx::Rect GetScreenBounds(const gfx::Size& size_in_pixels,
+                          display::Display::Rotation rotation) {
+  switch (rotation) {
+    case display::Display::ROTATE_90:
+    case display::Display::ROTATE_270:
+      return gfx::Rect(
+          gfx::Size(size_in_pixels.height(), size_in_pixels.width()));
+    case display::Display::ROTATE_0:
+    case display::Display::ROTATE_180:
+    default:
+      return gfx::Rect(size_in_pixels);
+  }
 }
 
 }  // namespace
@@ -81,7 +103,7 @@ CastDisplayConfigurator::CastDisplayConfigurator(CastScreen* screen)
   if (delegate_) {
     delegate_->AddObserver(this);
     delegate_->Initialize();
-    OnConfigurationChanged();
+    ForceInitialConfigure();
   } else {
     ConfigureDisplayFromCommandLine();
   }
@@ -95,9 +117,9 @@ CastDisplayConfigurator::~CastDisplayConfigurator() {
 // display::NativeDisplayObserver interface
 void CastDisplayConfigurator::OnConfigurationChanged() {
   DCHECK(delegate_);
-  delegate_->GetDisplays(
-      base::Bind(&CastDisplayConfigurator::OnDisplaysAcquired,
-                 weak_factory_.GetWeakPtr()));
+  delegate_->GetDisplays(base::Bind(
+      &CastDisplayConfigurator::OnDisplaysAcquired, weak_factory_.GetWeakPtr(),
+      false /* force_initial_configure */));
 }
 
 void CastDisplayConfigurator::ConfigureDisplayFromCommandLine() {
@@ -106,7 +128,14 @@ void CastDisplayConfigurator::ConfigureDisplayFromCommandLine() {
                GetRotationFromCommandLine());
 }
 
+void CastDisplayConfigurator::ForceInitialConfigure() {
+  delegate_->GetDisplays(base::Bind(
+      &CastDisplayConfigurator::OnDisplaysAcquired, weak_factory_.GetWeakPtr(),
+      true /* force_initial_configure */));
+}
+
 void CastDisplayConfigurator::OnDisplaysAcquired(
+    bool force_initial_configure,
     const std::vector<display::DisplaySnapshot*>& displays) {
   DCHECK(delegate_);
   if (displays.empty()) {
@@ -126,6 +155,17 @@ void CastDisplayConfigurator::OnDisplaysAcquired(
   }
 
   gfx::Point origin;
+  gfx::Size native_size(display->native_mode()->size());
+  if (force_initial_configure) {
+    // For initial configuration, pass the native geometry to gfx::Screen
+    // before calling Configure(), so that this information is available
+    // to chrome during startup. Otherwise we will not have a valid display
+    // during the first queries to display::Screen.
+    UpdateScreen(display->display_id(), gfx::Rect(origin, native_size),
+                 GetDeviceScaleFactor(native_size),
+                 GetRotationFromCommandLine());
+  }
+
   delegate_->Configure(
       *display, display->native_mode(), origin,
       base::BindRepeating(&CastDisplayConfigurator::OnDisplayConfigured,
@@ -163,7 +203,7 @@ void CastDisplayConfigurator::UpdateScreen(
     float device_scale_factor,
     display::Display::Rotation rotation) {
   cast_screen_->OnDisplayChanged(display_id, device_scale_factor, rotation,
-                                 bounds);
+                                 GetScreenBounds(bounds.size(), rotation));
   touch_device_manager_->OnDisplayConfigured(display_id, rotation, bounds);
 }
 

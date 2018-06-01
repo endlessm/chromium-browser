@@ -4,6 +4,7 @@
 
 #include "chromecast/graphics/cast_system_gesture_event_handler.h"
 
+#include "chromecast/base/chromecast_switches.h"
 #include "ui/aura/window.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -18,17 +19,22 @@ namespace {
 
 // The number of pixels from the very left or right of the screen to consider as
 // a valid origin for the left or right swipe gesture.
-constexpr int kSideGestureStartWidth = 10;
+constexpr int kDefaultSideGestureStartWidth = 10;
 
 // The number of pixels from the very top or bottom of the screen to consider as
 // a valid origin for the top or bottom swipe gesture.
-constexpr int kSideGestureStartHeight = 10;
+constexpr int kDefaultSideGestureStartHeight = 10;
 
 }  // namespace
 
 CastSystemGestureEventHandler::CastSystemGestureEventHandler(
     aura::Window* root_window)
     : EventHandler(),
+      gesture_start_width_(GetSwitchValueInt(switches::kSystemGestureStartWidth,
+                                             kDefaultSideGestureStartWidth)),
+      gesture_start_height_(
+          GetSwitchValueInt(switches::kSystemGestureStartHeight,
+                            kDefaultSideGestureStartHeight)),
       root_window_(root_window),
       current_swipe_(CastSideSwipeOrigin::NONE) {
   DCHECK(root_window);
@@ -43,25 +49,37 @@ CastSystemGestureEventHandler::~CastSystemGestureEventHandler() {
 CastSideSwipeOrigin CastSystemGestureEventHandler::GetDragPosition(
     const gfx::Point& point,
     const gfx::Rect& screen_bounds) const {
-  if (point.y() < (screen_bounds.y() + kSideGestureStartHeight)) {
+  if (point.y() < (screen_bounds.y() + gesture_start_height_)) {
     return CastSideSwipeOrigin::TOP;
   }
-  if (point.x() < (screen_bounds.x() + kSideGestureStartWidth)) {
+  if (point.x() < (screen_bounds.x() + gesture_start_width_)) {
     return CastSideSwipeOrigin::LEFT;
   }
   if (point.x() >
-      (screen_bounds.x() + screen_bounds.width() - kSideGestureStartWidth)) {
+      (screen_bounds.x() + screen_bounds.width() - gesture_start_width_)) {
     return CastSideSwipeOrigin::RIGHT;
   }
   if (point.y() >
-      (screen_bounds.y() + screen_bounds.height() - kSideGestureStartHeight)) {
+      (screen_bounds.y() + screen_bounds.height() - gesture_start_height_)) {
     return CastSideSwipeOrigin::BOTTOM;
   }
   return CastSideSwipeOrigin::NONE;
 }
 
-void CastSystemGestureEventHandler::OnGestureEvent(ui::GestureEvent* event) {
-  gfx::Point gesture_location(event->location());
+void CastSystemGestureEventHandler::OnEvent(ui::Event* event) {
+  if (current_swipe_ != CastSideSwipeOrigin::NONE &&
+      (event->IsTouchEvent() || event->IsGestureEvent())) {
+    // If we're in the process of handling a swipe, prevent the underlying touch
+    // or gesture event from being propagated out to other users.
+    event->StopPropagation();
+  }
+
+  // From here-on in, we're only interested in gestures.
+  if (!event->IsGestureEvent()) {
+    return;
+  }
+  ui::GestureEvent* gesture_event = event->AsGestureEvent();
+  gfx::Point gesture_location(gesture_event->location());
   aura::Window* target = static_cast<aura::Window*>(event->target());
 
   // Convert the event's point to the point on the physical screen.
@@ -76,17 +94,21 @@ void CastSystemGestureEventHandler::OnGestureEvent(ui::GestureEvent* event) {
 
   // Detect the beginning of a system gesture swipe.
   if (side_swipe_origin != CastSideSwipeOrigin::NONE &&
-      event->type() == ui::ET_GESTURE_SCROLL_BEGIN) {
+      (event->type() == ui::ET_SCROLL_FLING_START ||
+       event->type() == ui::ET_GESTURE_BEGIN)) {
     for (auto* side_swipe_handler : swipe_gesture_handlers_) {
       // Let the subscriber know about the swipe. If it is actually consumed by
       // them, it will be marked as handled.
-      side_swipe_handler->OnSideSwipeBegin(side_swipe_origin, event);
+      side_swipe_handler->OnSideSwipeBegin(side_swipe_origin, gesture_event);
 
       // If handled, remember the origin and then stop the further propagation
       // of the event.
       if (event->handled()) {
+        // Record the swipe origin to properly fire OnSideSwipeEnd when the
+        // swipe gesture finishes.
         current_swipe_ = side_swipe_origin;
         event->StopPropagation();
+
         break;
       }
     }
@@ -95,30 +117,25 @@ void CastSystemGestureEventHandler::OnGestureEvent(ui::GestureEvent* event) {
 
   // Detect the end of a system gesture swipe.
   if (current_swipe_ != CastSideSwipeOrigin::NONE &&
-      (event->type() == ui::ET_SCROLL_FLING_START ||
-       event->type() == ui::ET_GESTURE_SCROLL_END)) {
+      event->type() == ui::ET_GESTURE_END) {
     for (auto* side_swipe_handler : swipe_gesture_handlers_) {
-      side_swipe_handler->OnSideSwipeEnd(current_swipe_, event);
+      side_swipe_handler->OnSideSwipeEnd(current_swipe_, gesture_event);
     }
     current_swipe_ = CastSideSwipeOrigin::NONE;
 
-    // Prevent this event from being used for other gesture uses.
+    // Prevent the gesture from being used for other gesture uses.
     target->CleanupGestureState();
-    event->StopPropagation();
   }
 }
 
 void CastSystemGestureEventHandler::AddSideSwipeGestureHandler(
     CastSideSwipeGestureHandlerInterface* handler) {
-  swipe_gesture_handlers_.push_back(handler);
+  swipe_gesture_handlers_.insert(handler);
 }
 
 void CastSystemGestureEventHandler::RemoveSideSwipeGestureHandler(
     CastSideSwipeGestureHandlerInterface* handler) {
-  auto find = std::find(swipe_gesture_handlers_.begin(),
-                        swipe_gesture_handlers_.end(), handler);
-  if (find != swipe_gesture_handlers_.end())
-    swipe_gesture_handlers_.erase(find);
+  swipe_gesture_handlers_.erase(handler);
 }
 
 }  // namespace chromecast

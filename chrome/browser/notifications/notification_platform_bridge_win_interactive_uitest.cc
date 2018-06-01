@@ -7,14 +7,23 @@
 #include <windows.data.xml.dom.h>
 #include <wrl/client.h>
 
+#include "base/command_line.h"
+#include "base/files/file_path.h"
+#include "base/path_service.h"
 #include "base/run_loop.h"
+#include "base/strings/string16.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/win/scoped_hstring.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/notifications/mock_itoastnotification.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/notifications/notification_platform_bridge_win.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/common/chrome_paths.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 
@@ -23,6 +32,35 @@ namespace winui = ABI::Windows::UI;
 namespace winxml = ABI::Windows::Data::Xml;
 
 namespace {
+
+const char kLaunchId[] = "0|0|Default|0|https://example.com/|notification_id";
+const char kLaunchIdButtonClick[] =
+    "1|0|0|Default|0|https://example.com/|notification_id";
+const char kLaunchIdSettings[] =
+    "2|0|Default|0|https://example.com/|notification_id";
+
+Profile* CreateTestingProfile(const base::FilePath& path) {
+  base::ScopedAllowBlockingForTesting allow_blocking;
+  ProfileManager* profile_manager = g_browser_process->profile_manager();
+  size_t starting_number_of_profiles = profile_manager->GetNumberOfProfiles();
+
+  if (!base::PathExists(path) && !base::CreateDirectory(path))
+    NOTREACHED() << "Could not create directory at " << path.MaybeAsASCII();
+
+  Profile* profile =
+      Profile::CreateProfile(path, nullptr, Profile::CREATE_MODE_SYNCHRONOUS);
+  profile_manager->RegisterTestingProfile(profile, true, false);
+  EXPECT_EQ(starting_number_of_profiles + 1,
+            profile_manager->GetNumberOfProfiles());
+  return profile;
+}
+
+Profile* CreateTestingProfile(const std::string& profile_name) {
+  base::FilePath path;
+  PathService::Get(chrome::DIR_USER_DATA, &path);
+  path = path.AppendASCII(profile_name);
+  return CreateTestingProfile(path);
+}
 
 base::string16 GetToastString(const base::string16& notification_id,
                               const base::string16& profile_id,
@@ -43,6 +81,11 @@ class NotificationPlatformBridgeWinUITest : public InProcessBrowserTest {
     display_service_tester_ =
         std::make_unique<NotificationDisplayServiceTester>(
             browser()->profile());
+  }
+
+  NotificationPlatformBridgeWin* GetBridge() {
+    return static_cast<NotificationPlatformBridgeWin*>(
+        g_browser_process->notification_platform_bridge());
   }
 
   void TearDownOnMainThread() override { display_service_tester_.reset(); }
@@ -74,6 +117,24 @@ class NotificationPlatformBridgeWinUITest : public InProcessBrowserTest {
   }
 
  protected:
+  void ProcessLaunchIdViaCmdLine(const std::string& launch_id) {
+    base::RunLoop run_loop;
+    display_service_tester_->SetProcessNotificationOperationDelegate(
+        base::BindRepeating(
+            &NotificationPlatformBridgeWinUITest::HandleOperation,
+            base::Unretained(this), run_loop.QuitClosure()));
+
+    // Simulate clicks on the toast.
+    NotificationPlatformBridgeWin* bridge = GetBridge();
+    ASSERT_TRUE(bridge);
+
+    base::CommandLine command_line = base::CommandLine::FromString(L"");
+    command_line.AppendSwitchASCII(switches::kNotificationLaunchId, launch_id);
+    ASSERT_TRUE(bridge->HandleActivation(command_line));
+
+    run_loop.Run();
+  }
+
   bool ValidateNotificationValues(NotificationCommon::Operation operation,
                                   NotificationHandler::Type notification_type,
                                   const GURL& origin,
@@ -170,21 +231,93 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, HandleEvent) {
                           base::Unretained(this), run_loop.QuitClosure()));
 
   // Simulate clicks on the toast.
-  NotificationPlatformBridgeWin* bridge =
-      static_cast<NotificationPlatformBridgeWin*>(
-          g_browser_process->notification_platform_bridge());
+  NotificationPlatformBridgeWin* bridge = GetBridge();
   ASSERT_TRUE(bridge);
   bridge->ForwardHandleEventForTesting(NotificationCommon::CLICK, &toast, &args,
                                        base::nullopt);
   run_loop.Run();
 
   // Validate the click values.
-  base::Optional<int> action_index = 1;
   EXPECT_EQ(NotificationCommon::CLICK, last_operation_);
   EXPECT_EQ(NotificationHandler::Type::WEB_PERSISTENT, last_notification_type_);
   EXPECT_EQ(GURL("https://example.com/"), last_origin_);
   EXPECT_EQ("notification_id", last_notification_id_);
-  EXPECT_EQ(action_index, last_action_index_);
+  EXPECT_EQ(base::Optional<int>(1), last_action_index_);
+  EXPECT_EQ(base::nullopt, last_reply_);
+  EXPECT_EQ(base::nullopt, last_by_user_);
+}
+
+IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, HandleActivation) {
+  // This test exercises a feature that is not enabled in older versions of
+  // Windows.
+  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+    return;
+
+  base::RunLoop run_loop;
+  display_service_tester_->SetProcessNotificationOperationDelegate(
+      base::BindRepeating(&NotificationPlatformBridgeWinUITest::HandleOperation,
+                          base::Unretained(this), run_loop.QuitClosure()));
+
+  // Simulate notification activation.
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+  command_line.AppendSwitchNative(
+      switches::kNotificationLaunchId,
+      L"1|1|0|Default|0|https://example.com/|notification_id");
+  NotificationPlatformBridgeWin::HandleActivation(command_line);
+  run_loop.Run();
+
+  // Validate the values.
+  EXPECT_EQ(NotificationCommon::CLICK, last_operation_);
+  EXPECT_EQ(NotificationHandler::Type::WEB_PERSISTENT, last_notification_type_);
+  EXPECT_EQ(GURL("https://example.com/"), last_origin_);
+  EXPECT_EQ("notification_id", last_notification_id_);
+  EXPECT_EQ(base::Optional<int>(1), last_action_index_);
+  EXPECT_EQ(base::nullopt, last_reply_);
+  EXPECT_EQ(true, last_by_user_);
+}
+
+IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, HandleSettings) {
+  // This test exercises a feature that is not enabled in older versions of
+  // Windows.
+  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+    return;
+
+  const wchar_t kXmlDoc[] =
+      LR"(<toast launch="0|0|Default|0|https://example.com/|notification_id">
+ <visual>
+  <binding template="ToastGeneric">
+   <text>My Title</text>
+   <text placement="attribution">example.com</text>
+  </binding>
+ </visual>
+ <actions>
+   <action content="settings" placement="contextMenu" activationType="foreground" arguments="2|0|Default|0|https://example.com/|notification_id"/>
+ </actions>
+</toast>
+)";
+
+  MockIToastNotification toast(kXmlDoc, L"tag");
+  MockIToastActivatedEventArgs args(
+      L"2|0|Default|0|https://example.com/|notification_id");
+
+  base::RunLoop run_loop;
+  display_service_tester_->SetProcessNotificationOperationDelegate(
+      base::BindRepeating(&NotificationPlatformBridgeWinUITest::HandleOperation,
+                          base::Unretained(this), run_loop.QuitClosure()));
+
+  // Simulate clicks on the toast.
+  NotificationPlatformBridgeWin* bridge = GetBridge();
+  ASSERT_TRUE(bridge);
+  bridge->ForwardHandleEventForTesting(NotificationCommon::SETTINGS, &toast,
+                                       &args, base::nullopt);
+  run_loop.Run();
+
+  // Validate the click values.
+  EXPECT_EQ(NotificationCommon::SETTINGS, last_operation_);
+  EXPECT_EQ(NotificationHandler::Type::WEB_PERSISTENT, last_notification_type_);
+  EXPECT_EQ(GURL("https://example.com/"), last_origin_);
+  EXPECT_EQ("notification_id", last_notification_id_);
+  EXPECT_EQ(base::nullopt, last_action_index_);
   EXPECT_EQ(base::nullopt, last_reply_);
   EXPECT_EQ(base::nullopt, last_by_user_);
 }
@@ -195,9 +328,7 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, GetDisplayed) {
   if (base::win::GetVersion() < base::win::VERSION_WIN8)
     return;
 
-  NotificationPlatformBridgeWin* bridge =
-      static_cast<NotificationPlatformBridgeWin*>(
-          g_browser_process->notification_platform_bridge());
+  NotificationPlatformBridgeWin* bridge = GetBridge();
   ASSERT_TRUE(bridge);
 
   std::vector<winui::Notifications::IToastNotification*> notifications;
@@ -207,7 +338,7 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, GetDisplayed) {
   {
     base::RunLoop run_loop;
     bridge->GetDisplayed(
-        "Default" /* profile_id */, false /* incognito */,
+        browser()->profile(),
         base::BindRepeating(
             &NotificationPlatformBridgeWinUITest::DisplayedNotifications,
             base::Unretained(this), run_loop.QuitClosure()));
@@ -218,12 +349,16 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, GetDisplayed) {
   // Add four items (two in each profile, one for each being incognito and one
   // for each that is not).
   bool incognito = true;
+
+  Profile* profile1 = CreateTestingProfile("P1");
   MockIToastNotification item1(GetToastString(L"P1i", L"P1", incognito),
                                L"tag");
   notifications.push_back(&item1);
   MockIToastNotification item2(GetToastString(L"P1reg", L"P1", !incognito),
                                L"tag");
   notifications.push_back(&item2);
+
+  Profile* profile2 = CreateTestingProfile("P2");
   MockIToastNotification item3(GetToastString(L"P2i", L"P2", incognito),
                                L"tag");
   notifications.push_back(&item3);
@@ -235,7 +370,7 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, GetDisplayed) {
   {
     base::RunLoop run_loop;
     bridge->GetDisplayed(
-        "P1" /* profile_id */, true /* incognito */,
+        profile1->GetOffTheRecordProfile(),
         base::BindRepeating(
             &NotificationPlatformBridgeWinUITest::DisplayedNotifications,
             base::Unretained(this), run_loop.QuitClosure()));
@@ -248,7 +383,7 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, GetDisplayed) {
   {
     base::RunLoop run_loop;
     bridge->GetDisplayed(
-        "P1" /* profile_id */, false /* incognito */,
+        profile1,
         base::BindRepeating(
             &NotificationPlatformBridgeWinUITest::DisplayedNotifications,
             base::Unretained(this), run_loop.QuitClosure()));
@@ -261,7 +396,7 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, GetDisplayed) {
   {
     base::RunLoop run_loop;
     bridge->GetDisplayed(
-        "P2" /* profile_id */, true /* incognito */,
+        profile2->GetOffTheRecordProfile(),
         base::BindRepeating(
             &NotificationPlatformBridgeWinUITest::DisplayedNotifications,
             base::Unretained(this), run_loop.QuitClosure()));
@@ -274,7 +409,7 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, GetDisplayed) {
   {
     base::RunLoop run_loop;
     bridge->GetDisplayed(
-        "P2" /* profile_id */, false /* incognito */,
+        profile2,
         base::BindRepeating(
             &NotificationPlatformBridgeWinUITest::DisplayedNotifications,
             base::Unretained(this), run_loop.QuitClosure()));
@@ -283,17 +418,59 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, GetDisplayed) {
     EXPECT_EQ(1U, displayed_notifications_.count("P2reg"));
   }
 
-  // Query for non-existing profile (should return 0 items).
-  {
-    base::RunLoop run_loop;
-    bridge->GetDisplayed(
-        "NotFound" /* profile_id */, false /* incognito */,
-        base::BindRepeating(
-            &NotificationPlatformBridgeWinUITest::DisplayedNotifications,
-            base::Unretained(this), run_loop.QuitClosure()));
-    run_loop.Run();
-    EXPECT_EQ(0U, displayed_notifications_.size());
-  }
-
   bridge->SetDisplayedNotificationsForTesting(nullptr);
+}
+
+IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, CmdLineClick) {
+  // This test exercises a feature that is not enabled in older versions of
+  // Windows.
+  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+    return;
+
+  ASSERT_NO_FATAL_FAILURE(ProcessLaunchIdViaCmdLine(kLaunchId));
+
+  // Validate the click values.
+  EXPECT_EQ(NotificationCommon::CLICK, last_operation_);
+  EXPECT_EQ(NotificationHandler::Type::WEB_PERSISTENT, last_notification_type_);
+  EXPECT_EQ(GURL("https://example.com/"), last_origin_);
+  EXPECT_EQ("notification_id", last_notification_id_);
+  EXPECT_EQ(-1, last_action_index_);
+  EXPECT_EQ(base::nullopt, last_reply_);
+  EXPECT_TRUE(last_by_user_);
+}
+
+IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, CmdLineButton) {
+  // This test exercises a feature that is not enabled in older versions of
+  // Windows.
+  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+    return;
+
+  ASSERT_NO_FATAL_FAILURE(ProcessLaunchIdViaCmdLine(kLaunchIdButtonClick));
+
+  // Validate the click values.
+  EXPECT_EQ(NotificationCommon::CLICK, last_operation_);
+  EXPECT_EQ(NotificationHandler::Type::WEB_PERSISTENT, last_notification_type_);
+  EXPECT_EQ(GURL("https://example.com/"), last_origin_);
+  EXPECT_EQ("notification_id", last_notification_id_);
+  EXPECT_EQ(0, last_action_index_);
+  EXPECT_EQ(base::nullopt, last_reply_);
+  EXPECT_TRUE(last_by_user_);
+}
+
+IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, CmdLineSettings) {
+  // This test exercises a feature that is not enabled in older versions of
+  // Windows.
+  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+    return;
+
+  ASSERT_NO_FATAL_FAILURE(ProcessLaunchIdViaCmdLine(kLaunchIdSettings));
+
+  // Validate the click values.
+  EXPECT_EQ(NotificationCommon::SETTINGS, last_operation_);
+  EXPECT_EQ(NotificationHandler::Type::WEB_PERSISTENT, last_notification_type_);
+  EXPECT_EQ(GURL("https://example.com/"), last_origin_);
+  EXPECT_EQ("notification_id", last_notification_id_);
+  EXPECT_EQ(-1, last_action_index_);
+  EXPECT_EQ(base::nullopt, last_reply_);
+  EXPECT_TRUE(last_by_user_);
 }

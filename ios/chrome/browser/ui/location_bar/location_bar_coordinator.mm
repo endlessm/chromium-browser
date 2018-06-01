@@ -17,19 +17,15 @@
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/search_engines/template_url_service_factory.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_constants.h"
-#import "ios/chrome/browser/ui/location_bar/location_bar_consumer.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_mediator.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_url_loader.h"
-#include "ios/chrome/browser/ui/location_bar/location_bar_view.h"
-#include "ios/chrome/browser/ui/omnibox/location_bar_controller.h"
-#include "ios/chrome/browser/ui/omnibox/location_bar_controller_impl.h"
+#include "ios/chrome/browser/ui/location_bar/location_bar_view_controller.h"
 #include "ios/chrome/browser/ui/omnibox/location_bar_delegate.h"
+#import "ios/chrome/browser/ui/omnibox/omnibox_coordinator.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_text_field_ios.h"
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_coordinator.h"
+#include "ios/chrome/browser/ui/omnibox/web_omnibox_edit_controller_impl.h"
 #import "ios/chrome/browser/ui/toolbar/clean/toolbar_coordinator_delegate.h"
-#import "ios/chrome/browser/ui/toolbar/keyboard_assist/toolbar_assistive_keyboard_delegate.h"
-#import "ios/chrome/browser/ui/toolbar/keyboard_assist/toolbar_assistive_keyboard_views.h"
-#import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/url_loader.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
@@ -48,36 +44,36 @@ const char* const kOmniboxQueryLocationAuthorizationStatusHistogram =
 const int kLocationAuthorizationStatusCount = 4;
 }  // namespace
 
-@interface LocationBarCoordinator ()<LocationBarConsumer, LocationBarDelegate> {
-  std::unique_ptr<LocationBarControllerImpl> _locationBarController;
+@interface LocationBarCoordinator ()<LocationBarDelegate,
+                                     LocationBarViewControllerDelegate,
+                                     LocationBarConsumer> {
+  std::unique_ptr<WebOmniboxEditControllerImpl> _editController;
 }
-// Object taking care of adding the accessory views to the keyboard.
-@property(nonatomic, strong)
-    ToolbarAssistiveKeyboardDelegateImpl* keyboardDelegate;
 // Coordinator for the omnibox popup.
 @property(nonatomic, strong) OmniboxPopupCoordinator* omniboxPopupCoordinator;
+// Coordinator for the omnibox.
+@property(nonatomic, strong) OmniboxCoordinator* omniboxCoordinator;
 @property(nonatomic, strong) LocationBarMediator* mediator;
-// Redefined as readwrite and as LocationBarView.
-@property(nonatomic, strong, readwrite) LocationBarView* locationBarView;
+@property(nonatomic, strong) LocationBarViewController* viewController;
 
 @end
 
 @implementation LocationBarCoordinator
-@synthesize locationBarView = _locationBarView;
+@synthesize viewController = _viewController;
 @synthesize mediator = _mediator;
-@synthesize keyboardDelegate = _keyboardDelegate;
 @synthesize browserState = _browserState;
-@synthesize dispatcher = dispatcher;
+@synthesize dispatcher = _dispatcher;
 @synthesize URLLoader = _URLLoader;
 @synthesize delegate = _delegate;
 @synthesize webStateList = _webStateList;
 @synthesize omniboxPopupCoordinator = _omniboxPopupCoordinator;
 @synthesize popupPositioner = _popupPositioner;
+@synthesize omniboxCoordinator = _omniboxCoordinator;
 
 #pragma mark - public
 
 - (UIView*)view {
-  return self.locationBarView;
+  return self.viewController.view;
 }
 
 - (void)start {
@@ -88,42 +84,31 @@ const int kLocationAuthorizationStatusCount = 4;
           ? [UIColor whiteColor]
           : [UIColor colorWithWhite:0 alpha:[MDCTypography body1FontOpacity]];
   UIColor* tintColor = isIncognito ? textColor : nil;
-  self.locationBarView =
-      [[LocationBarView alloc] initWithFrame:CGRectZero
-                                        font:[MDCTypography subheadFont]
-                                   textColor:textColor
-                                   tintColor:tintColor];
-  SetA11yLabelAndUiAutomationName(self.locationBarView.textField,
-                                  IDS_ACCNAME_LOCATION, @"Address");
-  self.locationBarView.incognito = isIncognito;
-  self.locationBarView.textField.incognito = isIncognito;
-  if (isIncognito) {
-    [_locationBarView.textField
-        setSelectedTextBackgroundColor:[UIColor colorWithWhite:1 alpha:0.1]];
-    [_locationBarView.textField
-        setPlaceholderTextColor:[UIColor colorWithWhite:1 alpha:0.5]];
-  } else if (!IsIPadIdiom()) {
-    // Set placeholder text color to match fakebox placeholder text color when
-    // on iPhone.
-    UIColor* placeholderTextColor =
-        [UIColor colorWithWhite:kiPhoneLocationBarPlaceholderColorBrightness
-                          alpha:1.0];
-    [_locationBarView.textField setPlaceholderTextColor:placeholderTextColor];
-  }
+  self.viewController = [[LocationBarViewController alloc]
+      initWithFrame:CGRectZero
+               font:[MDCTypography subheadFont]
+          textColor:textColor
+          tintColor:tintColor];
+  self.viewController.incognito = isIncognito;
+  self.viewController.delegate = self;
 
-  self.keyboardDelegate = [[ToolbarAssistiveKeyboardDelegateImpl alloc] init];
-  self.keyboardDelegate.dispatcher = self.dispatcher;
-  self.keyboardDelegate.omniboxTextField = self.locationBarView.textField;
-  ConfigureAssistiveKeyboardViews(self.locationBarView.textField, kDotComTLD,
-                                  self.keyboardDelegate);
+  _editController = std::make_unique<WebOmniboxEditControllerImpl>(self);
+  _editController->SetURLLoader(self);
 
-  _locationBarController = std::make_unique<LocationBarControllerImpl>(
-      self.locationBarView, self.browserState, self, self.dispatcher);
-  _locationBarController->SetURLLoader(self);
+  self.omniboxCoordinator = [[OmniboxCoordinator alloc] init];
+  self.omniboxCoordinator.textField = self.viewController.textField;
+  self.omniboxCoordinator.editController = _editController.get();
+  self.omniboxCoordinator.browserState = self.browserState;
+  self.omniboxCoordinator.dispatcher = self.dispatcher;
+  [self.omniboxCoordinator start];
+
   self.omniboxPopupCoordinator =
-      _locationBarController->CreatePopupCoordinator(self.popupPositioner);
+      [self.omniboxCoordinator createPopupCoordinator:self.popupPositioner];
+  self.omniboxPopupCoordinator.dispatcher = self.dispatcher;
   [self.omniboxPopupCoordinator start];
-  self.mediator = [[LocationBarMediator alloc] init];
+
+  self.mediator =
+      [[LocationBarMediator alloc] initWithToolbarModel:[self toolbarModel]];
   self.mediator.webStateList = self.webStateList;
   self.mediator.consumer = self;
 }
@@ -131,9 +116,10 @@ const int kLocationAuthorizationStatusCount = 4;
 - (void)stop {
   // The popup has to be destroyed before the location bar.
   [self.omniboxPopupCoordinator stop];
-  _locationBarController.reset();
+  [self.omniboxCoordinator stop];
+  _editController.reset();
 
-  self.locationBarView = nil;
+  self.viewController = nil;
   [self.mediator disconnect];
   self.mediator = nil;
 }
@@ -143,43 +129,11 @@ const int kLocationAuthorizationStatusCount = 4;
 }
 
 - (BOOL)showingOmniboxPopup {
-  OmniboxViewIOS* omniboxViewIOS = static_cast<OmniboxViewIOS*>(
-      _locationBarController.get()->GetLocationEntry());
-  return omniboxViewIOS->IsPopupOpen();
-}
-
-- (void)focusOmniboxFromFakebox {
-  OmniboxEditModel* model = _locationBarController->GetLocationEntry()->model();
-  model->set_focus_source(OmniboxEditModel::FocusSource::FAKEBOX);
-  [self focusOmnibox];
+  return self.omniboxPopupCoordinator.isOpen;
 }
 
 - (BOOL)isOmniboxFirstResponder {
-  return [self.locationBarView.textField isFirstResponder];
-}
-
-- (void)addExpandOmniboxAnimations:(UIViewPropertyAnimator*)animator
-                completionAnimator:(UIViewPropertyAnimator*)completionAnimator {
-  [self.locationBarView addExpandOmniboxAnimations:animator
-                                completionAnimator:completionAnimator];
-}
-
-- (void)addContractOmniboxAnimations:(UIViewPropertyAnimator*)animator {
-  [self.locationBarView addContractOmniboxAnimations:animator];
-}
-
-#pragma mark - LocationBarConsumer
-
-- (void)updateOmniboxState {
-  if (!_locationBarController)
-    return;
-  _locationBarController->SetShouldShowHintText(
-      [self.delegate shouldDisplayHintText]);
-  _locationBarController->OnToolbarUpdated();
-}
-
-- (void)defocusOmnibox {
-  [self cancelOmniboxEdit];
+  return [self.omniboxCoordinator isOmniboxFirstResponder];
 }
 
 #pragma mark - VoiceSearchControllerDelegate
@@ -197,14 +151,7 @@ const int kLocationAuthorizationStatusCount = 4;
     [self loadURLForQuery:result];
   } else {
     [self focusOmnibox];
-    [self.locationBarView.textField insertTextWhileEditing:result];
-    // The call to |setText| shouldn't be needed, but without it the "Go" button
-    // of the keyboard is disabled.
-    [self.locationBarView.textField setText:result];
-    // Notify the accessibility system to start reading the new contents of the
-    // Omnibox.
-    UIAccessibilityPostNotification(UIAccessibilityScreenChangedNotification,
-                                    self.locationBarView.textField);
+    [self.omniboxCoordinator insertTextToOmnibox:result];
   }
 }
 
@@ -240,17 +187,20 @@ const int kLocationAuthorizationStatusCount = 4;
   [self cancelOmniboxEdit];
 }
 
-// This will be OmniboxFocuser implementation, but it's not yet ready. Some
-// methods are already necessary though.
 #pragma mark - OmniboxFocuser
 
+- (void)focusOmniboxFromSearchButton {
+  [self.omniboxCoordinator setNextFocusSourceAsSearchButton];
+  [self focusOmnibox];
+}
+
 - (void)focusOmnibox {
-  [self.locationBarView.textField becomeFirstResponder];
+  [self.viewController switchToEditing:YES];
+  [self.omniboxCoordinator focusOmnibox];
 }
 
 - (void)cancelOmniboxEdit {
-  _locationBarController->HideKeyboardAndEndEditing();
-  [self updateOmniboxState];
+  [self.omniboxCoordinator endEditing];
 }
 
 #pragma mark - LocationBarDelegate
@@ -261,6 +211,7 @@ const int kLocationAuthorizationStatusCount = 4;
 
 - (void)locationBarHasResignedFirstResponder {
   [self.delegate locationBarDidResignFirstResponder];
+  [self.viewController switchToEditing:NO];
 }
 
 - (void)locationBarBeganEdit {
@@ -273,6 +224,27 @@ const int kLocationAuthorizationStatusCount = 4;
 
 - (ToolbarModel*)toolbarModel {
   return [self.delegate toolbarModel];
+}
+
+#pragma mark - LocationBarViewControllerDelegate
+
+- (void)locationBarSteadyViewTapped {
+  [self focusOmnibox];
+}
+
+#pragma mark - LocationBarConsumer
+
+- (void)updateLocationText:(NSString*)text {
+  [self.omniboxCoordinator updateOmniboxState];
+  [self.viewController updateLocationText:text];
+}
+
+- (void)defocusOmnibox {
+  [self cancelOmniboxEdit];
+}
+
+- (void)updateLocationIcon:(UIImage*)icon {
+  [self.viewController updateLocationIcon:icon];
 }
 
 #pragma mark - private

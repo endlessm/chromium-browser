@@ -575,24 +575,28 @@ template <> struct MDNodeKeyImpl<DIFile> {
   MDString *Filename;
   MDString *Directory;
   Optional<DIFile::ChecksumInfo<MDString *>> Checksum;
+  Optional<MDString *> Source;
 
   MDNodeKeyImpl(MDString *Filename, MDString *Directory,
-                Optional<DIFile::ChecksumInfo<MDString *>> Checksum)
-      : Filename(Filename), Directory(Directory), Checksum(Checksum) {}
+                Optional<DIFile::ChecksumInfo<MDString *>> Checksum,
+                Optional<MDString *> Source)
+      : Filename(Filename), Directory(Directory), Checksum(Checksum),
+        Source(Source) {}
   MDNodeKeyImpl(const DIFile *N)
       : Filename(N->getRawFilename()), Directory(N->getRawDirectory()),
-        Checksum(N->getRawChecksum()) {}
+        Checksum(N->getRawChecksum()), Source(N->getRawSource()) {}
 
   bool isKeyOf(const DIFile *RHS) const {
     return Filename == RHS->getRawFilename() &&
            Directory == RHS->getRawDirectory() &&
-           Checksum == RHS->getRawChecksum();
+           Checksum == RHS->getRawChecksum() &&
+           Source == RHS->getRawSource();
   }
 
   unsigned getHashValue() const {
-    if (Checksum)
-      return hash_combine(Filename, Directory, Checksum->Kind, Checksum->Value);
-    return hash_combine(Filename, Directory);
+    return hash_combine(
+        Filename, Directory, Checksum ? Checksum->Kind : 0,
+        Checksum ? Checksum->Value : nullptr, Source.getValueOr(nullptr));
   }
 };
 
@@ -1353,7 +1357,7 @@ public:
 
   /// \brief Access the object which manages optimization bisection for failure
   /// analysis.
-  OptBisect &getOptBisect();
+  OptPassGate &getOptPassGate();
 };
 
 } // end namespace llvm

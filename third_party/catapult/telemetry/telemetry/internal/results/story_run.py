@@ -10,15 +10,21 @@ class StoryRun(object):
     self._story = story
     self._values = []
     self._failed = False
+    self._failure_str = None
+    self._duration = None
 
   def AddValue(self, value):
     self._values.append(value)
 
-  def SetFailed(self):
+  def SetFailed(self, failure_str):
     self._failed = True
+    self._failure_str = failure_str
 
   def Skip(self, reason):
     self.AddValue(skip.SkipValue(self.story, reason))
+
+  def SetDuration(self, duration_in_seconds):
+    self._duration = duration_in_seconds
 
   @property
   def story(self):
@@ -45,3 +51,11 @@ class StoryRun(object):
   @property
   def failed(self):
     return not self.skipped and self._failed
+
+  @property
+  def failure_str(self):
+    return self._failure_str
+
+  @property
+  def duration(self):
+    return self._duration

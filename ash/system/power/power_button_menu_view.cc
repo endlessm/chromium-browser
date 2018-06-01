@@ -4,6 +4,7 @@
 
 #include "ash/system/power/power_button_menu_view.h"
 
+#include "ash/display/screen_orientation_controller.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
@@ -11,6 +12,7 @@
 #include "ash/system/power/power_button_menu_item_view.h"
 #include "ash/system/user/login_status.h"
 #include "ash/wm/lock_state_controller.h"
+#include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/canvas.h"
@@ -26,9 +28,19 @@ constexpr int kMenuItemVerticalPadding = 16;
 // The amount of rounding applied to the corners of the menu view.
 constexpr int kMenuViewRoundRectRadiusDp = 16;
 
+// Horizontal padding between two menu items.
+constexpr int kPaddingBetweenMenuItmes = 8;
+
 }  // namespace
 
-PowerButtonMenuView::PowerButtonMenuView() {
+using PowerButtonPosition = PowerButtonController::PowerButtonPosition;
+
+constexpr base::TimeDelta PowerButtonMenuView::kMenuAnimationDuration;
+
+PowerButtonMenuView::PowerButtonMenuView(
+    PowerButtonPosition power_button_position)
+    : power_button_position_(power_button_position) {
+  SetFocusBehavior(FocusBehavior::ALWAYS);
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
 
@@ -37,31 +49,85 @@ PowerButtonMenuView::PowerButtonMenuView() {
 
 PowerButtonMenuView::~PowerButtonMenuView() = default;
 
+void PowerButtonMenuView::FocusPowerOffButton() {
+  power_off_item_->RequestFocus();
+}
+
 void PowerButtonMenuView::ScheduleShowHideAnimation(bool show) {
-  // Stop any previous animation.
-  layer()->GetAnimator()->StopAnimating();
+  // Cancel any previous animation.
+  layer()->GetAnimator()->AbortAllAnimations();
 
   // Set initial state.
   SetVisible(true);
-  layer()->SetOpacity(show ? 0.f : 1.0f);
+  layer()->SetOpacity(show ? 0.f : layer()->opacity());
 
   ui::ScopedLayerAnimationSettings animation(layer()->GetAnimator());
   animation.AddObserver(this);
   animation.SetTweenType(show ? gfx::Tween::EASE_IN
                               : gfx::Tween::FAST_OUT_LINEAR_IN);
-  animation.SetTransitionDuration(
-      base::TimeDelta::FromMilliseconds(kAnimationTimeoutMs));
+  animation.SetTransitionDuration(kMenuAnimationDuration);
 
   layer()->SetOpacity(show ? 1.0f : 0.f);
 
   // Animation of the menu view bounds change.
   if (show) {
     gfx::Transform transform;
-    transform.Translate(0, kMenuViewTopPadding);
+    TransformDisplacement transform_displacement = GetTransformDisplacement();
+    if (transform_displacement.direction == TransformDirection::X)
+      transform.Translate(transform_displacement.distance, 0);
+    else if (transform_displacement.direction == TransformDirection::Y)
+      transform.Translate(0, transform_displacement.distance);
+
     layer()->SetTransform(transform);
   } else {
     layer()->SetTransform(gfx::Transform());
   }
+}
+
+PowerButtonMenuView::TransformDisplacement
+PowerButtonMenuView::GetTransformDisplacement() const {
+  TransformDisplacement transform_displacement;
+  if (power_button_position_ == PowerButtonPosition::NONE ||
+      !Shell::Get()
+           ->tablet_mode_controller()
+           ->IsTabletModeWindowManagerEnabled()) {
+    transform_displacement.direction = TransformDirection::Y;
+    transform_displacement.distance = kMenuViewTransformDistanceDp;
+    return transform_displacement;
+  }
+
+  OrientationLockType screen_orientation =
+      Shell::Get()->screen_orientation_controller()->GetCurrentOrientation();
+  bool is_left_or_right = power_button_position_ == PowerButtonPosition::LEFT ||
+                          power_button_position_ == PowerButtonPosition::RIGHT;
+
+  if (IsLandscapeOrientation(screen_orientation)) {
+    transform_displacement.direction =
+        is_left_or_right ? TransformDirection::X : TransformDirection::Y;
+  } else {
+    transform_displacement.direction =
+        is_left_or_right ? TransformDirection::Y : TransformDirection::X;
+  }
+
+  bool positive_transform = false;
+  if (is_left_or_right) {
+    bool is_primary = IsPrimaryOrientation(screen_orientation);
+    positive_transform = power_button_position_ == PowerButtonPosition::LEFT
+                             ? is_primary
+                             : !is_primary;
+  } else {
+    bool is_landscape_primary_or_portrait_secondary =
+        screen_orientation == OrientationLockType::kLandscapePrimary ||
+        screen_orientation == OrientationLockType::kPortraitSecondary;
+
+    positive_transform = power_button_position_ == PowerButtonPosition::TOP
+                             ? is_landscape_primary_or_portrait_secondary
+                             : !is_landscape_primary_or_portrait_secondary;
+  }
+  transform_displacement.distance = positive_transform
+                                        ? kMenuViewTransformDistanceDp
+                                        : -kMenuViewTransformDistanceDp;
+  return transform_displacement;
 }
 
 void PowerButtonMenuView::CreateItems() {
@@ -84,8 +150,10 @@ void PowerButtonMenuView::Layout() {
   const gfx::Rect rect(GetContentsBounds());
   gfx::Rect power_off_rect(rect);
   power_off_rect.set_size(power_off_item_->GetPreferredSize());
-  power_off_rect.Offset(
-      gfx::Vector2d(kMenuItemVerticalPadding, kMenuItemHorizontalPadding));
+  power_off_rect.Offset(gfx::Vector2d(
+      kMenuItemVerticalPadding - PowerButtonMenuItemView::kItemBorderThickness,
+      kMenuItemHorizontalPadding -
+          PowerButtonMenuItemView::kItemBorderThickness));
   power_off_item_->SetBoundsRect(power_off_rect);
 
   if (sign_out_item_) {
@@ -93,8 +161,11 @@ void PowerButtonMenuView::Layout() {
     sign_out_rect.set_size(sign_out_item_->GetPreferredSize());
     sign_out_rect.Offset(
         gfx::Vector2d(kMenuItemHorizontalPadding +
-                          power_off_item_->GetPreferredSize().width(),
-                      kMenuItemVerticalPadding));
+                          power_off_item_->GetPreferredSize().width() +
+                          kPaddingBetweenMenuItmes -
+                          PowerButtonMenuItemView::kItemBorderThickness,
+                      kMenuItemVerticalPadding -
+                          PowerButtonMenuItemView::kItemBorderThickness));
     sign_out_item_->SetBoundsRect(sign_out_rect);
   }
 }
@@ -119,10 +190,29 @@ gfx::Size PowerButtonMenuView::CalculatePreferredSize() const {
                                2 * kMenuItemVerticalPadding);
   menu_size.set_width(sign_out_item_
                           ? 2 * PowerButtonMenuItemView::kMenuItemWidth +
-                                2 * kMenuItemHorizontalPadding
+                                2 * kMenuItemHorizontalPadding +
+                                kPaddingBetweenMenuItmes
                           : PowerButtonMenuItemView::kMenuItemWidth +
                                 2 * kMenuItemHorizontalPadding);
   return menu_size;
+}
+
+bool PowerButtonMenuView::OnKeyPressed(const ui::KeyEvent& event) {
+  const ui::KeyboardCode key = event.key_code();
+  if (key == ui::VKEY_ESCAPE) {
+    Shell::Get()->power_button_controller()->DismissMenu();
+  } else if (key == ui::VKEY_TAB || key == ui::VKEY_LEFT ||
+             key == ui::VKEY_RIGHT || key == ui::VKEY_UP ||
+             key == ui::VKEY_DOWN) {
+    if (sign_out_item_) {
+      power_off_item_->HasFocus() ? sign_out_item_->RequestFocus()
+                                  : power_off_item_->RequestFocus();
+    } else {
+      power_off_item_->RequestFocus();
+    }
+  }
+
+  return true;
 }
 
 void PowerButtonMenuView::ButtonPressed(views::Button* sender,

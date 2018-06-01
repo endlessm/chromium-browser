@@ -18,7 +18,7 @@
 #include "chrome/browser/engagement/site_engagement_details.mojom.h"
 #include "components/history/core/browser/history_service_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "third_party/WebKit/public/platform/site_engagement.mojom.h"
+#include "third_party/blink/public/platform/site_engagement.mojom.h"
 #include "ui/base/page_transition_types.h"
 
 namespace base {
@@ -172,6 +172,9 @@ class SiteEngagementService : public KeyedService,
   double GetScore(const GURL& url) const override;
   double GetTotalEngagementPoints() const override;
 
+  // Just forwards calls AddPoints.
+  void AddPointsForTesting(const GURL& url, double points);
+
  private:
   friend class SiteEngagementObserver;
   friend class SiteEngagementServiceAndroid;
@@ -214,7 +217,7 @@ class SiteEngagementService : public KeyedService,
 #endif
 
   // Only used in tests.
-  SiteEngagementService(Profile* profile, std::unique_ptr<base::Clock> clock);
+  SiteEngagementService(Profile* profile, base::Clock* clock);
 
   // Adds the specified number of points to the given origin, respecting the
   // maximum limits for the day and overall.
@@ -320,7 +323,7 @@ class SiteEngagementService : public KeyedService,
   Profile* profile_;
 
   // The clock used to vend times.
-  std::unique_ptr<base::Clock> clock_;
+  base::Clock* clock_;
 
 #if defined(OS_ANDROID)
   std::unique_ptr<SiteEngagementServiceAndroid> android_service_;

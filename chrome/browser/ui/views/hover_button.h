@@ -6,7 +6,8 @@
 #define CHROME_BROWSER_UI_VIEWS_HOVER_BUTTON_H_
 
 #include "base/strings/string16.h"
-#include "ui/views/controls/button/label_button.h"
+#include "ui/views/controls/button/menu_button.h"
+#include "ui/views/controls/button/menu_button_listener.h"
 
 namespace gfx {
 enum ElideBehavior;
@@ -22,7 +23,7 @@ class View;
 
 // A button taking the full width of its parent that shows a background color
 // when hovered over.
-class HoverButton : public views::LabelButton {
+class HoverButton : public views::MenuButton, public views::MenuButtonListener {
  public:
   enum Style { STYLE_PROMINENT, STYLE_ERROR };
 
@@ -37,18 +38,21 @@ class HoverButton : public views::LabelButton {
 
   // Creates a HoverButton with custom subviews. |icon_view| replaces the
   // LabelButton icon, and titles appear on separate rows. An empty |subtitle|
-  // will vertically center |title|. If |show_submenu_arrow| is true, an arrow
-  // is shown, analogous to menu items with submenus.
+  // will vertically center |title|. |secondary_icon_view|, when set, is shown
+  // on the opposite side of the button from |icon_view|.
   HoverButton(views::ButtonListener* button_listener,
               std::unique_ptr<views::View> icon_view,
               const base::string16& title,
               const base::string16& subtitle,
-              bool show_submenu_arrow = false);
+              std::unique_ptr<views::View> secondary_icon_view = nullptr);
 
   ~HoverButton() override;
 
-  // views::LabelButton:
+  // views::MenuButton:
+  bool OnKeyPressed(const ui::KeyEvent& event) override;
   void SetBorder(std::unique_ptr<views::Border> b) override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
+  bool IsTriggerableEventType(const ui::Event& event) override;
 
   // Updates the title text, and applies the secondary style to the text
   // specified by |range|. If |range| is invalid, no style is applied. This
@@ -82,13 +86,19 @@ class HoverButton : public views::LabelButton {
   void SetHighlightingView(views::View* highlighting_view);
 
  protected:
-  // views::LabelButton:
+  // views::MenuButtonListener:
+  void OnMenuButtonClicked(MenuButton* source,
+                           const gfx::Point& point,
+                           const ui::Event* event) override;
+
+  // views::MenuButton:
   KeyClickAction GetKeyClickActionForEvent(const ui::KeyEvent& event) override;
   void StateChanged(ButtonState old_state) override;
   bool ShouldUseFloodFillInkDrop() const override;
 
   // views::InkDropHostView:
   SkColor GetInkDropBaseColor() const override;
+  std::unique_ptr<views::InkDrop> CreateInkDrop() override;
   std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
       const override;
 
@@ -111,6 +121,9 @@ class HoverButton : public views::LabelButton {
 
   // View that gets highlighted when this button is hovered.
   views::View* highlighting_view_ = this;
+
+  // Listener to be called when button is clicked.
+  views::ButtonListener* listener_;
 
   DISALLOW_COPY_AND_ASSIGN(HoverButton);
 };

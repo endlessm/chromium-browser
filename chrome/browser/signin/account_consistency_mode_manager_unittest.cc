@@ -16,7 +16,7 @@
 #include "components/prefs/testing_pref_store.h"
 #include "components/signin/core/browser/profile_management_switches.h"
 #include "components/signin/core/browser/scoped_account_consistency.h"
-#include "components/signin/core/browser/signin_features.h"
+#include "components/signin/core/browser/signin_buildflags.h"
 #include "components/signin/core/browser/signin_pref_names.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "content/public/common/content_features.h"
@@ -123,6 +123,19 @@ TEST(AccountConsistencyModeManagerTest, DiceOnlyForRegularProfile) {
     profile_builder.SetGuestSession();
     std::unique_ptr<Profile> profile = profile_builder.Build();
     ASSERT_TRUE(profile->IsGuestSession());
+    EXPECT_FALSE(
+        AccountConsistencyModeManager::IsDiceEnabledForProfile(profile.get()));
+    EXPECT_EQ(
+        signin::AccountConsistencyMethod::kDiceFixAuthErrors,
+        AccountConsistencyModeManager::GetMethodForProfile(profile.get()));
+  }
+
+  {
+    // Legacy supervised profile.
+    TestingProfile::Builder profile_builder;
+    profile_builder.SetSupervisedUserId("supervised_id");
+    std::unique_ptr<Profile> profile = profile_builder.Build();
+    ASSERT_TRUE(profile->IsLegacySupervised());
     EXPECT_FALSE(
         AccountConsistencyModeManager::IsDiceEnabledForProfile(profile.get()));
     EXPECT_EQ(

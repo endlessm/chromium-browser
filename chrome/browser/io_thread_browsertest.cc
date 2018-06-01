@@ -12,7 +12,6 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
@@ -108,9 +107,9 @@ void CheckCanDelegate(IOThread* io_thread, bool expected, const GURL& url) {
 
 void CheckEffectiveConnectionType(IOThread* io_thread,
                                   net::EffectiveConnectionType expected) {
-  EXPECT_EQ(expected,
-            io_thread->globals()
-                ->network_quality_estimator->GetEffectiveConnectionType());
+  EXPECT_EQ(expected, io_thread->globals()
+                          ->system_request_context->network_quality_estimator()
+                          ->GetEffectiveConnectionType());
 }
 
 void CheckSCTsAreSentToTreeTracker(IOThread* io_thread) {

@@ -112,31 +112,54 @@ public class EmulatedVrController {
      * @param steps the number of intermediate steps to send while scrolling
      * @param speed how long to wait between steps in the scroll, with higher
      * numbers resulting in a faster scroll
+     * @param fling whether fling scrolling is allowed. Enabling this more closely emulates how a
+     * user will scroll, but is less precise, so only enable if you actually need it.
      */
-    public void scroll(ScrollDirection direction, int steps, int speed) {
+    public void scroll(ScrollDirection direction, int steps, int speed, boolean fling) {
         float startX, startY, endX, endY;
+        // We need to perform the scroll over a shorter area of the touchpad in order for flinging
+        // to work properly.
+        // There's technically nothing that prevents fling scrolling if fling is set to false, but
+        // we have yet to find any combination of steps and speed that results in a fling with the
+        // larger scroll area that setting fling to false uses.
+        // TODO(https://crbug.com/820281): Figure out why this is the case - not fling scrolling
+        // because we're using more of the touchpad doesn't make sense.
+        float offset = fling ? 0.5f : 0.1f;
         startX = startY = endX = endY = 0.5f;
         switch (direction) {
             case UP:
-                startY = 0.1f;
+                startY = offset;
                 endY = 0.9f;
                 break;
             case DOWN:
                 startY = 0.9f;
-                endY = 0.1f;
+                endY = offset;
                 break;
             case LEFT:
-                startX = 0.1f;
+                startX = offset;
                 endX = 0.9f;
                 break;
             case RIGHT:
                 startX = 0.9f;
-                endX = 0.1f;
+                endX = offset;
                 break;
             default:
                 Assert.fail("Unknown scroll direction enum given");
         }
         performLinearTouchpadMovement(startX, startY, endX, endY, steps, speed);
+    }
+
+    /**
+     * Touches then releases the touchpad to cancel fling scroll.
+     */
+    public void cancelFlingScroll() {
+        // Arbitrary amount of delay to both ensure that the touchpad press is properly registered
+        // and long enough that we don't accidentally trigger any functionality bound to quick
+        // touchpad taps if there is any.
+        int delay = 500;
+        long simulatedDelay = TimeUnit.MILLISECONDS.toNanos(delay);
+        long timestamp = mApi.touchEvent.startTouchSequence(0.5f, 0.5f, simulatedDelay, delay);
+        mApi.touchEvent.endTouchSequence(0.5f, 0.5f, timestamp, simulatedDelay, delay);
     }
 
     /**
@@ -167,6 +190,17 @@ public class EmulatedVrController {
         mApi.moveEvent.sendMoveEvent(new float[] {startAngles[0], endAngles[0]},
                 new float[] {startAngles[1], endAngles[1]},
                 new float[] {startAngles[2], endAngles[2]}, steps, delayBetweenSteps);
+    }
+
+    /**
+     * Touch and release the touchpad to perform a controller click.
+     */
+    public void performControllerClick() {
+        // pressReleaseTouchpadButton() appears to be flaky for clicking on things, as sometimes
+        // it happens too fast for Chrome to register. So, manually press and release with a delay
+        sendClickButtonToggleEvent();
+        SystemClock.sleep(50);
+        sendClickButtonToggleEvent();
     }
 
     // TODO(bsheedy): Add support for more complex actions, e.g. click/drag/release

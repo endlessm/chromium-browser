@@ -16,6 +16,7 @@
 #include "chrome/browser/banners/app_banner_settings_helper.h"
 #include "chrome/browser/engagement/site_engagement_service.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
@@ -29,13 +30,12 @@
 #include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/extension_enable_flow.h"
 #include "chrome/browser/ui/extensions/extension_enable_flow_delegate.h"
+#include "chrome/browser/ui/extensions/hosted_app_browser_controller.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/common/url_constants.h"
-#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/renderer_preferences.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
@@ -178,56 +178,6 @@ ui::WindowShowState DetermineWindowShowState(
 #endif
 
   return ui::SHOW_STATE_DEFAULT;
-}
-
-WebContents* OpenApplicationWindow(const AppLaunchParams& params,
-                                   const GURL& url) {
-  Profile* const profile = params.profile;
-  const Extension* const extension = GetExtension(params);
-
-  std::string app_name = extension ?
-      web_app::GenerateApplicationNameFromExtensionId(extension->id()) :
-      web_app::GenerateApplicationNameFromURL(url);
-
-  gfx::Rect initial_bounds;
-  if (!params.override_bounds.IsEmpty()) {
-    initial_bounds = params.override_bounds;
-  } else if (extension) {
-    initial_bounds.set_width(
-        extensions::AppLaunchInfo::GetLaunchWidth(extension));
-    initial_bounds.set_height(
-        extensions::AppLaunchInfo::GetLaunchHeight(extension));
-  }
-
-  // TODO(erg): AppLaunchParams should pass through the user_gesture from the
-  // extension system here.
-  Browser::CreateParams browser_params(Browser::CreateParams::CreateForApp(
-      app_name, true /* trusted_source */, initial_bounds, profile, true));
-
-  browser_params.initial_show_state = DetermineWindowShowState(profile,
-                                                               params.container,
-                                                               extension);
-
-  Browser* browser = new Browser(browser_params);
-  ui::PageTransition transition =
-      (extension ? ui::PAGE_TRANSITION_AUTO_BOOKMARK
-                 : ui::PAGE_TRANSITION_AUTO_TOPLEVEL);
-
-  NavigateParams nav_params(browser, url, transition);
-  nav_params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
-  nav_params.opener = params.opener;
-  Navigate(&nav_params);
-
-  WebContents* web_contents = nav_params.target_contents;
-  web_contents->GetMutableRendererPrefs()->can_accept_load_drops = false;
-  web_contents->GetRenderViewHost()->SyncRendererPrefs();
-
-  browser->window()->Show();
-
-  // TODO(jcampan): http://crbug.com/8123 we should not need to set the initial
-  //                focus explicitly.
-  web_contents->SetInitialFocus();
-  return web_contents;
 }
 
 WebContents* OpenApplicationTab(const AppLaunchParams& launch_params,
@@ -388,6 +338,56 @@ WebContents* OpenApplication(const AppLaunchParams& params) {
   return OpenEnabledApplication(params);
 }
 
+WebContents* OpenApplicationWindow(const AppLaunchParams& params,
+                                   const GURL& url) {
+  Profile* const profile = params.profile;
+  const Extension* const extension = GetExtension(params);
+
+  std::string app_name =
+      extension
+          ? web_app::GenerateApplicationNameFromExtensionId(extension->id())
+          : web_app::GenerateApplicationNameFromURL(url);
+
+  gfx::Rect initial_bounds;
+  if (!params.override_bounds.IsEmpty()) {
+    initial_bounds = params.override_bounds;
+  } else if (extension) {
+    initial_bounds.set_width(
+        extensions::AppLaunchInfo::GetLaunchWidth(extension));
+    initial_bounds.set_height(
+        extensions::AppLaunchInfo::GetLaunchHeight(extension));
+  }
+
+  // TODO(erg): AppLaunchParams should pass through the user_gesture from the
+  // extension system here.
+  Browser::CreateParams browser_params(Browser::CreateParams::CreateForApp(
+      app_name, true /* trusted_source */, initial_bounds, profile, true));
+
+  browser_params.initial_show_state =
+      DetermineWindowShowState(profile, params.container, extension);
+
+  Browser* browser = new Browser(browser_params);
+  ui::PageTransition transition =
+      (extension ? ui::PAGE_TRANSITION_AUTO_BOOKMARK
+                 : ui::PAGE_TRANSITION_AUTO_TOPLEVEL);
+
+  NavigateParams nav_params(browser, url, transition);
+  nav_params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
+  nav_params.opener = params.opener;
+  Navigate(&nav_params);
+
+  WebContents* web_contents = nav_params.target_contents;
+  extensions::HostedAppBrowserController::SetAppPrefsForWebContents(
+      browser->hosted_app_controller(), web_contents);
+
+  browser->window()->Show();
+
+  // TODO(jcampan): http://crbug.com/8123 we should not need to set the initial
+  //                focus explicitly.
+  web_contents->SetInitialFocus();
+  return web_contents;
+}
+
 void OpenApplicationWithReenablePrompt(const AppLaunchParams& params) {
   const Extension* extension = GetExtension(params);
   if (!extension)
@@ -435,8 +435,9 @@ bool CanLaunchViaEvent(const extensions::Extension* extension) {
   return feature && feature->IsAvailableToExtension(extension).is_available();
 }
 
-void ReparentWebContentsIntoAppBrowser(content::WebContents* contents,
-                                       const extensions::Extension* extension) {
+Browser* ReparentWebContentsIntoAppBrowser(
+    content::WebContents* contents,
+    const extensions::Extension* extension) {
   Browser* source_browser = chrome::FindBrowserWithWebContents(contents);
   Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
   // Incognito tabs reparent correctly, but remain incognito without any
@@ -455,4 +456,15 @@ void ReparentWebContentsIntoAppBrowser(content::WebContents* contents,
           source_tabstrip->GetIndexOfWebContents(contents)),
       true);
   target_browser->window()->Show();
+
+  return target_browser;
+}
+
+Browser* ReparentSecureActiveTabIntoPwaWindow(Browser* browser) {
+  const extensions::Extension* extension =
+      extensions::util::GetPwaForSecureActiveTab(browser);
+  if (!extension)
+    return nullptr;
+  return ReparentWebContentsIntoAppBrowser(
+      browser->tab_strip_model()->GetActiveWebContents(), extension);
 }

@@ -14,6 +14,7 @@ import android.graphics.Matrix;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import java.nio.ByteBuffer;
+import javax.annotation.Nullable;
 
 /**
  * Java version of webrtc::VideoFrame and webrtc::VideoFrameBuffer. A difference from the C++
@@ -182,6 +183,8 @@ public class VideoFrame {
     buffer.release();
   }
 
+  // TODO(sakal): This file should be strictly an interface. This method should be moved somewhere
+  // else.
   public static VideoFrame.Buffer cropAndScaleI420(final I420Buffer buffer, int cropX, int cropY,
       int cropWidth, int cropHeight, int scaleWidth, int scaleHeight) {
     if (cropWidth == scaleWidth && cropHeight == scaleHeight) {

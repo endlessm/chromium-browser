@@ -158,6 +158,7 @@ def RunCommandFuncWrapper(func, msg, *args, **kwargs):
   Args:
     func: The function to call.
     msg: The message to display if the command failed.
+    ignore_failures: If True, ignore failures during the command.
     *args: Arguments to pass to |func|.
     **kwargs: Keyword arguments to pass to |func|.
 
@@ -169,12 +170,15 @@ def RunCommandFuncWrapper(func, msg, *args, **kwargs):
     is not set.
   """
   error_code_ok = kwargs.pop('error_code_ok', False)
+  ignore_failures = kwargs.pop('ignore_failures', False)
   result = func(*args, error_code_ok=True, **kwargs)
-  if result.returncode != 0 and not error_code_ok:
-    raise cros_build_lib.RunCommandError(msg, result)
 
-  if result.returncode != 0:
-    logging.warning(msg)
+  if not ignore_failures:
+    if result.returncode != 0 and not error_code_ok:
+      raise cros_build_lib.RunCommandError(msg, result)
+
+    if result.returncode != 0:
+      logging.warning(msg)
 
 
 def CompileSSHConnectSettings(**kwargs):
@@ -397,12 +401,12 @@ class RemoteAccess(object):
     """
     new_boot_id = self._GetBootId(rebooting=True)
     if new_boot_id is None:
-      logging.warn('Unable to get new boot_id after reboot from boot_id %s',
-                   old_boot_id)
+      logging.debug('Unable to get new boot_id after reboot from boot_id %s',
+                    old_boot_id)
       return False
     elif new_boot_id == old_boot_id:
-      logging.warn('Checking if rebooted from boot_id %s, still running %s',
-                   old_boot_id, new_boot_id)
+      logging.debug('Checking if rebooted from boot_id %s, still running %s',
+                    old_boot_id, new_boot_id)
       return False
     else:
       logging.debug('Checking if rebooted from boot_id %s, now running %s',

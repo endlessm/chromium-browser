@@ -9,12 +9,11 @@
 #include "base/strings/sys_string_conversions.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
-#import "ios/chrome/browser/search_engines/search_engine_observer_bridge.h"
 #include "ios/chrome/browser/ui/bookmarks/bookmark_model_bridge_observer.h"
 #import "ios/chrome/browser/ui/toolbar/clean/toolbar_consumer.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
-#import "ios/public/provider/chrome/browser/images/branded_image_provider.h"
+#include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
 #import "ios/public/provider/chrome/browser/voice/voice_search_provider.h"
 #import "ios/web/public/navigation_manager.h"
 #import "ios/web/public/web_client.h"
@@ -27,7 +26,6 @@
 
 @interface ToolbarMediator ()<BookmarkModelBridgeObserver,
                               CRWWebStateObserver,
-                              SearchEngineObserving,
                               WebStateListObserving>
 
 // The current web state associated with the toolbar.
@@ -40,15 +38,10 @@
   std::unique_ptr<WebStateListObserverBridge> _webStateListObserver;
   // Bridge to register for bookmark changes.
   std::unique_ptr<bookmarks::BookmarkModelBridge> _bookmarkModelBridge;
-  // Listen for default search engine changes.
-  std::unique_ptr<SearchEngineObserverBridge> _searchEngineObserver;
 }
 
 @synthesize bookmarkModel = _bookmarkModel;
 @synthesize consumer = _consumer;
-@synthesize imageProvider = _imageProvider;
-@synthesize templateURLService = _templateURLService;
-@synthesize voiceSearchProvider = _voiceSearchProvider;
 @synthesize webState = _webState;
 @synthesize webStateList = _webStateList;
 
@@ -86,7 +79,6 @@
     _webState = nullptr;
   }
   _bookmarkModelBridge.reset();
-  _searchEngineObserver.reset();
 }
 
 #pragma mark - CRWWebStateObserver
@@ -130,6 +122,11 @@
   [self.consumer setLoadingProgressFraction:progress];
 }
 
+- (void)webStateDidChangeBackForwardState:(web::WebState*)webState {
+  DCHECK_EQ(_webState, webState);
+  [self updateConsumer];
+}
+
 - (void)webStateDidChangeVisibleSecurityState:(web::WebState*)webState {
   DCHECK_EQ(_webState, webState);
   [self updateConsumer];
@@ -169,29 +166,6 @@
 
 #pragma mark - Setters
 
-- (void)setTemplateURLService:(TemplateURLService*)templateURLService {
-  _templateURLService = templateURLService;
-  if (templateURLService) {
-    // Listen for default search engine changes.
-    _searchEngineObserver =
-        std::make_unique<SearchEngineObserverBridge>(self, templateURLService);
-    templateURLService->Load();
-  }
-}
-
-- (void)setImageProvider:(BrandedImageProvider*)imageProvider {
-  _imageProvider = imageProvider;
-  [self searchEngineChanged];
-}
-
-- (void)setVoiceSearchProvider:(VoiceSearchProvider*)voiceSearchProvider {
-  _voiceSearchProvider = voiceSearchProvider;
-  if (_voiceSearchProvider) {
-    [self.consumer
-        setVoiceSearchEnabled:_voiceSearchProvider->IsVoiceSearchEnabled()];
-  }
-}
-
 - (void)setWebState:(web::WebState*)webState {
   if (_webState) {
     _webState->RemoveObserver(_webStateObserver.get());
@@ -210,11 +184,9 @@
 
 - (void)setConsumer:(id<ToolbarConsumer>)consumer {
   _consumer = consumer;
-  if (self.voiceSearchProvider) {
-    [consumer
-        setVoiceSearchEnabled:self.voiceSearchProvider->IsVoiceSearchEnabled()];
-  }
-  [self searchEngineChanged];
+  [_consumer setVoiceSearchEnabled:ios::GetChromeBrowserProvider()
+                                       ->GetVoiceSearchProvider()
+                                       ->IsVoiceSearchEnabled()];
   if (self.webState) {
     [self updateConsumer];
   }
@@ -324,32 +296,6 @@
 - (void)bookmarkNodeDeleted:(const bookmarks::BookmarkNode*)node
                  fromFolder:(const bookmarks::BookmarkNode*)folder {
   // No-op -- required by BookmarkModelBridgeObserver but not used.
-}
-
-#pragma mark - SearchEngineObserving
-
-- (void)searchEngineChanged {
-  if (!self.templateURLService || !self.imageProvider) {
-    [self.consumer setSearchIcon:[UIImage imageNamed:@"toolbar_search"]];
-    return;
-  }
-
-  BOOL showBrandedSearchIcon = NO;
-  const TemplateURL* defaultURL =
-      self.templateURLService->GetDefaultSearchProvider();
-  if (defaultURL) {
-    showBrandedSearchIcon = defaultURL->GetEngineType(
-                                self.templateURLService->search_terms_data()) ==
-                            SEARCH_ENGINE_GOOGLE;
-  }
-  UIImage* searchIcon = nil;
-  if (showBrandedSearchIcon) {
-    searchIcon = self.imageProvider->GetToolbarSearchButtonImage();
-  }
-  if (!searchIcon) {
-    searchIcon = [UIImage imageNamed:@"toolbar_search"];
-  }
-  [self.consumer setSearchIcon:searchIcon];
 }
 
 @end

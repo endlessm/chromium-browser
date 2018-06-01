@@ -37,6 +37,7 @@
 #include "components/drive/event_logger.h"
 #include "components/storage_monitor/storage_info.h"
 #include "components/storage_monitor/storage_monitor.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -806,7 +807,9 @@ bool FileManagerPrivateInternalResolveIsolatedEntriesFunction::RunAsync() {
   for (size_t i = 0; i < params->urls.size(); ++i) {
     const FileSystemURL file_system_url =
         file_system_context->CrackURL(GURL(params->urls[i]));
-    DCHECK(external_backend->CanHandleType(file_system_url.type()));
+    DCHECK(external_backend->CanHandleType(file_system_url.type()))
+        << "GURL: " << file_system_url.ToGURL()
+        << "type: " << file_system_url.type();
     FileDefinition file_definition;
     const bool result =
         file_manager::util::ConvertAbsoluteFilePathToRelativeFileSystemPath(

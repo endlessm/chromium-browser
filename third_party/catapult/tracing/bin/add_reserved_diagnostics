@@ -14,9 +14,7 @@ sys.path.append(tracing_path)
 import tracing_project
 tracing_project.UpdateSysPathIfNeeded()
 from py_utils import camel_case
-from tracing.value import histogram_set
-from tracing.value import merge_histograms
-from tracing.value.diagnostics import generic_set
+from tracing.value.diagnostics import add_reserved_diagnostics
 from tracing.value.diagnostics import reserved_infos
 
 def main():
@@ -52,34 +50,11 @@ def main():
       ctor = arg_names_to_infos[name].entry_type
       names_to_values[diagnostic_name] = ctor(value)
 
-  # TODO(#3987): Refactor recipes to call merge_histograms separately.
-  dicts_across_repeats = merge_histograms.MergeHistograms(args.input_path, (
-    'name', 'stories'))
-  dicts_across_stories = merge_histograms.MergeHistograms(args.input_path, (
-    'name',))
+  with open(args.input_path, 'r') as f:
+    dicts = json.loads(f.read())
 
-  # After merging across stories, any histograms with fewer than 2 stories are
-  # duplicates of histograms from merging across repeats and can be discarded.
-  def _ShouldDiscard(hist):
-    s = hist.diagnostics.get(reserved_infos.STORIES.name, [])
-    return len(s) <= 1
-
-  histograms = histogram_set.HistogramSet()
-  histograms.ImportDicts(dicts_across_stories)
-  histograms.ResolveRelatedHistograms()
-  discard = [h.guid for h in histograms if _ShouldDiscard(h)]
-
-  dicts_across_stories = [
-      d for d in dicts_across_stories if d['guid'] not in discard]
-
-  histograms = histogram_set.HistogramSet()
-  histograms.ImportDicts(dicts_across_repeats)
-  histograms.ImportDicts(dicts_across_stories)
-
-  for name, value in names_to_values.iteritems():
-    histograms.AddSharedDiagnostic(name, generic_set.GenericSet([value]))
-
-  results_json = json.dumps(histograms.AsDicts())
+  results_json = add_reserved_diagnostics.AddReservedDiagnostics(
+      dicts, names_to_values)
 
   if args.stdout:
     print results_json

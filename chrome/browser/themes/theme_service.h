@@ -22,8 +22,8 @@
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "extensions/buildflags/buildflags.h"
 #include "extensions/common/extension_id.h"
-#include "extensions/features/features.h"
 #include "ui/base/theme_provider.h"
 
 class BrowserThemePack;
@@ -170,6 +170,10 @@ class ThemeService : public content::NotificationObserver, public KeyedService {
   // section).
   virtual bool ShouldUseNativeFrame() const;
   bool HasCustomImage(int id) const;
+
+  // If there is an inconsistency in preferences, change preferences to a
+  // consistent state.
+  virtual void FixInconsistentPreferencesIfNeeded();
 
   Profile* profile() const { return profile_; }
 

@@ -46,10 +46,10 @@
 #include "extensions/renderer/native_handler.h"
 #include "extensions/renderer/resource_bundle_source_map.h"
 #include "extensions/renderer/script_context.h"
-#include "media/media_features.h"
-#include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/platform/WebURL.h"
-#include "third_party/WebKit/public/web/WebSecurityPolicy.h"
+#include "media/media_buildflags.h"
+#include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/platform/web_url.h"
+#include "third_party/blink/public/web/web_security_policy.h"
 
 #if BUILDFLAG(ENABLE_WEBRTC)
 #include "chrome/renderer/extensions/cast_streaming_native_handler.h"
@@ -181,8 +181,6 @@ void ChromeExtensionsDispatcherDelegate::PopulateSourceMap(
   source_map->RegisterSource("developerPrivate",
                              IDR_DEVELOPER_PRIVATE_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("downloads", IDR_DOWNLOADS_CUSTOM_BINDINGS_JS);
-  source_map->RegisterSource("feedbackPrivate",
-                             IDR_FEEDBACK_PRIVATE_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("gcm", IDR_GCM_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("identity", IDR_IDENTITY_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("imageWriterPrivate",
@@ -276,7 +274,8 @@ void ChromeExtensionsDispatcherDelegate::PopulateSourceMap(
       IDR_MEDIA_STATUS_MOJOM_JS);
   source_map->RegisterSource("media_router_bindings",
                              IDR_MEDIA_ROUTER_BINDINGS_JS);
-  source_map->RegisterSource("mojo/common/time.mojom", IDR_MOJO_TIME_MOJOM_JS);
+  source_map->RegisterSource("mojo/public/mojom/base/time.mojom",
+                             IDR_MOJO_TIME_MOJOM_JS);
   source_map->RegisterSource("net/interfaces/ip_address.mojom",
                              IDR_MOJO_IP_ADDRESS_MOJOM_JS);
   source_map->RegisterSource("net/interfaces/ip_endpoint.mojom",

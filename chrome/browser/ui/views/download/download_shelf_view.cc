@@ -30,6 +30,7 @@
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/canvas.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/image_button.h"
@@ -116,8 +117,15 @@ DownloadShelfView::DownloadShelfView(Browser* browser, BrowserView* parent)
       l10n_util::GetStringUTF16(IDS_ACCNAME_CLOSE));
   AddChildView(close_button_);
 
+  accessible_alert_ = new views::View();
+  AddChildView(accessible_alert_);
+
   new_item_animation_.SetSlideDuration(kNewItemAnimationDurationMs);
   shelf_animation_.SetSlideDuration(kShelfAnimationDurationMs);
+
+  GetViewAccessibility().OverrideName(
+      l10n_util::GetStringUTF16(IDS_ACCNAME_DOWNLOADS_BAR));
+  GetViewAccessibility().OverrideRole(ax::mojom::Role::kGroup);
 }
 
 DownloadShelfView::~DownloadShelfView() {
@@ -142,7 +150,7 @@ void DownloadShelfView::AddDownloadView(DownloadItemView* view) {
 }
 
 void DownloadShelfView::DoAddDownload(DownloadItem* download) {
-  AddDownloadView(new DownloadItemView(download, this));
+  AddDownloadView(new DownloadItemView(download, this, accessible_alert_));
 }
 
 void DownloadShelfView::MouseMovedOutOfHost() {

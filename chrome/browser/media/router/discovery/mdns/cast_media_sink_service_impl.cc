@@ -12,7 +12,6 @@
 #include "chrome/common/media_router/discovery/media_sink_internal.h"
 #include "chrome/common/media_router/media_sink.h"
 #include "components/cast_channel/cast_channel_enum.h"
-#include "components/cast_channel/cast_channel_util.h"
 #include "components/cast_channel/cast_socket_service.h"
 #include "components/cast_channel/logger.h"
 #include "components/net_log/chrome_net_log.h"
@@ -32,6 +31,9 @@ MediaSinkInternal CreateCastSinkFromDialSink(
 
   // Replace the "dial:" prefix with "cast:".
   std::string sink_id = "cast:" + dial_sink_id.substr(5);
+
+  // Note that the real sink icon will be determined later using information
+  // from the opened cast channel.
   MediaSink sink(sink_id, friendly_name, SinkIconType::CAST,
                  MediaRouteProviderId::CAST);
 
@@ -162,15 +164,28 @@ bool IsNetworkIdUnknownOrDisconnected(const std::string& network_id) {
 // static
 constexpr int CastMediaSinkServiceImpl::kMaxDialSinkFailureCount;
 
+// static
+SinkIconType CastMediaSinkServiceImpl::GetCastSinkIconType(
+    uint8_t capabilities) {
+  if (capabilities & cast_channel::CastDeviceCapability::VIDEO_OUT)
+    return SinkIconType::CAST;
+
+  return capabilities & cast_channel::CastDeviceCapability::MULTIZONE_GROUP
+             ? SinkIconType::CAST_AUDIO_GROUP
+             : SinkIconType::CAST_AUDIO;
+}
+
 CastMediaSinkServiceImpl::CastMediaSinkServiceImpl(
     const OnSinksDiscoveredCallback& callback,
     Observer* observer,
     cast_channel::CastSocketService* cast_socket_service,
-    DiscoveryNetworkMonitor* network_monitor)
+    DiscoveryNetworkMonitor* network_monitor,
+    bool allow_all_ips)
     : MediaSinkServiceBase(callback),
       observer_(observer),
       cast_socket_service_(cast_socket_service),
       network_monitor_(network_monitor),
+      allow_all_ips_(allow_all_ips),
       task_runner_(cast_socket_service_->task_runner()),
       clock_(base::DefaultClock::GetInstance()),
       weak_ptr_factory_(this) {
@@ -432,8 +447,10 @@ void CastMediaSinkServiceImpl::OpenChannel(
     SinkSource sink_source) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (!cast_channel::IsValidCastIPAddress(ip_endpoint.address()))
+  if (!allow_all_ips_ && ip_endpoint.address().IsPubliclyRoutable()) {
+    DVLOG(2) << "Invalid Cast IP address: " << ip_endpoint.address().ToString();
     return;
+  }
 
   // Erase the entry from |dial_sink_failure_count_| since the device is now
   // known to be a Cast device.
@@ -545,7 +562,12 @@ void CastMediaSinkServiceImpl::OnChannelOpenSucceeded(
     extra_data.capabilities = cast_channel::CastDeviceCapability::AUDIO_OUT;
     if (!socket->audio_only())
       extra_data.capabilities |= cast_channel::CastDeviceCapability::VIDEO_OUT;
+
+    // We can now set the proper icon type now that capabilities is determined.
+    cast_sink.sink().set_icon_type(
+        GetCastSinkIconType(extra_data.capabilities));
   }
+
   extra_data.cast_channel_id = socket->id();
   cast_sink.set_cast_data(extra_data);
 
@@ -646,6 +668,11 @@ void CastMediaSinkServiceImpl::AttemptConnection(
 OnDialSinkAddedCallback CastMediaSinkServiceImpl::GetDialSinkAddedCallback() {
   return base::BindRepeating(&CastMediaSinkServiceImpl::OnDialSinkAdded,
                              base::Unretained(this));
+}
+
+void CastMediaSinkServiceImpl::SetCastAllowAllIPs(bool allow_all_ips) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  allow_all_ips_ = allow_all_ips;
 }
 
 CastMediaSinkServiceImpl::RetryParams::RetryParams()

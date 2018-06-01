@@ -14,6 +14,7 @@
 #include "ui/base/cocoa/cocoa_base_utils.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/dragdrop/os_exchange_data_provider_mac.h"
+#include "ui/base/hit_test.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/ime/text_edit_commands.h"
 #include "ui/base/ime/text_input_client.h"
@@ -274,7 +275,6 @@ ui::TextEditCommand GetTextEditCommandForMenuAction(SEL action) {
 @synthesize hostedView = hostedView_;
 @synthesize textInputClient = textInputClient_;
 @synthesize drawMenuBackgroundForBlur = drawMenuBackgroundForBlur_;
-@synthesize mouseDownCanMoveWindow = mouseDownCanMoveWindow_;
 
 - (id)initWithView:(views::View*)viewToHost {
   DCHECK(viewToHost);
@@ -319,6 +319,16 @@ ui::TextEditCommand GetTextEditCommandForMenuAction(SEL action) {
   [[NSDistributedNotificationCenter defaultCenter] removeObserver:self];
   [cursorTrackingArea_.get() clearOwner];
   [self removeTrackingArea:cursorTrackingArea_.get()];
+}
+
+// If the point is classified as HTCAPTION (background, draggable), return nil
+// so that it can lead to a window drag or double-click in the title bar.
+- (NSView*)hitTest:(NSPoint)point {
+  gfx::Point flippedPoint(point.x, NSHeight(self.superview.bounds) - point.y);
+  int component = hostedView_->GetWidget()->GetNonClientComponent(flippedPoint);
+  if (component == HTCAPTION)
+    return nil;
+  return [super hitTest:point];
 }
 
 - (void)processCapturedMouseEvent:(NSEvent*)theEvent {
@@ -614,11 +624,16 @@ ui::TextEditCommand GetTextEditCommandForMenuAction(SEL action) {
 
 // NSView implementation.
 
-// Always refuse first responder. Note this does not prevent the view becoming
-// first responder via -[NSWindow makeFirstResponder:] when invoked during Init
-// or by FocusManager.
+// Refuse first responder, unless we are already first responder. Note this does
+// not prevent the view becoming first responder via -[NSWindow
+// makeFirstResponder:] when invoked during Init or by FocusManager.
+//
+// The condition is to work around an AppKit quirk. When a window is being
+// ordered front, if its current first responder returns |NO| for this method,
+// it resigns it if it can find another responder in the key loop that replies
+// |YES|.
 - (BOOL)acceptsFirstResponder {
-  return NO;
+  return [[self window] firstResponder] == self;
 }
 
 - (BOOL)becomeFirstResponder {
@@ -811,6 +826,11 @@ ui::TextEditCommand GetTextEditCommandForMenuAction(SEL action) {
 }
 
 - (void)keyUp:(NSEvent*)theEvent {
+  ui::KeyEvent event(theEvent);
+  [self handleKeyEvent:&event];
+}
+
+- (void)flagsChanged:(NSEvent*)theEvent {
   ui::KeyEvent event(theEvent);
   [self handleKeyEvent:&event];
 }
@@ -1430,16 +1450,16 @@ ui::TextEditCommand GetTextEditCommandForMenuAction(SEL action) {
   composition.text = base::SysNSStringToUTF16(text);
   composition.selection = gfx::Range(selectedRange);
 
-  // Add a black underline with a transparent background to the composition
-  // text. TODO(karandeepb): On Cocoa textfields, the target clause of the
-  // composition has a thick underlines. The composition text also has
+  // Add an underline with text color and a transparent background to the
+  // composition text. TODO(karandeepb): On Cocoa textfields, the target clause
+  // of the composition has a thick underlines. The composition text also has
   // discontinous underlines for different clauses. This is also supported in
   // the Chrome renderer. Add code to extract underlines from |text| once our
   // render text implementation supports thick underlines and discontinous
   // underlines for consecutive characters. See http://crbug.com/612675.
   composition.ime_text_spans.push_back(
       ui::ImeTextSpan(ui::ImeTextSpan::Type::kComposition, 0, [text length],
-                      SK_ColorBLACK, false, SK_ColorTRANSPARENT));
+                      ui::ImeTextSpan::Thickness::kThin, SK_ColorTRANSPARENT));
   textInputClient_->SetCompositionText(composition);
   hasUnhandledKeyDownEvent_ = NO;
 }

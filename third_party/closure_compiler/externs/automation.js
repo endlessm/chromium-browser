@@ -32,6 +32,7 @@ chrome.automation.EventType = {
   DOCUMENT_SELECTION_CHANGED: 'documentSelectionChanged',
   EXPANDED_CHANGED: 'expandedChanged',
   FOCUS: 'focus',
+  FOCUS_CONTEXT: 'focusContext',
   IMAGE_FRAME_UPDATED: 'imageFrameUpdated',
   HIDE: 'hide',
   HIT_TEST_RESULT: 'hitTestResult',
@@ -65,6 +66,7 @@ chrome.automation.EventType = {
   SELECTION_ADD: 'selectionAdd',
   SELECTION_REMOVE: 'selectionRemove',
   SHOW: 'show',
+  STATE_CHANGED: 'stateChanged',
   TEXT_CHANGED: 'textChanged',
   TEXT_SELECTION_CHANGED: 'textSelectionChanged',
   TREE_CHANGED: 'treeChanged',
@@ -231,10 +233,38 @@ chrome.automation.StateType = {
   PROTECTED: 'protected',
   REQUIRED: 'required',
   RICHLY_EDITABLE: 'richlyEditable',
-  SELECTABLE: 'selectable',
-  SELECTED: 'selected',
   VERTICAL: 'vertical',
   VISITED: 'visited',
+};
+
+/**
+ * @enum {string}
+ * @see https://developer.chrome.com/extensions/automation#type-ActionType
+ */
+chrome.automation.ActionType = {
+  BLUR: 'blur',
+  CUSTOM_ACTION: 'customAction',
+  DECREMENT: 'decrement',
+  DO_DEFAULT: 'doDefault',
+  FOCUS: 'focus',
+  GET_IMAGE_DATA: 'getImageData',
+  HIT_TEST: 'hitTest',
+  INCREMENT: 'increment',
+  LOAD_INLINE_TEXT_BOXES: 'loadInlineTextBoxes',
+  REPLACE_SELECTED_TEXT: 'replaceSelectedText',
+  SCROLL_BACKWARD: 'scrollBackward',
+  SCROLL_DOWN: 'scrollDown',
+  SCROLL_FORWARD: 'scrollForward',
+  SCROLL_LEFT: 'scrollLeft',
+  SCROLL_RIGHT: 'scrollRight',
+  SCROLL_TO_MAKE_VISIBLE: 'scrollToMakeVisible',
+  SCROLL_TO_POINT: 'scrollToPoint',
+  SCROLL_UP: 'scrollUp',
+  SET_SCROLL_OFFSET: 'setScrollOffset',
+  SET_SELECTION: 'setSelection',
+  SET_SEQUENTIAL_FOCUS_NAVIGATION_STARTING_POINT: 'setSequentialFocusNavigationStartingPoint',
+  SET_VALUE: 'setValue',
+  SHOW_CONTEXT_MENU: 'showContextMenu',
 };
 
 /**
@@ -270,6 +300,22 @@ chrome.automation.NameFromType = {
 chrome.automation.Restriction = {
   DISABLED: 'disabled',
   READ_ONLY: 'readOnly',
+};
+
+/**
+ * @enum {string}
+ * @see https://developer.chrome.com/extensions/automation#type-DefaultActionVerb
+ */
+chrome.automation.DefaultActionVerb = {
+  ACTIVATE: 'activate',
+  CHECK: 'check',
+  CLICK: 'click',
+  CLICK_ANCESTOR: 'clickAncestor',
+  JUMP: 'jump',
+  OPEN: 'open',
+  PRESS: 'press',
+  SELECT: 'select',
+  UNCHECK: 'uncheck',
 };
 
 /**
@@ -610,11 +656,25 @@ chrome.automation.AutomationNode.prototype.flowFrom;
 chrome.automation.AutomationNode.prototype.labelFor;
 
 /**
+ * An array of standard actions available on this node.
+ * @type {(!Array<!chrome.automation.ActionType>|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-standardActions
+ */
+chrome.automation.AutomationNode.prototype.standardActions;
+
+/**
  * An array of custom actions.
  * @type {(!Array<!chrome.automation.CustomAction>|undefined)}
  * @see https://developer.chrome.com/extensions/automation#type-customActions
  */
 chrome.automation.AutomationNode.prototype.customActions;
+
+/**
+ * The action taken by calling <code>doDefault</code>.
+ * @type {(!chrome.automation.DefaultActionVerb|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-defaultActionVerb
+ */
+chrome.automation.AutomationNode.prototype.defaultActionVerb;
 
 /**
  * The URL that this link will navigate to.
@@ -1102,6 +1162,13 @@ chrome.automation.AutomationNode.prototype.underline;
 chrome.automation.AutomationNode.prototype.lineThrough;
 
 /**
+ * Indicates whether this node is selected, unselected, or neither.
+ * @type {(boolean|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-selected
+ */
+chrome.automation.AutomationNode.prototype.selected;
+
+/**
  * Walking the tree.
  * @type {!Array<!chrome.automation.AutomationNode>}
  * @see https://developer.chrome.com/extensions/automation#type-children
@@ -1226,6 +1293,22 @@ chrome.automation.AutomationNode.prototype.makeVisible = function() {};
 chrome.automation.AutomationNode.prototype.performCustomAction = function(customActionId) {};
 
 /**
+ * Convenience method to perform a standard action supported by this node. For
+ * actions requiring additional arguments, call the specific binding e.g.
+ * <code>setSelection</code>.
+ * @param {!chrome.automation.ActionType} actionType
+ * @see https://developer.chrome.com/extensions/automation#method-performStandardAction
+ */
+chrome.automation.AutomationNode.prototype.performStandardAction = function(actionType) {};
+
+/**
+ * Replaces the selected text within a text field.
+ * @param {string} value
+ * @see https://developer.chrome.com/extensions/automation#method-replaceSelectedText
+ */
+chrome.automation.AutomationNode.prototype.replaceSelectedText = function(value) {};
+
+/**
  * Sets selection within a text field.
  * @param {number} startIndex
  * @param {number} endIndex
@@ -1239,6 +1322,13 @@ chrome.automation.AutomationNode.prototype.setSelection = function(startIndex, e
  * @see https://developer.chrome.com/extensions/automation#method-setSequentialFocusNavigationStartingPoint
  */
 chrome.automation.AutomationNode.prototype.setSequentialFocusNavigationStartingPoint = function() {};
+
+/**
+ * Sets the value of a text field.
+ * @param {string} value
+ * @see https://developer.chrome.com/extensions/automation#method-setValue
+ */
+chrome.automation.AutomationNode.prototype.setValue = function(value) {};
 
 /**
  * Show the context menu for this element, as if the user right-clicked.

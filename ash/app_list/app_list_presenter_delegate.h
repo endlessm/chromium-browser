@@ -7,11 +7,11 @@
 
 #include <stdint.h>
 
+#include "ash/app_list/presenter/app_list_presenter_delegate.h"
 #include "ash/ash_export.h"
 #include "ash/shell_observer.h"
 #include "ash/wm/tablet_mode/tablet_mode_observer.h"
 #include "base/macros.h"
-#include "ui/app_list/presenter/app_list_presenter_delegate.h"
 #include "ui/events/event_handler.h"
 #include "ui/keyboard/keyboard_controller_observer.h"
 
@@ -71,9 +71,6 @@ class ASH_EXPORT AppListPresenterDelegate
 
   // Whether the app list is visible (or in the process of being shown).
   bool is_visible_ = false;
-
-  // Whether the fullscreen app list feature is enabled.
-  const bool is_fullscreen_app_list_enabled_;
 
   // Not owned. Pointer is guaranteed to be valid while this object is alive.
   app_list::AppListPresenterImpl* presenter_;

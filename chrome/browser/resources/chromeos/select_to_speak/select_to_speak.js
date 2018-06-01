@@ -115,6 +115,9 @@ var SelectToSpeak = function() {
   /** @private {string} */
   this.highlightColor_ = '#5e9bff';
 
+  /** @private {boolean} */
+  this.readAfterClose_ = true;
+
   /** @private {?NodeGroupItem} */
   this.currentNode_ = null;
 
@@ -148,16 +151,6 @@ var SelectToSpeak = function() {
    * @private {number|undefined}
    */
   this.intervalId_;
-
-  // Enable reading selection at keystroke when experimental accessibility
-  // features are enabled.
-  // TODO(katie): When the feature is approved, remove this variable and
-  // callback. The feature will be always enabled.
-  this.readSelectionEnabled_ = false;
-  chrome.commandLinePrivate.hasSwitch(
-      'enable-experimental-accessibility-features', (result) => {
-        this.readSelectionEnabled_ = result;
-      });
 
   /** @private {Audio} */
   this.null_selection_tone_ = new Audio('earcons/null_selection.ogg');
@@ -199,7 +192,7 @@ SelectToSpeak.prototype = {
     this.trackingMouse_ = true;
     this.didTrackMouse_ = true;
     this.mouseStart_ = {x: evt.screenX, y: evt.screenY};
-    chrome.tts.stop();
+    this.cancelIfSpeaking_(false /* don't clear the focus ring */);
 
     // Fire a hit test event on click to warm up the cache.
     this.desktop_.hitTest(evt.screenX, evt.screenY, EventType.MOUSE_PRESSED);
@@ -320,7 +313,7 @@ SelectToSpeak.prototype = {
         evt.keyCode == SelectToSpeak.SEARCH_KEY_CODE) {
       this.isSearchKeyDown_ = true;
     } else if (
-        this.readSelectionEnabled_ && this.keysCurrentlyDown_.size == 1 &&
+        this.keysCurrentlyDown_.size == 1 &&
         evt.keyCode == SelectToSpeak.READ_SELECTION_KEY_CODE &&
         !this.trackingMouse_) {
       // Only go into selection mode if we aren't already tracking the mouse.
@@ -342,7 +335,7 @@ SelectToSpeak.prototype = {
       if (this.isSelectionKeyDown_ && this.keysPressedTogether_.size == 2 &&
           this.keysPressedTogether_.has(evt.keyCode) &&
           this.keysPressedTogether_.has(SelectToSpeak.SEARCH_KEY_CODE)) {
-        chrome.tts.isSpeaking(this.cancelIfSpeaking_.bind(this));
+        this.cancelIfSpeaking_(true /* clear the focus ring */);
         chrome.automation.getFocus(this.requestSpeakSelectedText_.bind(this));
       }
       this.isSelectionKeyDown_ = false;
@@ -364,7 +357,7 @@ SelectToSpeak.prototype = {
         this.keysPressedTogether_.has(evt.keyCode) &&
         this.keysPressedTogether_.size == 1) {
       this.trackingMouse_ = false;
-      chrome.tts.isSpeaking(this.cancelIfSpeaking_.bind(this));
+      this.cancelIfSpeaking_(true /* clear the focus ring */);
     }
 
     this.keysCurrentlyDown_.delete(evt.keyCode);
@@ -747,7 +740,7 @@ SelectToSpeak.prototype = {
    * Prepares for speech. Call once before chrome.tts.speak is called.
    */
   prepareForSpeech_: function() {
-    chrome.tts.stop();
+    this.cancelIfSpeaking_(true /* clear the focus ring */);
     if (this.intervalRef_ !== undefined) {
       clearInterval(this.intervalRef_);
     }
@@ -791,11 +784,29 @@ SelectToSpeak.prototype = {
   },
 
   /**
-   * Cancels the current speech queue if speech is in progress.
+   * Cancels the current speech queue after doing a callback to
+   * record a cancel event if speech was in progress. We must cancel
+   * before the callback (rather than in it) to avoid race conditions
+   * where cancel is called twice.
+   * @param {boolean} clearFocusRing Whether to clear the focus ring
+   *    as well.
    */
-  cancelIfSpeaking_: function(speaking) {
-    if (speaking) {
+  cancelIfSpeaking_: function(clearFocusRing) {
+    chrome.tts.isSpeaking(this.recordCancelIfSpeaking_.bind(this));
+    if (clearFocusRing) {
       this.stopAll_();
+    } else {
+      // Just stop speech
+      chrome.tts.stop();
+    }
+  },
+
+  /**
+   * Records a cancel event if speech was in progress.
+   * @param {boolean} speaking Whether speech was in progress
+   */
+  recordCancelIfSpeaking_: function(speaking) {
+    if (speaking) {
       this.recordCancelEvent_();
     }
   },
@@ -914,12 +925,20 @@ SelectToSpeak.prototype = {
           if (voices.length == 0)
             return;
 
-          voices.forEach((function(voice) {
-                           this.validVoiceNames_.add(voice.voiceName);
-                         }).bind(this));
+          voices.forEach((voice) => {
+            if (!voice.eventTypes.includes('start') ||
+                !voice.eventTypes.includes('end') ||
+                !voice.eventTypes.includes('word') ||
+                !voice.eventTypes.includes('cancelled')) {
+              return;
+            }
+            this.validVoiceNames_.add(voice.voiceName);
+          });
 
           voices.sort(function(a, b) {
             function score(voice) {
+              if (voice.lang === undefined)
+                return -1;
               var lang = voice.lang.toLowerCase();
               var s = 0;
               if (lang == uiLocale)
@@ -953,8 +972,14 @@ SelectToSpeak.prototype = {
   updateFromNodeState_: function(nodeGroupItem, inForeground) {
     switch (getNodeState(nodeGroupItem.node)) {
       case NodeState.NODE_STATE_INVALID:
-        // If the node is invalid, stop speaking entirely.
-        this.stopAll_();
+        // If the node is invalid, continue speech unless readAfterClose_
+        // is set to true. See https://crbug.com/818835 for more.
+        if (this.readAfterClose_) {
+          this.clearFocusRing_();
+          this.visible_ = false;
+        } else {
+          this.stopAll_();
+        }
         break;
       case NodeState.NODE_STATE_INVISIBLE:
         // If it is invisible but still valid, just clear the focus ring.
@@ -1099,10 +1124,10 @@ SelectToSpeak.prototype = {
         opt_startIndex - this.currentNode_.startChar;
     let nodeEnd = Math.min(
         nextWordEnd - this.currentNode_.startChar,
-        this.currentNode_.node.name.length);
+        nameLength(this.currentNode_.node));
     if ((this.currentNodeWord_ == null ||
          nodeStart >= this.currentNodeWord_.end) &&
-        nodeStart < nodeEnd) {
+        nodeStart <= nodeEnd) {
       // Only update the bounds if they have increased from the
       // previous node. Because tts may send multiple callbacks
       // for the end of one word and the beginning of the next,
@@ -1150,13 +1175,4 @@ SelectToSpeak.prototype = {
   fireMockMouseUpEvent: function(event) {
     this.onMouseUp_(event);
   },
-
-  /**
-   * Overrides default setting to read selected text and enables the
-   * ability to read selected text at a keystroke. Should only be used
-   * for testing.
-   */
-  enableReadSelectedTextForTesting: function() {
-    this.readSelectionEnabled_ = true;
-  }
 };

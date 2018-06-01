@@ -11,6 +11,7 @@ import android.os.StrictMode;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.chrome.browser.LaunchIntentDispatcher;
+import org.chromium.chrome.browser.vr_shell.VrIntentUtils;
 
 /**
  * Dispatches incoming intents to the appropriate activity based on the current configuration and
@@ -24,6 +25,16 @@ public class ChromeLauncherActivity extends Activity {
         TraceEvent.begin("ChromeLauncherActivity.onCreate");
         try {
             super.onCreate(savedInstanceState);
+
+            // VR Intents should only ever get routed through the VrMainActivity.
+            assert !VrIntentUtils.isVrIntent(getIntent());
+
+            // Handle Daydream's 2D-in-VR rendering mode by launching 2D intents in VR if we're in
+            // VR mode and the intent is supported in VR.
+            if (VrIntentUtils.maybeForwardToVrLauncher(getIntent(), this)) {
+                finish();
+                return;
+            }
 
             @LaunchIntentDispatcher.Action
             int dispatchAction = LaunchIntentDispatcher.dispatch(this, getIntent());

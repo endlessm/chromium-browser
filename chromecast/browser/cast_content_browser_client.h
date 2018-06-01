@@ -25,6 +25,10 @@ namespace breakpad {
 class CrashHandlerHostLinux;
 }
 
+namespace device {
+class BluetoothAdapterCast;
+}
+
 namespace metrics {
 class MetricsService;
 }
@@ -42,7 +46,7 @@ class MemoryPressureControllerImpl;
 
 namespace media {
 class MediaCapsImpl;
-class MediaPipelineBackendFactory;
+class CmaBackendFactory;
 class MediaPipelineBackendManager;
 class MediaResourceTracker;
 class VideoPlaneController;
@@ -64,9 +68,6 @@ class CastContentBrowserClient : public content::ContentBrowserClient {
 
   ~CastContentBrowserClient() override;
 
-  // Appends extra command line arguments before launching a new process.
-  virtual void AppendExtraCommandLineSwitches(base::CommandLine* command_line);
-
   // Creates and returns the CastService instance for the current process.
   // Note: |request_context_getter| might be different than the main request
   // getter accessible via CastBrowserProcess.
@@ -86,8 +87,8 @@ class CastContentBrowserClient : public content::ContentBrowserClient {
   // Returns the task runner that must be used for media IO.
   scoped_refptr<base::SingleThreadTaskRunner> GetMediaTaskRunner();
 
-  // Creates a MediaPipelineBackendFactory.
-  virtual media::MediaPipelineBackendFactory* GetMediaPipelineBackendFactory();
+  // Creates a CmaBackendFactory.
+  virtual media::CmaBackendFactory* GetCmaBackendFactory();
 
   media::MediaResourceTracker* media_resource_tracker();
 
@@ -98,6 +99,14 @@ class CastContentBrowserClient : public content::ContentBrowserClient {
   std::unique_ptr<::media::CdmFactory> CreateCdmFactory() override;
 #endif  // BUILDFLAG(IS_CAST_USING_CMA_BACKEND)
   media::MediaCapsImpl* media_caps();
+
+#if !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
+  // Create a BluetoothAdapter for WebBluetooth support.
+  // TODO(slan): This further couples the browser to the Cast service. Remove
+  // this once the dedicated Bluetooth service has been implemented.
+  // (b/76155468)
+  virtual base::WeakPtr<device::BluetoothAdapterCast> CreateBluetoothAdapter();
+#endif  // !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
 
   // Invoked when the metrics client ID changes.
   virtual void SetMetricsClientId(const std::string& client_id);
@@ -224,8 +233,7 @@ class CastContentBrowserClient : public content::ContentBrowserClient {
   std::unique_ptr<URLRequestContextFactory> url_request_context_factory_;
   std::unique_ptr<CastResourceDispatcherHostDelegate>
       resource_dispatcher_host_delegate_;
-  std::unique_ptr<media::MediaPipelineBackendFactory>
-      media_pipeline_backend_factory_;
+  std::unique_ptr<media::CmaBackendFactory> cma_backend_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(CastContentBrowserClient);
 };

@@ -12,18 +12,18 @@
 #import <QuartzCore/QuartzCore.h>
 
 #import "base/ios/block_types.h"
-#import "base/ios/ios_util.h"
 #import "base/mac/bind_objc_block.h"
 #include "base/metrics/user_metrics.h"
 #import "base/strings/sys_string_conversions.h"
 #include "base/timer/elapsed_timer.h"
-#include "base/timer/timer.h"
 #include "components/consent_auditor/consent_auditor.h"
+#include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/signin_metrics.h"
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
 #include "ios/chrome/browser/consent_auditor/consent_auditor_factory.h"
+#include "ios/chrome/browser/signin/account_tracker_service_factory.h"
 #import "ios/chrome/browser/signin/authentication_service.h"
 #import "ios/chrome/browser/signin/authentication_service_factory.h"
 #import "ios/chrome/browser/signin/chrome_identity_service_observer_bridge.h"
@@ -118,7 +118,6 @@ enum AuthenticationState {
     ChromeIdentityInteractionManagerDelegate,
     ChromeIdentityServiceObserver,
     SigninAccountSelectorViewControllerDelegate,
-    SigninConfirmationViewControllerDelegate,
     MDCActivityIndicatorDelegate>
 @property(nonatomic, strong) ChromeIdentity* selectedIdentity;
 
@@ -129,6 +128,7 @@ enum AuthenticationState {
   __weak id<ChromeSigninViewControllerDelegate> _delegate;
   std::unique_ptr<ChromeIdentityServiceObserverBridge> _identityServiceObserver;
   ChromeIdentity* _selectedIdentity;
+  TimerGeneratorBlock _timerGenerator;
 
   // Authentication
   AlertCoordinator* _alertCoordinator;
@@ -167,6 +167,7 @@ enum AuthenticationState {
 @synthesize delegate = _delegate;
 @synthesize shouldClearData = _shouldClearData;
 @synthesize dispatcher = _dispatcher;
+@synthesize confirmationVC = _confirmationVC;
 
 - (instancetype)initWithBrowserState:(ios::ChromeBrowserState*)browserState
                          accessPoint:(signin_metrics::AccessPoint)accessPoint
@@ -236,8 +237,13 @@ enum AuthenticationState {
   int consent_confirmation_id = showAccountsSettings
                                     ? _confirmationVC.openSettingsStringId
                                     : [self acceptSigninButtonStringId];
+  std::string account_id =
+      ios::AccountTrackerServiceFactory::GetForBrowserState(_browserState)
+          ->PickAccountIdForAccount(
+              base::SysNSStringToUTF8([_selectedIdentity gaiaID]),
+              base::SysNSStringToUTF8([_selectedIdentity userEmail]));
   ConsentAuditorFactory::GetForBrowserState(_browserState)
-      ->RecordGaiaConsent(consent_auditor::Feature::CHROME_SYNC,
+      ->RecordGaiaConsent(account_id, consent_auditor::Feature::CHROME_SYNC,
                           consent_text_ids, consent_confirmation_id,
                           consent_auditor::ConsentStatus::GIVEN);
   _didAcceptSignIn = YES;
@@ -603,7 +609,16 @@ enum AuthenticationState {
       [strongSelf->_activityIndicator stopAnimating];
       strongSelf->_leavingPendingStateTimer.reset();
     };
-    _leavingPendingStateTimer.reset(new base::Timer(false, false));
+    const bool retain_user_task = false;
+    const bool is_repeating = false;
+    if (self.timerGenerator) {
+      _leavingPendingStateTimer =
+          self.timerGenerator(retain_user_task, is_repeating);
+      DCHECK(_leavingPendingStateTimer);
+    } else {
+      _leavingPendingStateTimer =
+          std::make_unique<base::Timer>(retain_user_task, is_repeating);
+    }
     _leavingPendingStateTimer->Start(FROM_HERE, remainingTime,
                                      base::BindBlockArc(completionBlock));
   }
@@ -960,6 +975,18 @@ enum AuthenticationState {
                   forState:UIControlStateNormal];
   [_primaryButton setImage:nil forState:UIControlStateNormal];
   [self.view setNeedsLayout];
+}
+
+@end
+
+@implementation ChromeSigninViewController (Testing)
+
+- (TimerGeneratorBlock)timerGenerator {
+  return _timerGenerator;
+}
+
+- (void)setTimerGenerator:(TimerGeneratorBlock)timerGenerator {
+  _timerGenerator = [timerGenerator copy];
 }
 
 @end

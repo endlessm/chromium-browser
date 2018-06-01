@@ -17,6 +17,7 @@
 #include "ui/app_list/views/app_list_view.h"
 #include "ui/app_list/views/apps_container_view.h"
 #include "ui/app_list/views/apps_grid_view.h"
+#include "ui/app_list/views/horizontal_page_container.h"
 #include "ui/app_list/views/search_box_view.h"
 #include "ui/app_list/views/search_result_answer_card_view.h"
 #include "ui/app_list/views/search_result_list_view.h"
@@ -46,9 +47,8 @@ void DoAnimation(base::TimeDelta animation_duration,
 
 }  // namespace
 
-ContentsView::ContentsView(AppListMainView* app_list_main_view,
-                           AppListView* app_list_view)
-    : app_list_main_view_(app_list_main_view), app_list_view_(app_list_view) {
+ContentsView::ContentsView(AppListView* app_list_view)
+    : app_list_view_(app_list_view) {
   pagination_model_.SetTransitionDurations(kPageTransitionDurationInMs,
                                            kOverscrollPageTransitionDurationMs);
   pagination_model_.AddObserver(this);
@@ -62,13 +62,13 @@ void ContentsView::Init(AppListModel* model) {
   DCHECK(model);
   model_ = model;
 
-  AppListViewDelegate* view_delegate = app_list_main_view_->view_delegate();
+  AppListViewDelegate* view_delegate = GetAppListMainView()->view_delegate();
 
-  apps_container_view_ = new AppsContainerView(app_list_main_view_, model);
+  horizontal_page_container_ = new HorizontalPageContainer(this, model);
 
-  // Add |apps_container_view_| as STATE_START corresponding page for
+  // Add |horizontal_page_container_| as STATE_START corresponding page for
   // fullscreen app list.
-  AddLauncherPage(apps_container_view_, ash::AppListState::kStateStart);
+  AddLauncherPage(horizontal_page_container_, ash::AppListState::kStateStart);
 
   // Search results UI.
   search_results_page_view_ = new SearchResultPageView();
@@ -91,14 +91,14 @@ void ContentsView::Init(AppListModel* model) {
       results, search_result_tile_item_list_view_);
 
   search_result_list_view_ =
-      new SearchResultListView(app_list_main_view_, view_delegate);
+      new SearchResultListView(GetAppListMainView(), view_delegate);
   search_results_page_view_->AddSearchResultContainerView(
       results, search_result_list_view_);
 
   AddLauncherPage(search_results_page_view_,
                   ash::AppListState::kStateSearchResults);
 
-  AddLauncherPage(apps_container_view_, ash::AppListState::kStateApps);
+  AddLauncherPage(horizontal_page_container_, ash::AppListState::kStateApps);
 
   int initial_page_index = GetPageIndexForState(ash::AppListState::kStateStart);
   DCHECK_GE(initial_page_index, 0);
@@ -118,19 +118,21 @@ void ContentsView::Init(AppListModel* model) {
 }
 
 void ContentsView::CancelDrag() {
-  if (apps_container_view_->apps_grid_view()->has_dragged_view())
-    apps_container_view_->apps_grid_view()->EndDrag(true);
-  if (apps_container_view_->app_list_folder_view()
+  if (GetAppsContainerView()->apps_grid_view()->has_dragged_view())
+    GetAppsContainerView()->apps_grid_view()->EndDrag(true);
+  if (GetAppsContainerView()
+          ->app_list_folder_view()
           ->items_grid_view()
           ->has_dragged_view()) {
-    apps_container_view_->app_list_folder_view()->items_grid_view()->EndDrag(
+    GetAppsContainerView()->app_list_folder_view()->items_grid_view()->EndDrag(
         true);
   }
 }
 
 void ContentsView::SetDragAndDropHostOfCurrentAppList(
     ApplicationDragAndDropHost* drag_and_drop_host) {
-  apps_container_view_->SetDragAndDropHostOfCurrentAppList(drag_and_drop_host);
+  GetAppsContainerView()->SetDragAndDropHostOfCurrentAppList(
+      drag_and_drop_host);
 }
 
 void ContentsView::SetActiveState(ash::AppListState state) {
@@ -182,6 +184,10 @@ int ContentsView::NumLauncherPages() const {
   return pagination_model_.total_pages();
 }
 
+AppsContainerView* ContentsView::GetAppsContainerView() {
+  return horizontal_page_container_->apps_container_view();
+}
+
 void ContentsView::SetActiveStateInternal(int page_index,
                                           bool show_search_results,
                                           bool animate) {
@@ -211,7 +217,7 @@ void ContentsView::ActivePageChanged() {
 
   app_list_pages_[GetActivePageIndex()]->OnWillBeShown();
 
-  app_list_main_view_->model()->SetState(state);
+  GetAppListMainView()->model()->SetState(state);
 }
 
 void ContentsView::ShowSearchResults(bool show) {
@@ -246,6 +252,8 @@ void ContentsView::UpdatePageBounds() {
 
   // Update app list pages.
   for (AppListPage* page : app_list_pages_) {
+    page->OnAnimationUpdated(progress, current_state, target_state);
+
     gfx::Rect to_rect = page->GetPageBoundsForState(target_state);
     gfx::Rect from_rect = page->GetPageBoundsForState(current_state);
     if (from_rect == to_rect)
@@ -256,7 +264,6 @@ void ContentsView::UpdatePageBounds() {
         gfx::Tween::RectValueBetween(progress, from_rect, to_rect));
 
     page->SetBoundsRect(bounds);
-    page->OnAnimationUpdated(progress, current_state, target_state);
   }
 
   // Update the search box.
@@ -284,11 +291,11 @@ void ContentsView::UpdateSearchBox(double progress,
 }
 
 PaginationModel* ContentsView::GetAppsPaginationModel() {
-  return apps_container_view_->apps_grid_view()->pagination_model();
+  return GetAppsContainerView()->apps_grid_view()->pagination_model();
 }
 
 void ContentsView::ShowFolderContent(AppListFolderItem* item) {
-  apps_container_view_->ShowActiveFolder(item);
+  GetAppsContainerView()->ShowActiveFolder(item);
 }
 
 AppListPage* ContentsView::GetPageView(int index) const {
@@ -297,7 +304,11 @@ AppListPage* ContentsView::GetPageView(int index) const {
 }
 
 SearchBoxView* ContentsView::GetSearchBoxView() const {
-  return app_list_main_view_->search_box_view();
+  return GetAppListMainView()->search_box_view();
+}
+
+AppListMainView* ContentsView::GetAppListMainView() const {
+  return app_list_view_->app_list_main_view();
 }
 
 int ContentsView::AddLauncherPage(AppListPage* view) {
@@ -335,10 +346,7 @@ gfx::Rect ContentsView::GetSearchBoxBoundsForState(
 }
 
 gfx::Rect ContentsView::GetDefaultContentsBounds() const {
-  const gfx::Size contents_size(GetDefaultContentsSize());
-  gfx::Point origin(0, GetDefaultSearchBoxBounds().bottom());
-  origin.Offset((bounds().width() - contents_size.width()) / 2, 0);
-  return gfx::Rect(origin, contents_size);
+  return GetContentsBounds();
 }
 
 gfx::Size ContentsView::GetMaximumContentsSize() const {
@@ -359,8 +367,8 @@ bool ContentsView::Back() {
       // Close the app list when Back() is called from the start page.
       return false;
     case ash::AppListState::kStateApps:
-      if (apps_container_view_->IsInFolderView()) {
-        apps_container_view_->app_list_folder_view()->CloseFolderPage();
+      if (GetAppsContainerView()->IsInFolderView()) {
+        GetAppsContainerView()->app_list_folder_view()->CloseFolderPage();
       } else {
         // Close the app list when Back() is called from the apps page.
         return false;
@@ -380,17 +388,11 @@ bool ContentsView::Back() {
 }
 
 gfx::Size ContentsView::GetDefaultContentsSize() const {
-  return apps_container_view_->GetPreferredSize();
+  return horizontal_page_container_->GetPreferredSize();
 }
 
 gfx::Size ContentsView::CalculatePreferredSize() const {
-  gfx::Rect search_box_bounds = GetDefaultSearchBoxBounds();
-  gfx::Rect default_contents_bounds = GetDefaultContentsBounds();
-  gfx::Vector2d bottom_right =
-      search_box_bounds.bottom_right().OffsetFromOrigin();
-  bottom_right.SetToMax(
-      default_contents_bounds.bottom_right().OffsetFromOrigin());
-  return gfx::Size(bottom_right.x(), GetDisplayHeight());
+  return gfx::Size(GetDisplayWidth(), GetDisplayHeight());
 }
 
 void ContentsView::Layout() {
@@ -401,10 +403,11 @@ void ContentsView::Layout() {
     return;
 
   for (AppListPage* page : app_list_pages_) {
-    if (app_list_view_ && app_list_view_->is_in_drag())
-      page->SetBoundsRect(page->GetPageBoundsDuringDragging(GetActiveState()));
-    else
-      page->SetBoundsRect(page->GetPageBoundsForState(GetActiveState()));
+    // Ensures re-layout happens even when the page bounds does not change. So
+    // that |horizontal_page_container_| can layout its children in response to
+    // user dragging.
+    page->InvalidateLayout();
+    page->SetBoundsRect(page->GetPageBoundsForState(GetActiveState()));
   }
 
   // The search box is contained in a widget so set the bounds of the widget
@@ -446,6 +449,14 @@ int ContentsView::GetDisplayHeight() const {
       .work_area()
       .size()
       .height();
+}
+
+int ContentsView::GetDisplayWidth() const {
+  return display::Screen::GetScreen()
+      ->GetDisplayNearestView(GetWidget()->GetNativeView())
+      .work_area()
+      .size()
+      .width();
 }
 
 void ContentsView::FadeOutOnClose(base::TimeDelta animation_duration) {

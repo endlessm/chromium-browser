@@ -18,11 +18,11 @@
 #include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/media_router/media_cast_mode.h"
+#include "chrome/browser/ui/media_router/media_router_file_dialog.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/browser/ui/webui/media_router/media_cast_mode.h"
-#include "chrome/browser/ui/webui/media_router/media_router_dialog_controller_impl.h"
-#include "chrome/browser/ui/webui/media_router/media_router_file_dialog.h"
+#include "chrome/browser/ui/webui/media_router/media_router_dialog_controller_webui_impl.h"
 #include "chrome/browser/ui/webui/media_router/media_router_ui.h"
 #include "chrome/common/media_router/issue.h"
 #include "chrome/common/url_constants.h"
@@ -363,8 +363,9 @@ void MediaRouterIntegrationBrowserTest::ClickHeader(
 
 WebContents* MediaRouterIntegrationBrowserTest::GetMRDialog(
     WebContents* web_contents) {
-  MediaRouterDialogControllerImpl* controller =
-      MediaRouterDialogControllerImpl::GetOrCreateForWebContents(web_contents);
+  MediaRouterDialogControllerWebUIImpl* controller =
+      MediaRouterDialogControllerWebUIImpl::GetOrCreateForWebContents(
+          web_contents);
   WebContents* dialog_contents = controller->GetMediaRouterDialog();
   CHECK(dialog_contents);
   WaitUntilDialogFullyLoaded(dialog_contents);
@@ -373,8 +374,9 @@ WebContents* MediaRouterIntegrationBrowserTest::GetMRDialog(
 
 bool MediaRouterIntegrationBrowserTest::IsDialogClosed(
     WebContents* web_contents) {
-  MediaRouterDialogControllerImpl* controller =
-      MediaRouterDialogControllerImpl::GetOrCreateForWebContents(web_contents);
+  MediaRouterDialogControllerWebUIImpl* controller =
+      MediaRouterDialogControllerWebUIImpl::GetOrCreateForWebContents(
+          web_contents);
   return !controller->GetMediaRouterDialog();
 }
 
@@ -417,8 +419,9 @@ void MediaRouterIntegrationBrowserTest::SetTestData(
 
 WebContents* MediaRouterIntegrationBrowserTest::OpenMRDialog(
     WebContents* web_contents) {
-  MediaRouterDialogControllerImpl* controller =
-      MediaRouterDialogControllerImpl::GetOrCreateForWebContents(web_contents);
+  MediaRouterDialogControllerWebUIImpl* controller =
+      MediaRouterDialogControllerWebUIImpl::GetOrCreateForWebContents(
+          web_contents);
   test_navigation_observer_.reset(
         new content::TestNavigationObserver(web_contents, 1));
   test_navigation_observer_->StartWatchingNewWebContents();
@@ -530,8 +533,9 @@ bool MediaRouterIntegrationBrowserTest::IsRouteClosedOnUI() {
   // after 3s. But sometimes it takes more than 3s to close the route, so
   // we need to re-open the dialog if it is closed.
   WebContents* web_contents = GetActiveWebContents();
-  MediaRouterDialogControllerImpl* controller =
-      MediaRouterDialogControllerImpl::GetOrCreateForWebContents(web_contents);
+  MediaRouterDialogControllerWebUIImpl* controller =
+      MediaRouterDialogControllerWebUIImpl::GetOrCreateForWebContents(
+          web_contents);
   WebContents* dialog_contents = controller->GetMediaRouterDialog();
   if (!dialog_contents) {
     VLOG(0) << "Media router dialog was closed, reopen it again.";
@@ -598,11 +602,12 @@ void MediaRouterIntegrationBrowserTest::CheckSessionValidity(
   EXPECT_EQ(session_id, default_request_session_id);
 }
 
-MediaRouterDialogControllerImpl*
+MediaRouterDialogControllerWebUIImpl*
 MediaRouterIntegrationBrowserTest::GetControllerForShownDialog(
     WebContents* web_contents) {
-  MediaRouterDialogControllerImpl* controller =
-      MediaRouterDialogControllerImpl::GetOrCreateForWebContents(web_contents);
+  MediaRouterDialogControllerWebUIImpl* controller =
+      MediaRouterDialogControllerWebUIImpl::GetOrCreateForWebContents(
+          web_contents);
   EXPECT_TRUE(controller->IsShowingMediaRouterDialog());
   return controller;
 }
@@ -679,6 +684,8 @@ void MediaRouterIntegrationBrowserTest::RunReconnectSessionTest() {
       "window.domAutomationController.send(reconnectedSession.id)",
       &reconnected_session_id));
   ASSERT_EQ(session_id, reconnected_session_id);
+
+  ExecuteJavaScriptAPI(web_contents, kTerminateSessionScript);
 }
 
 void MediaRouterIntegrationBrowserTest::RunReconnectSessionSameTabTest() {
@@ -697,11 +704,13 @@ void MediaRouterIntegrationBrowserTest::RunReconnectSessionSameTabTest() {
   ASSERT_EQ(session_id, reconnected_session_id);
 }
 
+// TODO(crbug.com/822337): Flaky on Linux_CFI bot.
 IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest, MANUAL_Basic) {
   RunBasicTest();
 }
 
 // Tests that creating a route with a local file opens the file in a new tab.
+// TODO(crbug.com/818767): Fails when run with Chromium component.
 IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
                        MANUAL_OpenLocalMediaFileInCurrentTab) {
   // Start at a new tab, the file should open in the same tab.
@@ -723,7 +732,7 @@ IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
 
 // Tests that creating a route with a local file opens the file in a new tab.
 IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
-                       MANUAL_OpenLocalMediaFileInNewTab) {
+                       OpenLocalMediaFileInNewTab) {
   // Start at a tab with content in it, the file will open in a new tab.
   ui_test_utils::NavigateToURL(browser(), GURL("http://google.com"));
   // Make sure there is 1 tab.
@@ -743,13 +752,14 @@ IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
 
 // Tests that failing to create a route with a local file shows an issue.
 IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
-                       MANUAL_OpenLocalMediaFileFailsAndShowsIssue) {
+                       OpenLocalMediaFileFailsAndShowsIssue) {
   OpenDialogAndCastFileFails();
   // Expect that the issue is showing.
   ASSERT_TRUE(IsUIShowingIssue());
 }
 
 // Tests that creating a route with a local file opens in fullscreen.
+// TODO(crbug.com/822029): Fails on msan; fix and re-enable.
 IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
                        MANUAL_OpenLocalMediaFileFullscreen) {
   // Start at a new tab, the file should open in the same tab.
@@ -774,7 +784,7 @@ IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
 
 // Tests that failed route creation of local file does not enter fullscreen.
 IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
-                       MANUAL_OpenLocalMediaFileCastFailNoFullscreen) {
+                       OpenLocalMediaFileCastFailNoFullscreen) {
   // Start at a new tab, the file should open in the same tab.
   ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUINewTabURL));
   // Make sure there is 1 tab.
@@ -794,12 +804,11 @@ IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
       web_contents->GetDelegate()->IsFullscreenForTabOrPending(web_contents));
 }
 
-IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
-                       MANUAL_SendAndOnMessage) {
+IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest, SendAndOnMessage) {
   RunSendMessageTest("foo");
 }
 
-IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest, MANUAL_CloseOnError) {
+IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest, CloseOnError) {
   SetTestData(FILE_PATH_LITERAL("close_route_with_error_on_send.json"));
   WebContents* web_contents = StartSessionWithTestPageAndChooseSink();
   CheckSessionValidity(web_contents);
@@ -807,33 +816,31 @@ IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest, MANUAL_CloseOnError) {
                        kSendMessageAndExpectConnectionCloseOnErrorScript);
 }
 
-IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
-                       MANUAL_Fail_SendMessage) {
+IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest, Fail_SendMessage) {
   RunFailToSendMessageTest();
 }
 
-IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
-                       MANUAL_Fail_NoProvider) {
+IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest, Fail_NoProvider) {
   SetTestData(FILE_PATH_LITERAL("no_provider.json"));
   WebContents* web_contents = StartSessionWithTestPageAndChooseSink();
   CheckStartFailed(web_contents, "UnknownError",
                    "No provider supports createRoute with source");
 }
 
-IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
-                       MANUAL_Fail_CreateRoute) {
+IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest, Fail_CreateRoute) {
   SetTestData(FILE_PATH_LITERAL("fail_create_route.json"));
   WebContents* web_contents = StartSessionWithTestPageAndChooseSink();
   CheckStartFailed(web_contents, "UnknownError", "Unknown sink");
 }
 
+// TODO(crbug.com/822231): Flaky in Chromium waterfall.
 IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
                        MANUAL_ReconnectSession) {
   RunReconnectSessionTest();
 }
 
 IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
-                       MANUAL_Fail_ReconnectSession) {
+                       Fail_ReconnectSession) {
   WebContents* web_contents = StartSessionWithTestPageAndChooseSink();
   CheckSessionValidity(web_contents);
   std::string session_id(GetStartedConnectionId(web_contents));
@@ -848,21 +855,20 @@ IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
                          session_id.c_str()));
 }
 
-IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
-                       MANUAL_Fail_StartCancelled) {
+IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest, Fail_StartCancelled) {
   WebContents* web_contents = StartSessionWithTestPageAndSink();
   GetControllerForShownDialog(web_contents)->HideMediaRouterDialog();
   CheckStartFailed(web_contents, "NotAllowedError", "Dialog closed.");
 }
 
 IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
-                       MANUAL_Fail_StartCancelledNoSinks) {
+                       Fail_StartCancelledNoSinks) {
   SetTestData(FILE_PATH_LITERAL("no_sinks.json"));
   StartSessionAndAssertNotFoundError();
 }
 
 IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
-                       MANUAL_Fail_StartCancelledNoSupportedSinks) {
+                       Fail_StartCancelledNoSupportedSinks) {
   SetTestData(FILE_PATH_LITERAL("no_supported_sinks.json"));
   StartSessionAndAssertNotFoundError();
 }
@@ -885,11 +891,11 @@ Browser* MediaRouterIntegrationIncognitoBrowserTest::browser() {
   return incognito_browser_;
 }
 
-IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationIncognitoBrowserTest,
-                       MANUAL_Basic) {
+IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationIncognitoBrowserTest, Basic) {
   RunBasicTest();
 }
 
+// TODO(crbug.com/822300): Flaky in Chromium waterfall.
 IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationIncognitoBrowserTest,
                        MANUAL_ReconnectSession) {
   RunReconnectSessionTest();

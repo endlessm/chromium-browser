@@ -863,7 +863,7 @@ IN_PROC_BROWSER_TEST_P(WebViewFocusInteractiveTest,
   std::unique_ptr<ExtensionTestMessageListener> done_listener(
       RunAppHelper("testFocusTracksEmbedder", "web_view/focus", NO_TEST_SERVER,
                    &embedder_web_contents));
-  done_listener->WaitUntilSatisfied();
+  EXPECT_TRUE(done_listener->WaitUntilSatisfied());
 
   ExtensionTestMessageListener next_step_listener("TEST_STEP_PASSED", false);
   next_step_listener.set_failure_message("TEST_STEP_FAILED");
@@ -884,7 +884,7 @@ IN_PROC_BROWSER_TEST_P(WebViewFocusInteractiveTest, Focus_AdvanceFocus) {
     std::unique_ptr<ExtensionTestMessageListener> done_listener(
         RunAppHelper("testAdvanceFocus", "web_view/focus", NO_TEST_SERVER,
                      &embedder_web_contents));
-    done_listener->WaitUntilSatisfied();
+    EXPECT_TRUE(done_listener->WaitUntilSatisfied());
   }
 
   {
@@ -1129,7 +1129,7 @@ IN_PROC_BROWSER_TEST_P(WebViewInteractiveTest, NewWindow_OpenInNewTab) {
       RunAppHelper("testNewWindowOpenInNewTab", "web_view/newwindow",
                    NEEDS_TEST_SERVER, &embedder_web_contents));
 
-  loaded_listener.WaitUntilSatisfied();
+  EXPECT_TRUE(loaded_listener.WaitUntilSatisfied());
 #if defined(OS_MACOSX)
   ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
       GetPlatformAppWindow(), ui::VKEY_RETURN,
@@ -1177,7 +1177,7 @@ IN_PROC_BROWSER_TEST_F(WebViewContextMenuInteractiveTest,
              NO_TEST_SERVER);
   ASSERT_TRUE(guest_web_contents());
 
-  ContextMenuWaiter menu_observer(content::NotificationService::AllSources());
+  ContextMenuWaiter menu_observer;
   SimulateRWHMouseClick(guest_web_contents()->GetRenderViewHost()->GetWidget(),
                         blink::WebMouseEvent::Button::kRight, 10, 20);
   // Wait until the context menu is opened and closed.
@@ -1217,7 +1217,7 @@ IN_PROC_BROWSER_TEST_F(WebViewBrowserPluginInteractiveTest,
   // Embedder should be focused.
   EXPECT_EQ(guest_web_contents,
             content::GetFocusedWebContents(guest_web_contents));
-  listener.WaitUntilSatisfied();
+  EXPECT_TRUE(listener.WaitUntilSatisfied());
 
   // Check that the inner contents is correctly focused.
   bool result;
@@ -1232,7 +1232,7 @@ IN_PROC_BROWSER_TEST_F(WebViewBrowserPluginInteractiveTest,
   listener.Reset();
   EXPECT_TRUE(
       content::ExecuteScript(embedder_web_contents, "reloadWebview();"));
-  listener.WaitUntilSatisfied();
+  EXPECT_TRUE(listener.WaitUntilSatisfied());
 
   // Check that the inner contents is correctly focused after a reload.
   EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
@@ -1558,9 +1558,14 @@ IN_PROC_BROWSER_TEST_P(WebViewInteractiveTest, MAYBE_LongPressSelection) {
   ASSERT_TRUE(embedder_web_contents());
   ASSERT_TRUE(ui_test_utils::ShowAndFocusNativeWindow(GetPlatformAppWindow()));
 
+  blink::WebInputEvent::Type context_menu_gesture_event_type =
+      blink::WebInputEvent::kGestureLongPress;
+#if defined(OS_WIN)
+  context_menu_gesture_event_type = blink::WebInputEvent::kGestureLongTap;
+#endif
   auto filter = std::make_unique<content::InputMsgWatcher>(
       guest_web_contents()->GetRenderWidgetHostView()->GetRenderWidgetHost(),
-      blink::WebInputEvent::kGestureLongPress);
+      context_menu_gesture_event_type);
 
   // Wait for guest to load (without this the events never reach the guest).
   scoped_refptr<content::MessageLoopRunner> message_loop_runner =
@@ -1580,8 +1585,7 @@ IN_PROC_BROWSER_TEST_P(WebViewInteractiveTest, MAYBE_LongPressSelection) {
                                 blink::WebMouseEvent::Button::kLeft,
                                 guest_rect.CenterPoint());
 
-  content::SimulateLongPressAt(embedder_web_contents(),
-                               guest_rect.CenterPoint());
+  content::SimulateLongTapAt(embedder_web_contents(), guest_rect.CenterPoint());
   EXPECT_EQ(content::INPUT_EVENT_ACK_STATE_CONSUMED,
             filter->GetAckStateWaitIfNecessary());
 
@@ -1611,7 +1615,7 @@ IN_PROC_BROWSER_TEST_P(WebViewInteractiveTest, TextSelection) {
 
   // Wait until guest sees a context menu.
   ExtensionTestMessageListener ctx_listener("MSG_CONTEXTMENU", false);
-  ContextMenuWaiter menu_observer(content::NotificationService::AllSources());
+  ContextMenuWaiter menu_observer;
   SimulateRWHMouseClick(guest_web_contents()->GetRenderViewHost()->GetWidget(),
                         blink::WebMouseEvent::Button::kRight, 20, 20);
   menu_observer.WaitForMenuOpenAndClose();
@@ -1672,7 +1676,7 @@ IN_PROC_BROWSER_TEST_P(WebViewFocusInteractiveTest, MAYBE_FocusAndVisibility) {
   ExtensionTestMessageListener test_init_listener(
       "WebViewInteractiveTest.WebViewInitialized", false);
   SendMessageToEmbedder(GetParam() ? "init-oopif" : "init");
-  test_init_listener.WaitUntilSatisfied();
+  EXPECT_TRUE(test_init_listener.WaitUntilSatisfied());
 
   // Send several tab-keys. The button inside webview should receive focus at
   // least once.
@@ -1702,12 +1706,11 @@ IN_PROC_BROWSER_TEST_P(WebViewFocusInteractiveTest, MAYBE_FocusAndVisibility) {
   ExtensionTestMessageListener reset_listener("WebViewInteractiveTest.DidReset",
                                               false);
   SendMessageToEmbedder("reset");
-  reset_listener.WaitUntilSatisfied();
+  EXPECT_TRUE(reset_listener.WaitUntilSatisfied());
   ExtensionTestMessageListener did_hide_webview_listener(
       "WebViewInteractiveTest.DidHideWebView", false);
   SendMessageToEmbedder("hide-webview");
-  did_hide_webview_listener.WaitUntilSatisfied();
-
+  EXPECT_TRUE(did_hide_webview_listener.WaitUntilSatisfied());
 
   // Send the same number of keys and verify that the webview button was not
   // this time.
@@ -1868,7 +1871,7 @@ IN_PROC_BROWSER_TEST_P(WebViewImeInteractiveTest,
   content::SimulateMouseClickAt(target_web_contents, 0,
                                 blink::WebMouseEvent::Button::kLeft,
                                 gfx::Point(50, 50));
-  focus_listener.WaitUntilSatisfied();
+  EXPECT_TRUE(focus_listener.WaitUntilSatisfied());
 
   // Verify the text inside the <input> is "A B X D".
   std::string value;
@@ -1889,7 +1892,7 @@ IN_PROC_BROWSER_TEST_P(WebViewImeInteractiveTest,
   content::SendImeCommitTextToWidget(
       target_rwh_for_input, base::UTF8ToUTF16("C"),
       std::vector<ui::ImeTextSpan>(), gfx::Range(4, 5), 0);
-  input_listener.WaitUntilSatisfied();
+  EXPECT_TRUE(input_listener.WaitUntilSatisfied());
 
   // Get the input value from the guest.
   value.clear();
@@ -1935,7 +1938,7 @@ IN_PROC_BROWSER_TEST_P(WebViewImeInteractiveTest, CompositionRangeUpdates) {
   content::SimulateMouseClickAt(target_web_contents, 0,
                                 blink::WebMouseEvent::Button::kLeft,
                                 gfx::Point(50, 50));
-  focus_listener.WaitUntilSatisfied();
+  EXPECT_TRUE(focus_listener.WaitUntilSatisfied());
 
   // Clear the string as it already contains some text. Then verify the text in
   // the <input> is empty.

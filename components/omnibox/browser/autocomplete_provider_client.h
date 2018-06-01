@@ -99,7 +99,14 @@ class AutocompleteProviderClient {
   virtual bool IsOffTheRecord() const = 0;
   virtual bool SearchSuggestEnabled() const = 0;
 
-  virtual bool TabSyncEnabledAndUnencrypted() const = 0;
+  // Returns whether tab sync meets all of the criteria to be considered in an
+  // active upload to Google state. This means that the user is logged in, sync
+  // is running and in a good auth state, the user has tab sync enabled, and
+  // they do not have their sync data protected by a secondary passphrase.
+  // In this case, the user has agreed to share browsing data with Google and so
+  // this state can be used to govern similar features (e.g. sending the current
+  // page URL with omnibox suggest requests).
+  virtual bool IsTabUploadToGoogleActive() const = 0;
 
   // This function returns true if the user is signed in.
   virtual bool IsAuthenticated() const = 0;
@@ -142,9 +149,11 @@ class AutocompleteProviderClient {
   // configure the provider if desired.
   virtual void ConfigureKeywordProvider(KeywordProvider* keyword_provider) {}
 
-  // Called to find out if there is an open tab with the given URL within
-  // the current profile.
-  virtual bool IsTabOpenWithURL(const GURL& url) = 0;
+  // Called to find out if there is an open tab with the given URL within the
+  // current profile. |input| can be null; match is more precise (e.g. scheme
+  // presence) if provided.
+  virtual bool IsTabOpenWithURL(const GURL& url,
+                                const AutocompleteInput* input) = 0;
 };
 
 #endif  // COMPONENTS_OMNIBOX_BROWSER_AUTOCOMPLETE_PROVIDER_CLIENT_H_

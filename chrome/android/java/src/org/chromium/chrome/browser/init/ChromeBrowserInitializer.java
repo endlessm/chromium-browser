@@ -31,10 +31,12 @@ import org.chromium.base.annotations.RemovableInRelease;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.ProcessInitException;
+import org.chromium.base.memory.MemoryPressureUma;
 import org.chromium.chrome.browser.AppHooks;
 import org.chromium.chrome.browser.ChromeApplication;
 import org.chromium.chrome.browser.ChromeStrictMode;
 import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.ClassRegister;
 import org.chromium.chrome.browser.FileProviderHelper;
 import org.chromium.chrome.browser.crash.LogcatExtractionRunnable;
 import org.chromium.chrome.browser.download.DownloadManagerService;
@@ -48,7 +50,6 @@ import org.chromium.content.browser.DeviceUtils;
 import org.chromium.content.browser.SpeechRecognition;
 import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.policy.CombinedPolicyProvider;
-import org.chromium.ui.base.DeviceFormFactor;
 
 import java.io.File;
 import java.util.Locale;
@@ -377,6 +378,7 @@ public class ChromeBrowserInitializer {
         AppHooks.get().registerPolicyProviders(CombinedPolicyProvider.get());
 
         SpeechRecognition.initialize(mApplication);
+        ClassRegister.get().registerContentClassFactory();
     }
 
     private void onFinishNativeInitialization() {
@@ -394,6 +396,8 @@ public class ChromeBrowserInitializer {
                 AsyncTask.THREAD_POOL_EXECUTOR.execute(new LogcatExtractionRunnable(minidump));
             }
         });
+
+        MemoryPressureUma.initializeForBrowser();
     }
 
     private ActivityStateListener createActivityStateListener() {
@@ -408,8 +412,6 @@ public class ChromeBrowserInitializer {
                         Log.e(TAG, "Killing process because of locale change.");
                         Process.killProcess(Process.myPid());
                     }
-
-                    DeviceFormFactor.resetValuesIfNeeded(mApplication);
                 }
             }
         };

@@ -26,6 +26,10 @@ class GlassBrowserFrameView : public BrowserNonClientFrameView,
                               public TabIconViewModel,
                               public TabStripObserver {
  public:
+  // Alpha to use for features in the titlebar (the window title and caption
+  // buttons) when the window is inactive. They are opaque when active.
+  static constexpr SkAlpha kInactiveTitlebarFeatureAlpha = 0x65;
+
   // Constructs a non-client view for an BrowserFrame.
   GlassBrowserFrameView(BrowserFrame* frame, BrowserView* browser_view);
   ~GlassBrowserFrameView() override;
@@ -36,6 +40,7 @@ class GlassBrowserFrameView : public BrowserNonClientFrameView,
   int GetThemeBackgroundXInset() const override;
   void UpdateThrobber(bool running) override;
   gfx::Size GetMinimumSize() const override;
+  int GetTabStripLeftInset() const override;
   void OnBrowserViewInitViewsComplete() override;
 
   // views::NonClientFrameView:
@@ -131,7 +136,8 @@ class GlassBrowserFrameView : public BrowserNonClientFrameView,
   bool ShowCustomTitle() const;
   bool ShowSystemIcon() const;
 
-  Windows10CaptionButton* CreateCaptionButton(ViewID button_type);
+  Windows10CaptionButton* CreateCaptionButton(ViewID button_type,
+                                              int accessible_name_resource_id);
 
   // Paint various sub-components of this view.
   void PaintTitlebar(gfx::Canvas* canvas) const;

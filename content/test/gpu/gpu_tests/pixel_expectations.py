@@ -56,6 +56,9 @@ class PixelExpectations(GpuTestExpectations):
     self.Flaky('*', ['linux', 'intel', 'debug'], bug=648369)
 
     self.Flaky('Pixel_Video_MP4', ['android', 'nvidia'], bug=716564)
+    self.Fail('Pixel_Video_MP4',
+        ['android', ('qualcomm', 'Adreno (TM) 418')], bug=820240)
+    self.Flaky('Pixel_Video_MP4', ['linux', 'nvidia'], bug=819635)
 
     # TODO(junov); validate new test results
     self.Fail('Pixel_CanvasLowLatency2D',
@@ -72,14 +75,14 @@ class PixelExpectations(GpuTestExpectations):
                bug=660461)
 
     self.Flaky('Pixel_OffscreenCanvas2DResizeOnWorker',
-        ['win10', ('intel', 0x1912), 'android'], bug=690663)
+        ['win10', ('intel', 0x1912)], bug=690663)
 
     self.Flaky('Pixel_OffscreenCanvasTransferBeforeStyleResize',
               ['mac', 'linux', 'win', 'android'], bug=735228)
     self.Flaky('Pixel_OffscreenCanvasTransferAfterStyleResize',
               ['mac', 'linux', 'win', 'android'], bug=735171)
     self.Flaky('Pixel_OffscreenCanvasTransferToImageBitmap',
-              ['linux', 'android'], bug=807742)
+              ['linux', 'win', 'android'], bug=807742)
 
     self.Flaky('Pixel_OffscreenCanvasWebGLSoftwareCompositingWorker',
         ['mac', ('nvidia', 0xfe9), 'debug'], bug=751328)
@@ -102,27 +105,6 @@ class PixelExpectations(GpuTestExpectations):
     self.Fail('Pixel_WebGL_PremultipliedAlpha_False',
               ['android', 'nvidia'], bug=791733)
 
-    # Temporary supression to rebaseline Video tests on Windows with the
-    # passthrough command decoder
-    self.Fail('Pixel_Video_MP4', ['win', 'intel'], bug=602688)
-    self.Fail('Pixel_Video_VP9', ['win', 'intel'], bug=602688)
-    self.Fail('Pixel_DirectComposition_Video_VP9', ['win', 'intel'],
-        bug=602688)
-
-    # Prepare for Skia's Delta Anti-Aliasing golden images rebaseline
-    self.Fail('Pixel_OffscreenCanvasAccelerated2D',
-              ['mac', 'linux', 'win', 'android', 'chromeos'], bug=817110)
-    self.Fail('Pixel_OffscreenCanvasAccelerated2DWorker',
-              ['mac', 'linux', 'win', 'android', 'chromeos'], bug=817110)
-    self.Fail('Pixel_OffscreenCanvasUnaccelerated2D',
-              ['mac', 'linux', 'win', 'android', 'chromeos'], bug=817110)
-    self.Fail('Pixel_OffscreenCanvasUnaccelerated2DGPUCompositing',
-              ['mac', 'linux', 'win', 'android', 'chromeos'], bug=817110)
-    self.Fail('Pixel_OffscreenCanvasUnaccelerated2DGPUCompositingWorker',
-              ['mac', 'linux', 'win', 'android', 'chromeos'], bug=817110)
-    self.Fail('Pixel_OffscreenCanvasUnaccelerated2DWorker',
-              ['mac', 'linux', 'win', 'android', 'chromeos'], bug=817110)
-
     # TODO(zmo): temporarily suppress these two tests until new
     # reference images with new names are generated.
     self.Fail('Pixel_Canvas2DRedBox_NoGpuProcess',
@@ -130,12 +112,9 @@ class PixelExpectations(GpuTestExpectations):
     self.Fail('Pixel_CSS3DBlueBox_NoGpuProcess',
               ['linux', 'mac', 'win'], bug=744658)
 
-    self.Flaky('Pixel_2DCanvasWebGL', ['android'], bug=807370)
-    self.Flaky('Pixel_Canvas2DRedBox', ['android'], bug=809846)
-    self.Flaky('Pixel_CanvasDisplayLinearRGBAccelerated2D', ['android'],
-               bug=809868)
-    self.Flaky('Pixel_CanvasDisplayLinearRGBUnaccelerated2DGPUCompositing',
-               ['android'], bug=810006)
+    # TODO(hubbe): Temporary supressions for rebaseline
+    self.Fail('Pixel_Video_VP9', bug=754986)
+    self.Fail('Pixel_DirectComposition_Video_VP9', bug=754986)
 
-    self.Fail('Pixel_CSSFilterEffects', ['mac'], bug=815045)
-    self.Fail('Pixel_CSSFilterEffects_NoOverlays', ['mac'], bug=815045)
+    # TODO(kbr): temporary suppression for new test.
+    self.Fail('Pixel_WebGLSadCanvas', bug=575305)

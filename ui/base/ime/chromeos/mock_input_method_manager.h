@@ -57,6 +57,9 @@ class UI_BASE_IME_EXPORT MockInputMethodManager : public InputMethodManager {
     bool SetAllowedInputMethods(
         const std::vector<std::string>& new_allowed_input_method_ids) override;
     const std::vector<std::string>& GetAllowedInputMethods() override;
+    void EnableInputView() override;
+    void DisableInputView() override;
+    const GURL& GetInputViewUrl() const override;
 
     // The active input method ids cache (actually default only)
     std::vector<std::string> active_input_method_ids;
@@ -106,7 +109,7 @@ class UI_BASE_IME_EXPORT MockInputMethodManager : public InputMethodManager {
       const std::string& engine_id,
       const std::vector<InputMethodManager::MenuItem>& items) override;
   void MaybeNotifyImeMenuActivationChanged() override;
-  void OverrideKeyboardUrlRef(const std::string& keyset) override;
+  void OverrideKeyboardKeyset(mojom::ImeKeyset keyset) override;
   void SetImeMenuFeatureEnabled(ImeMenuFeature feature, bool enabled) override;
   bool GetImeMenuFeatureEnabled(ImeMenuFeature feature) const override;
   void NotifyObserversImeExtraInputStateChange() override;

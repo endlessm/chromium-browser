@@ -26,11 +26,13 @@
 <translation id="1537254971476575106">Lupa celé obrazovky</translation>
 <translation id="15373452373711364">Velký kurzor myši</translation>
 <translation id="1550523713251050646">Kliknutím zobrazíte další možnosti</translation>
+<translation id="1567387640189251553">Od minulého zadání hesla byla připojena jiná klávesnice. Je možné, že se pokouší odcizit vaše stisknutí kláves.</translation>
 <translation id="1608626060424371292">Odebrat tohoto uživatele</translation>
 <translation id="1621499497873603021">Čas zbývající do vybití baterie: <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">Je nám líto, vaše heslo se stále nedaří ověřit. Poznámka: Pokud jste heslo nedávno změnili, bude nové heslo možné použít až po odhlášení. Zde použijte staré heslo.</translation>
 <translation id="1677472565718498478">Zbývající čas: <ph name="TIME" /></translation>
 <translation id="1698760176351776263">Adresa IPv6: <ph name="ADDRESS" /></translation>
+<translation id="170389796989115980">Správce zařízení může mít možnost sledovat vaši aktivitu.</translation>
 <translation id="1734367976349034509">Toto zařízení je spravováno organizací</translation>
 <translation id="1746730358044914197">Metody zadávání nastavuje váš administrátor.</translation>
 <translation id="1747827819627189109">Softwarová klávesnice je aktivována</translation>
@@ -41,9 +43,11 @@
 <translation id="1882897271359938046">Zrcadlení na displej <ph name="DISPLAY_NAME" /></translation>
 <translation id="1919743966458266018">Zkratka k otevření správce úloh se změnila. Namísto zkratky <ph name="OLD_SHORTCUT" /> používejte zkratku <ph name="NEW_SHORTCUT" />.</translation>
 <translation id="1923539912171292317">Automatická kliknutí</translation>
+<translation id="1928739107511554905">K získání aktualizace Chromebook pomocí dotykové obrazovky restartujte s připojenou klávesnicí.</translation>
 <translation id="1942830294380034169">Tlačítko přetečení</translation>
 <translation id="1951012854035635156">Asistent</translation>
 <translation id="1957803754585243749">0°</translation>
+<translation id="1957958912175573503">Nastavit jazyk</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
 <translation id="1995660704900986789">Vypnout</translation>
 <translation id="2012624427112548395">Ctrl+Hledat+H</translation>
@@ -63,6 +67,7 @@
 <translation id="2292698582925480719">Měřítko displeje</translation>
 <translation id="2303600792989757991">Přepnutí přehledu okna</translation>
 <translation id="2338501278241028356">Chcete-li objevit okolní zařízení, zapněte Bluetooth</translation>
+<translation id="2351266942280602854">Jazyk a vstup</translation>
 <translation id="2352467521400612932">Nastavení dotykového pera</translation>
 <translation id="2354174487190027830">Aktivace sítě <ph name="NAME" /></translation>
 <translation id="2365393535144473978">Zapnutím mobilních dat aktivujete Bluetooth.</translation>
@@ -78,6 +83,9 @@
 <translation id="2653659639078652383">Odeslat</translation>
 <translation id="2675319268637823299">Administrátor vícenásobné přihlášení pro účet <ph name="USER_EMAIL" /> zakázal.
     Všichni uživatelé se před pokračováním musejí odhlásit.</translation>
+<translation id="2696763960464195425">Informace budou po odhlášení odstraněny. <ph name="LEARN_MORE" /></translation>
+<translation id="2700493154570097719">Nastavit klávesnici</translation>
+<translation id="2718395828230677721">Noční režim</translation>
 <translation id="2727977024730340865">Byla připojena nabíječka s nízkým výkonem. Nabíjení baterie nemusí probíhat spolehlivě.</translation>
 <translation id="2761704814324807722">Systémový panel, čas <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581">Obnovování připojení k síti <ph name="NAME" /></translation>
@@ -100,9 +108,11 @@
 <translation id="3077734595579995578">shift</translation>
 <translation id="3087734570205094154">Až dolů</translation>
 <translation id="3105990244222795498"><ph name="DEVICE_NAME" /> (Bluetooth)</translation>
+<translation id="3112378005171663295">Sbalit</translation>
 <translation id="3126069444801937830">Restartovat a aktualizovat</translation>
 <translation id="3147142846278915599">Spouštěč (synchronizace aplikací...)</translation>
 <translation id="315116470104423982">Mobilní datové přenosy</translation>
+<translation id="3151786313568798007">Orientace</translation>
 <translation id="3153444934357957346">Počet účtů, které lze v rámci vícenásobného přihlášení používat, je omezen na <ph name="MULTI_PROFILE_USER_LIMIT" />.</translation>
 <translation id="3236488194889173876">Není k dispozici žádná mobilní síť</translation>
 <translation id="3294437725009624529">Host</translation>
@@ -124,6 +134,7 @@
 <translation id="3621202678540785336">Vstup</translation>
 <translation id="3626281679859535460">Jas</translation>
 <translation id="3631369015426612114">Povolit oznámení z následujících zdrojů</translation>
+<translation id="3705722231355495246">-</translation>
 <translation id="3712407551474845318">Pořídit snímek oblasti</translation>
 <translation id="371370241367527062">Přední mikrofon</translation>
 <translation id="3771549900096082774">Režim vysokého kontrastu</translation>
@@ -168,6 +179,7 @@
 <translation id="4905614135390995787">Zkratka k přepínání režimu vysokého kontrastu se změnila. Namísto zkratky <ph name="OLD_SHORTCUT" /> používejte zkratku <ph name="NEW_SHORTCUT" />.</translation>
 <translation id="4918086044614829423">Přijmout</translation>
 <translation id="4961318399572185831">Odesílání obrazovky</translation>
+<translation id="5136175204352732067">Je připojena jiná klávesnice</translation>
 <translation id="5168181903108465623">Dostupná zařízení Cast</translation>
 <translation id="5207949376430453814">Zvýraznit textový kurzor</translation>
 <translation id="5222676887888702881">Odhlásit se</translation>
@@ -179,6 +191,7 @@
 <translation id="5431825016875453137">OpenVPN/L2TP</translation>
 <translation id="544691375626129091">Do této relace již byli přidáni všichni dostupní uživatelé.</translation>
 <translation id="5457599981699367932">Použít jako host</translation>
+<translation id="54609108002486618">Spravovaný</translation>
 <translation id="553675580533261935">Ukončení relace</translation>
 <translation id="5548285847212963613">S připojení k této síti může pomoci rozšíření <ph name="EXTENSION_NAME" />.</translation>
 <translation id="5571066253365925590">Rozhraní Bluetooth aktivováno</translation>
@@ -203,6 +216,7 @@
 <translation id="5977415296283489383">Sluchátka</translation>
 <translation id="5978382165065462689">Ovládání obrazovky je sdíleno prostřednictvím Vzdálené pomoci.</translation>
 <translation id="5980301590375426705">Odhlásit hosta</translation>
+<translation id="598882571027504733">Aktualizaci nainstalujete tím, že Chromebook s připojenou klávesnicí restartujete.</translation>
 <translation id="5992218262414051481">Je aktivován režim vysokého kontrastu. Vypnete jej opětovným stisknutím kombinace kláves Ctrl+Hledat+H.</translation>
 <translation id="6018164090099858612">Ukončování režimu zrcadlení</translation>
 <translation id="6043212731627905357">Tento monitor si se zařízením <ph name="DEVICE_TYPE" /> nerozumí (monitor není podporován).</translation>
@@ -239,6 +253,7 @@ Tuto funkci používejte pouze s účty, kterým důvěřujete.</translation>
 <translation id="6650933572246256093">Zařízení Bluetooth „<ph name="DEVICE_NAME" />“ žádá o povolení ke spárování. V zařízení prosím zadejte následující přístupový klíč: <ph name="PASSKEY" /></translation>
 <translation id="6657585470893396449">Heslo</translation>
 <translation id="6691659475504239918">Hledat+Shift+H</translation>
+<translation id="6696025732084565524">Odpojitelná klávesnice vyžaduje kritickou aktualizaci</translation>
 <translation id="6700713906295497288">Tlačítko nabídky IME</translation>
 <translation id="6713285437468012787">Zařízení Bluetooth „<ph name="DEVICE_NAME" />“ bylo spárováno a je teď k dispozici všem uživatelům. Toto párování můžete odebrat pomocí Nastavení.</translation>
 <translation id="6715542151869432661">Nebyla nalezena žádná mobilní zařízení.</translation>
@@ -258,6 +273,7 @@ Tuto funkci používejte pouze s účty, kterým důvěřujete.</translation>
 <translation id="7098389117866926363">Zařízení USB Type-C (levý zadní port)</translation>
 <translation id="7131634465328662194">Budete automaticky odhlášeni.</translation>
 <translation id="7165278925115064263">Alt + Shift + K</translation>
+<translation id="7165511658052620796">(TEMP) Show webui login; if used file bug (crbug.com) or feedback (alt+shift+i)</translation>
 <translation id="7168224885072002358">Původní rozlišení bude obnoveno za <ph name="TIMEOUT_SECONDS" /></translation>
 <translation id="7256634071279256947">Zadní mikrofon</translation>
 <translation id="726276584504105859">Chcete-li použít rozdělenou obrazovku, přetáhněte okno sem</translation>
@@ -317,6 +333,8 @@ Tuto funkci používejte pouze s účty, kterým důvěřujete.</translation>
 <translation id="8652175077544655965">Zavřít nastavení</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">Byla připojena nabíječka s nízkým napětím</translation>
+<translation id="8734991477317290293">Je možné, že se pokouší odcizit vaše stisknutí kláves.</translation>
+<translation id="8809737090443522491">Zadejte název aplikace nebo dokumentu</translation>
 <translation id="8814190375133053267">Wi-Fi</translation>
 <translation id="8814715559352963456">Přesunutí oken na jinou plochu může způsobit neočekávané chování.
 
@@ -330,6 +348,7 @@ Následné oznámení, okna a dialogy mohou být rozděleny mezi plochy.</trans
 <translation id="8921624153894383499">Tímto jazykem Asistent Google nehovoří.</translation>
 <translation id="8938800817013097409">Zařízení USB Type-C (pravý zadní port)</translation>
 <translation id="8940956008527784070">Slabá baterie (<ph name="PERCENTAGE" /> %)</translation>
+<translation id="8995603266996330174">Správce: <ph name="DOMAIN" /></translation>
 <translation id="9074739597929991885">Bluetooth</translation>
 <translation id="9079731690316798640">Wi-Fi: <ph name="ADDRESS" /></translation>
 <translation id="9080206825613744995">Mikrofon je používán.</translation>

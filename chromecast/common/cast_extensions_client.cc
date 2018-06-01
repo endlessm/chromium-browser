@@ -10,6 +10,11 @@
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "chromecast/common/extensions_api/cast_api_features.h"
+#include "chromecast/common/extensions_api/cast_behavior_features.h"
+#include "chromecast/common/extensions_api/cast_manifest_features.h"
+#include "chromecast/common/extensions_api/cast_permission_features.h"
+#include "chromecast/common/extensions_api/generated_schemas.h"
 #include "components/version_info/version_info.h"
 #include "content/public/common/user_agent.h"
 #include "extensions/common/api/generated_schemas.h"
@@ -20,21 +25,22 @@
 #include "extensions/common/features/manifest_feature.h"
 #include "extensions/common/features/simple_feature.h"
 #include "extensions/common/manifest_handler.h"
+#include "extensions/common/manifest_handlers/content_scripts_handler.h"
 #include "extensions/common/permissions/permission_message_provider.h"
 #include "extensions/common/permissions/permissions_info.h"
 #include "extensions/common/permissions/permissions_provider.h"
 #include "extensions/common/url_pattern_set.h"
 #include "extensions/grit/extensions_resources.h"
-#include "extensions/shell/common/api/generated_schemas.h"
-#include "extensions/shell/common/api/shell_api_features.h"
-#include "extensions/shell/common/api/shell_behavior_features.h"
-#include "extensions/shell/common/api/shell_manifest_features.h"
-#include "extensions/shell/common/api/shell_permission_features.h"
 #include "extensions/shell/grit/app_shell_resources.h"
 
 namespace extensions {
 
 namespace {
+
+void RegisterCastManifestHandlers() {
+  DCHECK(!ManifestHandler::IsRegistrationFinalized());
+  (new ContentScriptsHandler)->Register();
+}
 
 // TODO(jamescook): Refactor ChromePermissionsMessageProvider so we can share
 // code. For now, this implementation does nothing.
@@ -81,6 +87,7 @@ CastExtensionsClient::~CastExtensionsClient() {}
 
 void CastExtensionsClient::Initialize() {
   RegisterCommonManifestHandlers();
+  RegisterCastManifestHandlers();
   ManifestHandler::FinalizeRegistration();
   // TODO(jamescook): Do we need to whitelist any extensions?
 
@@ -105,19 +112,13 @@ std::unique_ptr<FeatureProvider> CastExtensionsClient::CreateFeatureProvider(
     const std::string& name) const {
   std::unique_ptr<FeatureProvider> provider;
   if (name == "api") {
-    provider = std::make_unique<ShellAPIFeatureProvider>();
+    provider = std::make_unique<CastAPIFeatureProvider>();
   } else if (name == "manifest") {
-    provider = std::make_unique<ShellManifestFeatureProvider>();
-
-    auto* feature = new extensions::ManifestFeature();
-    feature->set_name("cast_url");
-    feature->set_channel(version_info::Channel::STABLE);
-    feature->set_extension_types({extensions::Manifest::TYPE_PLATFORM_APP});
-    provider->AddFeature("cast_url", feature);
+    provider = std::make_unique<CastManifestFeatureProvider>();
   } else if (name == "permission") {
-    provider = std::make_unique<ShellPermissionFeatureProvider>();
+    provider = std::make_unique<CastPermissionFeatureProvider>();
   } else if (name == "behavior") {
-    provider = std::make_unique<ShellBehaviorFeatureProvider>();
+    provider = std::make_unique<CastBehaviorFeatureProvider>();
   } else {
     NOTREACHED();
   }
@@ -166,14 +167,14 @@ bool CastExtensionsClient::IsScriptableURL(const GURL& url,
 
 bool CastExtensionsClient::IsAPISchemaGenerated(const std::string& name) const {
   return api::GeneratedSchemas::IsGenerated(name) ||
-         shell::api::ShellGeneratedSchemas::IsGenerated(name);
+         cast::api::CastGeneratedSchemas::IsGenerated(name);
 }
 
 base::StringPiece CastExtensionsClient::GetAPISchema(
     const std::string& name) const {
   // Schema for cast_shell-only APIs.
-  if (shell::api::ShellGeneratedSchemas::IsGenerated(name))
-    return shell::api::ShellGeneratedSchemas::Get(name);
+  if (cast::api::CastGeneratedSchemas::IsGenerated(name))
+    return cast::api::CastGeneratedSchemas::Get(name);
 
   // Core extensions APIs.
   return api::GeneratedSchemas::Get(name);

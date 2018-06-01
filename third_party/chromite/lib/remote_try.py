@@ -7,6 +7,7 @@
 
 from __future__ import print_function
 
+import collections
 import getpass
 import json
 import os
@@ -35,6 +36,20 @@ class ValidationError(Exception):
 
 class RemoteRequestFailure(Exception):
   """Thrown when requesting a tryjob fails."""
+
+
+# Contains the results of a single scheduled build.
+ScheduledBuild = collections.namedtuple(
+    'ScheduledBuild', ('buildbucket_id', 'build_config', 'url'))
+
+
+def TryJobUrl(buildbucket_id):
+  """Get link to the build UI for a given build.
+
+  Returns:
+    The URL as a string to view the given build.
+  """
+  return BUILD_DETAILS_PATTERN % {'buildbucket_id': buildbucket_id}
 
 
 def DefaultDescription(description_branch='master', patches=None):
@@ -131,9 +146,6 @@ class RemoteTryJob(object):
     # Needed for handling local patches.
     self.manifest = git.ManifestCheckout.Cached(constants.SOURCE_ROOT)
 
-    # List of buildbucket_ids for submitted jobs.
-    self.buildbucket_ids = []
-
   def _VerifyForBuildbot(self):
     """Early validation, to ensure the job can be processed by buildbot."""
 
@@ -163,6 +175,9 @@ class RemoteTryJob(object):
       testjob: Submit job to the test branch of the tryjob repo.  The tryjob
                will be ignored by production master.
       dryrun: Setting to true will run everything except the final submit step.
+
+    Returns:
+      List of ScheduledBuild instances for each build scheduled.
     """
     # TODO(rcui): convert to shallow clone when that's available.
     current_time = str(int(time.time()))
@@ -189,7 +204,7 @@ class RemoteTryJob(object):
                                 patch.tracking_branch, tag))
 
     self._VerifyForBuildbot()
-    self._PostConfigsToBuildBucket(testjob, dryrun)
+    return self._PostConfigsToBuildBucket(testjob, dryrun)
 
   def _GetBuilder(self, bot):
     """Find and return the builder for bot."""
@@ -216,36 +231,42 @@ class RemoteTryJob(object):
     else:
       bucket = constants.TRYSERVER_BUILDBUCKET_BUCKET
 
-    # TODO: Find a way to unify these tags with
-    #       ScheduleSlavesStage.PostSlaveBuildToBuildbucket
-    tags = ['cbb_display_label:%s' % self.display_label,
-            'cbb_branch:%s' % self.branch,
-            'cbb_config:%s' % bot,
-            'cbb_master_build_id:%s' % self.master_buildbucket_id,
-            'cbb_email:%s' % self.user_email,]
+    tags = {
+        'cbb_display_label': self.display_label,
+        'cbb_branch': self.branch,
+        'cbb_config': bot,
+        'cbb_email': self.user_email,
+        'cbb_master_build_id': self.master_buildbucket_id,
+    }
 
-    # Add build_type tag for Pre-CQ builds.
-    if (bot in site_config and
-        site_config[bot]['build_type'] == constants.PRE_CQ_TYPE):
-      tags.append('build_type:%s' % constants.PRE_CQ_TYPE)
+    # Don't include tags with no value, there is no point.
+    tags = {k: v for k, v in tags.iteritems() if v}
+
+    # All tags should also be listed as properties.
+    properties = tags.copy()
+    properties.update({
+        'bot' : self.build_configs,
+        'cbb_extra_args': self.extra_args,
+        'email': [self.user_email],
+        'extra_args' : self.extra_args,
+        'name' : self.name,
+        'owners': [self.user_email],
+        'user' : self.user,
+    })
+
+    parameters = {
+        'builder_name': 'Generic',
+        'properties': properties,
+    }
+
+    if self.swarming:
+      parameters['email_notify'] = [{'email': self.user_email}]
 
     return {
         'bucket': bucket,
-        'parameters_json': json.dumps({
-            'builder_name': 'Generic',
-            'properties': {
-                'bot' : self.build_configs,
-                'email' : [self.user_email],
-                'extra_args' : self.extra_args,
-                'name' : self.name,
-                'user' : self.user,
-                'cbb_config': bot,
-                'cbb_extra_args': self.extra_args,
-                'owners': [self.user_email],
-            },
-        }),
+        'parameters_json': json.dumps(parameters, sort_keys=True),
         # These tags are indexed and searchable in buildbucket.
-        'tags': tags,
+        'tags': ['%s:%s' % (k, tags[k]) for k in sorted(tags.keys())],
     }
 
   def _PutConfigToBuildBucket(self, buildbucket_client, bot, dryrun):
@@ -254,7 +275,13 @@ class RemoteTryJob(object):
     Args:
       buildbucket_client: The buildbucket client instance.
       bot: The bot config to put.
-      dryrun: Whether a dryrun.
+      dryrun: bool controlling dryrun behavior.
+
+    Returns:
+      ScheduledBuild describing the scheduled build.
+
+    Raises:
+      RemoteRequestFailure.
     """
     request_body = self._GetRequestBody(bot)
     content = buildbucket_client.PutBuildRequest(
@@ -267,9 +294,10 @@ class RemoteTryJob(object):
            buildbucket_lib.GetErrorMessage(content)))
 
     buildbucket_id = buildbucket_lib.GetBuildId(content)
-    self.buildbucket_ids.append(buildbucket_id)
-    print(self.BUILDBUCKET_PUT_RESP_FORMAT %
-          (constants.TRYSERVER_BUILDBUCKET_BUCKET, bot, buildbucket_id))
+    logging.info(self.BUILDBUCKET_PUT_RESP_FORMAT,
+                 (constants.TRYSERVER_BUILDBUCKET_BUCKET, bot, buildbucket_id))
+
+    return ScheduledBuild(buildbucket_id, bot, TryJobUrl(buildbucket_id))
 
   def _PostConfigsToBuildBucket(self, testjob=False, dryrun=False):
     """Posts the tryjob configs to buildbucket.
@@ -277,6 +305,9 @@ class RemoteTryJob(object):
     Args:
       dryrun: Whether to skip the request to buildbucket.
       testjob: Whether to use the test instance of the buildbucket server.
+
+    Returns:
+      List of ScheduledBuild instances for each build scheduled.
     """
     host = (buildbucket_lib.BUILDBUCKET_TEST_HOST if testjob
             else buildbucket_lib.BUILDBUCKET_HOST)
@@ -285,30 +316,5 @@ class RemoteTryJob(object):
         service_account_json=buildbucket_lib.GetServiceAccount(
             constants.CHROMEOS_SERVICE_ACCOUNT))
 
-    for bot in self.build_configs:
-      self._PutConfigToBuildBucket(buildbucket_client, bot, dryrun)
-
-  def GetTrybotWaterfallLinks(self):
-    """Get link to the waterfall for the user.
-
-    Returns:
-      List of URLs to view submitted tryjobs.
-    """
-    results = []
-    # GE build details page(s)
-    results.extend([BUILD_DETAILS_PATTERN % {'buildbucket_id': b}
-                    for b in self.buildbucket_ids])
-
-    if not self.swarming:
-      # TODO: Remove waterfall links after some soak time.
-
-      # Note that this will only show the jobs submitted by the user in the last
-      # 24 hours.
-      builders = set(self._GetBuilder(bot) for bot in self.build_configs)
-      results.append(
-          '%s/waterfall?committer=%s&%s' % (
-              constants.TRYBOT_DASHBOARD, self.user_email,
-              '&'.join('builder=%s' % b for b in sorted(builders)))
-      )
-
-    return results
+    return [self._PutConfigToBuildBucket(buildbucket_client, bot, dryrun)
+            for bot in self.build_configs]

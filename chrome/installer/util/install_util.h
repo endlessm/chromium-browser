@@ -89,6 +89,14 @@ class InstallUtil {
   // Returns true if the sentinel file exists (or the path cannot be obtained).
   static bool IsFirstRunSentinelPresent();
 
+  // Test to see if a Start menu shortcut exists with the right toast activator
+  // CLSID registered.
+  static bool IsStartMenuShortcutWithActivatorGuidInstalled();
+
+  // Returns the toast activator registry path if found, or an empty string in
+  // case of error.
+  static base::string16 GetToastActivatorRegistryPath();
+
   // Populates |path| with EULA sentinel file path. Returns false on error.
   static bool GetEULASentinelFilePath(base::FilePath* path);
 
@@ -181,6 +189,23 @@ class InstallUtil {
       const base::Version& new_version,
       const BrowserDistribution* dist,
       WorkItemList* list);
+
+  // Returns the registry key path and value name where the enrollment token is
+  // stored for machine level user cloud policies.
+  static void GetMachineLevelUserCloudPolicyEnrollmentTokenRegistryPath(
+      std::wstring* key_path,
+      std::wstring* value_name);
+
+  // Returns the registry key path and value name where the enrollment token is
+  // stored for machine level user cloud policies.
+  static void GetMachineLevelUserCloudPolicyDMTokenRegistryPath(
+      std::wstring* key_path,
+      std::wstring* value_name);
+
+  // Returns the token used to enroll this chrome instance for machine level
+  // user cloud policies.  Returns an empty string if this machine should not
+  // be enrolled.
+  static std::wstring GetMachineLevelUserCloudPolicyEnrollmentToken();
 
   // A predicate that compares the program portion of a command line with a
   // given file path.  First, the file paths are compared directly.  If they do

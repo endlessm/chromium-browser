@@ -10,7 +10,7 @@
 #include "base/macros.h"
 #include "chrome/common/page_load_metrics/page_load_timing.h"
 #include "content/public/renderer/render_frame_observer.h"
-#include "third_party/WebKit/public/platform/WebLoadingBehaviorFlag.h"
+#include "third_party/blink/public/platform/web_loading_behavior_flag.h"
 
 namespace base {
 class Timer;
@@ -36,6 +36,8 @@ class MetricsRenderFrameObserver : public content::RenderFrameObserver {
   void DidObserveLoadingBehavior(
       blink::WebLoadingBehaviorFlag behavior) override;
   void DidObserveNewFeatureUsage(blink::mojom::WebFeature feature) override;
+  void DidObserveNewCssPropertyUsage(int css_property,
+                                     bool is_animated) override;
   void DidCommitProvisionalLoad(bool is_new_navigation,
                                 bool is_same_document_navigation) override;
   void OnDestruct() override;

@@ -32,6 +32,8 @@
 #include "ash/system/ime/tray_ime_chromeos.h"
 #include "ash/system/keyboard_brightness/tray_keyboard_brightness.h"
 #include "ash/system/media_security/multi_profile_media_tray_item.h"
+#include "ash/system/model/clock_model.h"
+#include "ash/system/model/system_tray_model.h"
 #include "ash/system/network/tray_network.h"
 #include "ash/system/network/tray_vpn.h"
 #include "ash/system/night_light/tray_night_light.h"
@@ -236,14 +238,14 @@ SystemTray::~SystemTray() {
 
 void SystemTray::InitializeTrayItems(
     WebNotificationTray* web_notification_tray) {
-  DCHECK(web_notification_tray);
+  DCHECK(web_notification_tray || features::IsSystemTrayUnifiedEnabled());
   web_notification_tray_ = web_notification_tray;
   TrayBackgroundView::Initialize();
   CreateItems();
 }
 
 void SystemTray::Shutdown() {
-  DCHECK(web_notification_tray_);
+  DCHECK(web_notification_tray_ || features::IsSystemTrayUnifiedEnabled());
   web_notification_tray_ = nullptr;
 }
 
@@ -260,7 +262,8 @@ void SystemTray::CreateItems() {
   AddTrayItem(base::WrapUnique(tray_enterprise_));
   tray_supervised_user_ = new TraySupervisedUser(this);
   AddTrayItem(base::WrapUnique(tray_supervised_user_));
-  AddTrayItem(std::make_unique<TrayIME>(this));
+  tray_ime_ = new TrayIME(this);
+  AddTrayItem(base::WrapUnique(tray_ime_));
   tray_accessibility_ = new TrayAccessibility(this);
   AddTrayItem(base::WrapUnique(tray_accessibility_));
   tray_tracing_ = new TrayTracing(this);
@@ -269,8 +272,10 @@ void SystemTray::CreateItems() {
       std::make_unique<TrayPower>(this, message_center::MessageCenter::Get()));
   tray_network_ = new TrayNetwork(this);
   AddTrayItem(base::WrapUnique(tray_network_));
-  AddTrayItem(std::make_unique<TrayVPN>(this));
-  AddTrayItem(std::make_unique<TrayBluetooth>(this));
+  tray_vpn_ = new TrayVPN(this);
+  AddTrayItem(base::WrapUnique(tray_vpn_));
+  tray_bluetooth_ = new TrayBluetooth(this);
+  AddTrayItem(base::WrapUnique(tray_bluetooth_));
   tray_cast_ = new TrayCast(this);
   AddTrayItem(base::WrapUnique(tray_cast_));
   screen_capture_tray_item_ = new ScreenCaptureTrayItem(this);
@@ -399,6 +404,26 @@ views::View* SystemTray::GetHelpButtonView() const {
 
 TrayAudio* SystemTray::GetTrayAudio() const {
   return tray_audio_;
+}
+
+TrayNetwork* SystemTray::GetTrayNetwork() const {
+  return tray_network_;
+}
+
+TrayBluetooth* SystemTray::GetTrayBluetooth() const {
+  return tray_bluetooth_;
+}
+
+TrayAccessibility* SystemTray::GetTrayAccessibility() const {
+  return tray_accessibility_;
+}
+
+TrayVPN* SystemTray::GetTrayVPN() const {
+  return tray_vpn_;
+}
+
+TrayIME* SystemTray::GetTrayIME() const {
+  return tray_ime_;
 }
 
 void SystemTray::CanSwitchAwayFromActiveUser(
@@ -531,7 +556,7 @@ void SystemTray::UpdateWebNotifications() {
 base::string16 SystemTray::GetAccessibleTimeString(
     const base::Time& now) const {
   base::HourClockType hour_type =
-      Shell::Get()->system_tray_controller()->hour_clock_type();
+      Shell::Get()->system_tray_model()->clock()->hour_clock_type();
   return base::TimeFormatTimeOfDayWithHourClockType(now, hour_type,
                                                     base::kKeepAmPm);
 }
@@ -581,7 +606,7 @@ bool SystemTray::PerformAction(const ui::Event& event) {
       LoginMetricsRecorder::TrayClickTarget::kSystemTray);
 
   if (features::IsSystemTrayUnifiedEnabled()) {
-    return shelf()->GetStatusAreaWidget()->system_tray_unified()->PerformAction(
+    return shelf()->GetStatusAreaWidget()->unified_system_tray()->PerformAction(
         event);
   }
 

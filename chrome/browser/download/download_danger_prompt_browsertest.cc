@@ -6,7 +6,6 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/download/download_danger_prompt.h"
@@ -20,10 +19,10 @@
 #include "chrome/browser/ui/test/test_browser_dialog.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/download/public/common/mock_download_item.h"
 #include "components/safe_browsing/db/database_manager.h"
 #include "components/safe_browsing/proto/csd.pb.h"
 #include "content/public/browser/download_item_utils.h"
-#include "content/public/test/mock_download_item.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/ui_base_features.h"
@@ -148,7 +147,7 @@ class DownloadDangerPromptTest
     prompt_->InvokeActionForTesting(action);
   }
 
-  content::MockDownloadItem& download() { return download_; }
+  download::MockDownloadItem& download() { return download_; }
 
   DownloadDangerPrompt* prompt() { return prompt_; }
 
@@ -202,7 +201,7 @@ class DownloadDangerPromptTest
     prompt_ = nullptr;
   }
 
-  content::MockDownloadItem download_;
+  download::MockDownloadItem download_;
   DownloadDangerPrompt* prompt_;
   DownloadDangerPrompt::Action expected_action_;
   bool did_receive_callback_;
@@ -371,7 +370,7 @@ class DownloadDangerPromptBrowserTest : public DialogBrowserTest {
 
   download::DownloadDangerType danger_type_;
   InvocationType invocation_type_;
-  content::MockDownloadItem download_;
+  download::MockDownloadItem download_;
 
   DISALLOW_COPY_AND_ASSIGN(DownloadDangerPromptBrowserTest);
 };

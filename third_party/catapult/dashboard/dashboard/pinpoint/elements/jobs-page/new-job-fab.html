@@ -22,9 +22,12 @@ found in the LICENSE file.
 <dom-module id="new-job-fab">
   <template>
     <style include="base-style">
-      paper-dropdown-menu,
-      paper-input {
-        min-width: 30em;
+      paper-dropdown-menu {
+        width: 100%;
+      }
+
+      paper-dialog {
+        width: 30em;
       }
 
       .error {
@@ -38,15 +41,17 @@ found in the LICENSE file.
     <paper-dialog id="try_dialog" entry-animation="fade-in-animation" exit-animation="fade-out-animation">
       <h2>Run a try job</h2>
       <div>
+        <p>
+          See the performance impact of a patch on a benchmark. A try job runs
+          HEAD and HEAD + patch, and compares all the metrics between the two.
+        </p>
         <template is="dom-if" if="[[error]]">
           <p class="error">[[error]]
         </template>
         <iron-ajax auto url="/api/config" last-response="{{config}}"></iron-ajax>
-        <iron-form id="try_form" with-credentials headers="[[authHeaders]]" on-iron-form-error="handleError" on-iron-form-response="handleResponse">
+        <iron-form id="try_form" headers="[[authHeaders]]" on-iron-form-error="handleError" on-iron-form-response="handleResponse">
           <form action="/api/new" method="POST">
-            <input type="hidden" name="auto_explore" value="0">
-            <input type="hidden" name="start_repository" value="chromium">
-            <input type="hidden" name="end_repository" value="chromium">
+            <input type="hidden" name="auto_explore" value="false">
             <input type="hidden" name="start_git_hash" value="HEAD">
             <input type="hidden" name="end_git_hash" value="HEAD">
             <input type="hidden" name="target" value="telemetry_perf_tests">
@@ -60,7 +65,7 @@ found in the LICENSE file.
                 </template>
               </paper-listbox>
             </paper-dropdown-menu>
-            <paper-input name="benchmark" label="Benchmark"></paper-input>
+            <paper-input name="benchmark" label="Benchmark" required></paper-input>
             <paper-input name="story" label="Story (optional)"></paper-input>
             <paper-input name="extra_test_args" label="Extra Test Arguments (optional)"></paper-input>
           </form>
@@ -87,13 +92,6 @@ found in the LICENSE file.
 
       submit() {
         this.$.try_form.submit();
-        // Add a delay for the exit animation.
-        this.async(this.resetForm, 500);
-      },
-
-      resetForm() {
-        this.$.try_form.reset();
-        this.error = null;
       },
 
       handleError(event) {

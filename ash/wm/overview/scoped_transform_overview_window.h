@@ -159,6 +159,8 @@ class ASH_EXPORT ScopedTransformOverviewWindow
     return window_selector_bounds_;
   }
 
+  gfx::Rect GetMaskBoundsForTesting() const;
+
   // Closes the transient root of the window managed by |this|.
   void Close();
 
@@ -177,6 +179,9 @@ class ASH_EXPORT ScopedTransformOverviewWindow
   // change. Must be called before PositionWindows in WindowGrid.
   void UpdateWindowDimensionsType();
 
+  // Stop listening to any animations to finish.
+  void CancelAnimationsListener();
+
   views::Widget* minimized_widget() { return minimized_widget_.get(); }
 
   // ui::ImplicitAnimationObserver:
@@ -191,6 +196,10 @@ class ASH_EXPORT ScopedTransformOverviewWindow
   void CloseWidget();
 
   void CreateMirrorWindowForMinimizedState();
+
+  // Creates and applys a mask which adds rounded edges to windows in overview
+  // mode.
+  void CreateAndApplyMaskAndShadow();
 
   // Makes Close() execute synchronously when used in tests.
   static void SetImmediateCloseForTests();

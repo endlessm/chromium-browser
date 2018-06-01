@@ -13,7 +13,7 @@
 #include "ios/web/public/global_state/ios_global_state_configuration.h"
 #include "ios/web/public/user_agent.h"
 #include "net/proxy_resolution/proxy_config_service.h"
-#include "net/proxy_resolution/proxy_service.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
 #include "url/url_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -75,7 +75,7 @@ std::unique_ptr<net::ProxyConfigService> CreateProxyConfigService(
   return nullptr;
 }
 
-std::unique_ptr<net::ProxyResolutionService> CreateProxyService(
+std::unique_ptr<net::ProxyResolutionService> CreateProxyResolutionService(
     std::unique_ptr<net::ProxyConfigService> proxy_config_service,
     net::NetLog* net_log) {
   return nullptr;

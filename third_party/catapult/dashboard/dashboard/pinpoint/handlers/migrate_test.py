@@ -11,6 +11,7 @@ import webtest
 from dashboard.common import testing_common
 from dashboard.pinpoint.handlers import migrate
 from dashboard.pinpoint.models import job
+from dashboard.pinpoint.models import job_state
 
 
 class MigrateTest(testing_common.TestCase):
@@ -27,8 +28,8 @@ class MigrateTest(testing_common.TestCase):
     self.addCleanup(patcher.stop)
     patcher.start()
 
-    job.Job.New({}, [], False).put()
-    job.Job.New({}, [], False).put()
+    for _ in xrange(20):
+      job.Job.New({}, [], False).put()
 
   def testNoMigration(self):
     response = self.testapp.get('/migrate', status=200)
@@ -38,7 +39,7 @@ class MigrateTest(testing_common.TestCase):
     expected = json.dumps({
         'count': 0,
         'started': 'Date Time',
-        'total': 2,
+        'total': 20,
     })
 
     response = self.testapp.post('/migrate', status=200)
@@ -57,9 +58,9 @@ class MigrateTest(testing_common.TestCase):
 
   def testContinue(self):
     expected = json.dumps({
-        'count': 1,
+        'count': 10,
         'started': 'Date Time',
-        'total': 2,
+        'total': 20,
     })
 
     self.testapp.post('/migrate', status=200)
@@ -80,7 +81,7 @@ class MigrateTest(testing_common.TestCase):
   def testComplete(self):
     self.testapp.post('/migrate', status=200)
     self.testapp.post('/migrate', status=200)
-    params = {'cursor': 'Ch8SGWoMdGVzdGJlZC10ZXN0cgkLEgNKb2IYAQwYACAA'}
+    params = {'cursor': 'Ch8SGWoMdGVzdGJlZC10ZXN0cgkLEgNKb2IYCgwYACAA'}
     response = self.testapp.post('/migrate', params, status=200)
     self.assertEqual(response.normal_body, '{}')
 
@@ -96,14 +97,14 @@ class MigrateTest(testing_common.TestCase):
     self.assertTrue(task['body'])
 
   def testJobsMigrated(self):
-    job._JobState.__setstate__ = _JobStateSetState
+    job_state.JobState.__setstate__ = _JobStateSetState
 
     self.testapp.post('/migrate', status=200)
     self.testapp.post('/migrate', status=200)
-    params = {'cursor': 'Ch8SGWoMdGVzdGJlZC10ZXN0cgkLEgNKb2IYAQwYACAA'}
+    params = {'cursor': 'Ch8SGWoMdGVzdGJlZC10ZXN0cgkLEgNKb2IYCgwYACAA'}
     self.testapp.post('/migrate', params, status=200)
 
-    del job._JobState.__setstate__
+    del job_state.JobState.__setstate__
 
     jobs = job.Job.query().fetch()
     for j in jobs:

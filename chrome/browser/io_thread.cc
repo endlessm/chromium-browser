@@ -17,7 +17,6 @@
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
@@ -43,6 +42,8 @@
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
+#include "components/certificate_transparency/sth_distributor.h"
+#include "components/certificate_transparency/sth_observer.h"
 #include "components/certificate_transparency/tree_state_tracker.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_prefs.h"
 #include "components/data_usage/core/data_use_aggregator.h"
@@ -64,7 +65,7 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/user_agent.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "net/cert/caching_cert_verifier.h"
 #include "net/cert/cert_verifier.h"
 #include "net/cert/cert_verify_proc.h"
@@ -73,8 +74,6 @@
 #include "net/cert/ct_verifier.h"
 #include "net/cert/multi_log_ct_verifier.h"
 #include "net/cert/multi_threaded_cert_verifier.h"
-#include "net/cert/sth_distributor.h"
-#include "net/cert/sth_observer.h"
 #include "net/dns/host_cache.h"
 #include "net/dns/host_resolver.h"
 #include "net/dns/mapped_host_resolver.h"
@@ -84,11 +83,12 @@
 #include "net/http/http_network_session.h"
 #include "net/http/http_server_properties_impl.h"
 #include "net/http/http_transaction_factory.h"
-#include "net/net_features.h"
+#include "net/net_buildflags.h"
+#include "net/nqe/network_quality_estimator.h"
 #include "net/nqe/network_quality_estimator_params.h"
 #include "net/proxy_resolution/pac_file_fetcher_impl.h"
 #include "net/proxy_resolution/proxy_config_service.h"
-#include "net/proxy_resolution/proxy_service.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
 #include "net/quic/chromium/quic_utils_chromium.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/url_request/url_fetcher.h"
@@ -129,7 +129,8 @@
 #include "third_party/boringssl/src/include/openssl/cpu.h"
 #endif
 
-#if defined(OS_ANDROID) || defined(OS_FUCHSIA)
+#if defined(OS_ANDROID) || defined(OS_FUCHSIA) || \
+    (defined(OS_LINUX) && !defined(OS_CHROMEOS)) || defined(OS_MACOSX)
 #include "net/cert/cert_net_fetcher.h"
 #include "net/cert_net/cert_net_fetcher_impl.h"
 #endif
@@ -143,10 +144,35 @@ class SafeBrowsingURLRequestContext;
 
 namespace {
 
-// Field trial for network quality estimator. Seeds RTT and downstream
-// throughput observations with values that correspond to the connection type
-// determined by the operating system.
-const char kNetworkQualityEstimatorFieldTrialName[] = "NetworkQualityEstimator";
+net::CertVerifier* g_cert_verifier_for_io_thread_testing = nullptr;
+
+// A CertVerifier that forwards all requests to
+// |g_cert_verifier_for_io_thread_testing|. This is used to allow IOThread to
+// have its own std::unique_ptr<net::CertVerifier> while forwarding calls to the
+// static verifier.
+class WrappedCertVerifierForIOThreadTesting : public net::CertVerifier {
+ public:
+  ~WrappedCertVerifierForIOThreadTesting() override = default;
+
+  // CertVerifier implementation
+  int Verify(const RequestParams& params,
+             net::CRLSet* crl_set,
+             net::CertVerifyResult* verify_result,
+             const net::CompletionCallback& callback,
+             std::unique_ptr<Request>* out_req,
+             const net::NetLogWithSource& net_log) override {
+    verify_result->Reset();
+    if (!g_cert_verifier_for_io_thread_testing)
+      return net::ERR_FAILED;
+    return g_cert_verifier_for_io_thread_testing->Verify(
+        params, crl_set, verify_result, callback, out_req, net_log);
+  }
+  bool SupportsOCSPStapling() override {
+    if (!g_cert_verifier_for_io_thread_testing)
+      return false;
+    return g_cert_verifier_for_io_thread_testing->SupportsOCSPStapling();
+  }
+};
 
 #if defined(OS_MACOSX)
 void ObserveKeychainEvents() {
@@ -342,7 +368,6 @@ IOThread::IOThread(
       nullptr,
       nullptr,
       nullptr,
-      nullptr,
       local_state);
   ssl_config_service_manager_.reset(
       ssl_config::SSLConfigServiceManager::CreateDefaultManager(
@@ -402,7 +427,7 @@ IOThread::IOThread(
   pac_https_url_stripping_enabled_.MoveToThread(io_thread_proxy);
 
   chrome_browser_net::SetGlobalSTHDistributor(
-      std::make_unique<net::ct::STHDistributor>());
+      std::make_unique<certificate_transparency::STHDistributor>());
 
   BrowserThread::SetIOThreadDelegate(this);
 
@@ -426,12 +451,6 @@ IOThread::~IOThread() {
 IOThread::Globals* IOThread::globals() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   return globals_;
-}
-
-void IOThread::SetGlobalsForTesting(Globals* globals) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  DCHECK(!globals || !globals_);
-  globals_ = globals;
 }
 
 net_log::ChromeNetLog* IOThread::net_log() {
@@ -458,10 +477,6 @@ net::URLRequestContextGetter* IOThread::system_url_request_context_getter() {
 void IOThread::Init() {
   TRACE_EVENT0("startup", "IOThread::InitAsync");
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-
-#if defined(USE_NSS_CERTS)
-  net::SetMessageLoopForNSSHttpIO();
-#endif
 
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
@@ -503,32 +518,6 @@ void IOThread::Init() {
           BrowserThread::GetTaskRunnerForThread(BrowserThread::IO),
           BrowserThread::GetTaskRunnerForThread(BrowserThread::UI));
 #endif  // defined(OS_ANDROID)
-
-  std::map<std::string, std::string> network_quality_estimator_params;
-  variations::GetVariationParams(kNetworkQualityEstimatorFieldTrialName,
-                                 &network_quality_estimator_params);
-
-  if (command_line.HasSwitch(switches::kForceEffectiveConnectionType)) {
-    const std::string force_ect_value =
-        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-            switches::kForceEffectiveConnectionType);
-
-    if (!force_ect_value.empty()) {
-      // If the effective connection type is forced using command line switch,
-      // it overrides the one set by field trial.
-      network_quality_estimator_params[net::kForceEffectiveConnectionType] =
-          force_ect_value;
-    }
-  }
-
-  // Pass ownership.
-  globals_->network_quality_estimator =
-      std::make_unique<net::NetworkQualityEstimator>(
-          std::make_unique<net::NetworkQualityEstimatorParams>(
-              network_quality_estimator_params),
-          net_log_);
-  globals_->network_quality_observer = content::CreateNetworkQualityObserver(
-      globals_->network_quality_estimator.get());
 
   globals_->dns_probe_service =
       std::make_unique<chrome_browser_net::DnsProbeService>();
@@ -576,10 +565,6 @@ void IOThread::Init() {
 void IOThread::CleanUp() {
   base::debug::LeakTracker<SafeBrowsingURLRequestContext>::CheckForLeaks();
 
-#if defined(USE_NSS_CERTS)
-  net::ShutdownNSSHttpIO();
-#endif
-
   system_url_request_context_getter_ = nullptr;
 
   // Unlink the ct_tree_tracker_ from the global cert_transparency_verifier
@@ -596,7 +581,8 @@ void IOThread::CleanUp() {
   net::SetURLRequestContextForNSSHttpIO(nullptr);
 #endif
 
-#if defined(OS_ANDROID) || defined(OS_FUCHSIA)
+#if defined(OS_ANDROID) || defined(OS_FUCHSIA) || \
+    (defined(OS_LINUX) && !defined(OS_CHROMEOS)) || defined(OS_MACOSX)
   net::ShutdownGlobalCertNetFetcher();
 #endif
 
@@ -637,6 +623,11 @@ void IOThread::RegisterPrefs(PrefRegistrySimple* registry) {
 #if defined(OS_POSIX)
   registry->RegisterBooleanPref(prefs::kNtlmV2Enabled, true);
 #endif
+}
+
+// static
+void IOThread::SetCertVerifierForTesting(net::CertVerifier* cert_verifier) {
+  g_cert_verifier_for_io_thread_testing = cert_verifier;
 }
 
 void IOThread::UpdateServerWhitelist() {
@@ -747,11 +738,13 @@ void IOThread::UpdateDnsClientEnabled() {
   }
 }
 
-void IOThread::RegisterSTHObserver(net::ct::STHObserver* observer) {
+void IOThread::RegisterSTHObserver(
+    certificate_transparency::STHObserver* observer) {
   chrome_browser_net::GetGlobalSTHDistributor()->RegisterObserver(observer);
 }
 
-void IOThread::UnregisterSTHObserver(net::ct::STHObserver* observer) {
+void IOThread::UnregisterSTHObserver(
+    certificate_transparency::STHObserver* observer) {
   chrome_browser_net::GetGlobalSTHDistributor()->UnregisterObserver(observer);
 }
 
@@ -767,7 +760,7 @@ void IOThread::SetUpProxyService(
     network::URLRequestContextBuilderMojo* builder) const {
 #if defined(OS_CHROMEOS)
   builder->SetDhcpFetcherFactory(
-      std::make_unique<chromeos::DhcpProxyScriptFetcherFactoryChromeos>());
+      std::make_unique<chromeos::DhcpPacFileFetcherFactoryChromeos>());
 #endif
 
   builder->set_pac_quick_check_enabled(WpadQuickCheckEnabled());
@@ -785,10 +778,6 @@ void IOThread::ConstructSystemRequestContext() {
   std::unique_ptr<network::URLRequestContextBuilderMojo> builder =
       std::make_unique<network::URLRequestContextBuilderMojo>();
 
-  builder->set_network_quality_estimator(
-      globals_->network_quality_estimator.get());
-
-  builder->set_user_agent(GetUserAgent());
   auto chrome_network_delegate = std::make_unique<ChromeNetworkDelegate>(
       extension_event_router_forwarder(), &system_enable_referrers_);
   // By default, data usage is considered off the record.
@@ -808,16 +797,20 @@ void IOThread::ConstructSystemRequestContext() {
   builder->set_host_resolver(std::move(host_resolver));
 
   std::unique_ptr<net::CertVerifier> cert_verifier;
+  if (g_cert_verifier_for_io_thread_testing) {
+    cert_verifier = std::make_unique<WrappedCertVerifierForIOThreadTesting>();
+  } else {
 #if defined(OS_CHROMEOS)
-  // Creates a CertVerifyProc that doesn't allow any profile-provided certs.
-  cert_verifier = std::make_unique<net::CachingCertVerifier>(
-      std::make_unique<net::MultiThreadedCertVerifier>(
-          base::MakeRefCounted<chromeos::CertVerifyProcChromeOS>()));
+    // Creates a CertVerifyProc that doesn't allow any profile-provided certs.
+    cert_verifier = std::make_unique<net::CachingCertVerifier>(
+        std::make_unique<net::MultiThreadedCertVerifier>(
+            base::MakeRefCounted<chromeos::CertVerifyProcChromeOS>()));
 #else
-  cert_verifier = std::make_unique<net::CachingCertVerifier>(
-      std::make_unique<net::MultiThreadedCertVerifier>(
-          net::CertVerifyProc::CreateDefault()));
+    cert_verifier = std::make_unique<net::CachingCertVerifier>(
+        std::make_unique<net::MultiThreadedCertVerifier>(
+            net::CertVerifyProc::CreateDefault()));
 #endif
+  }
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
   builder->SetCertVerifier(
@@ -840,9 +833,14 @@ void IOThread::ConstructSystemRequestContext() {
     globals_->quic_disabled = true;
 
   if (base::FeatureList::IsEnabled(network::features::kNetworkService)) {
-    globals_->system_request_context_owner =
-        std::move(builder)->Create(std::move(network_context_params_).get(),
-                                   !is_quic_allowed_on_init_, net_log_);
+    globals_->deprecated_network_quality_estimator =
+        std::make_unique<net::NetworkQualityEstimator>(
+            std::make_unique<net::NetworkQualityEstimatorParams>(
+                std::map<std::string, std::string>()),
+            net_log_);
+    globals_->system_request_context_owner = std::move(builder)->Create(
+        std::move(network_context_params_).get(), !is_quic_allowed_on_init_,
+        net_log_, globals_->deprecated_network_quality_estimator.get());
     globals_->system_request_context =
         globals_->system_request_context_owner.url_request_context_getter
             ->GetURLRequestContext();
@@ -854,10 +852,16 @@ void IOThread::ConstructSystemRequestContext() {
             &globals_->system_request_context);
   }
 
+  // TODO(mmenke): This class currently requires an in-process
+  // NetworkQualityEstimator.  Fix that.
+  globals_->network_quality_observer = content::CreateNetworkQualityObserver(
+      globals_->system_request_context->network_quality_estimator());
+
 #if defined(USE_NSS_CERTS)
   net::SetURLRequestContextForNSSHttpIO(globals_->system_request_context);
 #endif
-#if defined(OS_ANDROID) || defined(OS_FUCHSIA)
+#if defined(OS_ANDROID) || defined(OS_FUCHSIA) || \
+    (defined(OS_LINUX) && !defined(OS_CHROMEOS)) || defined(OS_MACOSX)
   net::SetGlobalCertNetFetcher(
       net::CreateCertNetFetcher(globals_->system_request_context));
 #endif

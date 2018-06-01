@@ -34,7 +34,7 @@
 <translation id="1096105751829466145">默认搜索服务提供商</translation>
 <translation id="1099282607296956954">为所有网站启用网站隔离功能</translation>
 <translation id="1117535567637097036">通过此政策设置的协议处理程序不会被用于处理 Android intent。</translation>
-<translation id="1122282995569868661">显示 <ph name="PRODUCT_NAME" /> 工具栏图标</translation>
+<translation id="1118093128235245168">允许网站请求用户授权其访问所连接的 USB 设备</translation>
 <translation id="1128903365609589950">配置 <ph name="PRODUCT_NAME" /> 在磁盘中存储缓存文件时所使用的目录。
 
       如果您设置了此政策，那么无论用户是否已指定“--disk-cache-dir”标记，<ph name="PRODUCT_NAME" /> 都将使用本政策提供的目录。请勿将此政策设置为某个卷的根目录或用于其他用途的目录（因为 <ph name="PRODUCT_NAME" /> 会管理相关内容），以免丢失数据或发生其他意外错误。
@@ -51,21 +51,20 @@
 <translation id="1152117524387175066">报告设备启动时的dev开关状态。
 
       如果此政策设为False，则不报告dev开关的状态。</translation>
+<translation id="1160479894929412407">允许使用 QUIC 协议</translation>
 <translation id="1160939557934457296">禁止从安全浏览警告页面继续访问</translation>
-<translation id="1166377463685560145">指定用户无法使用的打印机。
-
-      仅当为 <ph name="DEVICE_PRINTERS_ACCESS_MODE" /> 选择了 <ph name="PRINTERS_BLACKLIST" /> 时，才可使用此政策。
-
-      如果使用此政策，那么除了与此政策中所列 ID 对应的打印机之外，其他所有打印机都可供用户使用。
-      </translation>
 <translation id="1198465924256827162">发送设备状态上传内容的频率（以毫秒为单位）。
 
       如果此政策未设置，默认频率为 3 小时。允许的最低频率为 60 秒。</translation>
 <translation id="1204263402976895730">已启用企业打印机</translation>
+<translation id="1216758672198492382">可让您设置是否允许网站访问所连接的 USB 设备。您可以禁止所有网站访问此类设备，也可以要求所有网站必须征得用户同意才能访问此类设备。
+
+          如果未设置此政策，系统将会使用“3”，并且用户将能够更改此设置。</translation>
 <translation id="1219695476179627719">指定是否要将已在运行较新版本的设备回滚到 <ph name="DEVICE_TARGET_VERSION_PREFIX_POLICY_NAME" /> 所设定的版本。
 
       默认值为 RollbackDisabled。</translation>
 <translation id="1221359380862872747">在演示登录时加载指定网址</translation>
+<translation id="1223789468190631420">针对可信来源的安全浏览功能启用状态</translation>
 <translation id="123081309365616809">允许向设备投射内容</translation>
 <translation id="1257550411839719984">设置默认下载目录</translation>
 <translation id="1265053460044691532">限制通过SAML验证身份的用户可离线登录的时长</translation>
@@ -84,13 +83,13 @@
 <translation id="131353325527891113">在登录屏幕上显示用户名</translation>
 <translation id="1327466551276625742">离线时，弹出网络配置提示</translation>
 <translation id="1330145147221172764">启用屏幕键盘</translation>
-<translation id="1330985749576490863">在 <ph name="PRODUCT_OS_NAME" />的“文件”应用中停用通过移动网络连接到 Google 云端硬盘</translation>
 <translation id="13356285923490863">政策名称</translation>
 <translation id="1353966721814789986">启动页</translation>
 <translation id="1359553908012294236">如果此政策设为 true 或未配置，<ph name="PRODUCT_NAME" /> 将允许使用访客身份登录。访客身份是指 <ph name="PRODUCT_NAME" /> 个人资料，使用此类个人资料登录后，所有窗口均处于隐身模式。
 
       如果此政策设为 false，<ph name="PRODUCT_NAME" /> 将禁止使用访客个人资料登录。</translation>
 <translation id="1363275621236827384">允许在 Quirks Server 中查询硬件配置文件</translation>
+<translation id="1384459581748403878">参考页面：<ph name="REFERENCE_URL" /></translation>
 <translation id="1387596372902085462">是否信任赛门铁克公司的旧版 PKI 基础架构</translation>
 <translation id="1393485621820363363">已启用企业设备打印机</translation>
 <translation id="1397855852561539316">默认搜索服务提供商建议网址</translation>
@@ -142,36 +141,31 @@
           如果您选择了任何其他代理政策设置模式，请勿设置此政策。
 
           要查看更多详细示例，请访问以下网址：<ph name="PROXY_HELP_URL" />。</translation>
-<translation id="1503487916067509762">禁止第三方软件插入可执行代码</translation>
+<translation id="1502843533062797703">禁止插入第三方软件</translation>
 <translation id="1504431521196476721">远程认证</translation>
 <translation id="1509692106376861764">此政策从 <ph name="PRODUCT_NAME" /> 版本 29 起开始弃用。</translation>
-<translation id="1519337829779572350">此设置已被弃用，请改用 SafeBrowsingExtendedReportingEnabled。启用或停用 SafeBrowsingExtendedReportingEnabled 均相当于将 SafeBrowsingExtendedReportingOptInAllowed 设为 false。
-
-      如果此政策设为 false，用户将无法选择向 Google 服务器发送一些系统信息和网页内容。如果此设置设为 true 或未配置，用户则能够向安全浏览服务发送一些系统信息和网页内容，以帮助检测危险应用和网站。
-
-      要想详细了解安全浏览功能，请访问 https://developers.google.com/safe-browsing。</translation>
+<translation id="1514888685242892912">启用 <ph name="PRODUCT_NAME" /></translation>
 <translation id="1522425503138261032">允许网站跟踪用户的地理位置</translation>
 <translation id="152657506688053119">默认搜索服务提供商的备选网址列表</translation>
 <translation id="1530812829012954197">总是通过托管浏览器呈现以下网址格式</translation>
 <translation id="1553684822621013552">如果将这项政策设为 true，系统会为用户启用 ARC（需要经过额外的政策设置检查；如果目前的用户会话中已启用暂存模式或多帐号登录功能，则用户仍然无法使用 ARC）。
 
 如果停用或未配置此设置，那么企业用户将无法使用 ARC。</translation>
+<translation id="1561183922461862993">
+      此政策适用于登录屏幕。另请参阅适用于用户会话的 <ph name="SITE_PER_PROCESS_POLICY_NAME" /> 政策。我们建议您将这两项政策设为相同的值。如果这两项政策的值不一致，并且系统应用的是由用户政策指定的值，那么系统在进入用户会话时可能会出现延迟。
+      若想做到两全其美（既能实现隔离，又能减少给用户带来的影响），您最好是查看一下 IsolateOrigins 政策设置，并使用 IsolateOrigins 政策指定您想隔离的一系列网站。该设置 (SitePerProcess) 会隔离所有网站。
+      如果此政策处于启用状态，每个网站都将在自己的进程中运行。
+      如果此政策处于停用状态，“按网站隔离”进程管理逻辑将会生效，并且 IsolateOrigins 和 SitePerProcess 的现场试用将会停用。用户仍可以手动启用 SitePerProcess。
+      如果此政策未配置，用户将能够更改该设置。
+      </translation>
 <translation id="1561424797596341174">覆盖与远程访问主机的调试版本号相关的政策</translation>
 <translation id="1561967320164410511">用于个人认证的 U2F 和扩展程序</translation>
+<translation id="1574554504290354326">此设置已被弃用，请改用 SafeBrowsingExtendedReportingEnabled。启用或停用 SafeBrowsingExtendedReportingEnabled 均相当于将 SafeBrowsingExtendedReportingOptInAllowed 设为 false。
+
+      如果此政策设为 false，用户将无法选择向 Google 服务器发送一些系统信息和网页内容。如果此设置设为 true 或未配置，用户将能够向安全浏览功能发送一些系统信息和网页内容，以协助检测危险应用和网站。
+
+      要详细了解安全浏览功能，请访问 https://developers.google.com/safe-browsing。</translation>
 <translation id="1583248206450240930">默认情况下使用“<ph name="PRODUCT_FRAME_NAME" />”</translation>
-<translation id="1603058613431276040">为绑定到设备的企业打印机提供配置。
-
-      此政策让您能够为 <ph name="PRODUCT_OS_NAME" />设备提供打印机配置。该文件不得超过 5MB，且必须用 JSON 编码。在格式方面，与 NativePrinters 字典一样。据估计，一个包含大约 21000 台打印机的文件编码后的大小将会是 5MB。相关加密哈希值用于验证下载内容是否完整。
-
-      该文件会被下载并缓存。只要相关网址或哈希值发生了变化，系统就会重新下载该文件。
-
-      如果设置了此政策，<ph name="PRODUCT_OS_NAME" />即会下载该文件以进行打印机配置，并会根据 <ph name="DEVICE_PRINTERS_ACCESS_MODE" />、<ph name="DEVICE_PRINTERS_WHITELIST" /> 和 <ph name="DEVICE_PRINTERS_BLACKLIST" /> 向用户提供可用的打印机。
-
-      此政策对用户能否在各台设备上配置打印机没有影响。它旨在对各用户的打印机配置进行补充。
-
-      此政策是 <ph name="BULK_PRINTERS_POLICY" /> 的附加内容。
-
-      如果未设置此政策，便不存在任何设备打印机，同时其他 <ph name="DEVICE_PRINTERS_POLICY_PATTERN" /> 政策会被忽略。</translation>
 <translation id="1608755754295374538">无需提示用户即可使用音频捕获设备的网址</translation>
 <translation id="1617235075406854669">允许删除浏览器历史记录和下载记录</translation>
 <translation id="163200210584085447">系统会将此列表中的网址格式与请求网址的安全来源进行比对。如果找到了匹配项，系统将允许相应网址通过 SAML 登录页面访问视频捕获设备。如果未找到匹配项，系统将自动拒绝授予访问权限。不允许使用通配符模式。</translation>
@@ -206,6 +200,7 @@
 <translation id="1797233582739332495">显示要求用户重新启动浏览器的周期性提示</translation>
 <translation id="1803646570632580723">要在启动程序中显示的固定应用的列表</translation>
 <translation id="1808715480127969042">在这些网站上阻止 Cookie</translation>
+<translation id="1810261428246410396">允许使用即时网络共享功能。</translation>
 <translation id="1827523283178827583">使用固定的代理服务器</translation>
 <translation id="1843117931376765605">用户策略的更新频率</translation>
 <translation id="1844620919405873871">配置快速解锁相关政策。</translation>
@@ -214,6 +209,7 @@
           此为可选政策。如果未设置此政策，系统将使用 GET 方法发送“即搜即得”搜索请求。
 
           此政策只在启用了“DefaultSearchProviderEnabled”政策的前提下才会生效。</translation>
+<translation id="1852294065645015766">允许自动播放媒体内容</translation>
 <translation id="1859859319036806634">警告：从 52 版开始，<ph name="PRODUCT_NAME" /> 中将取消 TLS 版本回退功能（2016 年 9 月左右）。届时，此政策将不再有效。
 
       如果 TLS 握手失败，<ph name="PRODUCT_NAME" /> 会首先重新尝试使用较低版本的 TLS 建立连接，以便忽略 HTTPS 服务器中的错误。此设置用于指定可回退到的最低版本。如果服务器正确地执行了版本协商（即没有中断连接），系统将不会应用此设置。无论怎样，最终的连接仍必须符合 SSLVersionMin 的规定。
@@ -244,12 +240,22 @@
       如果此政策设为 false，指标和诊断数据报告功能便会被停用。
 
       如果未配置此政策，指标和诊断数据报告功能将会在非托管设备上停用，但会在托管设备上启用。</translation>
-<translation id="1911099080312850139">配置用于更改密码的网址（仅限 HTTP 和 HTTPS 方案）。密码保护服务会在用户遭遇网上诱骗时将用户转到此网址，以便其更改密码。
-      此设置应仅供使用 SSO/SAML 系统的 GSuite 用户使用。
+<translation id="1929709556673267855">为绑定到设备的企业打印机提供配置。
 
-      如果启用了此设置，密码保护服务就会在用户遭遇网上诱骗时将用户转到此网址，以便其更改密码。
-      如果停用了或未设定此设置，密码保护服务则会将用户转到 https://myaccounts.google.com，以便其更改密码。
-      此政策不适用于未加入 <ph name="MS_AD_NAME" /> 网域的 Windows 实例。</translation>
+      此政策让您能够为 <ph name="PRODUCT_OS_NAME" />设备提供打印机配置。在格式方面，与 NativePrinters 字典一样，不过每台打印机都还对应一个必填字段“id”或“guid”- 您必须妥当地填写该字段，才能将相应打印机加入白名单/黑名单。
+
+      该文件不得超过 5MB，且必须用 JSON 编码。据估计，一个包含大约 21000 台打印机的文件在编码后的大小将会是 5MB。相应的加密哈希值用于验证下载内容是否完整。
+
+      该文件会被下载并缓存。只要相应网址或哈希值发生了变化，系统就会重新下载该文件。
+
+      如果设置了此政策，<ph name="PRODUCT_OS_NAME" />即会下载该文件以进行打印机配置，并会根据 <ph name="DEVICE_PRINTERS_ACCESS_MODE" />、<ph name="DEVICE_PRINTERS_WHITELIST" /> 和 <ph name="DEVICE_PRINTERS_BLACKLIST" /> 向用户提供可用的打印机。
+
+      此政策对用户能否在各台设备上配置打印机没有影响。它旨在对各用户的打印机配置进行补充。
+
+      此政策是 <ph name="BULK_PRINTERS_POLICY" /> 的附加内容。
+
+      如果未设置此政策，便不存在任何设备打印机，同时其他 <ph name="DEVICE_PRINTERS_POLICY_PATTERN" /> 政策会被忽略。
+      </translation>
 <translation id="193259052151668190">分离式 USB 设备白名单</translation>
 <translation id="1933378685401357864">壁纸图片</translation>
 <translation id="1956493342242507974">指定<ph name="PRODUCT_OS_NAME" />中登录屏幕的电源管理设置。
@@ -271,6 +277,7 @@
 <translation id="1988371335297483117"><ph name="PRODUCT_OS_NAME" />上的自动更新有效负荷可通过HTTP而非HTTPS下载。这样，系统将可以对HTTP下载内容进行透明HTTP缓存。
 
       如果此政策设为true，<ph name="PRODUCT_OS_NAME" />将尝试通过HTTP下载自动更新有效负荷。如果此政策设为false或未设置，系统将使用HTTPS下载自动更新有效负荷。</translation>
+<translation id="199764499252435679">允许更新 <ph name="PRODUCT_NAME" /> 中的组件</translation>
 <translation id="2006530844219044261">电源管理</translation>
 <translation id="201557587962247231">设备状态报告的上传频率</translation>
 <translation id="2018836497795982119">指定向设备管理服务查询用户政策信息的周期（以毫秒为单位）。
@@ -281,9 +288,24 @@
 
       请注意，如果平台支持政策通知，刷新延迟时间将被设为 24 小时（忽略所有默认值和此政策的值），这是因为只要政策发生变化，政策通知应该会自动强制进行刷新，所以没有必要更频繁地进行刷新。</translation>
 <translation id="2024476116966025075">为远程访问客户端配置必要的域名</translation>
+<translation id="202757291638965203">配置打印机列表。
+
+      通过此政策，管理员可为他们的用户提供打印机配置。
+
+      “<ph name="PRINTER_DISPLAY_NAME" />”和“<ph name="PRINTER_DESCRIPTION" />”均是自由格式的字符串，且均可被自定义以便于选择打印机。“<ph name="PRINTER_MANUFACTURER" />”和“<ph name="PRINTER_MODEL" />”则可帮助最终用户轻松地识别打印机。它们分别代表打印机的制造商和型号。“<ph name="PRINTER_URI" />”应是可通过客户端计算机访问的地址，包括“<ph name="URI_SCHEME" />”、“<ph name="URI_PORT" />”和“<ph name="URI_QUEUE" />”。“<ph name="PRINTER_UUID" />”是可选项。如果提供的话，该项可用于帮助删除重复的“<ph name="ZEROCONF_DISCOVERY" />”打印机。
+
+      “<ph name="PRINTER_EFFECTIVE_MODEL" />”必须与代表 <ph name="PRODUCT_NAME" />所支持打印机的某个字符串匹配。该字符串将会被用来识别和为打印机安装相应的 PPD。如需了解详情，请访问 https://support.google.com/chrome?p=noncloudprint。
+
+      打印机设置在用户首次使用打印机时完成。在用户开始使用打印机之前，系统不会下载 PPD。在用户开始使用打印机之后，系统则会缓存经常使用的 PPD。
+
+      此政策对用户能否在各台设备上配置打印机没有影响。它旨在对各用户的打印机配置进行补充。
+
+      对于由 Active Directory 托管的设备，此政策支持将“<ph name="MACHINE_NAME_VARIABLE" />”扩展为 Active Directory 机器名称或其子字符串。例如，如果机器名称是“<ph name="MACHINE_NAME_EXAMPLE" />”，则“<ph name="MACHINE_NAME_VARIABLE_EXAMPLE" />”将被替换为第 6 个位置后面的 4 个字符（即 <ph name="MACHINE_NAME_PART_EXAMPLE" />）。请注意，位置序数从 0 起算。
+      </translation>
 <translation id="2030905906517501646">默认搜索服务提供商关键字</translation>
 <translation id="203096360153626918">此政策对 Android 应用没有任何影响。即使此政策设为 <ph name="FALSE" />，这些应用也将能够进入全屏模式。</translation>
 <translation id="2043770014371753404">已停用企业打印机</translation>
+<translation id="2057317273526988987">允许访问指定的一系列网址</translation>
 <translation id="206623763829450685">指定 <ph name="PRODUCT_NAME" /> 支持哪些 HTTP 身份验证方案。
 
           可以指定以下值：“basic”、“digest”、“ntlm”和“negotiate”。如果指定多个值，请以英文逗号分隔。
@@ -295,14 +317,7 @@
       此政策设置旨在启用建议或要求用户重新启动浏览器的通知功能。如果此政策未设置，<ph name="PRODUCT_NAME" /> 会通过菜单的细微变化来提示用户需要重新启动。如果此政策设为“推荐”，系统将会显示建议用户重新启动浏览器的周期性警告。用户可以关闭该警告来推迟重新启动。如果此政策设为“必需”，系统将会显示周期性警告，以便让用户知道系统将于通知期结束后强制重新启动浏览器。该通知期会默认设为 7 天，不过可以通过 <ph name="RELAUNCH_NOTIFICATION_PERIOD_POLICY_NAME" /> 政策设置进行配置。
 
       浏览器重新启动后，将会恢复用户会话。</translation>
-<translation id="2075434678547407637">可让您控制 <ph name="PRODUCT_NAME" /> 中的视频能否不经用户同意即可有声地自动播放。
-
-      如果此政策设为 true，<ph name="PRODUCT_NAME" /> 将能够自动播放媒体。
-      如果此政策设为 false，<ph name="PRODUCT_NAME" /> 将无法自动播放媒体。
-      默认情况下，<ph name="PRODUCT_NAME" /> 无法自动播放媒体。
-
-      请注意，如果此政策在 <ph name="PRODUCT_NAME" /> 运行期间发生了更改，更改后的设置将会仅应用于新打开的标签页。因此，部分标签页或许仍会遵循先前的行为方式。
-      </translation>
+<translation id="2073552873076775140">允许登录 <ph name="PRODUCT_NAME" /></translation>
 <translation id="2077129598763517140">使用硬件加速模式（如果可用）</translation>
 <translation id="2077273864382355561">使用电源供电时的屏幕关闭延迟时间</translation>
 <translation id="2082205219176343977">为设备配置允许使用的最低 Chrome 版本。</translation>
@@ -311,6 +326,17 @@
 <translation id="2113068765175018713">通过自动重启限制设备的正常运行时间</translation>
 <translation id="2127599828444728326">允许在这些网站上显示通知</translation>
 <translation id="2131902621292742709">使用电源供电时的屏幕变暗延迟时间</translation>
+<translation id="2132732175597591362">控制自动播放始终启用的网址格式白名单。
+
+      如果自动播放已启用，则 <ph name="PRODUCT_NAME" /> 中的视频不经用户同意即可有声地自动播放。
+
+      必须根据 https://www.chromium.org/administrators/url-blacklist-filter-format 来设置网址格式。
+
+      如果 AutoplayAllowed 政策设为 True，则此政策不会产生任何效果。
+
+      如果 AutoplayAllowed 政策设为 False，则此政策中设置的任何网址格式仍可有声地自动播放视频。
+
+      请注意，如果此政策在 <ph name="PRODUCT_NAME" /> 运行期间发生了更改，更改后的设置将会仅应用于新打开的标签页。因此，部分标签页或许仍会遵循先前的处理方式。</translation>
 <translation id="2134437727173969994">允许锁定屏幕</translation>
 <translation id="2137064848866899664">如果您设置了此政策，那么每个显示屏在每次重新启动后或在此政策的值更改后首次连入时，都会旋转到指定方向。用户可以在登录后通过“设置”页面更改显示屏旋转角度，但在显示屏下次重新启动后，他们设置的旋转角度将会被此政策的值覆盖。
 
@@ -341,9 +367,6 @@
           如果此设置已配置，系统将会根据此设置的值要求那些使用“快速解锁”的用户在锁定屏幕上输入密码。
 
           如果此设置未配置，系统每天都会要求那些使用“快速解锁”的用户在锁定屏幕上输入密码。</translation>
-<translation id="2188722565665306629">可让您设置系统显示 <ph name="PRODUCT_NAME" /> 重新启动通知（提示用户应用尚未应用的更新）的时间段。
-
-      此政策设置可用于控制该时间段的时长（以毫秒为单位），系统将在该时间段内循序渐进地通知用户必须重新启动 <ph name="PRODUCT_NAME" />（或 <ph name="PRODUCT_OS_NAME" />）以进行更新。在该时间段内，系统将会根据 <ph name="RELAUNCH_NOTIFICATION_POLICY_NAME" /> 政策的设置重复提示用户需要进行更新。如果此政策未设置，系统将会使用 604800000 毫秒（1 周）的默认时长。</translation>
 <translation id="2194470398825717446">我们在 M61 中弃用了此政策，请改用 EcryptfsMigrationStrategy。
 
       用于指定内置了 ecryptfs 且需要转换为采用 ext4 加密功能的设备的行为方式。
@@ -463,7 +486,6 @@
       如果此设置未指定，那么用户可以决定是否使用此功能。
 
       29 版及更高版本的 <ph name="PRODUCT_NAME" /> 中已取消此设置。</translation>
-<translation id="2436445024487698630">允许登录 <ph name="PRODUCT_NAME" /></translation>
 <translation id="244317009688098048">启用停止自动登录的键盘快捷键。
 
       如果未设置此政策或将其设为 True，并且将设备的本地帐号配置为零延时自动登录，那么 <ph name="PRODUCT_OS_NAME" />将允许通过键盘快捷键 Ctrl+Alt+S 绕过自动登录过程并显示登录屏幕。
@@ -529,8 +551,23 @@
           如果未设置此政策，则默认值为 true，且系统会启用 NTLMv2。</translation>
 <translation id="2623014935069176671">等待首个用户活动</translation>
 <translation id="262740370354162807">允许将文档提交到 <ph name="CLOUD_PRINT_NAME" /></translation>
+<translation id="2627554163382448569">为企业打印机提供配置。
+
+      此政策让您能够为 <ph name="PRODUCT_OS_NAME" />设备提供打印机配置。在格式方面，与 NativePrinters 字典一样，不过每台打印机都还对应一个必填字段“id”或“guid”- 您必须妥当地填写该字段，才能将相应打印机加入白名单/黑名单。
+
+      该文件不得超过 5MB，且必须用 JSON 编码。据估计，一个包含大约 21000 台打印机的文件在编码后的大小将会是 5MB。相应的加密哈希值用于验证下载内容是否完整。
+
+      该文件会被下载并缓存。只要相应网址或哈希值发生了变化，系统就会重新下载该文件。
+
+      如果设置了此政策，<ph name="PRODUCT_OS_NAME" />即会下载该文件以配置打印机，并会根据 <ph name="BULK_PRINTERS_ACCESS_MODE" />、<ph name="BULK_PRINTERS_WHITELIST" /> 和 <ph name="BULK_PRINTERS_BLACKLIST" /> 向用户提供可用的打印机。
+
+      如果您设置了此政策，用户便无法更改或替换它。
+
+      此政策对用户能否在各台设备上配置打印机没有影响。它旨在对各用户的打印机配置进行补充。
+      </translation>
 <translation id="2633084400146331575">启用语音反馈</translation>
 <translation id="2646290749315461919">可让您设置是否允许网站跟踪用户的地理位置。默认情况下，可以允许或拒绝跟踪用户的地理位置，也可以在每次网站请求地理位置时询问用户。如果未设置此政策，系统将使用“AskGeolocation”并允许用户更改此设置。</translation>
+<translation id="2647069081229792812">启用或停用书签修改功能</translation>
 <translation id="2650049181907741121">当用户合上屏幕时执行的操作</translation>
 <translation id="2655233147335439767">指定要在执行默认搜索时使用的搜索引擎网址。该网址应包含字符串“<ph name="SEARCH_TERM_MARKER" />”，系统会在用户进行查询时将该字符串替换为用户搜索的字词。
 
@@ -539,16 +576,8 @@
           “DefaultSearchProviderEnabled”政策处于启用状态时，必须设置此选项，并且只有在这种情况下此选项才能发挥作用。</translation>
 <translation id="2660846099862559570">从不使用代理</translation>
 <translation id="267596348720209223">指定搜索服务提供商支持的字符编码。编码是指类似于 UTF-8、GB2312 和 ISO-8859-1 的代码页名称，并按此顺序进行尝试。此政策是可选的，如果未设置，将使用默认值 UTF-8。要实施此政策，必须先启用“DefaultSearchProviderEnabled”政策。</translation>
-<translation id="2682225790874070339">在<ph name="PRODUCT_OS_NAME" />的“文件”应用中停用Google云端硬盘</translation>
 <translation id="268577405881275241">启用数据压缩代理功能</translation>
 <translation id="2693108589792503178">配置用于更改密码的网址。</translation>
-<translation id="2726613915126661822">可让您控制是否允许在 Chrome 操作系统上运行虚拟机。
-
-      如果此政策设为 True，则设备可以运行虚拟机。
-      如果此政策设为 False，则设备将无法运行虚拟机。
-      当此政策更改为 False 时，将会导致无法启动新的虚拟机，但已在运行的虚拟机将不会被关闭。
-      如果受管理设备上未设置此政策，则设备将无法运行虚拟机。
-      不受管理的设备可以运行虚拟机。</translation>
 <translation id="2731627323327011390">禁止 ARC 应用使用 <ph name="PRODUCT_OS_NAME" /> 证书</translation>
 <translation id="2742843273354638707">在“打开新的标签页”页面和 <ph name="PRODUCT_OS_NAME" />应用启动器中不显示“Chrome 网上应用店”应用和页脚链接。
 
@@ -570,18 +599,19 @@
 <translation id="2762164719979766599">指定要在登录屏幕上显示的设备本地帐号列表。
 
       每个列表条目指定一个标识符，用于在内部区分不同的设备本地帐号。</translation>
-<translation id="2766302473082018239">指定用户可以使用的打印机。
-
-      仅当为 <ph name="BULK_PRINTERS_ACCESS_MODE" /> 选择了 <ph name="PRINTERS_WHITELIST" /> 时，才可使用此政策。
-
-      如果使用此政策，则只有那些具有与此政策中所列值匹配的 ID 的打印机才可供用户使用。ID 必须与 <ph name="BULK_PRINTERS_POLICY" /> 中指定的文件内的条目对应。
-      </translation>
 <translation id="2769952903507981510">为远程访问主机配置所需的域名</translation>
 <translation id="2787173078141616821">报告有关 Android 状态的信息</translation>
 <translation id="2793923553868251161">指定将被视为安全上下文的来源。</translation>
+<translation id="2799297758492717491">允许符合网址格式白名单中所列格式的网页自动播放媒体内容</translation>
 <translation id="2801230735743888564">允许用户在设备未联网的情况下玩恐龙复活节彩蛋游戏。
 
       如果此政策设为 False，用户将无法在设备未联网的情况下玩恐龙复活节彩蛋游戏。如果此设置设为 True，用户将可以玩恐龙复活节彩蛋游戏。如果此政策未设置，用户将无法在已注册的 Chrome 操作系统上玩恐龙复活节彩蛋游戏，但可以在其他环境下玩该游戏。</translation>
+<translation id="2802085784857530815">可让您控制用户能否访问非企业打印机
+
+      如果此政策设为 true 或根本未设置，用户将能够添加和配置自己的原生打印机并使用这些打印机进行打印。
+
+      如果此政策设为 false，用户将无法添加和配置自己的原生打印机，也无法使用先前配置的任何原生打印机进行打印。
+      </translation>
 <translation id="2805707493867224476">允许所有网站显示弹出式窗口</translation>
 <translation id="2808013382476173118">当远程客户端尝试与此机器建立连接时，允许使用STUN服务器。
 
@@ -593,6 +623,12 @@
 <translation id="2823870601012066791"><ph name="PRODUCT_OS_NAME" />客户端的 Windows 注册表位置：</translation>
 <translation id="2824715612115726353">启用隐身模式</translation>
 <translation id="2838830882081735096">禁止数据迁移和 ARC</translation>
+<translation id="2840269525054388612">指定用户可以使用的打印机。
+
+      仅当为 <ph name="DEVICE_PRINTERS_ACCESS_MODE" /> 选择了 <ph name="PRINTERS_WHITELIST" /> 时，才可使用此政策
+
+      如果使用此政策，则只有那些具有与此政策中所列值匹配的 ID 的打印机才可供用户使用。ID 必须与 <ph name="DEVICE_PRINTERS_POLICY" /> 中指定的文件内的“id”或“guid”字段相符。
+      </translation>
 <translation id="2844404652289407061">在 <ph name="PRODUCT_NAME" /> 的内容视图中启用“触摸搜索”功能。
 
       如果您启用了此设置，用户将能够使用“触摸搜索”功能，并可以启用或停用该功能。
@@ -710,6 +746,13 @@
 <translation id="3214164532079860003">如果启用此政策，就会强制从当前默认浏览器导入主页。如果停用此政策，就不会导入主页。如果未设置此政策，系统就会询问用户是否导入主页，或者系统自动进行导入。</translation>
 <translation id="3219421230122020860">隐身模式已启用</translation>
 <translation id="3220624000494482595">如果自助服务终端应用是一款 Android 应用，它将无法控制 <ph name="PRODUCT_OS_NAME" />版本，即使此政策设为 <ph name="TRUE" /> 也是如此。</translation>
+<translation id="3229833076897893450">
+      若想做到两全其美（既能实现隔离，又能减少给用户带来的影响），您最好是查看一下 IsolateOrigins 政策设置，并使用 IsolateOrigins 政策指定您想隔离的一系列网站。该设置 (SitePerProcess) 会隔离所有网站。
+      如果此政策处于启用状态，每个网站都将在自己的进程中运行。
+      如果此政策处于停用状态，“按网站隔离”进程管理逻辑将会生效，并且 IsolateOrigins 和 SitePerProcess 的现场试用将会停用。用户仍可以手动启用 SitePerProcess。
+      如果此政策未配置，用户将能够更改该设置。
+      倘若您使用的是 <ph name="PRODUCT_OS_NAME" />，我们建议您也将设备政策 <ph name="DEVICE_LOGIN_SCREEN_SITE_PER_PROCESS_POLICY_NAME" /> 设为相同的值。如果这两项政策指定的值不一致，并且系统应用的是由用户政策指定的值，那么系统在进入用户会话时可能会出现延迟。
+      </translation>
 <translation id="3236046242843493070">允许的扩展程序、应用和用户脚本安装源的网址格式</translation>
 <translation id="3240609035816615922">打印机配置访问政策。</translation>
 <translation id="3243309373265599239">指定在使用交流电源供电时用户停止输入后隔多久屏幕才变暗。
@@ -723,13 +766,13 @@
           指定的政策值应以毫秒为单位，并且不得大于屏幕关闭延迟时间（如果设置了的话）和闲置延迟时间。</translation>
 <translation id="3264793472749429012">默认搜索服务提供商的编码</translation>
 <translation id="3273221114520206906">默认 JavaScript 设置</translation>
+<translation id="3284094172359247914">控制对 WebUSB API 的使用</translation>
 <translation id="3288595667065905535">发布版</translation>
 <translation id="3292147213643666827">允许 <ph name="PRODUCT_NAME" /> 作为 <ph name="CLOUD_PRINT_NAME" />与连接到该计算机的传统打印机之间的代理。
 
       如果已启用或未配置此设置，用户就可以用自己的 Google 帐号进行身份验证，从而启用云打印代理。
 
       如果已停用此设置，用户将无法启用代理，该计算机也就无法与 <ph name="CLOUD_PRINT_NAME" />共享其打印机。</translation>
-<translation id="3297010562646015826">允许在任务管理器中结束进程</translation>
 <translation id="3307746730474515290">控制可以安装哪些类型的应用/扩展程序并限制运行时访问。
 
           此设置会将允许在 <ph name="PRODUCT_NAME" /> 中安装的扩展程序/应用所属的类型以及可与其互动的主机列入白名单。此设置的值是一个字符串列表，系统可接受的字符串为："extension"、"theme"、"user_script"、"hosted_app"、"legacy_packaged_app"、"platform_app"。如需详细了解这些类型，请参阅 <ph name="PRODUCT_NAME" /> 扩展程序文档。
@@ -746,12 +789,6 @@
 
           如果此政策设为非空字符串，该字符串将被用作 <ph name="PRODUCT_NAME" /> 目标名称。否则，目标名称便是设备名称。如果此政策未设置，则目标名称将是设备名称，且设备所有者（或者该设备的托管网域内的用户）将能更改该名称。该名称的长度不得超过 24 个字符。</translation>
 <translation id="3381968327636295719">默认情况下托管主机浏览器</translation>
-<translation id="3395348522300156660">指定用户可以使用的打印机。
-
-      仅当为 <ph name="DEVICE_PRINTERS_ACCESS_MODE" /> 选择了 <ph name="PRINTERS_WHITELIST" /> 时，才可使用此政策。
-
-      如果使用此政策，则只有那些具有与此政策中所列值匹配的 ID 的打印机才可供用户使用。ID 必须与 <ph name="DEVICE_PRINTERS_POLICY" /> 中指定的文件内的条目对应。
-      </translation>
 <translation id="3414260318408232239">如果未配置此政策，<ph name="PRODUCT_NAME" /> 将会使用默认的最低版本（即 TLS 1.0）。
 
       倘若您想配置此政策，则可将其设为下列值之一：“tls1”、“tls1.1”或“tls1.2”。如果您设置了此政策，<ph name="PRODUCT_NAME" /> 将不会使用低于指定版本的 SSL/TLS 版本。无法识别的值都会被忽略。</translation>
@@ -795,19 +832,34 @@
           此政策只在启用了“DefaultSearchProviderEnabled”政策的前提下才会生效。</translation>
 <translation id="350797926066071931">启用翻译</translation>
 <translation id="3512226956150568738">如果客户端设备型号在需要迁移到 ext4 才能运行 ARC 之前就已支持 ARC，且 ArcEnabled 政策已设为 true，该选项的行为便会和 AskUser（值 3）的行为一样。在所有其他情形（如果相应的设备型号之前不支持 ARC，或者如果 ArcEnabled 政策被设为 false）下，此值将会等同于 DisallowArc（值 0）。</translation>
+<translation id="3519934027321156158">
+      如果此政策处于启用状态，则以英文逗号分隔的列表中指定的每个来源都将在自己的进程中运行。这还会隔离使用子网域名称的来源；例如，指定 https://example.com/ 还会导致 https://foo.example.com/ 作为 https://example.com/ 网站的一部分被隔离。
+      如果此政策处于停用状态，“按网站隔离”进程管理逻辑将会生效，并且 IsolateOrigins 和 SitePerProcess 的现场试用将会停用。用户仍可以手动启用 IsolateOrigins。
+      如果此政策未配置，用户将能够更改该设置。
+      倘若您使用的是 <ph name="PRODUCT_OS_NAME" />，我们建议您也将设备政策 <ph name="DEVICE_LOGIN_SCREEN_ISOLATE_ORIGINS_POLICY_NAME" /> 设为相同的值。如果这两项政策指定的值不一致，并且系统应用的是由用户政策指定的值，那么系统在进入用户会话时可能会出现延迟。
+      </translation>
+<translation id="3524204464536655762">不允许任何网站通过 WebUSB API 请求访问 USB 设备</translation>
 <translation id="3528000905991875314">启用备用的错误页面</translation>
 <translation id="3547954654003013442">代理设置</translation>
+<translation id="3556806727696701427">启用 <ph name="PRODUCT_NAME" /> 的安全浏览功能，并禁止用户更改此设置。
+
+      如果您启用了此设置，安全浏览功能将一直处于启用状态。
+
+      如果您停用了此设置，安全浏览功能将一直处于停用状态。
+
+      如果您启用或停用了此设置，用户将无法更改或替换 <ph name="PRODUCT_NAME" /> 中的“启用针对网上诱骗和恶意软件的防护功能”设置。
+
+      如果此政策未设置，安全浏览功能将会处于启用状态，但用户可以自行进行更改。
+
+      要详细了解安全浏览功能，请访问 https://developers.google.com/safe-browsing。
+
+      此政策不适用于未加入 <ph name="MS_AD_NAME" /> 网域的 Windows 实例。</translation>
 <translation id="3577251398714997599">针对含侵扰性广告的网站的广告设置</translation>
 <translation id="3591584750136265240">配置登录身份验证行为</translation>
 <translation id="3627678165642179114">启用或停用拼写检查网络服务</translation>
 <translation id="3646859102161347133">设置放大镜类型</translation>
 <translation id="3653237928288822292">默认搜索服务提供商图标</translation>
 <translation id="3660562134618097814">在用户登录期间转移 SAML IdP Cookie</translation>
-<translation id="3687282113223807271">当用户打开被标记为可能存在恶意内容的网站时，安全浏览服务会显示警告页面。如果启用了此设置，用户在看到警告页面后将无法再继续访问相应的恶意网站。
-
-      如果此设置处于停用状态或未配置，用户在看到警告后可以继续访问被标记为可能存在恶意内容的网站。
-
-      要详细了解安全浏览功能，请访问 https://developers.google.com/safe-browsing。</translation>
 <translation id="3709266154059827597">配置扩展程序安装黑名单</translation>
 <translation id="3711895659073496551">暂停</translation>
 <translation id="3736879847913515635">允许通过用户管理器添加用户</translation>
@@ -827,6 +879,15 @@
 
       如果您未设置这些政策，用户将可以自行选择代理设置。</translation>
 <translation id="3758249152301468420">停用开发者工具</translation>
+<translation id="3764248359515129699">对于指定的一系列旧版证书授权机构，不强制执行证书透明化要求。
+
+      如果证书链中的证书含有某个指定的 subjectPublicKeyInfo 哈希，则此政策允许针对此类证书链停用证书透明化披露要求。这样一来，本应不受信任的证书（因为并未适当地公开披露）将可以继续用于企业主机。
+
+      在设置了此政策的情况下，为了不强制执行证书透明化要求，哈希必须是以下 subjectPublicKeyInfo 的哈希：被识别为旧版证书授权机构 (CA) 颁发的 CA 证书中显示的 subjectPublicKeyInfo。旧版 CA 是指 <ph name="PRODUCT_NAME" /> 支持的一种或多种操作系统默认情况下公开信任，但 Android 开源项目或 <ph name="PRODUCT_OS_NAME" />不信任的 CA。
+
+      subjectPublicKeyInfo 哈希是通过将以下各项组合在一起的方式指定的：哈希算法名称、“/”字符，以及对指定证书的 DER 编码 subjectPublicKeyInfo 应用的哈希算法的 Base64 编码。该 Base64 编码与 SPKI 指纹的格式相同（详见 RFC 7469 第 2.4 节）。系统会忽略无法识别的哈希算法。目前，“sha256”是唯一受支持的哈希算法。
+
+      如果此政策未设置，则对于任何需要通过证书透明化操作予以披露的证书，如果并未根据证书透明化政策进行披露，系统都会将其视为不可信证书。</translation>
 <translation id="3765260570442823273">待机退出警告讯息的持续时间</translation>
 <translation id="377044054160169374">针对误导性体验的强制干预政策</translation>
 <translation id="3780152581321609624">在 Kerberos SPN 中加入非标准端口</translation>
@@ -898,6 +959,9 @@
     列出系统自动为演示用户安装的扩展程序（它们将安装在零售模式下的设备上）。安装后，这些扩展程序保存在该设备中，并且可以在离线状态下安装。
 
       每个列表条目都包含一个字典，其“extension-id”字段必须包含扩展程序 ID，而其“update-url”字段必须包含更新网址。</translation>
+<translation id="3873159954366380945">可让您设置系统显示 <ph name="PRODUCT_NAME" /> 重新启动通知（提示用户进行更新）的时间段。
+
+      此政策设置可用于控制该时间段的时长（精确到毫秒），系统将在该时间段内循序渐进地通知用户必须重新启动 <ph name="PRODUCT_NAME" />（或 <ph name="PRODUCT_OS_NAME" />）以进行更新。在该时间段内，系统将会根据 <ph name="RELAUNCH_NOTIFICATION_POLICY_NAME" /> 政策的设置重复提示用户需要进行更新。如果未设置此政策，系统将会使用 345600000 毫秒（4 天）作为 <ph name="PRODUCT_OS_NAME" /> 的默认时长，并使用 604800000 毫秒（1 周）作为所有其他平台的默认时长。</translation>
 <translation id="3877517141460819966">集成的双重身份验证模式</translation>
 <translation id="388237772682176890">我们在 M53 中弃用了此政策，并在 M54 中移除了此政策（因为 SPDY/3.1 已不再受支持）。
 
@@ -932,10 +996,10 @@
 
       如果此政策设为 true，系统将发送监控网络数据包（所谓的“<ph name="HEARTBEATS_TERM" />”）。
       如果此政策设为 false 或未设置，系统将不会发送任何网络数据包。</translation>
+<translation id="3958586912393694012">允许使用 Smart Lock</translation>
 <translation id="3963602271515417124">如果此政策的值为 True，则系统将允许此设备进行远程认证，然后自动生成证书并将其上传到设备管理服务器。
 
           如果此政策的值设为 False 或未设置，则不会生成证书，也无法调用 enterprise.platformKeys extension API。</translation>
-<translation id="3964909636571393861">允许访问网址列表</translation>
 <translation id="3965339130942650562">对待机用户执行退出操作前的超时时间</translation>
 <translation id="3973371701361892765">一律不自动隐藏任务栏</translation>
 <translation id="3984028218719007910">确定 <ph name="PRODUCT_OS_NAME" />是否要在退出后保留本地帐号数据。如果将此政策设置为 true，<ph name="PRODUCT_OS_NAME" />就不会持续保留帐号，且会在退出后舍弃用户会话中的所有数据。如果未配置此政策或将其设置为 false，设备就会保留（经过加密的）本地用户数据。</translation>
@@ -945,6 +1009,12 @@
       如果此政策设为true或未设置，用户将能够通过注册Chrome操作系统兑换优惠。
 
       如果此政策设为false，用户将不能兑换优惠。</translation>
+<translation id="4002183184444060875">
+      此政策适用于登录屏幕。另请参阅适用于用户会话的 <ph name="ISOLATE_ORIGINS_POLICY_NAME" /> 政策。我们建议您将这两项政策设为相同的值。如果这两项政策的值不一致，并且系统应用的是由用户政策指定的值，那么系统在进入用户会话时可能会出现延迟。
+      如果此政策处于启用状态，则以英文逗号分隔的列表中指定的每个来源都将在自己的进程中运行。这还会隔离使用子网域名称的来源；例如，指定 https://example.com/ 还会导致 https://foo.example.com/ 作为 https://example.com/ 网站的一部分被隔离。
+      如果此政策处于停用状态，“按网站隔离”进程管理逻辑将会生效，并且 IsolateOrigins 和 SitePerProcess 的现场试用将会停用。用户仍可以手动启用 IsolateOrigins。
+      如果此政策未配置，则系统将为登录屏幕使用平台默认的网站隔离设置。
+      </translation>
 <translation id="4010738624545340900">允许调用文件选择对话框</translation>
 <translation id="4012737788880122133">将此政策设为 true 即可停用自动更新功能。
 
@@ -978,7 +1048,9 @@
 
       如果您想配置此政策，则可将其设为“tls1.2”或“tls1.3”。如果您设置了此政策，<ph name="PRODUCT_NAME" /> 将不会使用任何高于指定版本的 SSL/TLS 版本。无法识别的值会被忽略。</translation>
 <translation id="4121350739760194865">阻止在新标签页上显示应用宣传信息</translation>
+<translation id="412697421478384751">允许用户设置安全性较低的锁定屏幕 PIN 码</translation>
 <translation id="4157003184375321727">报告操作系统和固件版本</translation>
+<translation id="4157594634940419685">允许访问本机 CUPS 打印机</translation>
 <translation id="4183229833636799228">默认 <ph name="FLASH_PLUGIN_NAME" /> 设置</translation>
 <translation id="4192388905594723944">验证远程访问客户端身份验证令牌时使用的网址</translation>
 <translation id="4203389617541558220">安排自动重启以限制设备的正常运行时间。
@@ -1005,6 +1077,12 @@
 <translation id="4239720644496144453">缓存不适用于 Android 应用。如果多个用户都想安装同一款 Android 应用，系统便会分别为每个用户重新下载相应的 Android 应用。</translation>
 <translation id="4250680216510889253">否</translation>
 <translation id="4261820385751181068">设备登录屏幕语言区域</translation>
+<translation id="427220754384423013">指定用户可以使用的打印机。
+
+      仅当为 <ph name="BULK_PRINTERS_ACCESS_MODE" /> 选择了 <ph name="PRINTERS_WHITELIST" /> 时，才可使用此政策。
+
+      如果使用此政策，则只有那些具有与此政策中所列值匹配的 ID 的打印机才可供用户使用。ID 必须与 <ph name="BULK_PRINTERS_POLICY" /> 中指定的文件内的“id”或“guid”字段相符。
+      </translation>
 <translation id="427632463972968153">指定通过 POST 执行图片搜索时使用的参数。该参数由以英文逗号分隔的名称/值对组成。如果值为模板参数（例如上例中的 {imageThumbnail}），那么系统会将其替换成真正的缩略图数据。
 
           此为可选政策。如果未设置此政策，系统将使用 GET 方法发送图片搜索请求。
@@ -1022,7 +1100,6 @@
 
       如果未设置此政策，则此政策不会限制用户可以在锁定屏幕上启用哪些应用。</translation>
 <translation id="4309640770189628899">是否在 TLS 中启用 DHE 加密套件</translation>
-<translation id="4320376026953250541">Microsoft Windows XP SP2 或更高版本</translation>
 <translation id="4322842393287974810">允许自动启动零延迟的自助服务终端应用控制 <ph name="PRODUCT_OS_NAME" />版本</translation>
 <translation id="4325690621216251241">向系统任务栏添加退出按钮</translation>
 <translation id="4346674324214534449">可让您设置是否应禁止含侵扰性广告的网站展示广告。
@@ -1046,6 +1123,8 @@
 <translation id="4377599627073874279">允许所有网站显示所有图片</translation>
 <translation id="437791893267799639">政策未设置，禁止数据迁移和 ARC</translation>
 <translation id="4389091865841123886">通过 TPM 机制配置远程认证。</translation>
+<translation id="4410236409016356088">启用网络带宽限制功能</translation>
+<translation id="441217499641439905">在 <ph name="PRODUCT_OS_NAME" />的“文件”应用中，不允许通过移动网络连接到 Google 云端硬盘</translation>
 <translation id="4418726081189202489">如果将此政策设为 False，<ph name="PRODUCT_NAME" /> 将无法不定期向 Google 服务器发出查询来检索准确的时间戳。如果此政策设为 True 或未设置，这样的查询将能够发送到 Google 服务器。</translation>
 <translation id="4423597592074154136">手动指定代理设置</translation>
 <translation id="4429220551923452215">启用或停用书签栏中的应用快捷方式。
@@ -1066,19 +1145,22 @@
       </translation>
 <translation id="4442582539341804154">当设备进入待机或暂停状态时启用锁定</translation>
 <translation id="4449545651113180484">将屏幕顺时针旋转 270 度</translation>
-<translation id="4459359100627756769">配置企业登录网址（仅限 HTTP 和 HTTPS 方案）列表。系统会在这些网址上捕获密码指纹，并使用指纹进行密码重用检测。
-      此设置应仅供使用 SSO/SMAL 系统的 GSuite 用户使用。
-
-      如果启用了此设置，密码保护服务将会在这些网址上捕获密码指纹，以用于密码重用检测。
-      如果停用了或未设定此设置，密码保护服务则会仅在 https://accounts.google.com 上捕获密码指纹。
-      此政策不适用于未加入 <ph name="MS_AD_NAME" /> 网域的 Windows 实例。</translation>
+<translation id="4454820008017317557">显示 <ph name="PRODUCT_NAME" /> 工具栏图标</translation>
 <translation id="4467952432486360968">阻止第三方 Cookie</translation>
 <translation id="4474167089968829729">允许将密码保存到密码管理器</translation>
 <translation id="4476769083125004742">如果此政策设为 <ph name="BLOCK_GEOLOCATION_SETTING" />，Android 应用将无法使用位置信息。如果此政策设为任何其他值或未设置，那么当 Android 应用想使用位置信息时，它会询问用户是否同意。</translation>
 <translation id="4480694116501920047">强制使用安全搜索</translation>
 <translation id="4482640907922304445">在 <ph name="PRODUCT_NAME" />的工具栏上显示“主页”按钮。如果您启用了此设置，则会始终显示“主页”按钮。如果您停用了此设置，则从不显示“主页”按钮。如果您启用或停用了此设置，用户就无法在 <ph name="PRODUCT_NAME" />中更改或替换此设置。如果未设置此政策，用户就可以选择是否显示“主页”按钮。</translation>
+<translation id="4483649828988077221">停用自动更新功能</translation>
 <translation id="4485425108474077672">配置“打开新的标签页”页面网址</translation>
 <translation id="4492287494009043413">停用截取屏幕截图功能</translation>
+<translation id="4497968613298501984">配置企业登录网址（仅限 HTTP 和 HTTPS 方案）列表。系统会在这些网址上捕获密码指纹，并使用指纹进行密码重用检测。
+      此设置应仅供使用 SSO/SMAL 系统的 G Suite 用户使用。
+      为了使 <ph name="PRODUCT_NAME" /> 能够正确捕获密码指纹，请务必确保您的登录页面遵循了 https://www.chromium.org/developers/design-documents/create-amazing-password-forms 上所述的指南。
+
+      如果启用了此设置，密码保护服务就会在这些网址上捕获密码指纹，以用于密码重用检测。
+      如果停用了或未设定此设置，密码保护服务则会仅在 https://accounts.google.com 上捕获密码指纹。
+      此政策不适用于未加入 <ph name="MS_AD_NAME" /> 网域的 Windows 实例。</translation>
 <translation id="450537894712826981">配置<ph name="PRODUCT_NAME" />将用于在磁盘上存储缓存媒体文件的缓存大小。
 
       如果您设置了此政策，那么无论用户是否已指定“--media-cache-size”标记，<ph name="PRODUCT_NAME" />都会使用此政策中设定的缓存大小。此政策中所指定的值并非硬性限值，而是针对缓存系统提出的建议值。任何低于几兆字节的值都会因为太小而被向上舍入到一个合理的最小值。
@@ -1152,6 +1234,7 @@
           默认情况下，如果系统认为 PIN 码的安全系数偏低，就会向用户显示警告（而不是错误消息）。</translation>
 <translation id="4723829699367336876">支持通过远程访问客户端穿越防火墙</translation>
 <translation id="4725528134735324213">启用 Android Backup Service</translation>
+<translation id="4725801978265372736">要求本地用户的名称和远程访问主机所有者的名称必须一致</translation>
 <translation id="4733471537137819387">与集成 HTTP 身份验证相关的政策。</translation>
 <translation id="4744190513568488164"><ph name="PRODUCT_NAME" /> 可委托的服务器。
 
@@ -1194,6 +1277,13 @@
 
       如果此政策未设置或为空，那么所有用户都可以登录 <ph name="PRODUCT_NAME" />。</translation>
 <translation id="4858735034935305895">允许全屏模式</translation>
+<translation id="4868249328547841081">配置用于更改密码的网址（仅限 HTTP 和 HTTPS 方案）。密码保护服务会在用户遭遇网上诱骗时将用户转到此网址，以便其更改密码。
+      此设置应仅供使用 SSO/SMAL 系统的 G Suite 用户使用。
+      为了使 <ph name="PRODUCT_NAME" /> 能够正确捕获这一用于更改密码的页面中的新密码指纹，请务必确保该页面遵循了 https://www.chromium.org/developers/design-documents/create-amazing-password-forms 上所述的指南。
+
+      如果启用了此设置，密码保护服务就会在用户遭遇网上诱骗时将用户转到此网址，以便其更改密码。
+      如果停用了或未设定此设置，密码保护服务则会将用户转到 https://myaccounts.google.com，以便其更改密码。
+      此政策不适用于未加入 <ph name="MS_AD_NAME" /> 网域的 Windows 实例。</translation>
 <translation id="4869787217450099946">指定是否允许使用屏幕唤醒锁定。扩展程序可通过 Power Management Extension API 请求使用屏幕唤醒锁定。
 
           如果将此政策设为 true 或未进行设置，系统就会允许使用屏幕唤醒锁定，以便进行电源管理。
@@ -1221,6 +1311,14 @@
           此政策只在启用了“DefaultSearchProviderEnabled”政策的前提下才会生效。</translation>
 <translation id="489803897780524242">此参数可控制是否为默认搜索服务提供商替换搜索字词</translation>
 <translation id="4899708173828500852">启用安全浏览</translation>
+<translation id="4899802251198446659">可让您控制 <ph name="PRODUCT_NAME" /> 中的视频能否不经用户同意即可有声地自动播放。
+
+      如果此政策设为 True，<ph name="PRODUCT_NAME" /> 将能够自动播放媒体。
+      如果此政策设为 False，<ph name="PRODUCT_NAME" /> 将无法自动播放媒体。AutoplayWhitelist 政策可用于覆盖此设置，指定可自动播放媒体的网址格式。
+      默认情况下，<ph name="PRODUCT_NAME" /> 无法自动播放媒体。AutoplayWhitelist 政策可用于覆盖此设置，指定可自动播放媒体的网址格式。
+
+      请注意，如果此政策在 <ph name="PRODUCT_NAME" /> 运行期间发生了更改，更改后的设置将会仅应用于新打开的标签页。因此，部分标签页或许仍会遵循先前的处理方式。
+      </translation>
 <translation id="4906194810004762807">设备策略的更新频率</translation>
 <translation id="4917385247580444890">强</translation>
 <translation id="4923806312383904642">允许 WebDriver 替换与之冲突的政策</translation>
@@ -1241,6 +1339,7 @@
 <translation id="5047604665028708335">允许访问非内容包内的网站</translation>
 <translation id="5052081091120171147">如果启用此政策，就会强制从当前默认浏览器导入浏览记录，还会影响导入对话框。如果停用此政策，就不会导入浏览记录。如果未设置此政策，系统就会询问用户是否导入浏览记录，或者系统自动进行导入。</translation>
 <translation id="5056708224511062314">放大镜已停用</translation>
+<translation id="5058573563327660283">选择在自动清理期间释放磁盘空间时采用的策略（已弃用）</translation>
 <translation id="5067143124345820993">登录用户白名单</translation>
 <translation id="5068140065960598044"><ph name="PRODUCT_NAME" /> 云政策会替换机器政策。</translation>
 <translation id="5085647276663819155">停用打印预览</translation>
@@ -1255,19 +1354,6 @@
 
       请注意，如果客户端在较长时间内一直处于离线状态，那么即使指定的天数已过，密码也可能不会更改。</translation>
 <translation id="5105313908130842249">使用电池供电时的屏幕锁定延迟时间</translation>
-<translation id="5106504910236139235">启用 <ph name="PRODUCT_NAME" /> 的安全浏览扩展报告功能，并禁止用户更改此设置。
-
-      扩展报告会向 Google 服务器发送一些系统信息和网页内容，以帮助检测危险应用和网站。
-
-      如果此设置设为 true，系统将会在必要时（例如在显示与安全性相关的错误消息或警告时）生成并发送报告。
-
-      如果此设置设为 false，系统将永远不会发送报告。
-
-      如果此政策设为 true 或 false，用户将无法修改此设置。
-
-      如果未设置此政策，用户则能够更改此设置并决定是否要发送报告。
-
-      要想详细了解安全浏览功能，请访问 https://developers.google.com/safe-browsing。</translation>
 <translation id="5108031557082757679">已停用企业设备打印机</translation>
 <translation id="5130288486815037971">是否在 TLS 中启用 RC4 加密套件</translation>
 <translation id="5141670636904227950">设置登录屏幕上启用的默认放大镜类型</translation>
@@ -1285,6 +1371,7 @@
 <translation id="5159469559091666409">发送监控网络数据包的频率（以毫秒为单位）。
 
       如果此政策未设置，则默认间隔为 3 分钟。系统所允许的最短间隔为 30 秒，最长间隔为 24 小时（低于 30 秒的值将被视为 30 秒，高于 24 小时的值将被视为 24 小时）。</translation>
+<translation id="5163002264923337812">启用旧的网页版登录流程</translation>
 <translation id="5182055907976889880">在 <ph name="PRODUCT_OS_NAME" />中配置 Google 云端硬盘。</translation>
 <translation id="5183383917553127163">可让您指定不受黑名单影响的扩展程序。黑名单值“*”表示所有扩展程序均已列入黑名单，用户只能安装白名单中列出的扩展程序。默认情况下，所有扩展程序都列在白名单中，但如果所有扩展程序均已根据某个政策列入黑名单，则白名单可用于覆盖相关政策。</translation>
 <translation id="519247340330463721">配置与安全浏览功能相关的政策。</translation>
@@ -1348,9 +1435,16 @@
 <translation id="5366977351895725771">如果此政策的值设置为 False，此用户将无法创建受监管用户。不过，所有目前受监管的用户帐号仍然可供访问。
 
           如果此政策的值设置为 True 或未配置，这位用户即可创建并管理受监管用户。</translation>
+<translation id="5370279767682621504">在非默认端口上启用 HTTP/0.9 支持</translation>
 <translation id="5378985487213287085">可让您设置是否允许网站显示桌面通知。默认情况下，可以允许或拒绝显示桌面通知，也可以在每次网站要显示桌面通知时询问用户。如果未设置此政策，系统将使用“AskNotifications”并允许用户更改此设置。</translation>
 <translation id="538108065117008131">允许“<ph name="PRODUCT_FRAME_NAME" />”处理以下内容类型。</translation>
-<translation id="5388730678841939057">选择在自动清理期间释放磁盘空间时遵循的策略（已弃用）</translation>
+<translation id="5391363090783552279">如果此政策设为 true，<ph name="PRODUCT_NAME" /> 将连接到位于所有 IP 地址的 Cast 设备，而不是只连接到位于 RFC1918/RFC4913 私有地址的 Cast 设备。
+
+          如果此政策设为 false，<ph name="PRODUCT_NAME" /> 将只连接到位于 RFC1918/RFC4913 私有地址的 Cast 设备。
+
+          如果此政策未设置，那么除非已启用 CastAllowAllIPs 功能，否则 <ph name="PRODUCT_NAME" /> 将只连接到位于 RFC1918/RFC4913 私有地址的 Cast 设备。
+
+          如果“EnableMediaRouter”政策设为 false，那么此政策的值将不会发挥任何作用。</translation>
 <translation id="5392172595902933844">系统会将有关 Android 状态的信息发送回服务器。
 
       如果此政策设为 false 或未设置，系统便不会报告状态信息。
@@ -1421,7 +1515,6 @@
       请注意，我们不建议启用此设置，因为这可能会允许绕过 nameConstraints 扩展项（用于限制可针对哪些主机名授权指定的证书）。
 
       如果此政策未设置或设为 false，系统将不会信任包含 DNS 名称或 IP 地址但缺少 subjectAlternativeName 扩展项的服务器证书。</translation>
-<translation id="557658534286111200">启用或停用书签修改功能</translation>
 <translation id="5586942249556966598">不执行任何操作</translation>
 <translation id="5630352020869108293">恢复上次的会话</translation>
 <translation id="5645779841392247734">在这些网站上允许 Cookie</translation>
@@ -1438,7 +1531,6 @@
       如果 <ph name="PRODUCT_NAME" /> 无法获取撤消状态信息，此类证书将被视为已撤消（“硬性失败”）。
 
       如果此政策未设置或设为 false，<ph name="PRODUCT_NAME" /> 将使用现有的在线撤消检查设置。</translation>
-<translation id="572720239788271400">允许更新 <ph name="PRODUCT_NAME" /> 中的组件</translation>
 <translation id="5728154254076636808">允许创建 <ph name="PRODUCT_NAME" /> 个人资料数据的漫游副本</translation>
 <translation id="5732972008943405952">首次运行时，从默认浏览器导入自动填充表单数据</translation>
 <translation id="5765780083710877561">说明：</translation>
@@ -1455,20 +1547,6 @@
           如果未设置此政策，系统将使用默认的时间长度。
 
           指定的政策值应以毫秒为单位。</translation>
-<translation id="5784370777704871674">启用 <ph name="PRODUCT_NAME" /> 的安全浏览功能，并禁止用户更改此设置。
-
-      如果您启用了此设置，安全浏览功能就会始终处于启用状态。
-
-      如果您停用了此设置，安全浏览功能则会始终处于停用状态。
-
-      如果您启用或停用了此设置，用户便无法在 <ph name="PRODUCT_NAME" /> 中更改或替换“启用针对网上诱骗和恶意软件的防护功能”设置。
-
-      如果未设置此政策，系统将会启用此设置，不过用户可以更改此设置。
-
-      要想详细了解安全浏览功能，请访问 https://developers.google.com/safe-browsing。
-
-      此政策不适用于未加入 <ph name="MS_AD_NAME" /> 网域的 Windows 实例。</translation>
-<translation id="5795001131770861387">在非默认端口上启用 HTTP/0.9 支持</translation>
 <translation id="5809728392451418079">设置设备本地帐号的显示名称</translation>
 <translation id="5814301096961727113">设置登录屏幕上语音反馈的默认状态</translation>
 <translation id="5815129011704381141">更新后自动重启</translation>
@@ -1626,7 +1704,6 @@
 <translation id="6155936611791017817">设置登录屏幕上大号光标的默认状态</translation>
 <translation id="6157537876488211233">代理绕过规则的逗号分隔列表</translation>
 <translation id="6158324314836466367">企业网上应用店名称（已弃用）</translation>
-<translation id="6161405879872578475">启用 <ph name="PRODUCT_NAME" /></translation>
 <translation id="6181608880636987460">可让您设置一系列网址格式，以用于指定禁止哪些网站运行 <ph name="FLASH_PLUGIN_NAME" /> 插件。
 
           如果未设置此政策，系统将会对所有网站使用“DefaultPluginsSetting”政策中的全局默认值（倘若已设置“DefaultPluginsSetting”政策），或使用用户个人配置中的全局默认值（倘若未设置“DefaultPluginsSetting”政策）。</translation>
@@ -1656,11 +1733,6 @@
 <translation id="6281043242780654992">配置本地消息传递政策。不允许黑名单中列出的本地消息传递主机（除非相应主机已列入白名单）。</translation>
 <translation id="6282799760374509080">是否允许音频捕获</translation>
 <translation id="6284362063448764300">TLS 1.1</translation>
-<translation id="6287694548537067861">如果此政策未设置或设为 true，则允许更新 <ph name="PRODUCT_NAME" /> 中的所有组件。
-
-      如果此政策设为 false，则禁止更新组件。不过，部分组件不受此政策限制：只要组件更新不含可执行的代码、不明显改变浏览器的行为，或对浏览器的安全性至关重要，系统就不会禁止此类组件更新。
-      此类组件包括证书撤消列表和安全浏览数据等。
-      要详细了解安全浏览功能，请访问 https://developers.google.com/safe-browsing。</translation>
 <translation id="6310223829319187614">允许在用户登录期间自动填充域名</translation>
 <translation id="6315673513957120120">当用户访问存在 SSL 错误的网站时，Chrome 将显示警告页面。默认情况下，或当此政策设为 true 时，用户可以在点击这些警告页面后继续操作。
       如果将此政策设为 false，用户将无法通过点击任何警告页面继续操作。</translation>
@@ -1690,6 +1762,8 @@
           如果您选择自动检测代理服务器，则系统会向 Android 应用提供脚本网址“http://wpad/wpad.dat”，但不会使用代理自动检测协议的任何其他部分。
 
           如果您选择使用 .pac 代理脚本，则系统会向 Android 应用提供相应的脚本网址。</translation>
+<translation id="6440051664870270040">允许网站在导航的同时打开弹出式窗口</translation>
+<translation id="645425387487868471">为 <ph name="PRODUCT_NAME" /> 启用强制登录功能</translation>
 <translation id="6473623140202114570">配置安全浏览功能在哪些网域中不会触发警告。</translation>
 <translation id="6491139795995924304">允许在设备上使用蓝牙功能</translation>
 <translation id="6520802717075138474">首次运行时，从默认浏览器导入搜索引擎</translation>
@@ -1754,9 +1828,15 @@
 
       如果此政策未设置，系统将启用网络联想查询功能，但用户可以自行更改。</translation>
 <translation id="6658245400435704251">指定一个时间（以秒为单位），即从更新首次推送到服务器起设备随机延迟更新下载的最大时间。设备的这一等待时间一部分会按照实际时间计算，而剩下的部分则取决于更新检查的次数。在任何情况下，分配的时间上限都是固定的，因此设备绝不会一直等待下载某个更新。</translation>
+<translation id="6665670272107384733">指定用户必须按什么样的频率输入密码才能使用快速解锁功能</translation>
 <translation id="6689792153960219308">报告硬件状态</translation>
 <translation id="6698071416141001300">重复使用密码可触发“密码保护服务举报面临风险的帐号”功能</translation>
 <translation id="6699880231565102694">为远程访问主机启用双重身份验证</translation>
+<translation id="6702257826895463228">允许网站在导航的同时打开弹出式窗口。
+
+      如需完整说明，请访问 https://www.chromestatus.com/features/5675755719622656。
+      如果此政策处于启用状态，网站将可以在导航的同时打开新窗口/标签页。
+      如果此政策处于停用状态或未设置，网站将无法在导航的同时打开新窗口/标签页。</translation>
 <translation id="6724842112053619797">如果您启用此设置，存储在 <ph name="PRODUCT_NAME" /> 个人资料中的设置（例如书签、自动填充数据、密码等）将会被写入一个存储在漫游用户个人资料文件夹内的文件中，或被写入一个由管理员通过 <ph name="ROAMING_PROFILE_LOCATION_POLICY_NAME" /> 政策指定的位置中。启用此政策会停用云同步。
 
       如果此政策已停用或未设置，则系统只会使用常规的本地个人资料。
@@ -1786,6 +1866,7 @@
 
       指定要在 <ph name="PRODUCT_NAME" /> 启动时向其应用的实验性设置。指定的实验性设置仅会应用于登录屏幕。通过此政策设定的实验性设置不会反映在用户会话中。</translation>
 <translation id="685769593149966548">强制启用 YouTube“严格”受限模式</translation>
+<translation id="686079137349561371">Microsoft Windows 7 或更高版本</translation>
 <translation id="687046793986382807">此政策自35版<ph name="PRODUCT_NAME" />起已停止使用。
 
       无论选项值是什么，系统都会向网页报告内存信息，但出于安全考虑，系统会限制所报告的内存大小，并会限制更新率。要获取准确的实时数据，请使用遥测等工具。</translation>
@@ -1807,6 +1888,7 @@
 
       用户无法更改或替换此设置。</translation>
 <translation id="6908640907898649429">配置默认搜索服务提供商。您可以指定用户会使用的默认搜索服务提供商，或选择停用默认搜索。</translation>
+<translation id="6913068954484253496">允许 <ph name="PRODUCT_NAME" /> 连接到位于所有 IP 地址的 Cast 设备。</translation>
 <translation id="6915442654606973733">启用语音反馈辅助功能。
 
           如果此政策的值设为 True，则系统将始终启用语音反馈。
@@ -1865,7 +1947,6 @@
 <translation id="7063895219334505671">在这些网站上允许弹出式窗口</translation>
 <translation id="706669471845501145">允许网站显示桌面通知</translation>
 <translation id="7072208053150563108">设备密码更改率</translation>
-<translation id="7072406291414141328">启用调节网络带宽的功能</translation>
 <translation id="7074513465313721551">配置安全浏览功能将会信任的一系列网域。这意味着：
       如果相应网址与所指定的任一网域匹配，安全浏览功能将不会检查其中是否含有危险资源（例如网上诱骗、恶意软件或垃圾软件）。
       安全浏览功能的下载保护服务将不会检查托管在这些网域上的下载内容。
@@ -1891,6 +1972,7 @@
       如果此政策设为 False，系统将停用后台模式，并且用户无法在浏览器设置中控制该模式。
 
       如果此政策未设置，开始时系统将停用后台模式，但用户可以在浏览器设置中控制该模式。</translation>
+<translation id="7126716959063786004">允许在任务管理器中结束进程</translation>
 <translation id="7127892035367404455">回滚到目标版本</translation>
 <translation id="7128918109610518786">列出 <ph name="PRODUCT_OS_NAME" />在启动程序栏中显示为固定应用的应用标识符。
 
@@ -1921,6 +2003,7 @@
           “自动播放”仅适用于 <ph name="PLUGINS_ALLOWED_FOR_URLS_POLICY_NAME" /> 政策中明确列出的网域。如果要为所有网站启用“自动播放”，可以将 http://* 和 https://* 添加到此列表。
 
           如果此策略未设置，用户将能够手动更改此项设置。</translation>
+<translation id="723103540848640830">设置锁定屏幕 PIN 码的长度下限</translation>
 <translation id="7234280155140786597">被禁的本地消息传递主机的名称（用“*”则表示全部禁止）</translation>
 <translation id="7236775576470542603">设置登录屏幕上启用的放大镜默认类型。
 
@@ -1977,10 +2060,13 @@
 
       如果此政策未设置，自动清理将使用默认的内置策略（目前为“RemoveLRUIfDormant”策略）。</translation>
 <translation id="7336878834592315572">在会话期间保留 Cookie</translation>
-<translation id="733838170182967492">允许媒体自动播放</translation>
 <translation id="7340034977315324840">报告设备活动时间</translation>
 <translation id="7343497214039883642">设备的企业打印机配置文件</translation>
-<translation id="7384999953864505698">允许使用 QUIC 协议</translation>
+<translation id="7367028210010532881">当用户访问被标记为可能存在恶意内容的网站时，安全浏览功能会显示警告页面。如果此设置处于启用状态，用户在看到警告页面后将无法再继续访问相应的恶意网站。
+
+      如果此设置处于停用状态或未配置，用户在看到警告后可以继续访问被标记为可能存在恶意内容的网站。
+
+      要详细了解安全浏览功能，请访问 https://developers.google.com/safe-browsing。</translation>
 <translation id="7417972229667085380">演示模式下待机延迟时间的调整幅度（百分比）（已弃用）</translation>
 <translation id="7421483919690710988">设置媒体磁盘缓存大小（字节）</translation>
 <translation id="7424751532654212117">已停用插件列表的例外情况</translation>
@@ -2000,6 +2086,12 @@
 <translation id="749556411189861380">报告已注册的设备使用的操作系统和固件版本。
 
       如果此政策未设置或设为True，已注册的设备将定期报告操作系统和固件版本。如果此政策设为False，则不报告版本信息。</translation>
+<translation id="7498946151094347510">指定用户无法使用的打印机。
+
+      仅当为 <ph name="DEVICE_PRINTERS_ACCESS_MODE" /> 选择了 <ph name="PRINTERS_BLACKLIST" /> 时，才可使用此政策。
+
+      如果使用此政策，那么除了与此政策中所列 ID 对应的打印机之外，其他所有打印机都可供用户使用。ID 必须与 <ph name="DEVICE_PRINTERS_POLICY" /> 中指定的文件内的“id”或“guid”字段相符。
+      </translation>
 <translation id="7511361072385293666">如果此政策设为 true 或未设置，则允许在 <ph name="PRODUCT_NAME" /> 中使用 QUIC 协议。
       如果此政策设为 false，则禁止使用 QUIC 协议。</translation>
 <translation id="7519251620064708155">允许在这些网站上使用密钥生成功能</translation>
@@ -2012,6 +2104,11 @@
       如果设为 GAIA，将通过常规 GAIA 身份验证流程完成登录。
 
       如果设为 SAML_INTERSTITIAL，登录过程中将会显示一个插页式屏幕，让用户选择是通过设备注册网域的 SAML IdP 进行身份验证，还是返回到常规 GAIA 登录流程。</translation>
+<translation id="755951849901630953">如果此政策未设置或设为 true，则允许更新 <ph name="PRODUCT_NAME" /> 中的所有组件。
+
+      如果此政策设为 false，则系统会禁止更新组件。不过，有些组件不受此政策限制，比如系统不会禁止对任何符合以下条件的组件进行更新：不含可执行代码、不会明显改变浏览器的行为，或对浏览器的安全性至关重要。
+      此类组件包括证书撤消列表和安全浏览数据等。
+      要详细了解安全浏览功能，请访问 https://developers.google.com/safe-browsing。</translation>
 <translation id="757395965347379751">启用此设置后，只要 SHA-1 签名证书成功验证并关联到本地安装的 CA 证书，<ph name="PRODUCT_NAME" /> 就会允许使用这些证书。
 
       请注意，此政策取决于操作系统证书验证堆栈是否允许 SHA-1 签名。如果操作系统更新更改了操作系统处理 SHA-1 证书的方式，则此政策可能不再有效。此外，此政策仅用作临时解决方法，旨在为企业提供更多时间来弃用 SHA-1。系统将于 2019 年 1 月 1 日（或左右）取消此政策。
@@ -2034,6 +2131,21 @@
 <translation id="7625444193696794922">指定该设备应锁定到的发布渠道。</translation>
 <translation id="7632724434767231364">GSSAPI 库名称</translation>
 <translation id="7635471475589566552">在 <ph name="PRODUCT_NAME" />中配置应用的语言区域，并禁止用户更改语言区域。如果您启用了此设置，<ph name="PRODUCT_NAME" />就会使用指定的语言区域。如果配置的语言区域不受支持，就会改用“en-US”。如果已停用或未配置此设置，<ph name="PRODUCT_NAME" />就会使用由用户指定的首选语言区域（如果已配置）、系统语言区域或备用语言区域“en-US”。</translation>
+<translation id="7641363659597330616">配置 <ph name="PRODUCT_NAME" /> 将全面拦截的下载内容类型，而不允许用户替换这项安全性决定。
+
+      如果您设置了此政策，<ph name="PRODUCT_NAME" /> 将拦截特定类型的下载内容，并且不允许用户绕过安全警告。
+
+      如果您选择的是“拦截有危险的下载内容”选项，系统将允许所有下载内容，但会触发安全浏览警告的下载内容除外。
+
+      如果您选择的是“拦截可能有危险的下载内容”选项，系统将允许所有下载内容，但会触发安全浏览警告（指示下载内容可能有危险）的下载内容除外。
+
+      如果您选择的是“拦截所有下载内容”选项，系统将会拦截所有下载内容。
+
+      如果此政策未设置（或者选择的是“无特殊限制”选项），系统将根据安全浏览功能分析结果检查下载内容是否符合常规安全限制。
+
+      请注意，这些限制适用于从网页内容以及“下载链接…”上下文菜单选项触发的下载内容。这些限制不适用于保存/下载当前显示的页面，也不适用于通过打印选项另存为 PDF 文件。
+
+      要详细了解安全浏览功能，请访问 https://developers.google.com/safe-browsing。</translation>
 <translation id="7643883929273267746">限制可在<ph name="PRODUCT_NAME" />中显示的帐号</translation>
 <translation id="7651739109954974365">确定是否应为设备启用数据漫游。如果将此政策设置为 true，数据漫游就可以使用。如果未配置此政策或将其设置为 false，数据漫游就无法使用。</translation>
 <translation id="7683777542468165012">动态政策刷新</translation>
@@ -2108,6 +2220,18 @@
       如果您指定了此设置，用户将无法自行更改。
 
       如果您未指定此设置，用户将可以在 Android 设置应用中开启和关闭 Android Backup Service。</translation>
+<translation id="780603170519840350">对于指定的一系列 subjectPublicKeyInfo 哈希，不强制执行证书透明化要求。
+
+      如果证书链中的证书含有某个指定的 subjectPublicKeyInfo 哈希，则此政策允许针对此类证书链停用证书透明化披露要求。这样一来，本应不受信任的证书（因为并未适当地公开披露）将可以继续用于企业主机。
+
+      在设置了此政策的情况下，为了不强制执行证书透明化要求，必须满足以下条件之一：
+      1. 哈希是服务器证书中 subjectPublicKeyInfo 的哈希。
+      2. 哈希是证书链中某个 CA 证书内显示的 subjectPublicKeyInfo 的哈希，该 CA 证书受 X.509v3 nameConstraints 扩展的限制，permittedSubtrees 中有一个或多个 directoryName nameConstraints，并且 directoryName 包含 organizationName 属性。
+      3. 哈希是证书链中某个 CA 证书内显示的 subjectPublicKeyInfo 的哈希，该 CA 证书的证书主题中包含一个或多个 organizationName 属性，并且服务器的证书包含数量、顺序和值的每个字节都相同的 organizationName 属性。
+
+      subjectPublicKeyInfo 哈希是通过将以下各项组合在一起的方式指定的：哈希算法名称、“/”字符，以及对指定证书的 DER 编码 subjectPublicKeyInfo 应用的哈希算法的 Base64 编码。该 Base64 编码与 SPKI 指纹的格式相同（详见 RFC 7469 第 2.4 节）。系统会忽略无法识别的哈希算法。目前，“sha256”是唯一受支持的哈希算法。
+
+      如果此政策未设置，则对于任何需要通过证书透明化操作予以披露的证书，如果并未根据证书透明化政策进行披露，系统都会将其视为不可信证书。</translation>
 <translation id="7818131573217430250">设置登录屏幕上高反差模式的默认状态</translation>
 <translation id="7822837118545582721">如果此政策设为 true，用户便无法向外部存储设备写入任何内容。
 
@@ -2123,15 +2247,6 @@
       如果未设置此政策，<ph name="PRODUCT_NAME" /> 将使用默认值（即5000毫秒）。</translation>
 <translation id="7841880500990419427">要回退到的最低 TLS 版本</translation>
 <translation id="7842869978353666042">配置 Google 云端硬盘选项</translation>
-<translation id="78627993030515046">指定 <ph name="PRODUCT_OS_NAME" />随时可从稳定版回滚到的里程碑的数量下限。
-
-      对于由消费者注册的设备，默认值为 0；对于由企业注册的设备，默认值为 8（大约 1 年）。
-
-      设置此政策可使回滚保护机制在至少这么多个里程碑内不起作用。
-
-      将此政策设为较小的值会产生永久性的效果：即使之后再将此政策设为较大的值，设备可能也无法回滚到早期版本。
-
-      实际的回滚可能性或许还取决于设备型号和关键的漏洞补丁程序。</translation>
 <translation id="787125417158068494">如果设置为 SyncDisabled 或未配置，ARC 应用便无法使用 <ph name="PRODUCT_OS_NAME" /> 证书。
 
       如果设置为 CopyCaCerts，ARC 应用便可使用所有已安装 ONC 且带有 <ph name="WEB_TRUSTED_BIT" /> 的 CA 证书。</translation>
@@ -2155,6 +2270,7 @@
 <translation id="7937766917976512374">是否允许视频捕获</translation>
 <translation id="7941975817681987555">采用任何网络连接时，均不预测网络操作</translation>
 <translation id="7953256619080733119">托管用户手动管理的例外主机</translation>
+<translation id="7961779417826583251">对于指定的一系列旧版证书授权机构，不强制执行证书透明化要求</translation>
 <translation id="7974114691960514888">此政策已不再受支持。在连接到远程客户端时，允许使用 STUN 和中继服务器。如果启用此设置，那么即使远程客户端受到防火墙隔离，也仍然可以检测到并连接到此计算机。如果停用此设置，并且防火墙过滤了外发 UDP 连接，那么此计算机将只能与本地网络内的客户端计算机建立连接。</translation>
 <translation id="7976157349247117979"><ph name="PRODUCT_NAME" /> 目标名称</translation>
 <translation id="7980227303582973781">无特殊限制</translation>
@@ -2163,7 +2279,6 @@
 <translation id="8044493735196713914">报告设备引导模式</translation>
 <translation id="8050080920415773384">本机打印</translation>
 <translation id="8059164285174960932">远程访问客户端获取身份验证令牌的网址</translation>
-<translation id="8073243368829195">允许使用 Smart Lock</translation>
 <translation id="8099880303030573137">使用电池供电时的闲置延迟时间</translation>
 <translation id="8102913158860568230">默认 mediastream 设置</translation>
 <translation id="8104962233214241919">自动选择这些网站的客户端证书</translation>
@@ -2280,6 +2395,7 @@
       如果此政策未设置或已停用，系统将使用 PDF 插件打开 PDF 文件，除非用户已停用此插件。</translation>
 <translation id="8402079500086185021">始终使用外部应用打开 PDF 文件</translation>
 <translation id="8412312801707973447">是否执行在线 OCSP/CRL 检查</translation>
+<translation id="8417305981081876834">设置锁定屏幕 PIN 码的长度上限</translation>
 <translation id="841977920223099909">密码保护服务警告功能触发条件</translation>
 <translation id="8424255554404582727">设置显示屏默认旋转角度，每次重新启动后都重新应用设置的角度</translation>
 <translation id="8426231401662877819">将屏幕顺时针旋转 90 度</translation>
@@ -2313,12 +2429,6 @@
 
       警告：建议您不要配置版本限制，因为这可能会阻止用户接收软件更新和关键的安全修补程序。限制更新到特定版本前缀可能会将用户置于风险之中。</translation>
 <translation id="8519264904050090490">托管用户手动管理的例外网址</translation>
-<translation id="8527932539502116028">指定用户无法使用的打印机。
-
-      仅当为 <ph name="BULK_PRINTERS_ACCESS_MODE" /> 选择了 <ph name="PRINTERS_BLACKLIST" /> 时，才可使用此政策。
-
-      如果使用此政策，那么除了与此政策中所列 ID 对应的打印机之外，其他所有打印机都可供用户使用。
-      </translation>
 <translation id="8538235451413605457">配置对允许使用的最低 <ph name="PRODUCT_NAME" /> 版本的要求。低于指定值的版本将被视为过时；在这种情况下，如果用户不更新操作系统，相应设备就不会允许其登录。
       如果当前版本在用户会话期间变为过时版本，系统将会强制用户退出。
 
@@ -2328,13 +2438,18 @@
 <translation id="8544375438507658205">默认 HTML 呈现器为“<ph name="PRODUCT_FRAME_NAME" />”</translation>
 <translation id="8549772397068118889">访问非内容包内的网站时发出警告</translation>
 <translation id="8566842294717252664">在“打开新的标签页”页面和应用启动器中不显示网上应用店</translation>
+<translation id="8586528890725660268">指定用户无法使用的打印机。
+
+      仅当为 <ph name="BULK_PRINTERS_ACCESS_MODE" /> 选择了 <ph name="PRINTERS_BLACKLIST" /> 时，才可使用此政策。
+
+      如果使用此政策，那么除了与此政策中所列 ID 对应的打印机之外，其他所有打印机都可供用户使用。ID 必须与 <ph name="BULK_PRINTERS_POLICY" /> 中指定的文件内的“id”或“guid”字段相符。
+      </translation>
 <translation id="8587229956764455752">允许创建新的用户帐号</translation>
 <translation id="8598350264853261122">如果此政策设为 false，独立用户将无法使用 ARC。
 
       如果此政策设为 true 或未设置，所有用户都将能够使用 ARC（除非通过其他方式停用了 ARC）。
 
       系统只会在未运行 ARC 时（例如启动 Chrome 操作系统时）应用对此政策做出的更改。</translation>
-<translation id="8614804915612153606">停用自动更新</translation>
 <translation id="8631434304112909927">到版本 <ph name="UNTIL_VERSION" /> 为止</translation>
 <translation id="863319402127182273">对于 Android 应用，此政策仅会影响内置摄像头。当此政策设为 true 时，系统会针对所有 Android 应用（无一例外）停用摄像头。</translation>
 <translation id="8649763579836720255">Chrome 操作系统设备可使用远程凭证（经验证的访问凭证）来获取由 Chrome OS CA 颁发的证书，以证明该设备符合播放受保护内容的条件。此过程涉及向 Chrome OS CA 发送用于唯一标识设备的硬件背书信息。
@@ -2355,6 +2470,19 @@
 <translation id="8704831857353097849">已停用插件的列表</translation>
 <translation id="8711086062295757690">指定关键字，该关键字在多功能框中作为快捷方式来触发针对此提供商的搜索。此政策是可选的，如果未设置，就没有任何关键字可激活搜索服务提供商。要实施此政策，必须先启用“DefaultSearchProviderEnabled”政策。</translation>
 <translation id="8731693562790917685">“内容设置”可让您指定特定类型的内容（例如 Cookie、图片或 JavaScript）的处理方式。</translation>
+<translation id="8733448613597049197">启用 <ph name="PRODUCT_NAME" /> 的安全浏览扩展报告功能，并禁止用户更改此设置。
+
+      扩展报告功能可向 Google 服务器发送一些系统信息和网页内容，以协助检测危险应用和网站。
+
+      如果此设置设为 true，该功能将会在必要时（例如在显示与安全性相关的错误消息或警告时）生成并发送报告。 
+
+      如果此设置设为 false，该功能在任何情况下都不会发送报告。
+
+      如果此政策设为 true 或 false，用户将无法修改此设置。
+
+      如果此政策未设置，用户将能够更改此设置并决定是否要发送报告。
+
+      要详细了解安全浏览功能，请访问 https://developers.google.com/safe-browsing。</translation>
 <translation id="8736538322216687231">强制启用最低级别的 YouTube 受限模式</translation>
 <translation id="8749370016497832113">允许删除 <ph name="PRODUCT_NAME" /> 中的浏览器历史记录和下载记录，并禁止用户更改此设置。
 
@@ -2365,7 +2493,6 @@
       如果停用了此设置，则不能删除浏览和下载记录。</translation>
 <translation id="8759829385824155666">允许的 Kerberos 加密类型</translation>
 <translation id="8764119899999036911">指定 Kerberos SPN 是基于规范 DNS 名称还是基于输入的原始名称。如果您启用了此设置，系统将跳过 CNAME 查找步骤，并使用输入的服务器名称。如果您停用或未配置此设置，系统将通过 CNAME 查找来确定服务器的规范名称。</translation>
-<translation id="87812015706645271">本地用户的名称和远程访问主机所有者的名称必须一致</translation>
 <translation id="8782750230688364867">指定设备处于演示模式时屏幕变暗延迟时间的调整幅度（百分比）。
 
           如果设置此政策，则指定当设备处于演示模式时屏幕变暗延迟时间的调整幅度（百分比）。屏幕变暗延迟时间调整后，系统会调整屏幕关闭、锁定和待机的延迟时间，使其与屏幕变暗延迟时间之间的差值与原有配置下的差值相同。
@@ -2385,6 +2512,7 @@
 <translation id="8838303810937202360"><ph name="PRODUCT_OS_NAME" />会缓存应用和扩展程序，以便一台设备的多位用户安装，从而避免重复为每位用户下载。
       如果此政策未配置或值小于 1 MB，<ph name="PRODUCT_OS_NAME" />将使用默认缓存大小。</translation>
 <translation id="8858642179038618439">强制启用 YouTube 安全模式</translation>
+<translation id="8860342862142842017">对于指定的一系列 subjectPublicKeyInfo 哈希，不强制执行证书透明化要求</translation>
 <translation id="8864975621965365890">浏览使用 <ph name="PRODUCT_FRAME_NAME" />呈现的网站时，阻止显示“停止支持”的提示。</translation>
 <translation id="8867464911288727016">启用 <ph name="PRODUCT_NAME" /> 中的集成式 Google 翻译服务。
 
@@ -2427,18 +2555,6 @@
 
           指定的政策值应以毫秒为单位，并且必须少于闲置延迟时间。</translation>
 <translation id="891435090623616439">已编码为 JSON 字符串。有关详情，请访问 <ph name="COMPLEX_POLICIES_URL" /></translation>
-<translation id="8927384992072706174">为企业打印机提供配置。
-
-      此政策让您能够为 <ph name="PRODUCT_OS_NAME" />设备提供打印机配置。该文件不得超过 5MB，且必须用 JSON 编码。在格式方面，与 NativePrinters 字典一样。据估计，一个包含大约 21000 台打印机的文件编码后的大小将会是 5MB。相关加密哈希值用于验证下载内容是否完整。
-
-      该文件会被下载并缓存。只要相关网址或哈希值发生了变化，系统就会重新下载该文件。
-
-      如果设置了此政策，<ph name="PRODUCT_OS_NAME" />即会下载该文件以配置打印机，并会根据 <ph name="BULK_PRINTERS_ACCESS_MODE" />、<ph name="BULK_PRINTERS_WHITELIST" /> 和 <ph name="BULK_PRINTERS_BLACKLIST" /> 向用户提供可用的打印机。
-
-      如果您设置了此政策，用户便无法更改或替换它。
-
-      此政策对用户能否在各台设备上配置打印机没有影响。它旨在对各用户的打印机配置进行补充。
-      </translation>
 <translation id="8934944553121392674">控制用户可以使用 <ph name="DEVICE_PRINTERS_POLICY" /> 中的哪些打印机。
 
       指定对批量打印机配置使用哪项访问政策。如果选择 <ph name="PRINTERS_ALLOW_ALL" />，则系统会显示所有打印机。如果选择 <ph name="PRINTERS_BLACKLIST" />，则系统会使用 <ph name="DEVICE_PRINTERS_BLACKLIST" /> 来限制用户使用指定的打印机。如果选择 <ph name="PRINTERS_WHITELIST" />，则 <ph name="DEVICE_PRINTERS_WHITELIST" /> 只会指定可供用户选择的打印机。
@@ -2477,6 +2593,15 @@
 <translation id="9112897538922695510">可让您注册一个协议处理程序列表。此政策只能是推荐的政策。属性|protocol|应设为“mailto”等协议，属性|url|应设为处理该协议的应用采用的网址格式。该格式中可以包含“%s”（如果有，将被替换为所处理的网址）。
 
           通过政策注册的协议处理程序会与用户注册的协议处理程序合并到一起，两种处理程序都可使用。用户可以通过安装新的默认处理程序来覆盖通过政策安装的协议处理程序，但无法卸载通过政策注册的协议处理程序。</translation>
+<translation id="9123211093995421438">指定 <ph name="PRODUCT_OS_NAME" />随时可从稳定版回滚到的里程碑的数量下限。
+
+      对于由消费者注册的设备，默认值为 0；对于由企业注册的设备，默认值为 4（大约半年）。
+
+      设置此政策可使回滚防护机制在至少这么多个里程碑内不起作用。
+
+      将此政策设为较小的值会产生永久性的效果：即使之后再将此政策设为较大的值，设备可能也无法回滚到更早的版本。
+
+      实际的回滚可能性或许还取决于设备型号和关键的漏洞补丁程序。</translation>
 <translation id="913195841488580904">阻止访问网址列表</translation>
 <translation id="9135033364005346124">启用“<ph name="CLOUD_PRINT_NAME" />”代理</translation>
 <translation id="9136253551939494882">一种白名单，用于控制用户可以配置和使用哪些快速解锁模式来解锁屏幕。
@@ -2494,6 +2619,7 @@
 <translation id="915194831143859291">如果此政策设为 false 或未配置，<ph name="PRODUCT_OS_NAME" />将允许用户关闭设备。
       如果此政策设为 true，<ph name="PRODUCT_OS_NAME" />会在用户关闭设备时触发重新启动操作。<ph name="PRODUCT_OS_NAME" />会将界面中的所有关机按钮替换为重新启动按钮。如果用户通过电源按钮关闭设备，设备将不会自动重新启动，即使启用了此政策也是如此。</translation>
 <translation id="9158929520101169054">允许在同一浏览器中登录多个帐号</translation>
+<translation id="9167719789236691545">在 <ph name="PRODUCT_OS_NAME" />的“文件”应用中停用 Google 云端硬盘</translation>
 <translation id="9187743794267626640">禁止装载外部存储设备</translation>
 <translation id="9197740283131855199">系统在屏幕变暗后察觉到用户活动时，屏幕变暗延迟时间的调整幅度（百分比）</translation>
 <translation id="9200828125069750521">在使用 POST 的图片网址中所需的参数</translation>
@@ -2512,7 +2638,13 @@
 <translation id="922540222991413931">配置扩展程序、应用和用户脚本安装源</translation>
 <translation id="924557436754151212">首次运行时，从默认浏览器导入保存的密码</translation>
 <translation id="930930237275114205">设置 <ph name="PRODUCT_FRAME_NAME" />用户数据目录</translation>
-<translation id="934390688529359269">为 <ph name="PRODUCT_NAME" /> 启用强制登录功能</translation>
+<translation id="938916311528680351">可让您控制是否允许在 Chrome 操作系统上运行虚拟机。
+
+      如果此政策设为 true，相应设备将能够运行虚拟机。
+      如果此政策设为 false，相应设备将无法运行虚拟机。
+      当此政策改设为 false 时，只会导致无法启动新的虚拟机，而不会关闭已在运行的虚拟机。
+      如果未在某部托管设备上设置此政策，该设备将无法运行虚拟机。
+      非托管设备可以运行虚拟机。</translation>
 <translation id="944817693306670849">设置磁盘缓存大小</translation>
 <translation id="982497069985795632">启用拼写检查</translation>
 </translationbundle>

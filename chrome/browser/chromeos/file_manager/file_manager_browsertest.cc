@@ -20,20 +20,20 @@ namespace file_manager {
 
 // Parameter of FileManagerBrowserTest.
 // The second value is the case name of JavaScript.
-typedef std::tr1::tuple<GuestMode, const char*> TestParameter;
+typedef std::tuple<GuestMode, const char*> TestParameter;
 
 // Test fixture class for normal (not multi-profile related) tests.
 class FileManagerBrowserTest :
       public FileManagerBrowserTestBase,
       public ::testing::WithParamInterface<TestParameter> {
   GuestMode GetGuestModeParam() const override {
-    return std::tr1::get<0>(GetParam());
+    return std::get<0>(GetParam());
   }
   const char* GetTestManifestName() const override {
     return "file_manager_test_manifest.json";
   }
   const char* GetTestCaseNameParam() const override {
-    return std::tr1::get<1>(GetParam());
+    return std::get<1>(GetParam());
   }
 };
 
@@ -157,7 +157,10 @@ WRAPPED_INSTANTIATE_TEST_CASE_P(
         TestParameter(NOT_IN_GUEST_MODE, "keyboardCopyDownloads"),
         TestParameter(NOT_IN_GUEST_MODE, "keyboardCopyDrive"),
         TestParameter(IN_GUEST_MODE, "renameFileDownloads"),
-        TestParameter(NOT_IN_GUEST_MODE, "renameFileDownloads"),
+
+        // Test is disabled due to flakiness: https://crbug.com/832192
+        // TestParameter(NOT_IN_GUEST_MODE, "renameFileDownloads"),
+
         TestParameter(NOT_IN_GUEST_MODE, "renameFileDrive"),
         TestParameter(IN_GUEST_MODE, "renameNewDirectoryDownloads"),
         TestParameter(NOT_IN_GUEST_MODE, "renameNewDirectoryDownloads"),
@@ -248,13 +251,9 @@ WRAPPED_INSTANTIATE_TEST_CASE_P(
                       "rectory")));
 
 // Fails on official build. http://crbug.com/429294
-#if defined(DISABLE_SLOW_FILESAPP_TESTS) || defined(OFFICIAL_BUILD)
-#define MAYBE_DriveSpecific DISABLED_DriveSpecific
-#else
-#define MAYBE_DriveSpecific DriveSpecific
-#endif
+// Disabled: too often flakey on chromium trys. http://crbug.com/829310
 WRAPPED_INSTANTIATE_TEST_CASE_P(
-    MAYBE_DriveSpecific,
+    DISABLED_DriveSpecific,
     FileManagerBrowserTest,
     ::testing::Values(
         TestParameter(NOT_IN_GUEST_MODE, "openSidebarOffline"),
@@ -275,11 +274,12 @@ WRAPPED_INSTANTIATE_TEST_CASE_P(
     FileManagerBrowserTest,
     ::testing::Values(
         TestParameter(NOT_IN_GUEST_MODE, "transferFromDriveToDownloads"),
-        TestParameter(NOT_IN_GUEST_MODE, "transferFromDownloadsToDrive"),
         TestParameter(NOT_IN_GUEST_MODE, "transferFromSharedToDownloads"),
-        TestParameter(NOT_IN_GUEST_MODE, "transferFromSharedToDrive"),
-        TestParameter(NOT_IN_GUEST_MODE, "transferFromOfflineToDownloads"),
-        TestParameter(NOT_IN_GUEST_MODE, "transferFromOfflineToDrive")));
+        TestParameter(NOT_IN_GUEST_MODE, "transferFromOfflineToDownloads")));
+// Disabled due to flakiness. https://crbug.com/831211
+// TestParameter(NOT_IN_GUEST_MODE, "transferFromDownloadsToDrive")
+// TestParameter(NOT_IN_GUEST_MODE, "transferFromSharedToDrive")
+// TestParameter(NOT_IN_GUEST_MODE, "transferFromOfflineToDrive")
 
 // Fails on official build. http://crbug.com/429294
 // Disabled due to flakiness. https://crbug.com/701924

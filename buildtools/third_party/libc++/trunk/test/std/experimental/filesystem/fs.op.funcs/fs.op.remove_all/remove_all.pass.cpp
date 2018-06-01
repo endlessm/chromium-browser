@@ -14,14 +14,13 @@
 // uintmax_t remove_all(const path& p);
 // uintmax_t remove_all(const path& p, error_code& ec) noexcept;
 
-#include <experimental/filesystem>
+#include "filesystem_include.hpp"
 
 #include "test_macros.h"
 #include "rapid-cxx-test.hpp"
 #include "filesystem_test_helper.hpp"
 
-using namespace std::experimental::filesystem;
-namespace fs = std::experimental::filesystem;
+using namespace fs;
 
 TEST_SUITE(filesystem_remove_all_test_suite)
 
@@ -33,7 +32,7 @@ TEST_CASE(test_signatures)
     ASSERT_SAME_TYPE(decltype(fs::remove_all(p, ec)), std::uintmax_t);
 
     ASSERT_NOT_NOEXCEPT(fs::remove_all(p));
-    ASSERT_NOEXCEPT(fs::remove_all(p, ec));
+    ASSERT_NOT_NOEXCEPT(fs::remove_all(p, ec));
 }
 
 TEST_CASE(test_error_reporting)

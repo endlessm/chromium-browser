@@ -52,7 +52,13 @@ public interface ToolbarDataProvider {
     /**
      * @return The formatted text (URL or search terms) for display.
      */
-    String getText();
+    String getDisplayText();
+
+    /**
+     * @return The formatted text for editing.  Returning null will leave the display text untouched
+     *         when entering the edit state.
+     */
+    String getEditingText();
 
     /**
      * @return The title of the current tab, or the empty string if there is currently no tab.
@@ -86,11 +92,6 @@ public interface ToolbarDataProvider {
     boolean shouldShowGoogleG(String urlBarText);
 
     /**
-     * @return Whether the security icon should be displayed.
-     */
-    boolean shouldShowSecurityIcon();
-
-    /**
      * @return Whether verbose status next to the security icon should be displayed.
      */
     boolean shouldShowVerboseStatus();
@@ -102,14 +103,13 @@ public interface ToolbarDataProvider {
     int getSecurityLevel();
 
     /**
-     * Determines the icon that should be displayed for the current security level.
-     * @return The resource ID of the icon that should be displayed, 0 if no icon should show.
+     * @return The resource ID of the icon that should be displayed or 0 if no icon should be shown.
      */
     @DrawableRes
-    int getSecurityIconResource();
+    int getSecurityIconResource(boolean isTablet);
 
     /**
-     * @return Whether or not we're currently showing a search query instead of a URL.
+     * @return Whether or not we should display search terms instead of a URL for query in omnibox.
      */
-    boolean isDisplayingQueryTerms();
+    boolean shouldDisplaySearchTerms();
 }

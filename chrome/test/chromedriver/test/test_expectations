@@ -118,16 +118,6 @@ _REVISION_NEGATIVE_FILTER['64'] = (
     ]
 )
 
-_REVISION_NEGATIVE_FILTER['63'] = (
-    _REVISION_NEGATIVE_FILTER['HEAD'] + [
-        # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2025
-        'MiscTest.testStimulatesStrangeOnloadInteractionInFirefox',
-        'PageLoadingTest.testShouldNotHangIfDocumentOpenCallIsNeverFollowedByDocumentCloseCall',
-        # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2025
-        'PageLoadingTest.testShouldBeAbleToGetAFragmentOnTheCurrentPage',
-    ]
-)
-
 _OS_NEGATIVE_FILTER = {}
 _OS_NEGATIVE_FILTER['win'] = [
     # Flaky: https://bugs.chromium.org/p/chromedriver/issues/detail?id=373
@@ -284,24 +274,25 @@ _OS_NEGATIVE_FILTER['android:chromium'] = (
         # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2286
         'CorrectEventFiringTest.testClearingAnElementShouldCauseTheOnChangeHandlerToFire',
         'CorrectEventFiringTest.testClickEventsShouldBubble',
-        'CorrectEventFiringTest.testSubmittingFormFromFormElementShouldFireOnSubmitForThatForm',
         'CorrectEventFiringTest.testSendingKeysToAFocusedElementShouldNotBlurThatElement',
-        'CorrectEventFiringTest.testShouldReportTheXAndYCoordinatesWhenClicking',
-        'CorrectEventFiringTest.testShouldEmitClickEventWhenClickingOnATextInputElement',
-        'CorrectEventFiringTest.testSendingKeysToAnElementShouldCauseTheFocusEventToFire',
-        'ElementAttributeTest.testShouldReturnAnAbsoluteUrlWhenGettingHrefAttributeOfAValidAnchorTag',
-        'JavascriptEnabledDriverTest.testShouldBeAbleToFindElementAfterJavascriptCausesANewPageToLoad',
-        'JavascriptEnabledDriverTest.testShouldBeAbleToSwitchToFocusedElement',
-        'JavascriptEnabledDriverTest.testShouldBeAbleToDetermineTheLocationOfAnElement',
-        'JavascriptEnabledDriverTest.testIfNoElementHasFocusTheActiveElementIsTheBody',
-        'JavascriptEnabledDriverTest.testShouldWaitForLoadsToCompleteAfterJavascriptCausesANewPageToLoad',
         'FormHandlingTest.testShouldSubmitAFormUsingTheEnterKey',
         'FormHandlingTest.testShouldSubmitAFormUsingTheNewlineLiteral',
+        'JavascriptEnabledDriverTest.testShouldBeAbleToFindElementAfterJavascriptCausesANewPageToLoad',
+        'JavascriptEnabledDriverTest.testShouldBeAbleToDetermineTheLocationOfAnElement',
+        'JavascriptEnabledDriverTest.testShouldBeAbleToSwitchToFocusedElement',
+        'JavascriptEnabledDriverTest.testIfNoElementHasFocusTheActiveElementIsTheBody',
+        'JavascriptEnabledDriverTest.testShouldWaitForLoadsToCompleteAfterJavascriptCausesANewPageToLoad',
+        'TypingTest.testShouldBeAbleToUseArrowKeys',
+        'TypingTest.testShouldReportKeyCodeOfArrowKeysUpDownEvents',
+        'TypingTest.testShouldBeAbleToMixUpperAndLowerCaseLetters',
         'BasicMouseInterfaceTest.testDoubleClickThenGet',
         'MiscTest.testShouldReturnTheSourceOfAPage',
         'MiscTest.testClickingShouldNotTrampleWOrHInGlobalScope',
         'MiscTest.testShouldReportTheCurrentUrlCorrectly',
-        'MiscTest.testStimulatesStrangeOnloadInteractionInFirefox'
+        'MiscTest.testStimulatesStrangeOnloadInteractionInFirefox',
+        'ElementAttributeTest.testShouldCorrectlyReportValueOfColspan',
+        # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2376
+        'ImplicitWaitTest.*',
     ]
 )
 _OS_NEGATIVE_FILTER['android:chrome_beta'] = (
@@ -324,13 +315,11 @@ _OS_NEGATIVE_FILTER['android:chromedriver_webview_shell'] = (
         'TypingTest.testShouldReportKeyCodeOfArrowKeys',
          # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1006
         'ClickScrollingTest.testShouldBeAbleToClickElementThatIsOutOfViewInANestedFrameThatIsOutOfView',
+         # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2330
+        'VisibilityTest.testShouldModifyTheVisibilityOfAnElementDynamically',
          # Not applicable on ChromeDriverWebViewShell (doesn't support tabs).
         'WindowSwitchingTest.*',
-
         'TakesScreenshotTest.testShouldCaptureScreenshot',
-        # TODO(gmanikpure): re-enable this test when we stop supporting
-        # WebView on KitKat.
-        'ClickTest.testCanClickAnImageMapArea',
     ]
 )
 

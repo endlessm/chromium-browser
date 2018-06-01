@@ -4,8 +4,9 @@
 
 #include "content/public/test/navigation_simulator.h"
 
+#include <utility>
+
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "content/browser/frame_host/debug_urls.h"
 #include "content/browser/frame_host/navigation_handle_impl.h"
@@ -70,6 +71,8 @@ class NavigationThrottleCallbackRunner : public NavigationThrottle {
   base::Closure on_will_fail_request_;
   base::Closure on_will_process_response_;
 };
+
+int64_t g_unique_identifier = 0;
 
 }  // namespace
 
@@ -280,8 +283,11 @@ void NavigationSimulator::Start() {
     return;
   }
 
-  WaitForThrottleChecksComplete();
+  MaybeWaitForThrottleChecksComplete(base::BindOnce(
+      &NavigationSimulator::StartComplete, weak_factory_.GetWeakPtr()));
+}
 
+void NavigationSimulator::StartComplete() {
   CHECK_EQ(1, num_did_start_navigation_called_);
   if (GetLastThrottleCheckResult().action() == NavigationThrottle::PROCEED) {
     CHECK_EQ(1, num_will_start_request_called_);
@@ -330,8 +336,15 @@ void NavigationSimulator::Redirect(const GURL& new_url) {
       redirect_info,
       scoped_refptr<network::ResourceResponse>(new network::ResourceResponse));
 
-  WaitForThrottleChecksComplete();
+  MaybeWaitForThrottleChecksComplete(base::BindOnce(
+      &NavigationSimulator::RedirectComplete, weak_factory_.GetWeakPtr(),
+      previous_num_will_redirect_request_called,
+      previous_did_redirect_navigation_called));
+}
 
+void NavigationSimulator::RedirectComplete(
+    int previous_num_will_redirect_request_called,
+    int previous_did_redirect_navigation_called) {
   if (GetLastThrottleCheckResult().action() == NavigationThrottle::PROCEED) {
     CHECK_EQ(previous_num_will_redirect_request_called + 1,
              num_will_redirect_request_called_);
@@ -368,10 +381,21 @@ void NavigationSimulator::ReadyToCommit() {
     return;
   }
 
-  if (!same_document_ && !navigation_url_.IsAboutBlank() &&
-      IsURLHandledByNetworkStack(navigation_url_)) {
-    WaitForThrottleChecksComplete();
+  bool needs_throttle_checks = !same_document_ &&
+                               !navigation_url_.IsAboutBlank() &&
+                               IsURLHandledByNetworkStack(navigation_url_);
+  auto complete_closure =
+      base::BindOnce(&NavigationSimulator::ReadyToCommitComplete,
+                     weak_factory_.GetWeakPtr(), needs_throttle_checks);
+  if (needs_throttle_checks) {
+    MaybeWaitForThrottleChecksComplete(std::move(complete_closure));
+    return;
+  }
+  std::move(complete_closure).Run();
+}
 
+void NavigationSimulator::ReadyToCommitComplete(bool ran_throttles) {
+  if (ran_throttles) {
     if (GetLastThrottleCheckResult().action() != NavigationThrottle::PROCEED) {
       state_ = FAILED;
       return;
@@ -379,7 +403,6 @@ void NavigationSimulator::ReadyToCommit() {
     CHECK_EQ(1, num_will_process_response_called_);
     CHECK_EQ(1, num_ready_to_commit_called_);
   }
-
 
   request_id_ = handle_->GetGlobalRequestID();
 
@@ -427,8 +450,8 @@ void NavigationSimulator::Commit() {
 
   // Simulate Blink assigning an item and document sequence number to the
   // navigation.
-  params.item_sequence_number = base::Time::Now().ToDoubleT() * 1000000;
-  params.document_sequence_number = params.item_sequence_number + 1;
+  params.item_sequence_number = ++g_unique_identifier;
+  params.document_sequence_number = ++g_unique_identifier;
 
   params.page_state = PageState::CreateForTestingWithSequenceNumbers(
       navigation_url_, params.item_sequence_number,
@@ -467,7 +490,6 @@ void NavigationSimulator::Fail(int error_code) {
 
   state_ = FAILED;
 
-  bool should_result_in_error_page = error_code != net::ERR_ABORTED;
   PrepareCompleteCallbackOnHandle();
   NavigationRequest* request = frame_tree_node_->navigation_request();
   CHECK(request);
@@ -475,8 +497,20 @@ void NavigationSimulator::Fail(int error_code) {
       static_cast<TestNavigationURLLoader*>(request->loader_for_testing());
   CHECK(url_loader);
   url_loader->SimulateError(error_code);
+
+  auto complete_closure =
+      base::BindOnce(&NavigationSimulator::FailComplete,
+                     weak_factory_.GetWeakPtr(), error_code);
   if (error_code != net::ERR_ABORTED) {
-    WaitForThrottleChecksComplete();
+    MaybeWaitForThrottleChecksComplete(std::move(complete_closure));
+    return;
+  }
+  std::move(complete_closure).Run();
+}
+
+void NavigationSimulator::FailComplete(int error_code) {
+  bool should_result_in_error_page = error_code != net::ERR_ABORTED;
+  if (error_code != net::ERR_ABORTED) {
     NavigationThrottle::ThrottleCheckResult result =
         GetLastThrottleCheckResult();
     if (result.action() == NavigationThrottle::CANCEL ||
@@ -492,8 +526,6 @@ void NavigationSimulator::Fail(int error_code) {
     // commit the error page.
     render_frame_host_ =
         static_cast<TestRenderFrameHost*>(handle_->GetRenderFrameHost());
-  } else {
-    CHECK_EQ(1, num_did_finish_navigation_called_);
   }
 }
 
@@ -525,8 +557,8 @@ void NavigationSimulator::CommitErrorPage() {
 
   // Simulate Blink assigning an item and document sequence number to the
   // navigation.
-  params.item_sequence_number = base::Time::Now().ToDoubleT() * 1000000;
-  params.document_sequence_number = params.item_sequence_number + 1;
+  params.item_sequence_number = ++g_unique_identifier;
+  params.document_sequence_number = ++g_unique_identifier;
 
   params.page_state = PageState::CreateForTestingWithSequenceNumbers(
       navigation_url_, params.item_sequence_number,
@@ -655,6 +687,10 @@ void NavigationSimulator::SetContentsMimeType(
   contents_mime_type_ = contents_mime_type;
 }
 
+void NavigationSimulator::SetAutoAdvance(bool auto_advance) {
+  auto_advance_ = auto_advance;
+}
+
 NavigationThrottle::ThrottleCheckResult
 NavigationSimulator::GetLastThrottleCheckResult() {
   return last_throttle_check_result_.value();
@@ -670,20 +706,6 @@ content::GlobalRequestID NavigationSimulator::GetGlobalRequestID() const {
                                "after the navigation has completed "
                                "WillProcessResponse";
   return request_id_;
-}
-
-void NavigationSimulator::SetOnDeferCallback(
-    const base::Closure& on_defer_callback) {
-  CHECK_LT(state_, FINISHED)
-      << "The callback should not be set after the navigation has finished";
-  if (handle_) {
-    handle_->SetOnDeferCallbackForTesting(on_defer_callback);
-    return;
-  }
-
-  // If there is no NavigationHandle for the navigation yet, store the callback
-  // until one has been created.
-  on_defer_callback_ = on_defer_callback;
 }
 
 void NavigationSimulator::DidStartNavigation(
@@ -714,12 +736,6 @@ void NavigationSimulator::DidStartNavigation(
                      weak_factory_.GetWeakPtr()),
           base::Bind(&NavigationSimulator::OnWillProcessResponse,
                      weak_factory_.GetWeakPtr())));
-
-  // Pass the |on_defer_callback_| if it was registered.
-  if (!on_defer_callback_.is_null()) {
-    handle->SetOnDeferCallbackForTesting(on_defer_callback_);
-    on_defer_callback_.Reset();
-  }
 
   PrepareCompleteCallbackOnHandle();
 }
@@ -832,7 +848,7 @@ bool NavigationSimulator::SimulateRendererInitiatedStart() {
           false /* is_form_submission */, GURL() /* searchable_form_url */,
           std::string() /* searchable_form_encoding */, url::Origin(),
           GURL() /* client_side_redirect_url */,
-          nullptr /* detools_initiator_info */);
+          base::nullopt /* detools_initiator_info */);
   CommonNavigationParams common_params;
   common_params.url = navigation_url_;
   common_params.method = initial_method_;
@@ -844,7 +860,7 @@ bool NavigationSimulator::SimulateRendererInitiatedStart() {
           : FrameMsg_Navigate_Type::DIFFERENT_DOCUMENT;
   common_params.has_user_gesture = has_user_gesture_;
   render_frame_host_->frame_host_binding_for_testing().impl()->BeginNavigation(
-      common_params, std::move(begin_params));
+      common_params, std::move(begin_params), nullptr);
   NavigationRequest* request =
       render_frame_host_->frame_tree_node()->navigation_request();
 
@@ -856,27 +872,37 @@ bool NavigationSimulator::SimulateRendererInitiatedStart() {
   return true;
 }
 
-void NavigationSimulator::WaitForThrottleChecksComplete() {
+void NavigationSimulator::MaybeWaitForThrottleChecksComplete(
+    base::OnceClosure complete_closure) {
   // If last_throttle_check_result_ is set, then throttle checks completed
   // synchronously.
-  if (!last_throttle_check_result_) {
-    base::RunLoop run_loop;
-    throttle_checks_wait_closure_ = run_loop.QuitClosure();
-    run_loop.Run();
-    throttle_checks_wait_closure_.Reset();
+  if (last_throttle_check_result_) {
+    std::move(complete_closure).Run();
+    return;
   }
 
-  // Run message loop once since NavigationRequest::OnStartChecksComplete posted
-  // a task.
-  base::RunLoop().RunUntilIdle();
+  throttle_checks_complete_closure_ = std::move(complete_closure);
+  if (auto_advance_)
+    Wait();
+}
+
+void NavigationSimulator::Wait() {
+  DCHECK(!wait_closure_);
+  if (!IsDeferred())
+    return;
+  base::RunLoop run_loop;
+  wait_closure_ = run_loop.QuitClosure();
+  run_loop.Run();
 }
 
 void NavigationSimulator::OnThrottleChecksComplete(
     NavigationThrottle::ThrottleCheckResult result) {
   DCHECK(!last_throttle_check_result_);
   last_throttle_check_result_ = result;
-  if (throttle_checks_wait_closure_)
-    throttle_checks_wait_closure_.Run();
+  if (wait_closure_)
+    std::move(wait_closure_).Run();
+  if (throttle_checks_complete_closure_)
+    std::move(throttle_checks_complete_closure_).Run();
 }
 
 void NavigationSimulator::PrepareCompleteCallbackOnHandle() {
@@ -889,6 +915,10 @@ void NavigationSimulator::PrepareCompleteCallbackOnHandle() {
 RenderFrameHost* NavigationSimulator::GetFinalRenderFrameHost() {
   CHECK_GE(state_, READY_TO_COMMIT);
   return render_frame_host_;
+}
+
+bool NavigationSimulator::IsDeferred() {
+  return !throttle_checks_complete_closure_.is_null();
 }
 
 bool NavigationSimulator::CheckIfSameDocument() {

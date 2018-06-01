@@ -70,7 +70,7 @@ class ArcAppListPrefs : public KeyedService,
             bool showInLauncher,
             bool shortcut,
             bool launchable,
-            arc::mojom::OrientationLock orientation_lock);
+            arc::mojom::OrientationLockDeprecated orientation_lock);
     ~AppInfo();
 
     std::string name;
@@ -86,7 +86,7 @@ class ArcAppListPrefs : public KeyedService,
     bool showInLauncher;
     bool shortcut;
     bool launchable;
-    arc::mojom::OrientationLock orientation_lock;
+    arc::mojom::OrientationLockDeprecated orientation_lock;
   };
 
   struct PackageInfo {
@@ -137,9 +137,9 @@ class ArcAppListPrefs : public KeyedService,
         const std::vector<uint8_t>& icon_png_data) {}
     // Notifies that task has been destroyed.
     virtual void OnTaskDestroyed(int32_t task_id) {}
-    virtual void OnTaskOrientationLockRequested(
+    virtual void OnTaskOrientationLockRequestedDeprecated(
         int32_t task_id,
-        const arc::mojom::OrientationLock orientation_lock) {}
+        const arc::mojom::OrientationLockDeprecated orientation_lock) {}
     // Notifies that task has been activated and moved to the front.
     virtual void OnTaskSetActive(int32_t task_id) {}
 
@@ -185,6 +185,12 @@ class ArcAppListPrefs : public KeyedService,
   // id is safe to use at file paths and as preference keys.
   static std::string GetAppId(const std::string& package_name,
                               const std::string& activity);
+
+  // Constructs a unique id based on package name and activity name. Activity
+  // name is found by iterating through the |prefs_| arc app dictionary to find
+  // the app which has a matching |package_name|. This id is safe to use in file
+  // paths and as preference keys.
+  std::string GetAppIdByPackageName(const std::string& package_name) const;
 
   // It is called from chrome/browser/prefs/browser_prefs.cc.
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
@@ -244,6 +250,9 @@ class ArcAppListPrefs : public KeyedService,
   void RemoveObserver(Observer* observer);
   bool HasObserver(Observer* observer);
 
+  base::RepeatingCallback<std::string(const std::string&)>
+  GetAppIdByPackageNameCallback();
+
   // arc::ArcSessionManager::Observer:
   void OnArcPlayStoreEnabledChanged(bool enabled) override;
 
@@ -266,6 +275,14 @@ class ArcAppListPrefs : public KeyedService,
   // associated with this package.
   std::unordered_set<std::string> GetAppsForPackage(
       const std::string& package_name) const;
+
+  // Gets Chrome prefs for given |package_name| and |key|.
+  base::Value* GetPackagePrefs(const std::string& package_name,
+                               const std::string& key);
+  // Sets Chrome prefs for given |package_name| and |key| to |value|.
+  void SetPackagePrefs(const std::string& package_name,
+                       const std::string& key,
+                       base::Value value);
 
   void SetDefaltAppsReadyCallback(base::Closure callback);
   void SimulateDefaultAppAvailabilityTimeoutForTesting();
@@ -311,9 +328,9 @@ class ArcAppListPrefs : public KeyedService,
       const std::string& label,
       const std::vector<uint8_t>& icon_png_data) override;
   void OnTaskDestroyed(int32_t task_id) override;
-  void OnTaskOrientationLockRequested(
+  void OnTaskOrientationLockRequestedDeprecated(
       int32_t task_id,
-      const arc::mojom::OrientationLock orientation_lock) override;
+      const arc::mojom::OrientationLockDeprecated orientation_lock) override;
   void OnTaskSetActive(int32_t task_id) override;
   void OnNotificationsEnabledChanged(const std::string& package_name,
                                      bool enabled) override;
@@ -340,17 +357,18 @@ class ArcAppListPrefs : public KeyedService,
                                                 bool installed) const;
 
   void AddApp(const arc::mojom::AppInfo& app_info);
-  void AddAppAndShortcut(bool app_ready,
-                         const std::string& name,
-                         const std::string& package_name,
-                         const std::string& activity,
-                         const std::string& intent_uri,
-                         const std::string& icon_resource_id,
-                         const bool sticky,
-                         const bool notifications_enabled,
-                         const bool shortcut,
-                         const bool launchable,
-                         arc::mojom::OrientationLock orientation_lock);
+  void AddAppAndShortcut(
+      bool app_ready,
+      const std::string& name,
+      const std::string& package_name,
+      const std::string& activity,
+      const std::string& intent_uri,
+      const std::string& icon_resource_id,
+      const bool sticky,
+      const bool notifications_enabled,
+      const bool shortcut,
+      const bool launchable,
+      arc::mojom::OrientationLockDeprecated orientation_lock);
   // Adds or updates local pref for given package.
   void AddOrUpdatePackagePrefs(PrefService* prefs,
                                const arc::mojom::ArcPackageInfo& package);
@@ -392,12 +410,6 @@ class ArcAppListPrefs : public KeyedService,
   void HandleTaskCreated(const base::Optional<std::string>& name,
                          const std::string& package_name,
                          const std::string& activity);
-
-  // Reveals first app from provided package in app launcher if package is newly
-  // installed by user. If all apps in package are hidden then app list is not
-  // shown.
-  void MaybeShowPackageInAppLauncher(
-      const arc::mojom::ArcPackageInfo& package_info);
 
   // Returns true is specified package is new in the system, was not installed
   // and it is not scheduled to install by sync.
@@ -481,8 +493,6 @@ class ArcAppListPrefs : public KeyedService,
   bool default_apps_ready_ = false;
   ArcDefaultAppList default_apps_;
   base::Closure default_apps_ready_callback_;
-  int last_shown_batch_installation_revision_ = -1;
-  int current_batch_installation_revision_ = 0;
 
   // TODO (b/70566216): Remove this once fixed.
   base::OnceClosure app_list_refreshed_callback_;

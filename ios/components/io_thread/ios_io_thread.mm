@@ -52,9 +52,9 @@
 #include "net/http/http_network_layer.h"
 #include "net/http/http_server_properties_impl.h"
 #include "net/log/net_log_event_type.h"
-#include "net/proxy_resolution/proxy_config_service.h"
 #include "net/proxy_resolution/pac_file_fetcher_impl.h"
-#include "net/proxy_resolution/proxy_service.h"
+#include "net/proxy_resolution/proxy_config_service.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
 #include "net/socket/tcp_client_socket.h"
 #include "net/spdy/chromium/spdy_session.h"
 #include "net/ssl/channel_id_service.h"
@@ -285,7 +285,7 @@ net::URLRequestContextGetter* IOSIOThread::system_url_request_context_getter() {
   DCHECK_CURRENTLY_ON(web::WebThread::UI);
   if (!system_url_request_context_getter_.get()) {
     // If we're in unit_tests, IOSIOThread may not be run.
-    if (!web::WebThread::IsMessageLoopValid(web::WebThread::IO))
+    if (!web::WebThread::IsThreadInitialized(web::WebThread::IO))
       return nullptr;
     system_url_request_context_getter_ =
         new SystemURLRequestContextGetter(this);
@@ -356,9 +356,11 @@ void IOSIOThread::Init() {
       base::CommandLine(base::CommandLine::NO_PROGRAM),
       /*is_quic_force_disabled=*/false, quic_user_agent_id, &params_);
 
-  globals_->system_proxy_resolution_service = ProxyServiceFactory::CreateProxyService(
-      net_log_, nullptr, globals_->system_network_delegate.get(),
-      std::move(system_proxy_config_service_), true /* quick_check_enabled */);
+  globals_->system_proxy_resolution_service =
+      ProxyServiceFactory::CreateProxyResolutionService(
+          net_log_, nullptr, globals_->system_network_delegate.get(),
+          std::move(system_proxy_config_service_),
+          true /* quick_check_enabled */);
 
   globals_->system_request_context.reset(
       ConstructSystemRequestContext(globals_, params_, net_log_));

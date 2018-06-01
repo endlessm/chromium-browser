@@ -17,6 +17,7 @@
 #include "base/task_scheduler/post_task.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_data.h"
+#include "content/public/browser/child_process_launcher_utils.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_process_host.h"
@@ -106,7 +107,7 @@ AwBrowserTerminator::~AwBrowserTerminator() {}
 void AwBrowserTerminator::OnChildStart(
     int process_host_id,
     content::PosixFileDescriptorInfo* mappings) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::PROCESS_LAUNCHER);
+  DCHECK(content::CurrentlyOnProcessLauncherTaskRunner());
 
   base::AutoLock auto_lock(process_host_id_to_pipe_lock_);
   DCHECK(!ContainsKey(process_host_id_to_pipe_, process_host_id));
@@ -157,9 +158,9 @@ void AwBrowserTerminator::OnChildExitAsync(
     crashed = true;
   }
 
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
-      base::Bind(&OnRenderProcessGoneDetail, process_host_id, pid, crashed));
+  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+                          base::BindOnce(&OnRenderProcessGoneDetail,
+                                         process_host_id, pid, crashed));
 }
 
 void AwBrowserTerminator::OnChildExit(
@@ -190,9 +191,9 @@ void AwBrowserTerminator::OnChildExit(
       FROM_HERE,
       {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
-      base::Bind(&AwBrowserTerminator::OnChildExitAsync, process_host_id, pid,
-                 process_type, termination_status, app_state, crash_dump_dir_,
-                 base::Passed(std::move(pipe))));
+      base::BindOnce(&AwBrowserTerminator::OnChildExitAsync, process_host_id,
+                     pid, process_type, termination_status, app_state,
+                     crash_dump_dir_, std::move(pipe)));
 }
 
 }  // namespace android_webview

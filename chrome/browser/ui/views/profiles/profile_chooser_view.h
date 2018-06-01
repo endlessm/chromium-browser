@@ -36,6 +36,7 @@ class LabelButton;
 
 class Browser;
 class DiceSigninButtonView;
+class HoverButton;
 
 // This bubble view is displayed when the user clicks on the avatar button.
 // It displays a list of profiles and allows users to switch between profiles.
@@ -52,14 +53,14 @@ class ProfileChooserView : public content::WebContentsDelegate,
   // call this function when the button is clicked and if the bubble isn't
   // showing it will appear while if it is showing, nothing will happen here and
   // the existing bubble will auto-close due to focus loss.
-  // There are 2 ways to position the Bubble, if |anchor_view| is set, then
+  // There are 2 ways to position the Bubble, if |anchor_button| is set, then
   // |parent_window| and |anchor_rect| are ignored. Otherwise, |parent_window|
   // and |anchor_rect| have to be set.
   static void ShowBubble(
       profiles::BubbleViewMode view_mode,
       const signin::ManageAccountsParams& manage_accounts_params,
       signin_metrics::AccessPoint access_point,
-      views::View* anchor_view,
+      views::Button* anchor_button,
       gfx::NativeView parent_window,
       const gfx::Rect& anchor_rect,
       Browser* browser,
@@ -77,7 +78,7 @@ class ProfileChooserView : public content::WebContentsDelegate,
   typedef std::map<views::Button*, int> ButtonIndexes;
   typedef std::map<views::Button*, std::string> AccountButtonIndexes;
 
-  ProfileChooserView(views::View* anchor_view,
+  ProfileChooserView(views::Button* anchor_button,
                      Browser* browser,
                      profiles::BubbleViewMode view_mode,
                      signin::GAIAServiceType service_type,
@@ -186,6 +187,7 @@ class ProfileChooserView : public content::WebContentsDelegate,
 
   std::unique_ptr<AvatarMenu> avatar_menu_;
   Browser* const browser_;
+  views::Button* const anchor_button_;
 
   // Other profiles used in the "fast profile switcher" view.
   ButtonIndexes open_other_profile_indexes_map_;
@@ -201,7 +203,7 @@ class ProfileChooserView : public content::WebContentsDelegate,
   views::Link* manage_accounts_link_;
   views::LabelButton* manage_accounts_button_;
   views::LabelButton* signin_current_profile_button_;
-  views::LabelButton* sync_to_another_account_button_;
+  HoverButton* sync_to_another_account_button_;
   views::LabelButton* signin_with_gaia_account_button_;
 
   // For material design user menu, the active profile card owns the profile

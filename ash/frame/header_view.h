@@ -8,11 +8,13 @@
 #include <memory>
 
 #include "ash/ash_export.h"
+#include "ash/frame/default_frame_header.h"
 #include "ash/public/cpp/immersive/immersive_fullscreen_controller_delegate.h"
 #include "ash/public/interfaces/window_style.mojom.h"
 #include "ash/wm/tablet_mode/tablet_mode_observer.h"
 #include "base/macros.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/base/ui_base_types.h"
 #include "ui/views/view.h"
 
 namespace gfx {
@@ -26,6 +28,7 @@ class Widget;
 
 namespace ash {
 
+class CaptionButtonModel;
 class DefaultFrameHeader;
 class FrameCaptionButton;
 class FrameCaptionButtonContainerView;
@@ -44,12 +47,11 @@ class ASH_EXPORT HeaderView : public views::View,
   // However, clicking a caption button should act on the target widget.
   explicit HeaderView(
       views::Widget* target_widget,
-      mojom::WindowStyle window_style = mojom::WindowStyle::DEFAULT);
+      mojom::WindowStyle window_style = mojom::WindowStyle::DEFAULT,
+      std::unique_ptr<CaptionButtonModel> model = nullptr);
   ~HeaderView() override;
 
   void set_is_immersive_delegate(bool value) { is_immersive_delegate_ = value; }
-
-  FrameCaptionButton* back_button() { return back_button_; }
 
   bool should_paint() { return should_paint_; }
 
@@ -71,13 +73,14 @@ class ASH_EXPORT HeaderView : public views::View,
   // Sets the avatar icon to be displayed on the frame header.
   void SetAvatarIcon(const gfx::ImageSkia& avatar);
 
-  void SetBackButtonState(FrameBackButtonState state);
-
-  void SizeConstraintsChanged();
+  void UpdateCaptionButtons();
 
   void SetFrameColors(SkColor active_frame_color, SkColor inactive_frame_color);
   SkColor GetActiveFrameColor() const;
   SkColor GetInactiveFrameColor() const;
+
+  // Called when the target widget show state changed.
+  void OnShowStateChanged(ui::WindowShowState show_state);
 
   // views::View:
   void Layout() override;
@@ -94,16 +97,25 @@ class ASH_EXPORT HeaderView : public views::View,
 
   views::View* avatar_icon() const;
 
+  bool in_immersive_mode() const { return in_immersive_mode_; }
+
+  void set_title(const base::string16& title) {
+    frame_header_->set_title(title);
+  }
+
   void SetShouldPaintHeader(bool paint);
 
- private:
+  FrameCaptionButton* GetBackButton();
+
   // ImmersiveFullscreenControllerDelegate:
   void OnImmersiveRevealStarted() override;
   void OnImmersiveRevealEnded() override;
+  void OnImmersiveFullscreenEntered() override;
   void OnImmersiveFullscreenExited() override;
   void SetVisibleFraction(double visible_fraction) override;
   std::vector<gfx::Rect> GetVisibleBoundsInScreen() const override;
 
+ private:
   // The widget that the caption buttons act on.
   views::Widget* target_widget_;
 
@@ -111,8 +123,6 @@ class ASH_EXPORT HeaderView : public views::View,
   std::unique_ptr<DefaultFrameHeader> frame_header_;
 
   views::ImageView* avatar_icon_;
-
-  FrameCaptionButton* back_button_ = nullptr;
 
   // View which contains the window caption buttons.
   FrameCaptionButtonContainerView* caption_button_container_;
@@ -128,6 +138,8 @@ class ASH_EXPORT HeaderView : public views::View,
 
   // False to skip painting. Used for overview mode to hide the header.
   bool should_paint_;
+
+  bool in_immersive_mode_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(HeaderView);
 };

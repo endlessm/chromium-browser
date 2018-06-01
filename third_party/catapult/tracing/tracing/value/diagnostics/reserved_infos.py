@@ -39,6 +39,7 @@ CHROMIUM_REVISIONS = _Info('chromiumRevisions', 'GenericSet', str)
 DEVICE_IDS = _Info('deviceIds', 'GenericSet', str)
 GPUS = _Info('gpus', 'GenericSet', str)
 GROUPING_PATH = _Info('groupingPath')
+HAD_FAILURES = _Info('hadFailures', 'GenericSet', bool)
 IS_REFERENCE_BUILD = _Info('isReferenceBuild', 'GenericSet', bool)
 LABELS = _Info('labels', 'GenericSet', str)
 LOG_URLS = _Info('logUrls', 'GenericSet', str)
@@ -55,7 +56,9 @@ SKIA_REVISIONS = _Info('skiaRevisions', 'GenericSet', str)
 STORIES = _Info('stories', 'GenericSet', str)
 STORYSET_REPEATS = _Info('storysetRepeats', 'GenericSet', int)
 STORY_TAGS = _Info('storyTags', 'GenericSet', str)
+SUMMARY_KEYS = _Info('summaryKeys', 'GenericSet', str)
 TAG_MAP = _Info('tagmap', 'TagMap')
+TEST_PATH = _Info('testPath', 'GenericSet', str)
 TRACE_START = _Info('traceStart', 'DateRange')
 TRACE_URLS = _Info('traceUrls', 'GenericSet', str)
 V8_COMMIT_POSITIONS = _Info('v8CommitPositions', 'DateRange')
@@ -71,3 +74,7 @@ def AllInfos():
   for info in globals().itervalues():
     if isinstance(info, _Info):
       yield info
+
+def AllNames():
+  for info in AllInfos():
+    yield info.name

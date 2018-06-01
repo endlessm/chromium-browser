@@ -33,6 +33,7 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/frame_navigate_params.h"
+#include "content/public/common/resource_load_info.mojom.h"
 #include "content/public/common/url_constants.h"
 #include "net/http/http_response_headers.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
@@ -444,14 +445,16 @@ void ClientSideDetectionHost::DidFinishNavigation(
   classification_request_->Start();
 }
 
-void ClientSideDetectionHost::SubresourceResponseStarted(
-    const GURL& url,
-    const GURL& referrer,
-    const std::string& method,
-    content::ResourceType resource_type,
-    const std::string& ip) {
-  if (browse_info_.get() && should_extract_malware_features_ && url.is_valid())
-    UpdateIPUrlMap(ip, url.spec(), method, referrer.spec(), resource_type);
+void ClientSideDetectionHost::ResourceLoadComplete(
+    const content::mojom::ResourceLoadInfo& resource_load_info) {
+  if (!content::IsResourceTypeFrame(resource_load_info.resource_type) &&
+      browse_info_.get() && should_extract_malware_features_ &&
+      resource_load_info.url.is_valid() && resource_load_info.ip.has_value()) {
+    UpdateIPUrlMap(resource_load_info.ip->ToString(),
+                   resource_load_info.url.spec(), resource_load_info.method,
+                   resource_load_info.referrer.spec(),
+                   resource_load_info.resource_type);
+  }
 }
 
 void ClientSideDetectionHost::OnSafeBrowsingHit(

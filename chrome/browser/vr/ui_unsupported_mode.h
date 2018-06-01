@@ -19,6 +19,8 @@ enum class UiUnsupportedMode : int {
   kVoiceSearchNeedsRecordAudioOsPermission = 4,  // TODO(ddorwin): Android only.
   kGenericUnsupportedFeature = 5,
   kNeedsKeyboardUpdate = 6,
+  kSearchEnginePromo = 7,
+  kUnhandledConnectionInfo = 8,
   // This must be last.
   kCount,
 };

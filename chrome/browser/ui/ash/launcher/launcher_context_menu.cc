@@ -11,13 +11,19 @@
 #include "base/metrics/user_metrics.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
+#include "chrome/browser/ui/app_list/crostini/crostini_util.h"
 #include "chrome/browser/ui/ash/launcher/arc_launcher_context_menu.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_util.h"
+#include "chrome/browser/ui/ash/launcher/crostini_shelf_context_menu.h"
 #include "chrome/browser/ui/ash/launcher/extension_launcher_context_menu.h"
 #include "chrome/browser/ui/ash/tablet_mode_client.h"
 #include "chrome/grit/generated_resources.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/display/types/display_constants.h"
+#include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/controls/menu/menu_config.h"
+#include "ui/views/vector_icons.h"
 
 // static
 std::unique_ptr<LauncherContextMenu> LauncherContextMenu::Create(
@@ -31,6 +37,12 @@ std::unique_ptr<LauncherContextMenu> LauncherContextMenu::Create(
   if (arc::IsArcItem(controller->profile(), item->id.app_id)) {
     return std::make_unique<ArcLauncherContextMenu>(controller, item,
                                                     display_id);
+  }
+
+  // Create an CrostiniShelfContextMenu if the item is Crostini app.
+  if (IsCrostiniAppId(item->id.app_id)) {
+    return std::make_unique<CrostiniShelfContextMenu>(controller, item,
+                                                      display_id);
   }
 
   // Create an ExtensionLauncherContextMenu for other items.
@@ -120,7 +132,7 @@ void LauncherContextMenu::AddPinMenu() {
       NOTREACHED();
       return;
   }
-  AddItemWithStringId(MENU_PIN, menu_pin_string_id);
+  AddContextMenuOption(MENU_PIN, menu_pin_string_id);
 }
 
 bool LauncherContextMenu::ExecuteCommonCommand(int command_id,
@@ -133,5 +145,56 @@ bool LauncherContextMenu::ExecuteCommonCommand(int command_id,
       return true;
     default:
       return false;
+  }
+}
+
+void LauncherContextMenu::AddContextMenuOption(MenuItem type, int string_id) {
+  const gfx::VectorIcon& icon = GetMenuItemVectorIcon(type, string_id);
+  if (features::IsTouchableAppContextMenuEnabled() && !icon.is_empty()) {
+    const views::MenuConfig& menu_config = views::MenuConfig::instance();
+    AddItemWithStringIdAndIcon(
+        type, string_id,
+        gfx::CreateVectorIcon(icon, menu_config.touchable_icon_size,
+                              menu_config.touchable_icon_color));
+    return;
+  }
+  // If the MenuType is a Check item.
+  if (type == LAUNCH_TYPE_REGULAR_TAB || type == LAUNCH_TYPE_PINNED_TAB ||
+      type == LAUNCH_TYPE_WINDOW || type == LAUNCH_TYPE_FULLSCREEN) {
+    AddCheckItemWithStringId(type, string_id);
+    return;
+  }
+  AddItemWithStringId(type, string_id);
+}
+
+const gfx::VectorIcon& LauncherContextMenu::GetMenuItemVectorIcon(
+    MenuItem type,
+    int string_id) const {
+  static const gfx::VectorIcon blank = {};
+  switch (type) {
+    case MENU_OPEN_NEW:
+      if (string_id == IDS_APP_LIST_CONTEXT_MENU_NEW_TAB)
+        return views::kNewTabIcon;
+      if (string_id == IDS_APP_LIST_CONTEXT_MENU_NEW_WINDOW)
+        return views::kNewWindowIcon;
+      return views::kOpenIcon;
+    case MENU_CLOSE:
+      return views::kCloseIcon;
+    case MENU_PIN:
+      return controller_->IsPinned(item_.id) ? views::kUnpinIcon
+                                             : views::kPinIcon;
+    case MENU_NEW_WINDOW:
+      return views::kNewWindowIcon;
+    case MENU_NEW_INCOGNITO_WINDOW:
+      return views::kNewIncognitoWindowIcon;
+    case LAUNCH_TYPE_PINNED_TAB:
+    case LAUNCH_TYPE_REGULAR_TAB:
+    case LAUNCH_TYPE_FULLSCREEN:
+    case LAUNCH_TYPE_WINDOW:
+      // Check items use a default icon in touchable and default context menus.
+      return blank;
+    case MENU_ITEM_COUNT:
+      NOTREACHED();
+      return blank;
   }
 }

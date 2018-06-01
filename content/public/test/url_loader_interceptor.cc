@@ -264,7 +264,7 @@ void URLLoaderInterceptor::WriteResponse(
   network::ResourceResponseHead response;
   response.headers = info.headers;
   response.headers->GetMimeType(&response.mime_type);
-  client->OnReceiveResponse(response, base::nullopt, nullptr);
+  client->OnReceiveResponse(response, nullptr);
 
   uint32_t bytes_written = body.size();
   mojo::DataPipe data_pipe;
@@ -288,8 +288,8 @@ void URLLoaderInterceptor::CreateURLLoaderFactoryForSubresources(
         BrowserThread::IO, FROM_HERE,
         base::BindOnce(
             &URLLoaderInterceptor::CreateURLLoaderFactoryForSubresources,
-            base::Unretained(this), base::Passed(&request), process_id,
-            base::Passed(&original_factory)));
+            base::Unretained(this), std::move(request), process_id,
+            std::move(original_factory)));
     return;
   }
 

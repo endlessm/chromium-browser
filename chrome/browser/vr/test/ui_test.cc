@@ -12,7 +12,7 @@
 #include "chrome/browser/vr/ui.h"
 #include "chrome/browser/vr/ui_scene.h"
 #include "chrome/browser/vr/ui_scene_creator.h"
-#include "third_party/WebKit/public/platform/WebGestureEvent.h"
+#include "third_party/blink/public/platform/web_gesture_event.h"
 #include "ui/gfx/geometry/vector3d_f.h"
 
 namespace vr {
@@ -61,6 +61,13 @@ bool WillElementBeVisible(const UiElement* element) {
   return WillElementFaceCamera(element);
 }
 
+int NumVisibleInTreeRecursive(const UiElement* element) {
+  int visible = WillElementBeVisible(element) ? 1 : 0;
+  for (auto& child : element->children())
+    visible += NumVisibleInTreeRecursive(child.get());
+  return visible;
+}
+
 }  // namespace
 
 UiTest::UiTest() {}
@@ -76,7 +83,7 @@ void UiTest::CreateSceneInternal(
   content_input_delegate_ = content_input_delegate.get();
   ui_ = std::make_unique<Ui>(std::move(browser_.get()),
                              std::move(content_input_delegate), nullptr,
-                             nullptr, state);
+                             nullptr, nullptr, state);
   scene_ = ui_->scene();
   model_ = ui_->model_for_test();
   model_->controller.transform.Translate3d(kStartControllerPosition);
@@ -133,18 +140,18 @@ void UiTest::VerifyOnlyElementsVisible(
     const std::set<UiElementName>& names) const {
   OnBeginFrame();
   SCOPED_TRACE(trace_context);
-  for (const auto& element : scene_->root_element()) {
-    SCOPED_TRACE(element.DebugName());
-    UiElementName name = element.name();
-    UiElementName owner_name = element.owner_name_for_test();
-    if (element.draw_phase() == kPhaseNone && owner_name == kNone) {
+  for (auto* element : scene_->GetAllElements()) {
+    SCOPED_TRACE(element->DebugName());
+    UiElementName name = element->name();
+    UiElementName owner_name = element->owner_name_for_test();
+    if (element->draw_phase() == kPhaseNone && owner_name == kNone) {
       EXPECT_TRUE(names.find(name) == names.end());
       continue;
     }
     if (name == kNone)
       name = owner_name;
     bool should_be_visible = (names.find(name) != names.end());
-    EXPECT_EQ(WillElementBeVisible(&element), should_be_visible);
+    EXPECT_EQ(WillElementBeVisible(element), should_be_visible);
   }
 }
 
@@ -155,12 +162,7 @@ int UiTest::NumVisibleInTree(UiElementName name) const {
   if (!root) {
     return 0;
   }
-  int visible = 0;
-  for (const auto& element : *root) {
-    if (WillElementBeVisible(&element))
-      visible++;
-  }
-  return visible;
+  return NumVisibleInTreeRecursive(root);
 }
 
 bool UiTest::VerifyIsAnimating(const std::set<UiElementName>& names,
@@ -192,54 +194,40 @@ bool UiTest::VerifyRequiresLayout(const std::set<UiElementName>& names,
   return true;
 }
 
-void UiTest::CheckRendererOpacityRecursive(UiElement* element) {
-  // Disable all opacity animation for testing.
-  element->SetTransitionedProperties({});
-  // Set element's opacity to a value smaller than 1. This could make sure it's
-  // children's opacity is not the same as computed_opacity. Otherwise, our test
-  // might be confused which opacity is used by renderer.
-  element->SetOpacity(0.9f);
-
-  OnBeginFrame();
-
-  FakeUiElementRenderer renderer;
-  if (element->draw_phase() != kPhaseNone) {
-    CameraModel model;
-    model.view_proj_matrix = kPixelDaydreamProjMatrix;
-    element->Render(&renderer, model);
-  }
-
-  // It is expected that some elements doesn't render anything (such as root
-  // elements). So skipping verify these elements should be fine.
-  if (renderer.called()) {
-    EXPECT_FLOAT_EQ(renderer.opacity(), element->computed_opacity())
-        << "element name: " << element->name();
-  }
-
-  for (auto& child : element->children()) {
-    CheckRendererOpacityRecursive(child.get());
-  }
-}
-
 bool UiTest::RunFor(base::TimeDelta delta) {
   base::TimeTicks target_time = current_time_ + delta;
   base::TimeDelta frame_time = base::TimeDelta::FromSecondsD(1.0 / 60.0);
   bool changed = false;
-  for (; current_time_ < target_time; current_time_ += frame_time) {
-    if (scene_->OnBeginFrame(current_time_, kStartHeadPose))
-      changed = true;
+
+  // Run a frame in the near future to trigger new state changes.
+  current_time_ += frame_time;
+  changed |= OnBeginFrame();
+
+  // If needed, skip ahead and run another frame at the target time.
+  if (current_time_ < target_time) {
+    current_time_ = target_time;
+    changed |= OnBeginFrame();
   }
-  current_time_ = target_time;
-  if (scene_->OnBeginFrame(current_time_, kStartHeadPose))
-    changed = true;
+
   return changed;
 }
 
-bool UiTest::OnBeginFrame() const {
-  return scene_->OnBeginFrame(current_time_, kStartHeadPose);
+bool UiTest::RunForMs(float milliseconds) {
+  return RunFor(base::TimeDelta::FromMilliseconds(milliseconds));
 }
 
-bool UiTest::OnBeginFrame(base::TimeDelta delta) {
+bool UiTest::RunForSeconds(float seconds) {
+  return RunFor(base::TimeDelta::FromSecondsD(seconds));
+}
+
+bool UiTest::OnBeginFrame() const {
+  bool changed = false;
+  changed |= scene_->OnBeginFrame(current_time_, kStartHeadPose);
+  changed |= scene_->UpdateTextures();
+  return changed;
+}
+
+bool UiTest::OnDelayedFrame(base::TimeDelta delta) {
   current_time_ += delta;
   return OnBeginFrame();
 }

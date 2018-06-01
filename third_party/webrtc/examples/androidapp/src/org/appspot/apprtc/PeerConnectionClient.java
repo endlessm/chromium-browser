@@ -34,6 +34,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 import org.appspot.apprtc.AppRTCClient.SignalingParameters;
 import org.appspot.apprtc.RecordedAudioToFileController;
 import org.webrtc.AudioSource;
@@ -47,12 +48,15 @@ import org.webrtc.IceCandidate;
 import org.webrtc.Logging;
 import org.webrtc.MediaConstraints;
 import org.webrtc.MediaStream;
+import org.webrtc.MediaStreamTrack;
+import org.webrtc.MediaStreamTrack.MediaType;
 import org.webrtc.PeerConnection;
 import org.webrtc.PeerConnection.IceConnectionState;
 import org.webrtc.PeerConnectionFactory;
 import org.webrtc.RtpParameters;
 import org.webrtc.RtpReceiver;
 import org.webrtc.RtpSender;
+import org.webrtc.RtpTransceiver;
 import org.webrtc.SdpObserver;
 import org.webrtc.SessionDescription;
 import org.webrtc.SoftwareVideoDecoderFactory;
@@ -66,6 +70,11 @@ import org.webrtc.VideoRenderer;
 import org.webrtc.VideoSink;
 import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
+import org.webrtc.audio.JavaAudioDeviceModule;
+import org.webrtc.audio.JavaAudioDeviceModule.AudioRecordErrorCallback;
+import org.webrtc.audio.JavaAudioDeviceModule.AudioTrackErrorCallback;
+import org.webrtc.audio.LegacyAudioDeviceModule;
+import org.webrtc.audio.AudioDeviceModule;
 import org.webrtc.voiceengine.WebRtcAudioManager;
 import org.webrtc.voiceengine.WebRtcAudioRecord;
 import org.webrtc.voiceengine.WebRtcAudioRecord.AudioRecordStartErrorCode;
@@ -106,7 +115,6 @@ public class PeerConnectionClient {
   private static final String AUDIO_AUTO_GAIN_CONTROL_CONSTRAINT = "googAutoGainControl";
   private static final String AUDIO_HIGH_PASS_FILTER_CONSTRAINT = "googHighpassFilter";
   private static final String AUDIO_NOISE_SUPPRESSION_CONSTRAINT = "googNoiseSuppression";
-  private static final String AUDIO_LEVEL_CONTROL_CONSTRAINT = "levelControl";
   private static final String DTLS_SRTP_KEY_AGREEMENT_CONSTRAINT = "DtlsSrtpKeyAgreement";
   private static final int HD_VIDEO_WIDTH = 1280;
   private static final int HD_VIDEO_HEIGHT = 720;
@@ -123,10 +131,15 @@ public class PeerConnectionClient {
 
   private final EglBase rootEglBase;
   private final Context appContext;
+  @Nullable
   private PeerConnectionFactory factory;
+  @Nullable
   private PeerConnection peerConnection;
+  @Nullable
   PeerConnectionFactory.Options options = null;
+  @Nullable
   private AudioSource audioSource;
+  @Nullable
   private VideoSource videoSource;
   private boolean videoCallEnabled;
   private boolean preferIsac;
@@ -134,7 +147,9 @@ public class PeerConnectionClient {
   private boolean videoCapturerStopped;
   private boolean isError;
   private Timer statsTimer;
+  @Nullable
   private VideoSink localRender;
+  @Nullable
   private List<VideoRenderer.Callbacks> remoteRenders;
   private SignalingParameters signalingParameters;
   private int videoWidth;
@@ -146,26 +161,38 @@ public class PeerConnectionClient {
   // Queued remote ICE candidates are consumed only after both local and
   // remote descriptions are set. Similarly local ICE candidates are sent to
   // remote peer after both local and remote description are set.
+  @Nullable
   private List<IceCandidate> queuedRemoteCandidates;
+  @Nullable
   private PeerConnectionEvents events;
   private boolean isInitiator;
+  @Nullable
   private SessionDescription localSdp; // either offer or answer SDP
+  @Nullable
   private MediaStream mediaStream;
+  @Nullable
   private VideoCapturer videoCapturer;
   // enableVideo is set to true if video should be rendered and sent.
   private boolean renderVideo;
+  @Nullable
   private VideoTrack localVideoTrack;
+  @Nullable
   private VideoTrack remoteVideoTrack;
+  @Nullable
   private RtpSender localVideoSender;
   // enableAudio is set to true if audio should be sent.
   private boolean enableAudio;
+  @Nullable
   private AudioTrack localAudioTrack;
+  @Nullable
   private DataChannel dataChannel;
   private boolean dataChannelEnabled;
   // Enable RtcEventLog.
+  @Nullable
   private RtcEventLog rtcEventLog;
   // Implements the WebRtcAudioRecordSamplesReadyCallback interface and writes
   // recorded audio samples to an output file.
+  @Nullable
   private RecordedAudioToFileController saveRecordedAudioToFile = null;
 
   /**
@@ -213,9 +240,9 @@ public class PeerConnectionClient {
     public final boolean disableBuiltInAEC;
     public final boolean disableBuiltInAGC;
     public final boolean disableBuiltInNS;
-    public final boolean enableLevelControl;
     public final boolean disableWebRtcAGCAndHPF;
     public final boolean enableRtcEventLog;
+    public final boolean useLegacyAudioDevice;
     private final DataChannelParameters dataChannelParameters;
 
     public PeerConnectionParameters(boolean videoCallEnabled, boolean loopback, boolean tracing,
@@ -223,8 +250,8 @@ public class PeerConnectionClient {
         boolean videoCodecHwAcceleration, boolean videoFlexfecEnabled, int audioStartBitrate,
         String audioCodec, boolean noAudioProcessing, boolean aecDump, boolean saveInputAudioToFile,
         boolean useOpenSLES, boolean disableBuiltInAEC, boolean disableBuiltInAGC,
-        boolean disableBuiltInNS, boolean enableLevelControl, boolean disableWebRtcAGCAndHPF,
-        boolean enableRtcEventLog, DataChannelParameters dataChannelParameters) {
+        boolean disableBuiltInNS, boolean disableWebRtcAGCAndHPF, boolean enableRtcEventLog,
+        boolean useLegacyAudioDevice, DataChannelParameters dataChannelParameters) {
       this.videoCallEnabled = videoCallEnabled;
       this.loopback = loopback;
       this.tracing = tracing;
@@ -244,9 +271,9 @@ public class PeerConnectionClient {
       this.disableBuiltInAEC = disableBuiltInAEC;
       this.disableBuiltInAGC = disableBuiltInAGC;
       this.disableBuiltInNS = disableBuiltInNS;
-      this.enableLevelControl = enableLevelControl;
       this.disableWebRtcAGCAndHPF = disableWebRtcAGCAndHPF;
       this.enableRtcEventLog = enableRtcEventLog;
+      this.useLegacyAudioDevice = useLegacyAudioDevice;
       this.dataChannelParameters = dataChannelParameters;
     }
   }
@@ -402,6 +429,9 @@ public class PeerConnectionClient {
       fieldTrials += DISABLE_WEBRTC_AGC_FIELDTRIAL;
       Log.d(TAG, "Disable WebRTC AGC field trial.");
     }
+    if (!peerConnectionParameters.useLegacyAudioDevice) {
+      Log.d(TAG, "Enable WebRTC external Android audio device field trial.");
+    }
 
     // Check preferred video codec.
     preferredVideoCodec = VIDEO_CODEC_VP8;
@@ -447,6 +477,54 @@ public class PeerConnectionClient {
     preferIsac = peerConnectionParameters.audioCodec != null
         && peerConnectionParameters.audioCodec.equals(AUDIO_CODEC_ISAC);
 
+    // It is possible to save a copy in raw PCM format on a file by checking
+    // the "Save input audio to file" checkbox in the Settings UI. A callback
+    // interface is set when this flag is enabled. As a result, a copy of recorded
+    // audio samples are provided to this client directly from the native audio
+    // layer in Java.
+    if (peerConnectionParameters.saveInputAudioToFile) {
+      if (!peerConnectionParameters.useOpenSLES) {
+        Log.d(TAG, "Enable recording of microphone input audio to file");
+        saveRecordedAudioToFile = new RecordedAudioToFileController(executor);
+      } else {
+        // TODO(henrika): ensure that the UI reflects that if OpenSL ES is selected,
+        // then the "Save inut audio to file" option shall be grayed out.
+        Log.e(TAG, "Recording of input audio is not supported for OpenSL ES");
+      }
+    }
+
+    final AudioDeviceModule adm = peerConnectionParameters.useLegacyAudioDevice
+        ? createLegacyAudioDevice()
+        : createJavaAudioDevice();
+
+    // Create peer connection factory.
+    if (options != null) {
+      Log.d(TAG, "Factory networkIgnoreMask option: " + options.networkIgnoreMask);
+    }
+    final boolean enableH264HighProfile =
+        VIDEO_CODEC_H264_HIGH.equals(peerConnectionParameters.videoCodec);
+    final VideoEncoderFactory encoderFactory;
+    final VideoDecoderFactory decoderFactory;
+
+    if (peerConnectionParameters.videoCodecHwAcceleration) {
+      encoderFactory = new DefaultVideoEncoderFactory(
+          rootEglBase.getEglBaseContext(), true /* enableIntelVp8Encoder */, enableH264HighProfile);
+      decoderFactory = new DefaultVideoDecoderFactory(rootEglBase.getEglBaseContext());
+    } else {
+      encoderFactory = new SoftwareVideoEncoderFactory();
+      decoderFactory = new SoftwareVideoDecoderFactory();
+    }
+
+    factory = PeerConnectionFactory.builder()
+                  .setOptions(options)
+                  .setAudioDeviceModule(adm)
+                  .setVideoEncoderFactory(encoderFactory)
+                  .setVideoDecoderFactory(decoderFactory)
+                  .createPeerConnectionFactory();
+    Log.d(TAG, "Peer connection factory created.");
+  }
+
+  AudioDeviceModule createLegacyAudioDevice() {
     // Enable/disable OpenSL ES playback.
     if (!peerConnectionParameters.useOpenSLES) {
       Log.d(TAG, "Disable OpenSL ES audio even if device supports it");
@@ -464,14 +542,6 @@ public class PeerConnectionClient {
       WebRtcAudioUtils.setWebRtcBasedAcousticEchoCanceler(false);
     }
 
-    if (peerConnectionParameters.disableBuiltInAGC) {
-      Log.d(TAG, "Disable built-in AGC even if device supports it");
-      WebRtcAudioUtils.setWebRtcBasedAutomaticGainControl(true);
-    } else {
-      Log.d(TAG, "Enable built-in AGC if device supports it");
-      WebRtcAudioUtils.setWebRtcBasedAutomaticGainControl(false);
-    }
-
     if (peerConnectionParameters.disableBuiltInNS) {
       Log.d(TAG, "Disable built-in NS even if device supports it");
       WebRtcAudioUtils.setWebRtcBasedNoiseSuppressor(true);
@@ -479,6 +549,8 @@ public class PeerConnectionClient {
       Log.d(TAG, "Enable built-in NS if device supports it");
       WebRtcAudioUtils.setWebRtcBasedNoiseSuppressor(false);
     }
+
+    WebRtcAudioRecord.setOnAudioSamplesReady(saveRecordedAudioToFile);
 
     // Set audio record error callbacks.
     WebRtcAudioRecord.setErrorCallback(new WebRtcAudioRecordErrorCallback() {
@@ -502,22 +574,6 @@ public class PeerConnectionClient {
       }
     });
 
-    // It is possible to save a copy in raw PCM format on a file by checking
-    // the "Save input audio to file" checkbox in the Settings UI. A callback
-    // interface is set when this flag is enabled. As a result, a copy of recorded
-    // audio samples are provided to this client directly from the native audio
-    // layer in Java.
-    if (peerConnectionParameters.saveInputAudioToFile) {
-      if (!peerConnectionParameters.useOpenSLES) {
-        Log.d(TAG, "Enable recording of microphone input audio to file");
-        saveRecordedAudioToFile = new RecordedAudioToFileController(executor);
-      } else {
-        // TODO(henrika): ensure that the UI reflects that if OpenSL ES is selected,
-        // then the "Save inut audio to file" option shall be grayed out.
-        Log.e(TAG, "Recording of input audio is not supported for OpenSL ES");
-      }
-    }
-
     WebRtcAudioTrack.setErrorCallback(new WebRtcAudioTrack.ErrorCallback() {
       @Override
       public void onWebRtcAudioTrackInitError(String errorMessage) {
@@ -539,26 +595,67 @@ public class PeerConnectionClient {
       }
     });
 
-    // Create peer connection factory.
-    if (options != null) {
-      Log.d(TAG, "Factory networkIgnoreMask option: " + options.networkIgnoreMask);
-    }
-    final boolean enableH264HighProfile =
-        VIDEO_CODEC_H264_HIGH.equals(peerConnectionParameters.videoCodec);
-    final VideoEncoderFactory encoderFactory;
-    final VideoDecoderFactory decoderFactory;
+    return new LegacyAudioDeviceModule();
+  }
 
-    if (peerConnectionParameters.videoCodecHwAcceleration) {
-      encoderFactory = new DefaultVideoEncoderFactory(
-          rootEglBase.getEglBaseContext(), true /* enableIntelVp8Encoder */, enableH264HighProfile);
-      decoderFactory = new DefaultVideoDecoderFactory(rootEglBase.getEglBaseContext());
-    } else {
-      encoderFactory = new SoftwareVideoEncoderFactory();
-      decoderFactory = new SoftwareVideoDecoderFactory();
+  AudioDeviceModule createJavaAudioDevice() {
+    // Enable/disable OpenSL ES playback.
+    if (!peerConnectionParameters.useOpenSLES) {
+      Log.w(TAG, "External OpenSLES ADM not implemented yet.");
+      // TODO(magjed): Add support for external OpenSLES ADM.
     }
 
-    factory = new PeerConnectionFactory(options, encoderFactory, decoderFactory);
-    Log.d(TAG, "Peer connection factory created.");
+    // Set audio record error callbacks.
+    AudioRecordErrorCallback audioRecordErrorCallback = new AudioRecordErrorCallback() {
+      @Override
+      public void onWebRtcAudioRecordInitError(String errorMessage) {
+        Log.e(TAG, "onWebRtcAudioRecordInitError: " + errorMessage);
+        reportError(errorMessage);
+      }
+
+      @Override
+      public void onWebRtcAudioRecordStartError(
+          JavaAudioDeviceModule.AudioRecordStartErrorCode errorCode, String errorMessage) {
+        Log.e(TAG, "onWebRtcAudioRecordStartError: " + errorCode + ". " + errorMessage);
+        reportError(errorMessage);
+      }
+
+      @Override
+      public void onWebRtcAudioRecordError(String errorMessage) {
+        Log.e(TAG, "onWebRtcAudioRecordError: " + errorMessage);
+        reportError(errorMessage);
+      }
+    };
+
+    AudioTrackErrorCallback audioTrackErrorCallback = new AudioTrackErrorCallback() {
+      @Override
+      public void onWebRtcAudioTrackInitError(String errorMessage) {
+        Log.e(TAG, "onWebRtcAudioTrackInitError: " + errorMessage);
+        reportError(errorMessage);
+      }
+
+      @Override
+      public void onWebRtcAudioTrackStartError(
+          JavaAudioDeviceModule.AudioTrackStartErrorCode errorCode, String errorMessage) {
+        Log.e(TAG, "onWebRtcAudioTrackStartError: " + errorCode + ". " + errorMessage);
+        reportError(errorMessage);
+      }
+
+      @Override
+      public void onWebRtcAudioTrackError(String errorMessage) {
+        Log.e(TAG, "onWebRtcAudioTrackError: " + errorMessage);
+        reportError(errorMessage);
+      }
+    };
+
+    return JavaAudioDeviceModule.builder(appContext)
+        .setSamplesReadyCallback(saveRecordedAudioToFile)
+        .setUseHardwareAcousticEchoCanceler(peerConnectionParameters.disableBuiltInAEC)
+        .setUseHardwareNoiseSuppressor(peerConnectionParameters.disableBuiltInNS)
+        .setAudioRecordErrorCallback(audioRecordErrorCallback)
+        .setAudioTrackErrorCallback(audioTrackErrorCallback)
+        .setSamplesReadyCallback(saveRecordedAudioToFile)
+        .createAudioDeviceModule();
   }
 
   private void createMediaConstraintsInternal() {
@@ -600,11 +697,6 @@ public class PeerConnectionClient {
       audioConstraints.mandatory.add(
           new MediaConstraints.KeyValuePair(AUDIO_NOISE_SUPPRESSION_CONSTRAINT, "false"));
     }
-    if (peerConnectionParameters.enableLevelControl) {
-      Log.d(TAG, "Enabling level control.");
-      audioConstraints.mandatory.add(
-          new MediaConstraints.KeyValuePair(AUDIO_LEVEL_CONTROL_CONSTRAINT, "true"));
-    }
     // Create SDP constraints.
     sdpMediaConstraints = new MediaConstraints();
     sdpMediaConstraints.mandatory.add(
@@ -644,6 +736,7 @@ public class PeerConnectionClient {
     rtcConfig.keyType = PeerConnection.KeyType.ECDSA;
     // Enable DTLS for normal calls and disable for loopback calls.
     rtcConfig.enableDtlsSrtp = !peerConnectionParameters.loopback;
+    rtcConfig.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN;
 
     peerConnection = factory.createPeerConnection(rtcConfig, pcObserver);
 
@@ -663,13 +756,18 @@ public class PeerConnectionClient {
     // NOTE: this _must_ happen while |factory| is alive!
     Logging.enableLogToDebugOutput(Logging.Severity.LS_INFO);
 
-    mediaStream = factory.createLocalMediaStream("ARDAMS");
+    List<String> mediaStreamLabels = Collections.singletonList("ARDAMS");
     if (videoCallEnabled) {
-      mediaStream.addTrack(createVideoTrack(videoCapturer));
+      peerConnection.addTrack(createVideoTrack(videoCapturer), mediaStreamLabels);
+      // We can add the renderers right away because we don't need to wait for an
+      // answer to get the remote track.
+      remoteVideoTrack = getRemoteVideoTrack();
+      remoteVideoTrack.setEnabled(renderVideo);
+      for (VideoRenderer.Callbacks remoteRender : remoteRenders) {
+        remoteVideoTrack.addRenderer(new VideoRenderer(remoteRender));
+      }
     }
-
-    mediaStream.addTrack(createAudioTrack());
-    peerConnection.addStream(mediaStream);
+    peerConnection.addTrack(createAudioTrack(), mediaStreamLabels);
     if (videoCallEnabled) {
       findVideoSender();
     }
@@ -959,7 +1057,7 @@ public class PeerConnectionClient {
     });
   }
 
-  public void setVideoMaxBitrate(final Integer maxBitrateKbps) {
+  public void setVideoMaxBitrate(@Nullable final Integer maxBitrateKbps) {
     executor.execute(new Runnable() {
       @Override
       public void run() {
@@ -1003,6 +1101,7 @@ public class PeerConnectionClient {
     });
   }
 
+  @Nullable
   private AudioTrack createAudioTrack() {
     audioSource = factory.createAudioSource(audioConstraints);
     localAudioTrack = factory.createAudioTrack(AUDIO_TRACK_ID, audioSource);
@@ -1010,6 +1109,7 @@ public class PeerConnectionClient {
     return localAudioTrack;
   }
 
+  @Nullable
   private VideoTrack createVideoTrack(VideoCapturer capturer) {
     videoSource = factory.createVideoSource(capturer);
     capturer.startCapture(videoWidth, videoHeight, videoFps);
@@ -1030,6 +1130,17 @@ public class PeerConnectionClient {
         }
       }
     }
+  }
+
+  // Returns the remote VideoTrack, assuming there is only one.
+  private @Nullable VideoTrack getRemoteVideoTrack() {
+    for (RtpTransceiver transceiver : peerConnection.getTransceivers()) {
+      MediaStreamTrack track = transceiver.getReceiver().track();
+      if (track instanceof VideoTrack) {
+        return (VideoTrack) track;
+      }
+    }
+    return null;
   }
 
   @SuppressWarnings("StringSplitter")
@@ -1123,7 +1234,8 @@ public class PeerConnectionClient {
     return buffer.toString();
   }
 
-  private static String movePayloadTypesToFront(List<String> preferredPayloadTypes, String mLine) {
+  private static @Nullable String movePayloadTypesToFront(
+      List<String> preferredPayloadTypes, String mLine) {
     // The format of the media description line should be: m=<media> <port> <proto> <fmt> ...
     final List<String> origLineParts = Arrays.asList(mLine.split(" "));
     if (origLineParts.size() <= 3) {
@@ -1282,37 +1394,10 @@ public class PeerConnectionClient {
     }
 
     @Override
-    public void onAddStream(final MediaStream stream) {
-      executor.execute(new Runnable() {
-        @Override
-        public void run() {
-          if (peerConnection == null || isError) {
-            return;
-          }
-          if (stream.audioTracks.size() > 1 || stream.videoTracks.size() > 1) {
-            reportError("Weird-looking stream: " + stream);
-            return;
-          }
-          if (stream.videoTracks.size() == 1) {
-            remoteVideoTrack = stream.videoTracks.get(0);
-            remoteVideoTrack.setEnabled(renderVideo);
-            for (VideoRenderer.Callbacks remoteRender : remoteRenders) {
-              remoteVideoTrack.addRenderer(new VideoRenderer(remoteRender));
-            }
-          }
-        }
-      });
-    }
+    public void onAddStream(final MediaStream stream) {}
 
     @Override
-    public void onRemoveStream(final MediaStream stream) {
-      executor.execute(new Runnable() {
-        @Override
-        public void run() {
-          remoteVideoTrack = null;
-        }
-      });
-    }
+    public void onRemoveStream(final MediaStream stream) {}
 
     @Override
     public void onDataChannel(final DataChannel dc) {

@@ -104,9 +104,17 @@ enum ShellWindowId {
   // The container for drag/drop images and tooltips.
   kShellWindowId_DragImageAndTooltipContainer,
 
+  // The container for the fullscreen power button menu.
+  kShellWindowId_PowerMenuContainer,
+
   // The container for bubbles briefly overlaid onscreen to show settings
   // changes (volume, brightness, input method bubbles, etc.).
   kShellWindowId_SettingBubbleContainer,
+
+  // Contains special accessibility windows that can inset the display work area
+  // (e.g. the ChromeVox spoken feedback window).
+  // TODO(jamescook): Consolidate this with DockedMagnifierContainer.
+  kShellWindowId_AccessibilityPanelContainer,
 
   // The container for special components overlaid onscreen, such as the
   // region selector for partial screenshots.
@@ -156,7 +164,9 @@ const int32_t kAllShellContainerIds[] = {
     kShellWindowId_ImeWindowParentContainer,
     kShellWindowId_MenuContainer,
     kShellWindowId_DragImageAndTooltipContainer,
+    kShellWindowId_PowerMenuContainer,
     kShellWindowId_SettingBubbleContainer,
+    kShellWindowId_AccessibilityPanelContainer,
     kShellWindowId_OverlayContainer,
     kShellWindowId_DockedMagnifierContainer,
     kShellWindowId_MouseCursorContainer,

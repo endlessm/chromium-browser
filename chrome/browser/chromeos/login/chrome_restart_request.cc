@@ -43,7 +43,7 @@
 #include "gpu/ipc/host/gpu_switches.h"
 #include "gpu/ipc/service/switches.h"
 #include "media/base/media_switches.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 #include "services/service_manager/sandbox/switches.h"
 #include "third_party/cros_system_api/switches/chrome_switches.h"
 #include "ui/app_list/app_list_switches.h"
@@ -89,7 +89,6 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kDisableAcceleratedVideoEncode,
     ::switches::kDisableBlinkFeatures,
     ::switches::kDisableCastStreamingHWEncoding,
-    ::switches::kDisableDistanceFieldText,
     ::switches::kDisableGpu,
     ::switches::kDisableGpuMemoryBufferVideoFrames,
     ::switches::kDisableGpuShaderDiskCache,
@@ -107,7 +106,6 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kDisableZeroCopy,
     ::switches::kEnableBlinkFeatures,
     ::switches::kDisableGpuSandbox,
-    ::switches::kEnableDistanceFieldText,
     ::switches::kEnableGpuMemoryBufferVideoFrames,
     ::switches::kEnableGpuRasterization,
     ::switches::kEnableLogging,
@@ -118,6 +116,7 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kEnablePartialRaster,
     ::switches::kEnablePinch,
     ::switches::kEnablePreferCompositingToLCDText,
+    ::switches::kEnableRasterDecoder,
     ::switches::kEnableRGBA4444Textures,
     ::switches::kEnableSlimmingPaintV175,
     ::switches::kEnableSlimmingPaintV2,
@@ -169,6 +168,7 @@ void DeriveCommandLine(const GURL& start_url,
 #endif
     ::switches::kOzonePlatform,
     ash::switches::kAshEnableTabletMode,
+    ash::switches::kAshEnableWaylandServer,
     ash::switches::kAshForceEnableStylusTools,
     ash::switches::kAshEnablePaletteOnAllDisplays,
     ash::switches::kAshTouchHud,
@@ -177,6 +177,7 @@ void DeriveCommandLine(const GURL& start_url,
     ash::switches::kShowTaps,
     ash::switches::kShowViewsLogin,
     ash::switches::kShowWebUiLock,
+    ash::switches::kShowWebUiLogin,
     chromeos::switches::kDefaultWallpaperLarge,
     chromeos::switches::kDefaultWallpaperSmall,
     chromeos::switches::kGuestWallpaperLarge,

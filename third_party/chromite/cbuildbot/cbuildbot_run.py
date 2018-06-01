@@ -640,7 +640,7 @@ class _BuilderRunBase(object):
   @property
   def bot_id(self):
     """Return the bot_id for this run."""
-    return self.config.GetBotId(remote_trybot=self.options.remote_trybot)
+    return self.config.name
 
   @property
   def attrs(self):
@@ -702,15 +702,21 @@ class _BuilderRunBase(object):
     Returns:
       The fully formed URL
     """
-    # TODO(akeshet): At the moment, stage links still link back to buildbot,
-    # whereas build links link to luci-milo. Eventually, stage links will link
-    # to logdog instead of buildbot.
+    # TODO: Stage links are only used in metadata_lib, and may not be
+    # necessary. The logs links are currently limited an uninteresting. We
+    # should remove or update to logdog.
     if stage:
       return tree_status.ConstructBuildStageURL(
           self.GetBuildbotUrl(),
           self.GetBuilderName(),
           self.options.buildnumber, stage=stage)
     else:
+      # If we have a buildbucket_id, use it to construct URLs.
+      if self.options.buildbucket_id:
+        return tree_status.ConstructLegolandBuildURL(
+            self.options.buildbucket_id)
+
+      # If not, assume buildbot URLs are needed.
       return tree_status.ConstructDashboardURL(
           self.GetWaterfall(),
           self.GetBuilderName(),
@@ -790,13 +796,18 @@ class _BuilderRunBase(object):
     """
     verinfo = self.GetVersionInfo()
     release_tag = self.attrs.release_tag
+
+    # Use a default of zero, in case we are a local tryjob or other build
+    # without a CIDB id.
+    build_id = self.attrs.metadata.GetValueWithDefault('build_id', 0)
+
     if release_tag:
       calc_version = 'R%s-%s' % (verinfo.chrome_branch, release_tag)
     else:
       # Non-versioned builds need the build number to uniquify the image.
       calc_version = 'R%s-%s-b%s' % (verinfo.chrome_branch,
                                      verinfo.VersionString(),
-                                     self.buildnumber)
+                                     build_id)
 
     return calc_version
 

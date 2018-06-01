@@ -11,6 +11,7 @@ import android.content.Intent;
 import android.os.Bundle;
 
 import org.chromium.base.ActivityState;
+import org.chromium.base.ApplicationState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.BuildConfig;
 import org.chromium.base.CommandLineInitUtil;
@@ -22,6 +23,7 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.annotations.MainDex;
 import org.chromium.base.library_loader.ProcessInitException;
+import org.chromium.base.memory.MemoryPressureMonitor;
 import org.chromium.base.multidex.ChromiumMultiDexInstaller;
 import org.chromium.build.BuildHooks;
 import org.chromium.build.BuildHooksAndroid;
@@ -45,7 +47,6 @@ import org.chromium.chrome.browser.vr_shell.VrShellDelegate;
  * Basic application functionality that should be shared among all browser applications that use
  * chrome layer.
  */
-@MainDex
 public class ChromeApplication extends Application {
     private static final String COMMAND_LINE_FILE = "chrome-command-line";
     private static final String TAG = "ChromiumApplication";
@@ -57,15 +58,19 @@ public class ChromeApplication extends Application {
     // Quirk: context.getApplicationContext() returns null during this method.
     @Override
     protected void attachBaseContext(Context context) {
-        UmaUtils.recordMainEntryPointTime();
+        boolean browserProcess = ContextUtils.isMainProcess();
+        if (browserProcess) {
+            UmaUtils.recordMainEntryPointTime();
+        }
         super.attachBaseContext(context);
         checkAppBeingReplaced();
-        if (BuildConfig.isMultidexEnabled()) {
-            ChromiumMultiDexInstaller.install(this);
-        }
         ContextUtils.initApplicationContext(this);
 
-        if (ContextUtils.isMainProcess()) {
+        if (browserProcess) {
+            if (BuildConfig.IS_MULTIDEX_ENABLED) {
+                ChromiumMultiDexInstaller.install(this);
+            }
+
             // Renderers and GPU process have command line passed to them via IPC
             // (see ChildProcessService.java).
             Supplier<Boolean> shouldUseDebugFlags = new Supplier<Boolean>() {
@@ -89,9 +94,20 @@ public class ChromeApplication extends Application {
             // Only browser process requires custom resources.
             BuildHooksAndroid.initCustomResources(this);
 
+            // Disable MemoryPressureMonitor polling when Chrome goes to the background.
+            ApplicationStatus.registerApplicationStateListener(newState -> {
+                if (newState == ApplicationState.HAS_RUNNING_ACTIVITIES) {
+                    MemoryPressureMonitor.INSTANCE.enablePolling();
+                } else if (newState == ApplicationState.HAS_STOPPED_ACTIVITIES) {
+                    MemoryPressureMonitor.INSTANCE.disablePolling();
+                }
+            });
+
             // Not losing much to not cover the below conditional since it just has simple setters.
             TraceEvent.end("ChromeApplication.attachBaseContext");
         }
+
+        MemoryPressureMonitor.INSTANCE.registerComponentCallbacks();
 
         if (!ContextUtils.isIsolatedProcess()) {
             // Incremental install disables process isolation, so things in this block will actually
@@ -115,6 +131,7 @@ public class ChromeApplication extends Application {
         }
     }
 
+    @MainDex
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
@@ -158,6 +175,7 @@ public class ChromeApplication extends Application {
     /**
      * @return The DiscardableReferencePool for the application.
      */
+    @MainDex
     public DiscardableReferencePool getReferencePool() {
         ThreadUtils.assertOnUiThread();
         if (mReferencePool == null) {
@@ -173,7 +191,7 @@ public class ChromeApplication extends Application {
 
     @Override
     public void startActivity(Intent intent, Bundle options) {
-        if (!VrShellDelegate.isInVr() || VrIntentUtils.isVrIntent(intent)) {
+        if (VrShellDelegate.canLaunch2DIntents() || VrIntentUtils.isVrIntent(intent)) {
             super.startActivity(intent, options);
             return;
         }
@@ -181,7 +199,7 @@ public class ChromeApplication extends Application {
         VrShellDelegate.requestToExitVr(new OnExitVrRequestListener() {
             @Override
             public void onSucceeded() {
-                if (VrShellDelegate.isInVr()) {
+                if (!VrShellDelegate.canLaunch2DIntents()) {
                     throw new IllegalStateException("Still in VR after having exited VR.");
                 }
                 startActivity(intent, options);

@@ -4,7 +4,6 @@
 
 package org.chromium.chrome.browser.toolbar;
 
-import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
@@ -26,7 +25,6 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.NativePage;
 import org.chromium.chrome.browser.TabLoadStatus;
@@ -86,7 +84,6 @@ import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.NavigationEntry;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.UiUtils;
-import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.base.PageTransition;
 import org.chromium.ui.widget.ViewRectProvider;
 
@@ -126,9 +123,6 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
      */
     public static final int MINIMUM_LOAD_PROGRESS = 5;
 
-    private static final String CHROME_MEMEX_URL = "https://chrome-memex.appspot.com/";
-    private static final String CHROME_MEMEX_DEV_URL = "https://chrome-memex-dev.appspot.com/";
-
     private final ToolbarLayout mToolbar;
     private final ToolbarControlContainer mControlContainer;
 
@@ -136,7 +130,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
     private TabModelSelectorObserver mTabModelSelectorObserver;
     private TabModelObserver mTabModelObserver;
     private MenuDelegatePhone mMenuDelegatePhone;
-    private final ToolbarModelImpl mToolbarModel;
+    private final ToolbarModel mToolbarModel;
     private Profile mCurrentProfile;
     private BookmarkBridge mBookmarkBridge;
     private TemplateUrlServiceObserver mTemplateUrlObserver;
@@ -156,6 +150,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
     private final LoadProgressSimulator mLoadProgressSimulator;
     private final Callback<Boolean> mUrlFocusChangedCallback;
     private final Handler mHandler = new Handler();
+    private final ChromeActivity mActivity;
 
     private BrowserStateBrowserControlsVisibilityDelegate mControlsVisibilityDelegate;
     private int mFullscreenFocusToken = FullscreenManager.INVALID_TOKEN;
@@ -180,8 +175,6 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
     private boolean mShouldUpdateToolbarPrimaryColor = true;
     private int mCurrentThemeColor;
 
-    private boolean mQueryInOmniboxEnabled;
-
     /**
      * Creates a ToolbarManager object.
      *
@@ -191,10 +184,10 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
      * @param invalidator Handler for synchronizing invalidations across UI elements.
      * @param urlFocusChangedCallback The callback to be notified when the URL focus changes.
      */
-    public ToolbarManager(final ChromeActivity activity,
-            ToolbarControlContainer controlContainer, final AppMenuHandler menuHandler,
-            AppMenuPropertiesDelegate appMenuPropertiesDelegate,
+    public ToolbarManager(ChromeActivity activity, ToolbarControlContainer controlContainer,
+            final AppMenuHandler menuHandler, AppMenuPropertiesDelegate appMenuPropertiesDelegate,
             Invalidator invalidator, Callback<Boolean> urlFocusChangedCallback) {
+        mActivity = activity;
         if (activity.getBottomSheet() != null) {
             mActionBarDelegate =
                     new ViewShiftingActionBarDelegate(activity, activity.getBottomSheet());
@@ -202,7 +195,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
             mActionBarDelegate = new ViewShiftingActionBarDelegate(activity, controlContainer);
         }
 
-        mToolbarModel = new ToolbarModelImpl(activity.getBottomSheet(),
+        mToolbarModel = new ToolbarModel(activity.getBottomSheet(),
                 activity.supportsModernDesign() && FeatureUtilities.isChromeModernDesignEnabled());
         mControlContainer = controlContainer;
         assert mControlContainer != null;
@@ -311,20 +304,12 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
         mTabObserver = new EmptyTabObserver() {
             @Override
             public void onSSLStateUpdated(Tab tab) {
+                setModelShouldIgnoreSecurityLevelForSearchTerms(false);
                 if (mToolbarModel.getTab() == null) return;
 
                 assert tab == mToolbarModel.getTab();
                 mLocationBar.updateSecurityIcon();
-
-                // If the SSL state was updated while the location bar is display a DSE URL and
-                // the query in omnibox feature is enabled, update the URL to be on the safe side,
-                // as we may be showing query terms when we should now be showing the full URL for
-                // security.
-                if (mQueryInOmniboxEnabled
-                        && TemplateUrlService.getInstance()
-                                   .isSearchResultsPageFromDefaultSearchProvider(tab.getUrl())) {
-                    mLocationBar.setUrlToPageUrl();
-                }
+                mLocationBar.setUrlToPageUrl();
             }
 
             @Override
@@ -357,7 +342,13 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
             }
 
             @Override
+            public void onPageLoadStarted(Tab tab, String url) {
+                mToolbarModel.setIgnoreSecurityLevelForSearchTerms(true);
+            }
+
+            @Override
             public void onPageLoadFinished(Tab tab) {
+                mToolbarModel.setIgnoreSecurityLevelForSearchTerms(false);
                 if (tab.isShowingErrorPage()) {
                     handleIPHForErrorPageShown(tab);
                     return;
@@ -369,6 +360,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
             @Override
             public void onLoadStarted(Tab tab, boolean toDifferentDocument) {
                 if (!toDifferentDocument) return;
+                mToolbarModel.setIgnoreSecurityLevelForSearchTerms(true);
                 updateButtonStatus();
                 updateTabLoadingState(true);
             }
@@ -376,6 +368,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
             @Override
             public void onLoadStopped(Tab tab, boolean toDifferentDocument) {
                 if (!toDifferentDocument) return;
+                mToolbarModel.setIgnoreSecurityLevelForSearchTerms(false);
                 updateTabLoadingState(true);
 
                 // If we made some progress, fast-forward to complete, otherwise just dismiss any
@@ -404,7 +397,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
             @Override
             public void onContentChanged(Tab tab) {
                 mToolbar.onTabContentViewChanged();
-                if (shouldShowCusrsorInLocationBar()) {
+                if (shouldShowCursorInLocationBar()) {
                     mToolbar.getLocationBar().showUrlBarCursorWithoutFocusAnimations();
                 }
             }
@@ -412,8 +405,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
             @Override
             public void onWebContentsSwapped(Tab tab, boolean didStartLoad, boolean didFinishLoad) {
                 if (!didStartLoad) return;
-                mLocationBar.setUrlToPageUrl();
-                mLocationBar.updateSecurityIcon();
+                mLocationBar.updateLoadingState(true);
                 if (didFinishLoad) {
                     mLoadProgressSimulator.start();
                 }
@@ -448,7 +440,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
                 if (visible) RecordUserAction.record("MobileActionBarShown");
                 ActionBar actionBar = mActionBarDelegate.getSupportActionBar();
                 if (!visible && actionBar != null) actionBar.hide();
-                if (DeviceFormFactor.isTablet()) {
+                if (mActivity.isTablet()) {
                     if (visible) {
                         mActionModeController.startShowAnimation();
                     } else {
@@ -527,7 +519,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
             }
 
             private void handleIPHForErrorPageShown(Tab tab) {
-                if (!(activity instanceof ChromeTabbedActivity) || DeviceFormFactor.isTablet()) {
+                if (!(mActivity instanceof ChromeTabbedActivity) || mActivity.isTablet()) {
                     return;
                 }
 
@@ -619,7 +611,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
 
         // TODO(shaktisahu): Find out if the download menu button is enabled (crbug/712438).
         ChromeActivity activity = tab.getActivity();
-        if (!(activity instanceof ChromeTabbedActivity) || DeviceFormFactor.isTablet()
+        if (!(activity instanceof ChromeTabbedActivity) || activity.isTablet()
                 || activity.isInOverviewMode() || !DownloadUtils.isAllowedToDownloadPage(tab)) {
             return;
         }
@@ -887,8 +879,6 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
         refreshSelectedTab();
         if (mTabModelSelector.isTabStateInitialized()) mTabRestoreCompleted = true;
         handleTabRestoreCompleted();
-
-        mQueryInOmniboxEnabled = ChromeFeatureList.isEnabled(ChromeFeatureList.QUERY_IN_OMNIBOX);
     }
 
     private void handleTabRestoreCompleted() {
@@ -1019,15 +1009,16 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
         TabModel model = mTabModelSelector.getModel(false);
         for (int i = 0; i < model.getCount(); i++) {
             String url = model.getTabAt(i).getUrl();
-            if (url.startsWith(CHROME_MEMEX_URL) || url.startsWith(CHROME_MEMEX_DEV_URL)) {
+            if (url.startsWith(UrlConstants.CHROME_MEMEX_URL)
+                    || url.startsWith(UrlConstants.CHROME_MEMEX_DEV_URL)) {
                 model.setIndex(i, TabSelectionType.FROM_USER);
                 return;
             }
         }
 
         mTabModelSelector.openNewTab(
-                new LoadUrlParams(CHROME_MEMEX_URL, PageTransition.AUTO_BOOKMARK),
-                TabLaunchType.FROM_CHROME_UI, null, false);
+                new LoadUrlParams(UrlConstants.CHROME_MEMEX_URL, PageTransition.AUTO_BOOKMARK),
+                TabLaunchType.FROM_EXTERNAL_APP, null, false);
     }
 
     /**
@@ -1246,7 +1237,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
 
         // This method is called prior to action mode destroy callback for incognito <-> normal
         // tab switch. Makes sure the action mode toolbar is hidden before selecting the new tab.
-        if (previousTab != null && wasIncognito != isIncognito && DeviceFormFactor.isTablet()) {
+        if (previousTab != null && wasIncognito != isIncognito && mActivity.isTablet()) {
             mActionModeController.startHideAnimation();
         }
         if (previousTab != tab || wasIncognito != isIncognito) {
@@ -1279,7 +1270,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
             // Place the cursor in the Omnibox if applicable.  We always clear the focus above to
             // ensure the shield placed over the content is dismissed when switching tabs.  But if
             // needed, we will refocus the omnibox and make the cursor visible here.
-            if (shouldShowCusrsorInLocationBar()) {
+            if (shouldShowCursorInLocationBar()) {
                 mToolbar.getLocationBar().showUrlBarCursorWithoutFocusAnimations();
             }
         }
@@ -1365,7 +1356,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
         mToolbar.getProgressBar().setVisibility(enabled ? View.VISIBLE : View.GONE);
     }
 
-    private boolean shouldShowCusrsorInLocationBar() {
+    private boolean shouldShowCursorInLocationBar() {
         Tab tab = mToolbarModel.getTab();
         if (tab == null) return false;
         NativePage nativePage = tab.getNativePage();
@@ -1373,10 +1364,25 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
             return false;
         }
 
-        Context context = mToolbar.getContext();
-        return DeviceFormFactor.isTablet()
-                && context.getResources().getConfiguration().keyboard
+        return mActivity.isTablet()
+                && mActivity.getResources().getConfiguration().keyboard
                 == Configuration.KEYBOARD_QWERTY;
+    }
+
+    /**
+     * Notifies the toolbar model that it should ignore the security level when determining whether
+     * or not to display search terms in the URL bar. This is useful for the interim period between
+     * loading a new page and getting proper security info, to avoid having the full URL flicker
+     * before displaying search terms.
+     *
+     * @param shouldIgnore Whether or not the toolbar model should ignore the security level.
+     */
+    private void setModelShouldIgnoreSecurityLevelForSearchTerms(boolean shouldIgnore) {
+        boolean wasShowingSearchTerms = mToolbarModel.shouldDisplaySearchTerms();
+        mToolbarModel.setIgnoreSecurityLevelForSearchTerms(shouldIgnore);
+        if (wasShowingSearchTerms != mToolbarModel.shouldDisplaySearchTerms()) {
+            mLocationBar.setUrlToPageUrl();
+        }
     }
 
     private static class LoadProgressSimulator {

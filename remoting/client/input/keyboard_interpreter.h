@@ -21,8 +21,11 @@ struct KeypressInfo;
 // handling of text events to the selected keyboard input strategy.
 class KeyboardInterpreter {
  public:
-  explicit KeyboardInterpreter(ClientInputInjector* input_injector);
+  explicit KeyboardInterpreter();
   ~KeyboardInterpreter();
+
+  // If |input_injector| is nullptr, all methods below will have no effect.
+  void SetContext(ClientInputInjector* input_injector);
 
   // Assembles the key events and then delegates to |KeyboardInputStrategy| to
   // send the keys.

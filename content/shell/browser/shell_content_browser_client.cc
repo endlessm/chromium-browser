@@ -13,12 +13,12 @@
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/strings/pattern.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "content/public/browser/client_certificate_delegate.h"
+#include "content/public/browser/login_delegate.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/resource_dispatcher_host.h"
@@ -40,7 +40,7 @@
 #include "content/shell/common/shell_messages.h"
 #include "content/shell/common/shell_switches.h"
 #include "content/shell/grit/shell_resources.h"
-#include "media/mojo/features.h"
+#include "media/mojo/buildflags.h"
 #include "net/ssl/client_cert_identity.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context_getter.h"
@@ -349,8 +349,7 @@ void ShellContentBrowserClient::OpenURL(
                                       gfx::Size())->web_contents());
 }
 
-ResourceDispatcherHostLoginDelegate*
-ShellContentBrowserClient::CreateLoginDelegate(
+scoped_refptr<LoginDelegate> ShellContentBrowserClient::CreateLoginDelegate(
     net::AuthChallengeInfo* auth_info,
     content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
     bool is_main_frame,
@@ -367,7 +366,8 @@ ShellContentBrowserClient::CreateLoginDelegate(
   // TODO: implement ShellLoginDialog for other platforms, drop this #if
   return nullptr;
 #else
-  return new ShellLoginDialog(auth_info, auth_required_callback);
+  return base::MakeRefCounted<ShellLoginDialog>(auth_info,
+                                                auth_required_callback);
 #endif
 }
 

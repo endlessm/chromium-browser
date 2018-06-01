@@ -73,8 +73,8 @@ public class PaymentRequestExpiredLocalCardTest implements MainActivityStartCall
                 new String[] {"11", "26", "123"}, mRule.getReadyToUnmask());
         mRule.clickCardUnmaskButtonAndWait(DialogInterface.BUTTON_POSITIVE, mRule.getDismissed());
         mRule.expectResultContains(new String[] {"Jon Doe", "4111111111111111", "11", "2026",
-                "visa", "123", "Google", "340 Main St", "CA", "Los Angeles", "90291", "US", "en",
-                "freeShippingOption"});
+                "basic-card", "123", "Google", "340 Main St", "CA", "Los Angeles", "90291", "US",
+                "en", "freeShippingOption"});
     }
 
     /**
@@ -124,14 +124,14 @@ public class PaymentRequestExpiredLocalCardTest implements MainActivityStartCall
         mRule.setTextInCardEditorAndWait(
                 new String[] {"4111111111111111", "Jon Doe"}, mRule.getEditorTextUpdate());
         mRule.clickInCardEditorAndWait(
-                R.id.payments_edit_done_button, mRule.getEditorValidationError());
+                R.id.editor_dialog_done_button, mRule.getEditorValidationError());
 
         // Set the expiration date to the current month of the current year.
         mRule.setSpinnerSelectionsInCardEditorAndWait(
                 new int[] {now.get(Calendar.MONTH), 0, FIRST_BILLING_ADDRESS},
                 mRule.getExpirationMonthChange());
 
-        mRule.clickInCardEditorAndWait(R.id.payments_edit_done_button, mRule.getReadyToPay());
+        mRule.clickInCardEditorAndWait(R.id.editor_dialog_done_button, mRule.getReadyToPay());
     }
 
     /**

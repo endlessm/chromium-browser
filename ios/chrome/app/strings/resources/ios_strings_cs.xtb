@@ -137,6 +137,7 @@ Některé webové stránky na tento požadavek mohou reagovat například tím, 
 <translation id="3393920035788932672">Vyskakovací okna povolena</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> min</translation>
 <translation id="3448016392200048164">Režim Split View</translation>
+<translation id="3469166899695866866">Zastavit stahování?</translation>
 <translation id="3474624961160222204">Pokrač. jako <ph name="NAME" /></translation>
 <translation id="3474649192738347024">Formuláře byly vyplněny.</translation>
 <translation id="3478058380795961209">Měsíc vypršení platnosti</translation>
@@ -159,6 +160,7 @@ Některé webové stránky na tento požadavek mohou reagovat například tím, 
 <translation id="3789841737615482174">Instalovat</translation>
 <translation id="385051799172605136">Zpět</translation>
 <translation id="3897092660631435901">Nabídka</translation>
+<translation id="3915450441834151894">Informace o stránkách</translation>
 <translation id="3928666092801078803">Sloučit má data</translation>
 <translation id="3950820424414687140">Přihlaste se</translation>
 <translation id="3963231839620026525">Nová anonymní karta</translation>
@@ -167,6 +169,7 @@ Některé webové stránky na tento požadavek mohou reagovat například tím, 
 <translation id="4002066346123236978">Název</translation>
 <translation id="4038354071007134711">Soubor nelze otevřít pomocí žádné aplikace v tomto zařízení.</translation>
 <translation id="4049507953662678203">Zkontrolujte, zda jste připojeni k síti a zkuste to znovu.</translation>
+<translation id="4084682180776658562">Záložka</translation>
 <translation id="411254640334432676">Stahování se nezdařilo.</translation>
 <translation id="4121993058175073134">Chcete-li odesílat data nástroje net-export, nakonfigurujte e-mailový účet v aplikaci Nastavení.</translation>
 <translation id="4124987746317609294">Časové období</translation>
@@ -191,6 +194,7 @@ Některé webové stránky na tento požadavek mohou reagovat například tím, 
 <translation id="4536418791685807335">Zkuste se přihlásit znovu.</translation>
 <translation id="457386861538956877">Další...</translation>
 <translation id="461440297010471931">Vyhledává se pomocí Googlu</translation>
+<translation id="4619615317237390068">Karty z ostatních zařízení</translation>
 <translation id="4620246317052452550">Stránky, které jste si přečetli</translation>
 <translation id="4636930964841734540">Informace</translation>
 <translation id="4659667755519643272">Přejít do přepínače karet</translation>
@@ -221,6 +225,7 @@ Vaše data jsou šifrována pomocí heslové fráze pro synchronizaci. Chcete-li
 <translation id="5197255632782567636">Internet</translation>
 <translation id="5228579091201413441">Aktivace synchronizace</translation>
 <translation id="5244474230056479698">Údaje se synchronizují do účtu <ph name="EMAIL" /></translation>
+<translation id="527973086555161537">Chcete-li prohlížet internet v soukromí, otevřete novou anonymní kartu.</translation>
 <translation id="5300589172476337783">Zobrazit</translation>
 <translation id="5317780077021120954">Uložit</translation>
 <translation id="5327248766486351172">Název</translation>
@@ -319,6 +324,7 @@ Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro syn
 <translation id="6914783257214138813">Vaše hesla uvidí každý, kdo může zobrazit exportovaný soubor.</translation>
 <translation id="6945221475159498467">Vybrat</translation>
 <translation id="6973630695168034713">Složky</translation>
+<translation id="6979158407327259162">Disk Google</translation>
 <translation id="7004499039102548441">Nedávno použité karty</translation>
 <translation id="7006788746334555276">Nastavení obsahu</translation>
 <translation id="7029809446516969842">Hesla</translation>
@@ -370,16 +376,20 @@ Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro syn
 <translation id="7971521879845308059">Blokování oken</translation>
 <translation id="7982789257301363584">Síť</translation>
 <translation id="8019783059653722575">Toto umožňuje ukládat a nahrávat fotky.</translation>
+<translation id="802154636333426148">Stažení se nezdařilo</translation>
 <translation id="8023878949384262191">Rozbalí sekci.</translation>
 <translation id="8059533439631660104">Sbalí sekci.</translation>
 <translation id="806745655614357130">Uchovat má data samostatně.</translation>
+<translation id="8073670137947914548">Stahování bylo dokončeno</translation>
 <translation id="8076014560081431679">Uložená nastavení webů nebudou smazána a mohou vypovídat o vašich zvycích při prohlížení. <ph name="BEGIN_LINK" />Další informace<ph name="END_LINK" /></translation>
 <translation id="8080028325999236607">Zavřít všechny karty</translation>
+<translation id="8114753159095730575">Je k dispozici soubor ke stažení. Možnosti jsou k dispozici ve spodní části obrazovky.</translation>
 <translation id="8205564605687841303">Zrušit</translation>
 <translation id="8225985093977202398">Obrázky a soubory v mezipaměti</translation>
 <translation id="8261506727792406068">Smazat</translation>
 <translation id="8272426682713568063">Platební karty</translation>
 <translation id="8281781826761538115">Výchozí – <ph name="DEFAULT_LOCALE" /></translation>
+<translation id="8328777765163860529">Zavřít vše</translation>
 <translation id="8381750437846184350">Nastavte, jak má Google využívat vaši historii procházení k personalizaci Vyhledávání, reklam a dalších služeb Google</translation>
 <translation id="842017693807136194">Poskytovatel přihlášení</translation>
 <translation id="8428045167754449968">Město nebo obec</translation>
@@ -422,7 +432,6 @@ Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro syn
 <translation id="9083392325882095631">1 položka</translation>
 <translation id="9100610230175265781">Je vyžadována heslová fráze</translation>
 <translation id="9148126808321036104">Znovu přihlásit</translation>
-<translation id="915371508759614899">Zrušit stahování?</translation>
 <translation id="9157836665414082580">Potlačit dialogová okna</translation>
 <translation id="9188680907066685419">Odhlásit se ze spravovaného účtu</translation>
 <translation id="9203116392574189331">Handoff</translation>

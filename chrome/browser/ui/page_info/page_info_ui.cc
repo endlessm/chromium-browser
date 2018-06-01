@@ -20,7 +20,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/strings/grit/components_chromium_strings.h"
 #include "components/strings/grit/components_strings.h"
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "url/gurl.h"
@@ -129,6 +129,7 @@ const PermissionsUIInfo kPermissionsUIInfo[] = {
     {CONTENT_SETTINGS_TYPE_SOUND, IDS_PAGE_INFO_TYPE_SOUND},
     {CONTENT_SETTINGS_TYPE_CLIPBOARD_READ, IDS_PAGE_INFO_TYPE_CLIPBOARD},
     {CONTENT_SETTINGS_TYPE_SENSORS, IDS_PAGE_INFO_TYPE_SENSORS},
+    {CONTENT_SETTINGS_TYPE_USB_GUARD, IDS_PAGE_INFO_TYPE_USB},
 };
 
 std::unique_ptr<PageInfoUI::SecurityDescription> CreateSecurityDescription(
@@ -197,11 +198,11 @@ PageInfoUI::IdentityInfo::IdentityInfo()
 PageInfoUI::IdentityInfo::~IdentityInfo() {}
 
 std::unique_ptr<PageInfoUI::SecurityDescription>
-PageInfoUI::IdentityInfo::GetSecurityDescription() const {
+PageInfoUI::GetSecurityDescription(const IdentityInfo& identity_info) const {
   std::unique_ptr<PageInfoUI::SecurityDescription> security_description(
       new PageInfoUI::SecurityDescription());
 
-  switch (identity_status) {
+  switch (identity_info.identity_status) {
     case PageInfo::SITE_IDENTITY_STATUS_INTERNAL_PAGE:
 #if defined(OS_ANDROID)
       // We provide identical summary and detail strings for Android, which
@@ -219,7 +220,7 @@ PageInfoUI::IdentityInfo::GetSecurityDescription() const {
     case PageInfo::SITE_IDENTITY_STATUS_EV_CERT:
     case PageInfo::SITE_IDENTITY_STATUS_CERT_REVOCATION_UNKNOWN:
     case PageInfo::SITE_IDENTITY_STATUS_ADMIN_PROVIDED_CERT:
-      switch (connection_status) {
+      switch (identity_info.connection_status) {
         case PageInfo::SITE_CONNECTION_STATUS_INSECURE_ACTIVE_SUBRESOURCE:
           return CreateSecurityDescription(SecuritySummaryColor::RED,
                                            IDS_PAGE_INFO_NOT_SECURE_SUMMARY,
@@ -251,15 +252,7 @@ PageInfoUI::IdentityInfo::GetSecurityDescription() const {
                                        IDS_PAGE_INFO_UNWANTED_SOFTWARE_DETAILS);
     case PageInfo::SITE_IDENTITY_STATUS_PASSWORD_REUSE:
 #if defined(SAFE_BROWSING_DB_LOCAL)
-      return safe_browsing::PasswordProtectionService::ShouldShowSofterWarning()
-                 ? CreateSecurityDescription(
-                       SecuritySummaryColor::RED,
-                       IDS_PAGE_INFO_CHANGE_PASSWORD_SUMMARY_SOFTER,
-                       IDS_PAGE_INFO_CHANGE_PASSWORD_DETAILS)
-                 : CreateSecurityDescription(
-                       SecuritySummaryColor::RED,
-                       IDS_PAGE_INFO_CHANGE_PASSWORD_SUMMARY,
-                       IDS_PAGE_INFO_CHANGE_PASSWORD_DETAILS);
+      return CreateSecurityDescriptionForPasswordReuse();
 #endif
     case PageInfo::SITE_IDENTITY_STATUS_DEPRECATED_SIGNATURE_ALGORITHM:
     case PageInfo::SITE_IDENTITY_STATUS_UNKNOWN:
@@ -341,7 +334,6 @@ base::string16 PageInfoUI::PermissionDecisionReasonToUIString(
                                                              url, url);
     switch (permission_result.source) {
       case PermissionStatusSource::MULTIPLE_DISMISSALS:
-      case PermissionStatusSource::SAFE_BROWSING_BLACKLIST:
         message_id = IDS_PAGE_INFO_PERMISSION_AUTOMATICALLY_BLOCKED;
         break;
       default:
@@ -483,6 +475,9 @@ const gfx::ImageSkia PageInfoUI::GetPermissionIcon(const PermissionInfo& info,
       break;
     case CONTENT_SETTINGS_TYPE_SENSORS:
       icon = &kSensorsIcon;
+      break;
+    case CONTENT_SETTINGS_TYPE_USB_GUARD:
+      icon = &vector_icons::kUsbIcon;
       break;
     default:
       // All other |ContentSettingsType|s do not have icons on desktop or are

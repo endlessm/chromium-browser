@@ -31,8 +31,6 @@ class ConfirmInfoBar : public InfoBarView,
  private:
   // InfoBarView:
   void Layout() override;
-  void ViewHierarchyChanged(
-      const ViewHierarchyChangedDetails& details) override;
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
   int ContentMinimumWidth() const override;
 
@@ -48,10 +46,10 @@ class ConfirmInfoBar : public InfoBarView,
   // uses this to determine how much space the label and link can take.
   int NonLabelWidth() const;
 
-  views::Label* label_;
-  views::MdTextButton* ok_button_;
-  views::MdTextButton* cancel_button_;
-  views::Link* link_;
+  views::Label* label_ = nullptr;
+  views::MdTextButton* ok_button_ = nullptr;
+  views::MdTextButton* cancel_button_ = nullptr;
+  views::Link* link_ = nullptr;
   std::unique_ptr<ElevationIconSetter> elevation_icon_setter_;
 
   DISALLOW_COPY_AND_ASSIGN(ConfirmInfoBar);

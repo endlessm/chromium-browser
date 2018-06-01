@@ -649,6 +649,22 @@ class DeviceUtils(object):
         'Version name for %s not found on dumpsys output' % package, str(self))
 
   @decorators.WithTimeoutAndRetriesFromInstance()
+  def GetPackageArchitecture(self, package, timeout=None, retries=None):
+    """Get the architecture of a package installed on the device.
+
+    Args:
+      package: Name of the package.
+
+    Returns:
+      A string with the architecture, or None if the package is missing.
+    """
+    lines = self._GetDumpsysOutput(['package', package], 'primaryCpuAbi')
+    if lines:
+      _, _, package_arch = lines[-1].partition('=')
+      return package_arch.strip()
+    return None
+
+  @decorators.WithTimeoutAndRetriesFromInstance()
   def GetApplicationDataDirectory(self, package, timeout=None, retries=None):
     """Get the data directory on the device for the given package.
 
@@ -671,16 +687,20 @@ class DeviceUtils(object):
         'Could not find data directory for %s', package)
 
   @decorators.WithTimeoutAndRetriesFromInstance()
-  def GetSecurityContextForPackage(self, package, timeout=None, retries=None):
+  def GetSecurityContextForPackage(self, package, encrypted=False, timeout=None,
+      retries=None):
     """Gets the SELinux security context for the given package.
 
     Args:
       package: Name of the package.
+      encrypted: Whether to check in the encrypted data directory
+          (/data/user_de/0/) or the unencrypted data directory (/data/data/).
 
     Returns:
       The package's security context as a string, or None if not found.
     """
-    for line in self.RunShellCommand(['ls', '-Z', '/data/data/'],
+    directory = '/data/user_de/0/' if encrypted else '/data/data/'
+    for line in self.RunShellCommand(['ls', '-Z', directory],
                                      as_root=True, check_return=True):
       split_line = line.split()
       # ls -Z output differs between Android versions, but the package is
@@ -1223,6 +1243,33 @@ class DeviceUtils(object):
         raise device_errors.CommandFailedError(line, str(self))
 
   @decorators.WithTimeoutAndRetriesFromInstance()
+  def StartService(self, intent_obj, user_id=None, timeout=None, retries=None):
+    """Start a service on the device.
+
+    Args:
+      intent_obj: An Intent object to send describing the service to start.
+      user_id: A specific user to start the service as, defaults to current.
+      timeout: Timeout in seconds.
+      retries: Number of retries
+
+    Raises:
+      CommandFailedError if the service could not be started.
+      CommandTimeoutError on timeout.
+      DeviceUnreachableError on missing device.
+    """
+    # For whatever reason, startservice was changed to start-service on O and
+    # above.
+    cmd = ['am', 'startservice']
+    if self.build_version_sdk >= version_codes.O:
+      cmd[1] = 'start-service'
+    if user_id:
+      cmd.extend(['--user', str(user_id)])
+    cmd.extend(intent_obj.am_args)
+    for line in self.RunShellCommand(cmd, check_return=True):
+      if line.startswith('Error:'):
+        raise device_errors.CommandFailedError(line, str(self))
+
+  @decorators.WithTimeoutAndRetriesFromInstance()
   def StartInstrumentation(self, component, finish=True, raw=False,
                            extras=None, timeout=None, retries=None):
     if extras is None:
@@ -1506,8 +1553,14 @@ class DeviceUtils(object):
       to_delete = device_checksums.keys()
 
     def cache_commit_func():
-      new_sums = {posixpath.join(device_path, path[len(host_path) + 1:]): val
-                  for path, val in host_checksums.iteritems()}
+      # When host_path is a not a directory, the path.join() call below would
+      # have an '' as the second argument, causing an unwanted / to be appended.
+      if os.path.isfile(host_path):
+        assert len(host_checksums) == 1
+        new_sums = {device_path: host_checksums[host_path]}
+      else:
+        new_sums = {posixpath.join(device_path, path[len(host_path) + 1:]): val
+                    for path, val in host_checksums.iteritems()}
       cache_entry = [ignore_other_files, new_sums]
       self._cache['device_path_checksums'][device_path] = cache_entry
 
@@ -1629,6 +1682,8 @@ class DeviceUtils(object):
       except zip_utils.ZipFailedError:
         return False
 
+      logger.info('Pushing %d files via .zip of size %d', len(files),
+                  os.path.getsize(zip_path))
       self.NeedsSU()
       with device_temp_file.DeviceTempFile(
           self.adb, suffix='.zip') as device_temp:
@@ -2300,9 +2355,8 @@ class DeviceUtils(object):
     """
     try:
       ps_cmd = 'ps'
-      # ps behavior was changed in Android above N, http://crbug.com/686716
-      if (self.build_version_sdk >= version_codes.NOUGAT_MR1
-          and self.build_id[0] > 'N'):
+      # ps behavior was changed in Android O and above, http://crbug.com/686716
+      if self.build_version_sdk >= version_codes.O:
         ps_cmd = 'ps -e'
       if pattern:
         return self._RunPipedShellCommand(
@@ -2351,6 +2405,29 @@ class DeviceUtils(object):
         continue
       processes.append(ProcessInfo(**row))
     return processes
+
+  def _GetDumpsysOutput(self, extra_args, pattern=None):
+    """Runs |dumpsys| command on the device and returns its output.
+
+    This private method implements support for filtering the output by a given
+    |pattern|, but does not do any output parsing.
+    """
+    try:
+      cmd = ['dumpsys'] + extra_args
+      if pattern:
+        cmd = ' '.join(cmd_helper.SingleQuote(s) for s in cmd)
+        return self._RunPipedShellCommand(
+            '%s | grep -F %s' % (cmd, cmd_helper.SingleQuote(pattern)))
+      else:
+        cmd = ['dumpsys'] + extra_args
+        return self.RunShellCommand(cmd, check_return=True, large_output=True)
+    except device_errors.AdbShellCommandFailedError as e:
+      if e.status and isinstance(e.status, list) and not e.status[0]:
+        # If dumpsys succeeded but grep failed, there were no lines matching
+        # the given pattern.
+        return []
+      else:
+        raise
 
   # TODO(#4103): Remove after migrating clients to ListProcesses.
   @decorators.WithTimeoutAndRetriesFromInstance()
@@ -2457,6 +2534,30 @@ class DeviceUtils(object):
     self.RunShellCommand(
         ['setenforce', '1' if int(enabled) else '0'], as_root=True,
         check_return=True)
+
+  @decorators.WithTimeoutAndRetriesFromInstance()
+  def SetWebViewImplementation(self, package_name, timeout=None, retries=None):
+    """Select the WebView implementation to the specified package.
+
+    Args:
+      package_name: The package name of a WebView implementation. The package
+        must be already installed on the device.
+      timeout: timeout in seconds
+      retries: number of retries
+
+    Raises:
+      CommandFailedError on failure.
+      CommandTimeoutError on timeout.
+      DeviceUnreachableError on missing device.
+    """
+    output = self.RunShellCommand(
+        ['cmd', 'webviewupdate', 'set-webview-implementation', package_name],
+        single_line=True, check_return=True)
+    if output == 'Success':
+      logging.info('WebView provider set to: %s', package_name)
+    else:
+      raise device_errors.CommandFailedError(
+          'Error setting WebView provider: %s' % output, str(self))
 
   @decorators.WithTimeoutAndRetriesFromInstance()
   def TakeScreenshot(self, host_path=None, timeout=None, retries=None):

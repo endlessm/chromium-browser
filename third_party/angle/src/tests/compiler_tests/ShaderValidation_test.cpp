@@ -5069,7 +5069,8 @@ TEST_F(FragmentShaderValidationTest, SwitchFinalCaseHasEmptyDeclaration)
     }
 }
 
-// Test that nothing is needed after the final case in a switch statement in ESSL 3.10.
+// The final case in a switch statement can't be empty in ESSL 3.10 either. This is the intent of
+// the spec though public spec in early 2018 didn't reflect this yet.
 TEST_F(FragmentShaderValidationTest, SwitchFinalCaseEmptyESSL310)
 {
     const std::string &shaderString =
@@ -5087,9 +5088,9 @@ TEST_F(FragmentShaderValidationTest, SwitchFinalCaseEmptyESSL310)
             }
         })";
 
-    if (!compile(shaderString))
+    if (compile(shaderString))
     {
-        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
     }
 }
 
@@ -5757,5 +5758,212 @@ TEST_F(FragmentShaderValidationTest, RedeclaringBuiltInFromAnotherShaderStage)
     if (!compile(shaderString))
     {
         FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Test that standard derivative functions that are in core ESSL 3.00 compile successfully.
+TEST_F(FragmentShaderValidationTest, ESSL300StandardDerivatives)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+        precision mediump float;
+        in vec4 iv;
+        out vec4 my_FragColor;
+
+        void main()
+        {
+            vec4 v4 = vec4(0.0);
+            v4 += fwidth(iv);
+            v4 += dFdx(iv);
+            v4 += dFdy(iv);
+            my_FragColor = v4;
+        })";
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Test that vertex shader built-in gl_Position is not accessible in fragment shader.
+TEST_F(FragmentShaderValidationTest, GlPosition)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+        precision mediump float;
+        in vec4 iv;
+        out vec4 my_FragColor;
+
+        void main()
+        {
+            gl_Position = iv;
+            my_FragColor = iv;
+        })";
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that compute shader built-in gl_LocalInvocationID is not accessible in fragment shader.
+TEST_F(FragmentShaderValidationTest, GlLocalInvocationID)
+{
+    const std::string &shaderString =
+        R"(#version 310 es
+        precision mediump float;
+        out vec3 my_FragColor;
+
+        void main()
+        {
+            my_FragColor = vec3(gl_LocalInvocationID);
+        })";
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that fragment shader built-in gl_FragCoord is not accessible in vertex shader.
+TEST_F(VertexShaderValidationTest, GlFragCoord)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+        precision mediump float;
+
+        void main()
+        {
+            gl_Position = vec4(gl_FragCoord);
+        })";
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that a long sequence of repeated swizzling on an l-value does not cause a stack overflow.
+TEST_F(VertexShaderValidationTest, LValueRepeatedSwizzle)
+{
+    std::stringstream shaderString;
+    shaderString << R"(#version 300 es
+        precision mediump float;
+
+        uniform vec2 u;
+
+        void main()
+        {
+            vec2 f;
+            f)";
+    for (int i = 0; i < 1000; ++i)
+    {
+        shaderString << ".yx.yx";
+    }
+    shaderString << R"( = vec2(0.0);
+        })";
+
+    if (!compile(shaderString.str()))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Test that swizzling that contains duplicate components can't form an l-value, even if it is
+// swizzled again so that the final result does not contain duplicate components.
+TEST_F(VertexShaderValidationTest, LValueSwizzleDuplicateComponents)
+{
+
+    const std::string &shaderString = R"(#version 300 es
+        precision mediump float;
+
+        void main()
+        {
+            vec2 f;
+            (f.xxyy).xz = vec2(0.0);
+        })";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that a fragment shader with nested if statements without braces compiles successfully.
+TEST_F(FragmentShaderValidationTest, HandleIfInnerIfStatementAlwaysTriviallyPruned)
+{
+    const std::string &shaderString =
+        R"(precision mediump float;
+        void main()
+        {
+            if (true)
+                if (false)
+                    gl_FragColor = vec4(0.0);
+        })";
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Test that a fragment shader with an if statement nested in a loop without braces compiles
+// successfully.
+TEST_F(FragmentShaderValidationTest, HandleLoopInnerIfStatementAlwaysTriviallyPruned)
+{
+    const std::string &shaderString =
+        R"(precision mediump float;
+        void main()
+        {
+            while (false)
+                if (false)
+                    gl_FragColor = vec4(0.0);
+        })";
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Test that declaring both gl_FragColor and gl_FragData invariant is not an error. The GLSL ES 1.00
+// spec only disallows writing to both of them. ANGLE extends this validation to also cover reads,
+// but it makes sense not to treat declaring them both invariant as an error.
+TEST_F(FragmentShaderValidationTest, DeclareBothBuiltInFragmentOutputsInvariant)
+{
+    const std::string &shaderString =
+        R"(
+        invariant gl_FragColor;
+        invariant gl_FragData;
+        precision mediump float;
+        void main()
+        {
+            gl_FragColor = vec4(0.0);
+        })";
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Test that a case cannot be placed inside a block nested inside a switch statement. GLSL ES 3.10
+// section 6.2.
+TEST_F(FragmentShaderValidationTest, CaseInsideBlock)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+        precision mediump float;
+        uniform int u;
+        out vec4 my_FragColor;
+        void main()
+        {
+            switch (u)
+            {
+                case 1:
+                {
+                    case 0:
+                        my_FragColor = vec4(0.0);
+                }
+                default:
+                    my_FragColor = vec4(1.0);
+            }
+        })";
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
     }
 }

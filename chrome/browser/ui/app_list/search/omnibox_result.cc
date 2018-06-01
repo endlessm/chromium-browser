@@ -35,30 +35,30 @@ constexpr SkColor kListIconColor = SkColorSetARGBMacro(0xDE, 0x00, 0x00, 0x00);
 int ACMatchStyleToTagStyle(int styles) {
   int tag_styles = 0;
   if (styles & ACMatchClassification::URL)
-    tag_styles |= SearchResult::Tag::URL;
+    tag_styles |= ash::SearchResultTag::URL;
   if (styles & ACMatchClassification::MATCH)
-    tag_styles |= SearchResult::Tag::MATCH;
+    tag_styles |= ash::SearchResultTag::MATCH;
   if (styles & ACMatchClassification::DIM)
-    tag_styles |= SearchResult::Tag::DIM;
+    tag_styles |= ash::SearchResultTag::DIM;
 
   return tag_styles;
 }
 
-// Translates ACMatchClassifications into SearchResult tags.
+// Translates ACMatchClassifications into ChromeSearchResult tags.
 void ACMatchClassificationsToTags(const base::string16& text,
                                   const ACMatchClassifications& text_classes,
-                                  SearchResult::Tags* tags) {
-  int tag_styles = SearchResult::Tag::NONE;
+                                  ChromeSearchResult::Tags* tags) {
+  int tag_styles = ash::SearchResultTag::NONE;
   size_t tag_start = 0;
 
   for (size_t i = 0; i < text_classes.size(); ++i) {
     const ACMatchClassification& text_class = text_classes[i];
 
     // Closes current tag.
-    if (tag_styles != SearchResult::Tag::NONE) {
+    if (tag_styles != ash::SearchResultTag::NONE) {
       tags->push_back(
-          SearchResult::Tag(tag_styles, tag_start, text_class.offset));
-      tag_styles = SearchResult::Tag::NONE;
+          ash::SearchResultTag(tag_styles, tag_start, text_class.offset));
+      tag_styles = ash::SearchResultTag::NONE;
     }
 
     if (text_class.style == ACMatchClassification::NONE)
@@ -68,8 +68,8 @@ void ACMatchClassificationsToTags(const base::string16& text,
     tag_styles = ACMatchStyleToTagStyle(text_class.style);
   }
 
-  if (tag_styles != SearchResult::Tag::NONE) {
-    tags->push_back(SearchResult::Tag(tag_styles, tag_start, text.length()));
+  if (tag_styles != ash::SearchResultTag::NONE) {
+    tags->push_back(ash::SearchResultTag(tag_styles, tag_start, text.length()));
   }
 }
 
@@ -87,7 +87,7 @@ const gfx::VectorIcon& TypeToVectorIcon(AutocompleteMatchType::Type type) {
     case AutocompleteMatchType::CLIPBOARD:
     case AutocompleteMatchType::PHYSICAL_WEB:
     case AutocompleteMatchType::PHYSICAL_WEB_OVERFLOW:
-    case AutocompleteMatchType::TAB_SEARCH:
+    case AutocompleteMatchType::TAB_SEARCH_DEPRECATED:
       return kIcDomainIcon;
 
     case AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED:
@@ -144,18 +144,6 @@ OmniboxResult::OmniboxResult(Profile* profile,
 
   UpdateIcon();
   UpdateTitleAndDetails();
-
-  // The raw "what you typed" search results should be promoted and
-  // automatically selected by voice queries. If a "history" result exactly
-  // matches what you typed, then the omnibox will not produce a "what you
-  // typed" result; therefore, we must also flag "history" results as voice
-  // results if they exactly match the query.
-  if (match_.type == AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED ||
-      (match_.type == AutocompleteMatchType::SEARCH_HISTORY &&
-       match_.search_terms_args &&
-       match_.contents == match_.search_terms_args->original_query)) {
-    set_voice_result(true);
-  }
 }
 
 OmniboxResult::~OmniboxResult() = default;
@@ -166,9 +154,9 @@ void OmniboxResult::Open(int event_flags) {
                             ui::DispositionFromEventFlags(event_flags));
 }
 
-std::unique_ptr<SearchResult> OmniboxResult::Duplicate() const {
-  return std::unique_ptr<SearchResult>(new OmniboxResult(
-      profile_, list_controller_, autocomplete_controller_, match_));
+std::unique_ptr<ChromeSearchResult> OmniboxResult::Duplicate() const {
+  return std::make_unique<OmniboxResult>(profile_, list_controller_,
+                                         autocomplete_controller_, match_);
 }
 
 void OmniboxResult::UpdateIcon() {
@@ -187,7 +175,7 @@ void OmniboxResult::UpdateTitleAndDetails() {
   // the url description is presented as title, and url itself is presented as
   // details.
   const bool use_directly = !IsUrlResultWithDescription();
-  SearchResult::Tags title_tags;
+  ChromeSearchResult::Tags title_tags;
   if (use_directly) {
     set_title(match_.contents);
     ACMatchClassificationsToTags(match_.contents, match_.contents_class,
@@ -199,7 +187,7 @@ void OmniboxResult::UpdateTitleAndDetails() {
   }
   set_title_tags(title_tags);
 
-  SearchResult::Tags details_tags;
+  ChromeSearchResult::Tags details_tags;
   if (use_directly) {
     set_details(match_.description);
     ACMatchClassificationsToTags(match_.description, match_.description_class,

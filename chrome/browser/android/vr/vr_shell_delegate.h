@@ -16,6 +16,7 @@
 #include "base/macros.h"
 #include "chrome/browser/android/vr/vr_core_info.h"
 #include "chrome/browser/vr/content_input_delegate.h"
+#include "chrome/browser/vr/metrics/session_metrics_helper.h"
 #include "device/vr/android/gvr/gvr_delegate_provider.h"
 #include "device/vr/public/mojom/vr_service.mojom.h"
 #include "third_party/gvr-android-sdk/src/libraries/headers/vr/gvr/capi/include/gvr_types.h"
@@ -52,6 +53,9 @@ class VrShellDelegate : public device::GvrDelegateProvider {
   void SetPresentResult(JNIEnv* env,
                         const base::android::JavaParamRef<jobject>& obj,
                         jboolean success);
+  void RecordVrStartAction(JNIEnv* env,
+                           const base::android::JavaParamRef<jobject>& obj,
+                           jint start_action);
   void DisplayActivate(JNIEnv* env,
                        const base::android::JavaParamRef<jobject>& obj);
   void OnPause(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
@@ -61,6 +65,10 @@ class VrShellDelegate : public device::GvrDelegateProvider {
   void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
 
   device::VRDevice* GetDevice();
+
+  void SendRequestPresentReply(
+      bool success,
+      device::mojom::VRDisplayFrameTransportOptionsPtr);
 
   // device::GvrDelegateProvider implementation.
   void ExitWebVRPresent() override;
@@ -92,10 +100,21 @@ class VrShellDelegate : public device::GvrDelegateProvider {
   base::android::ScopedJavaGlobalRef<jobject> j_vr_shell_delegate_;
   unsigned int device_id_ = 0;
   VrShell* vr_shell_ = nullptr;
-  base::OnceCallback<void(bool)> on_present_result_callback_;
-  bool pending_successful_present_request_ = false;
 
-  base::CancelableClosure clear_activate_task_;
+  // Deferred callback stored for later use in cases where vr_shell
+  // wasn't ready yet. Used once SetDelegate is called.
+  base::OnceCallback<void(bool)> on_present_result_callback_;
+
+  // Mojo callback waiting for request present response. This is temporarily
+  // stored here from OnPresentResult's outgoing ConnectPresentingService call
+  // until the reply arguments are received by SendRequestPresentReply.
+  device::mojom::VRDisplayHost::RequestPresentCallback
+      request_present_response_callback_;
+
+  bool pending_successful_present_request_ = false;
+  base::Optional<VrStartAction> pending_vr_start_action_;
+  base::Optional<PresentationStartAction> possible_presentation_start_action_;
+
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   base::WeakPtrFactory<VrShellDelegate> weak_ptr_factory_;

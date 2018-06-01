@@ -32,9 +32,10 @@ tr.exportTo('tr.metrics.vr', function() {
     histogramsByEventTitle.set('VrShellGl::UpdateController',
         createHistograms(histograms, 'update_controller',
           {description: 'Duration to query input from the controller'}));
-    histogramsByEventTitle.set('VrShellGl::DrawFrameSubmitWhenReady',
+    histogramsByEventTitle.set('VrShellGl::DrawFrameSubmitNow',
         createHistograms(histograms, 'submit_frame',
           {description: 'Duration to submit a frame to GVR'}));
+    // Scene update metrics.
     histogramsByEventTitle.set(
         'UiScene::OnBeginFrame.UpdateAnimationsAndOpacity',
         createHistograms(
@@ -46,21 +47,75 @@ tr.exportTo('tr.metrics.vr', function() {
             histograms, 'update_bindings',
             {description: 'Duration to push binding values'}));
     histogramsByEventTitle.set(
-        'UiScene::OnBeginFrame.UpdateTexturesAndSizes',
-        createHistograms(histograms, 'update_textures_and_sizes', {
-          description: 'Duration to redraw textures and update element sizes'
-        }));
-    histogramsByEventTitle.set(
         'UiScene::OnBeginFrame.UpdateLayout',
         createHistograms(histograms, 'update_layout', {
-          description:
-              'Duration to reposition elements according to their layout'
+          description: 'Duration to compute element sizes, layout and textures'
         }));
     histogramsByEventTitle.set(
         'UiScene::OnBeginFrame.UpdateWorldSpaceTransform',
         createHistograms(histograms, 'update_world_space_transforms', {
           description: 'Duration to calculate element transforms in world space'
         }));
+    // Draw metrics.
+    histogramsByEventTitle.set(
+        'UiRenderer::DrawUiView',
+        createHistograms(histograms, 'draw_ui', {
+          description: 'Duration to draw the UI'
+        }));
+    histogramsByEventTitle.set(
+        'UiElementRenderer::DrawTexturedQuad',
+        createHistograms(histograms, 'draw_textured_quad', {
+          description: 'Duration to draw a textured element'
+        }));
+    histogramsByEventTitle.set(
+        'UiElementRenderer::DrawGradientQuad',
+        createHistograms(histograms, 'draw_gradient_quad', {
+          description: 'Duration to draw a gradient element'
+        }));
+    histogramsByEventTitle.set(
+        'UiElementRenderer::DrawGradientGridQuad',
+        createHistograms(histograms, 'draw_gradient_grid_quad', {
+          description: 'Duration to draw a gradient grid element'
+        }));
+    histogramsByEventTitle.set(
+        'UiElementRenderer::DrawController',
+        createHistograms(histograms, 'draw_controller', {
+          description: 'Duration to draw the controller'
+        }));
+    histogramsByEventTitle.set(
+        'UiElementRenderer::DrawLaser',
+        createHistograms(histograms, 'draw_laser', {
+          description: 'Duration to draw the laser'
+        }));
+    histogramsByEventTitle.set(
+        'UiElementRenderer::DrawReticle',
+        createHistograms(histograms, 'draw_reticle', {
+          description: 'Duration to draw the reticle'
+        }));
+    histogramsByEventTitle.set(
+        'UiElementRenderer::DrawShadow',
+        createHistograms(histograms, 'draw_shadow', {
+          description: 'Duration to draw a shadow element'
+        }));
+    histogramsByEventTitle.set(
+        'UiElementRenderer::DrawStars',
+        createHistograms(histograms, 'draw_stars', {
+          description: 'Duration to draw the stars'
+        }));
+    histogramsByEventTitle.set(
+        'UiElementRenderer::DrawBackground',
+        createHistograms(histograms, 'draw_background', {
+          description: 'Duration to draw the textured background'
+        }));
+    histogramsByEventTitle.set(
+        'UiElementRenderer::DrawKeyboard',
+        createHistograms(histograms, 'draw_keyboard', {
+          description: 'Duration to draw the keyboard'
+        }));
+
+    // Maps from the GUID of a UiRenderer::DrawUiView slice to each of its
+    // children slices.
+    const drawUiSubSlicesMap = new Map();
 
     const chromeHelper = model.getOrCreateHelper(
         tr.model.helpers.ChromeModelHelper);
@@ -112,12 +167,48 @@ tr.exportTo('tr.metrics.vr', function() {
               continue;
             }
 
+            // There can be multiple UiElementRenderer::Draw... events per frame
+            // but this metric should calculate the across frame average of
+            // durations. Thus, collect UiElementRenderer::Draw... slices here
+            // in order to process them below.
+            if (event.parentSlice &&
+                event.parentSlice.title === 'UiRenderer::DrawUiView') {
+              const guid = event.parentSlice.guid;
+              if (!drawUiSubSlicesMap.has(guid)) {
+                drawUiSubSlicesMap.set(guid, []);
+              }
+              drawUiSubSlicesMap.get(guid).push(event);
+              continue;
+            }
+
             const {wall: wallHist, cpu: cpuHist} =
               histogramsByEventTitle.get(event.title);
             wallHist.addSample(event.duration);
             cpuHist.addSample(event.cpuDuration);
           }
         }
+      }
+    }
+
+    // Calculate the average of the per frame sums of UiElementRenderer::Draw...
+    // events.
+    for (const subSlices of drawUiSubSlicesMap.values()) {
+      const eventMap = new Map();
+      for (const event of subSlices) {
+        if (!eventMap.has(event.title)) {
+          eventMap.set(event.title, {
+            wall: 0,
+            cpu: 0
+          });
+        }
+        eventMap.get(event.title).wall += event.duration;
+        eventMap.get(event.title).cpu += event.cpuDuration;
+      }
+      for (const [title, values] of eventMap.entries()) {
+        const {wall: wallHist, cpu: cpuHist} =
+              histogramsByEventTitle.get(title);
+        wallHist.addSample(values.wall);
+        cpuHist.addSample(values.cpu);
       }
     }
   }

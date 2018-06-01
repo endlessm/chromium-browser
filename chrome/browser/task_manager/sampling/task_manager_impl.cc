@@ -125,18 +125,6 @@ int64_t TaskManagerImpl::GetMemoryFootprintUsage(TaskId task_id) const {
   return GetTaskGroupByTaskId(task_id)->footprint_bytes();
 }
 
-int64_t TaskManagerImpl::GetPhysicalMemoryUsage(TaskId task_id) const {
-  return GetTaskGroupByTaskId(task_id)->physical_bytes();
-}
-
-int64_t TaskManagerImpl::GetPrivateMemoryUsage(TaskId task_id) const {
-  return GetTaskGroupByTaskId(task_id)->private_bytes();
-}
-
-int64_t TaskManagerImpl::GetSharedMemoryUsage(TaskId task_id) const {
-  return GetTaskGroupByTaskId(task_id)->shared_bytes();
-}
-
 int64_t TaskManagerImpl::GetSwappedMemoryUsage(TaskId task_id) const {
 #if defined(OS_CHROMEOS)
   return GetTaskGroupByTaskId(task_id)->swapped_bytes();
@@ -244,7 +232,7 @@ Task::Type TaskManagerImpl::GetType(TaskId task_id) const {
   return GetTaskByTaskId(task_id)->GetType();
 }
 
-int TaskManagerImpl::GetTabId(TaskId task_id) const {
+SessionID TaskManagerImpl::GetTabId(TaskId task_id) const {
   return GetTaskByTaskId(task_id)->GetTabId();
 }
 

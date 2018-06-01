@@ -9,6 +9,7 @@
 
 #include "base/callback.h"
 #include "base/optional.h"
+#include "base/run_loop.h"
 #include "content/public/browser/global_request_id.h"
 #include "content/public/browser/navigation_throttle.h"
 #include "content/public/browser/reload_type.h"
@@ -200,6 +201,14 @@ class NavigationSimulator : public WebContentsObserver {
   // committed. Returns the RenderFrameHost the navigation committed in.
   virtual RenderFrameHost* GetFinalRenderFrameHost();
 
+  // Only used if AutoAdvance is turned off. Will wait until the current stage
+  // of the navigation is complete.
+  void Wait();
+
+  // Returns true if the navigation is deferred waiting for navigation throttles
+  // to complete.
+  bool IsDeferred();
+
   // --------------------------------------------------------------------------
 
   // The following functions are used to specify the parameters of the
@@ -240,6 +249,15 @@ class NavigationSimulator : public WebContentsObserver {
   // specified before calling |Commit|.
   virtual void SetContentsMimeType(const std::string& contents_mime_type);
 
+  // Whether or not the NavigationSimulator automatically advances the
+  // navigation past the stage requested (e.g. through asynchronous
+  // NavigationThrottles). Defaults to true. Useful for testing throttles which
+  // defer the navigation.
+  //
+  // If the test sets this to false, it should follow up any calls that result
+  // in throttles deferring the navigation with a call to Wait().
+  virtual void SetAutoAdvance(bool auto_advance);
+
   // --------------------------------------------------------------------------
 
   // Gets the last throttle check result computed by the navigation throttles.
@@ -257,23 +275,6 @@ class NavigationSimulator : public WebContentsObserver {
   // callback.
   content::GlobalRequestID GetGlobalRequestID() const;
 
-  // Allows the user of the NavigationSimulator to specify a callback that will
-  // be called if the navigation is deferred by a NavigationThrottle. This is
-  // used for testing deferring NavigationThrottles.
-  //
-  // Example usage:
-  //   void CheckThrottleStateAndResume() {
-  //     // Do some testing here.
-  //     deferring_navigation_throttle->Resume();
-  //   }
-  //   unique_ptr<NavigationSimulator> simulator =
-  //       NavigationSimulator::CreateRendererInitiated(
-  //           original_url, render_frame_host);
-  //   simulator->SetOnDeferCallback(base::Bind(&CheckThrottleStateAndResume));
-  //   simulator->Start();
-  //   simulator->Commit();
-  void SetOnDeferCallback(const base::Closure& on_defer_callback);
-
  private:
   NavigationSimulator(const GURL& original_url,
                       bool browser_initiated,
@@ -285,6 +286,12 @@ class NavigationSimulator : public WebContentsObserver {
   void DidRedirectNavigation(NavigationHandle* navigation_handle) override;
   void ReadyToCommitNavigation(NavigationHandle* navigation_handle) override;
   void DidFinishNavigation(NavigationHandle* navigation_handle) override;
+
+  void StartComplete();
+  void RedirectComplete(int previous_num_will_redirect_request_called,
+                        int previous_did_redirect_navigation_called);
+  void ReadyToCommitComplete(bool ran_throttles);
+  void FailComplete(int error_code);
 
   void OnWillStartRequest();
   void OnWillRedirectRequest();
@@ -299,11 +306,14 @@ class NavigationSimulator : public WebContentsObserver {
   // navigation failed synchronously.
   bool SimulateRendererInitiatedStart();
 
-  // This method will block waiting for throttle checks to complete.
-  void WaitForThrottleChecksComplete();
+  // This method will block waiting for throttle checks to complete if
+  // |auto_advance_|. Otherwise will just set up state for checking the result
+  // when the throttles end up finishing.
+  void MaybeWaitForThrottleChecksComplete(base::OnceClosure complete_closure);
 
-  // Sets |last_throttle_check_result_| and calls
-  // |throttle_checks_wait_closure_|.
+  // Sets |last_throttle_check_result_| and calls both the
+  // |wait_closure_| and the |throttle_checks_complete_closure_|, if they are
+  // set.
   void OnThrottleChecksComplete(NavigationThrottle::ThrottleCheckResult result);
 
   // Helper method to set the OnThrottleChecksComplete callback on the
@@ -357,6 +367,8 @@ class NavigationSimulator : public WebContentsObserver {
   service_manager::mojom::InterfaceProviderRequest interface_provider_request_;
   std::string contents_mime_type_;
 
+  bool auto_advance_ = true;
+
   // These are used to sanity check the content/public/ API calls emitted as
   // part of the navigation.
   int num_did_start_navigation_called_ = 0;
@@ -378,12 +390,13 @@ class NavigationSimulator : public WebContentsObserver {
   // WillProcessResponse has been invoked on the NavigationHandle.
   content::GlobalRequestID request_id_;
 
-  // Closure that is set when WaitForThrottleChecksComplete is called.
-  base::Closure throttle_checks_wait_closure_;
+  // Closure that is set when MaybeWaitForThrottleChecksComplete is called.
+  // Called in OnThrottleChecksComplete.
+  base::OnceClosure throttle_checks_complete_closure_;
 
-  // Temporarily holds a closure that will be called on navigation deferral
-  // until the NavigationHandle for this navigation has been created.
-  base::Closure on_defer_callback_;
+  // Closure that is called in OnThrottleChecksComplete if we are waiting on the
+  // result. Calling this will quit the nested run loop.
+  base::OnceClosure wait_closure_;
 
   base::WeakPtrFactory<NavigationSimulator> weak_factory_;
 };

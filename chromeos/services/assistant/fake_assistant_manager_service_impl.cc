@@ -11,10 +11,32 @@ FakeAssistantManagerServiceImpl::FakeAssistantManagerServiceImpl() = default;
 
 FakeAssistantManagerServiceImpl::~FakeAssistantManagerServiceImpl() = default;
 
-void FakeAssistantManagerServiceImpl::Start(const std::string& access_token) {}
+void FakeAssistantManagerServiceImpl::Start(const std::string& access_token) {
+  running_ = true;
+}
 
 void FakeAssistantManagerServiceImpl::SetAccessToken(
     const std::string& access_token) {}
+
+void FakeAssistantManagerServiceImpl::EnableListening(bool enable) {}
+
+bool FakeAssistantManagerServiceImpl::IsRunning() const {
+  return running_;
+}
+
+AssistantSettingsManager*
+FakeAssistantManagerServiceImpl::GetAssistantSettingsManager() {
+  return nullptr;
+}
+
+void FakeAssistantManagerServiceImpl::SendGetSettingsUiRequest(
+    const std::string& selector,
+    GetSettingsUiResponseCallback callback) {}
+
+void FakeAssistantManagerServiceImpl::SendTextQuery(const std::string& query) {}
+
+void FakeAssistantManagerServiceImpl::AddAssistantEventSubscriber(
+    mojom::AssistantEventSubscriberPtr subscriber) {}
 
 }  // namespace assistant
 }  // namespace chromeos

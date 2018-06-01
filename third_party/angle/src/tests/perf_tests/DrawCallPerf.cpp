@@ -184,11 +184,15 @@ ANGLE_INSTANTIATE_TEST(DrawCallPerfBenchmark,
                        DrawArrays(DrawCallPerfD3D11Params(false, false), false),
                        DrawArrays(DrawCallPerfD3D11Params(true, false), false),
                        DrawArrays(DrawCallPerfD3D11Params(true, true), false),
+                       DrawArrays(DrawCallPerfD3D11Params(true, false), true),
                        DrawArrays(DrawCallPerfOpenGLOrGLESParams(false, false), false),
                        DrawArrays(DrawCallPerfOpenGLOrGLESParams(true, false), false),
                        DrawArrays(DrawCallPerfOpenGLOrGLESParams(true, true), false),
+                       DrawArrays(DrawCallPerfOpenGLOrGLESParams(true, false), true),
                        DrawArrays(DrawCallPerfValidationOnly(), false),
-                       DrawArrays(DrawCallPerfVulkanParams(false), false),
-                       DrawArrays(DrawCallPerfVulkanParams(false), true));
+                       DrawArrays(DrawCallPerfVulkanParams(true, false), true),
+                       DrawArrays(DrawCallPerfVulkanParams(true, false), false),
+                       DrawArrays(DrawCallPerfVulkanParams(false, false), false),
+                       DrawArrays(DrawCallPerfVulkanParams(false, false), true));
 
 } // namespace

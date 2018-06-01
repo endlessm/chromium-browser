@@ -162,6 +162,7 @@ class CleanUpStage(generic_stages.BuilderStage):
                                       buildbucket_client,
                                       self._run.options.debug,
                                       self._run.config)
+
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
     if (not (self._run.options.buildbot or self._run.options.remote_trybot)
@@ -187,16 +188,32 @@ class CleanUpStage(generic_stages.BuilderStage):
                           self._build_root, e)
 
     # Clean mount points first to be safe about deleting.
-    cros_build_lib.CleanupChrootMount(buildroot=self._build_root)
+    chroot_path = os.path.join(self._build_root, constants.DEFAULT_CHROOT_DIR)
+    cros_build_lib.CleanupChrootMount(chroot=chroot_path)
     osutils.UmountTree(self._build_root)
 
-    # Re-mount chroot if it exists so that subsequent steps can clean up inside.
-    try:
-      cros_build_lib.MountChroot(buildroot=self._build_root, create=False)
-    except cros_build_lib.RunCommandError as e:
-      logging.error('Unable to mount chroot under %s.  Deleting chroot.  '
-                    'Error: %s', self._build_root, e)
+    # If our chroot.img status doesn't match what is requested in the config
+    # (exists when chroot_use_image is False or vice versa), delete the chroot
+    # and let it be recreated correctly.  This could happen if a config with a
+    # different value of chroot_use_image ran on this machine previously.
+    chroot_img = chroot_path + '.img'
+    chroot_img_exists = os.path.exists(chroot_img)
+    if self._run.config.chroot_use_image != chroot_img_exists:
+      logging.info('chroot image at %s %s but chroot_use_image=%s.  '
+                   'Deleting chroot.', chroot_img,
+                   'exists' if chroot_img_exists else "doesn't exist",
+                   self._run.config.chroot_use_image)
       self._DeleteChroot()
+
+    # Re-mount chroot image if it exists so that subsequent steps can clean up
+    # inside.
+    if self._run.config.chroot_use_image and chroot_img_exists:
+      try:
+        cros_build_lib.MountChroot(chroot=chroot_path, create=False)
+      except cros_build_lib.RunCommandError as e:
+        logging.error('Unable to mount chroot under %s.  Deleting chroot.  '
+                      'Error: %s', self._build_root, e)
+        self._DeleteChroot()
 
     if manifest is None:
       self._DeleteChroot()
@@ -256,9 +273,10 @@ class InitSDKStage(generic_stages.BuilderStage):
     if os.path.isdir(self._build_root) and not replace:
       try:
         pre_ver = cros_build_lib.GetChrootVersion(chroot=chroot_path)
-        commands.RunChrootUpgradeHooks(
-            self._build_root, chrome_root=self._run.options.chrome_root,
-            extra_env=self._portage_extra_env)
+        if pre_ver is not None:
+          commands.RunChrootUpgradeHooks(
+              self._build_root, chrome_root=self._run.options.chrome_root,
+              extra_env=self._portage_extra_env)
       except failures_lib.BuildScriptFailure:
         logging.PrintBuildbotStepText('Replacing broken chroot')
         logging.PrintBuildbotStepWarnings()
@@ -275,7 +293,8 @@ class InitSDKStage(generic_stages.BuilderStage):
           replace=replace,
           use_sdk=use_sdk,
           chrome_root=self._run.options.chrome_root,
-          extra_env=self._portage_extra_env)
+          extra_env=self._portage_extra_env,
+          use_image=self._run.config.chroot_use_image)
 
     post_ver = cros_build_lib.GetChrootVersion(chroot=chroot_path)
     if pre_ver is not None and pre_ver != post_ver:
@@ -347,30 +366,6 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
                             constants.CHROME_CP,
                             packages,
                             extra_env=self._portage_extra_env)
-
-  def GetListOfPackagesToBuild(self):
-    """Returns a list of packages to build."""
-    if self._run.config.packages:
-      # If the list of packages is set in the config, use it.
-      return self._run.config.packages
-
-    # TODO: the logic below is duplicated from the build_packages
-    # script. Once we switch to `cros build`, we should consolidate
-    # the logic in a shared location.
-    packages = ['virtual/target-os']
-    # Build Dev packages by default.
-    packages += ['virtual/target-os-dev']
-    # Build test packages by default.
-    packages += ['virtual/target-os-test']
-    # Build factory packages if requested by config.
-    if self._run.config.factory:
-      packages += ['virtual/target-os-factory',
-                   'virtual/target-os-factory-shim']
-
-    if self._run.ShouldBuildAutotest():
-      packages += ['chromeos-base/autotest-all']
-
-    return packages
 
   def RecordPackagesUnderTest(self, packages_to_build):
     """Records all packages that may affect the board to BuilderRun."""
@@ -513,7 +508,7 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
 
       # Get a list of models supported by this board.
       models = commands.GetModels(
-          self._build_root, cros_build_lib.GetSysroot(self._current_board))
+          self._build_root, self._current_board, log_output=False)
       self._run.attrs.metadata.UpdateWithDict({'unibuild': bool(models)})
       if models:
         all_fw_versions = commands.GetAllFirmwareVersions(self._build_root,
@@ -522,12 +517,25 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
         for model in models:
           if model in all_fw_versions:
             fw_versions = all_fw_versions[model]
+
             ec = fw_versions.ec_rw or fw_versions.ec
             main_ro = fw_versions.main
-            main_rw = fw_versions.main_rw
+            main_rw = fw_versions.main_rw or main_ro
+
+            # Get the firmware key-id for the current board and model.
+            model_arg = '--model=' + model
+            key_id_list = commands.RunCrosConfigHost(
+                self._build_root,
+                self._current_board,
+                [model_arg, 'get', '/firmware', 'key-id'])
+            key_id = None
+            if len(key_id_list) == 1:
+              key_id = key_id_list[0]
+
             models_data[model] = {'main-readonly-firmware-version': main_ro,
                                   'main-readwrite-firmware-version': main_rw,
-                                  'ec-firmware-version': ec}
+                                  'ec-firmware-version': ec,
+                                  'firmware-key-id': key_id}
         if models_data:
           self._run.attrs.metadata.UpdateBoardDictWithDict(
               self._current_board, {'models': models_data})

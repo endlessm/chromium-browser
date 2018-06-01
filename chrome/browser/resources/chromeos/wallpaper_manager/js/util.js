@@ -244,7 +244,8 @@ WallpaperUtil.setCustomWallpaperFromSyncFS = function(
             var reader = new FileReader();
             reader.onloadend = function() {
               chrome.wallpaperPrivate.setCustomWallpaper(
-                  reader.result, wallpaperLayout, true, wallpaperFilename,
+                  reader.result, wallpaperLayout, true /*generateThumbnail=*/,
+                  wallpaperFilename, false /*previewMode=*/,
                   function(thumbnailData) {
                     // TODO(ranj): Ignore 'canceledWallpaper' error.
                     if (chrome.runtime.lastError) {
@@ -364,29 +365,30 @@ WallpaperUtil.fetchURL = function(url, type, onSuccess, onFailure, opt_xhr) {
 };
 
 /**
- * Sets wallpaper to online wallpaper specified by url and layout
+ * A convenience wrapper for setting online wallpapers with preview disabled.
  * @param {string} url The url address where we should fetch resources.
  * @param {string} layout The layout of online wallpaper.
  * @param {function} onSuccess The success callback.
  * @param {function} onFailure The failure callback.
  */
-WallpaperUtil.setOnlineWallpaper = function(url, layout, onSuccess, onFailure) {
-  var self = this;
-  chrome.wallpaperPrivate.setWallpaperIfExists(url, layout, function(exists) {
-    if (exists) {
-      onSuccess();
-      return;
-    }
+WallpaperUtil.setOnlineWallpaperWithoutPreview = function(
+    url, layout, onSuccess, onFailure) {
+  chrome.wallpaperPrivate.setWallpaperIfExists(
+      url, layout, false /*previewMode=*/, exists => {
+        if (exists) {
+          onSuccess();
+          return;
+        }
 
-    self.fetchURL(url, 'arraybuffer', function(xhr) {
-      if (xhr.response != null) {
-        chrome.wallpaperPrivate.setWallpaper(
-            xhr.response, layout, url, onSuccess);
-      } else {
-        onFailure();
-      }
-    }, onFailure);
-  });
+        this.fetchURL(url, 'arraybuffer', xhr => {
+          if (xhr.response != null) {
+            chrome.wallpaperPrivate.setWallpaper(
+                xhr.response, layout, url, false /*previewMode=*/, onSuccess);
+          } else {
+            onFailure();
+          }
+        }, onFailure);
+      });
 };
 
 /**
@@ -454,6 +456,37 @@ WallpaperUtil.getSurpriseMeCheckboxValue = function() {
   return $('surprise-me')
       .querySelector('#checkbox')
       .classList.contains('checked');
+};
+
+/**
+ * A convenience wrapper for displaying the thumbnail image.
+ * @param {Object} imageElement The image element.
+ * @param {string} url The base url of the wallpaper.
+ * @param {string} source The source of the wallpaper corresponding to
+ *     |WallpaperSourceEnum|.
+ */
+WallpaperUtil.displayThumbnail = function(imageElement, url, source) {
+  chrome.wallpaperPrivate.getThumbnail(url, source, data => {
+    if (data) {
+      WallpaperUtil.displayImage(imageElement, data, null /*opt_callback=*/);
+    } else {
+      // The only known case for hitting this branch is when showing the
+      // wallpaper picker for the first time after OOBE, the |saveThumbnail|
+      // operation within |WallpaperThumbnailsGridItem.decorate| hasn't
+      // completed. See http://crbug.com/792829.
+      var xhr = new XMLHttpRequest();
+      xhr.open(
+          'GET', url + WallpaperUtil.getOnlineWallpaperThumbnailSuffix(), true);
+      xhr.responseType = 'arraybuffer';
+      xhr.send(null);
+      xhr.addEventListener('load', function(e) {
+        if (xhr.status === 200) {
+          WallpaperUtil.displayImage(
+              imageElement, xhr.response, null /*opt_callback=*/);
+        }
+      });
+    }
+  });
 };
 
 /**

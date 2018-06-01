@@ -6,6 +6,10 @@
 
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
+#include "ash/system/model/clock_model.h"
+#include "ash/system/model/enterprise_domain_model.h"
+#include "ash/system/model/system_tray_model.h"
+#include "ash/system/model/tracing_model.h"
 #include "ash/system/status_area_widget.h"
 #include "ash/system/tray/system_tray.h"
 #include "ash/system/tray/system_tray_notifier.h"
@@ -13,8 +17,7 @@
 
 namespace ash {
 
-SystemTrayController::SystemTrayController()
-    : hour_clock_type_(base::GetHourClockType()) {}
+SystemTrayController::SystemTrayController() {}
 
 SystemTrayController::~SystemTrayController() = default;
 
@@ -135,6 +138,11 @@ void SystemTrayController::ShowNetworkSettings(const std::string& network_id) {
     system_tray_client_->ShowNetworkSettings(network_id);
 }
 
+void SystemTrayController::ShowMultiDeviceSetup() {
+  if (system_tray_client_)
+    system_tray_client_->ShowMultiDeviceSetup();
+}
+
 void SystemTrayController::RequestRestartForUpdate() {
   if (system_tray_client_)
     system_tray_client_->RequestRestartForUpdate();
@@ -175,46 +183,33 @@ void SystemTrayController::SetPrimaryTrayVisible(bool visible) {
 }
 
 void SystemTrayController::SetUse24HourClock(bool use_24_hour) {
-  hour_clock_type_ = use_24_hour ? base::k24HourClock : base::k12HourClock;
-  Shell::Get()->system_tray_notifier()->NotifyDateFormatChanged();
+  Shell::Get()->system_tray_model()->SetUse24HourClock(use_24_hour);
 }
 
 void SystemTrayController::SetEnterpriseDisplayDomain(
     const std::string& enterprise_display_domain,
     bool active_directory_managed) {
-  enterprise_display_domain_ = enterprise_display_domain;
-  active_directory_managed_ = active_directory_managed;
-  Shell::Get()->system_tray_notifier()->NotifyEnterpriseDomainChanged();
+  Shell::Get()
+      ->system_tray_model()
+      ->SetEnterpriseDisplayDomain(enterprise_display_domain,
+                                   active_directory_managed);
 }
 
 void SystemTrayController::SetPerformanceTracingIconVisible(bool visible) {
-  Shell::Get()->system_tray_notifier()->NotifyTracingModeChanged(visible);
+  Shell::Get()->system_tray_model()->SetPerformanceTracingIconVisible(visible);
 }
 
 void SystemTrayController::ShowUpdateIcon(mojom::UpdateSeverity severity,
                                           bool factory_reset_required,
                                           mojom::UpdateType update_type) {
-  // Show the icon on all displays.
-  for (RootWindowController* root : Shell::GetAllRootWindowControllers()) {
-    ash::SystemTray* tray = root->GetSystemTray();
-    // External monitors might not have a tray yet.
-    if (!tray)
-      continue;
-    tray->tray_update()->ShowUpdateIcon(severity, factory_reset_required,
-                                        update_type);
-  }
+  Shell::Get()->system_tray_model()->ShowUpdateIcon(
+      severity, factory_reset_required, update_type);
 }
 
 void SystemTrayController::SetUpdateOverCellularAvailableIconVisible(
     bool visible) {
-  // Show the icon on all displays.
-  for (auto* root_window_controller : Shell::GetAllRootWindowControllers()) {
-    ash::SystemTray* tray = root_window_controller->GetSystemTray();
-    // External monitors might not have a tray yet.
-    if (!tray)
-      continue;
-    tray->tray_update()->SetUpdateOverCellularAvailableIconVisible(visible);
-  }
+  Shell::Get()->system_tray_model()->SetUpdateOverCellularAvailableIconVisible(
+      visible);
 }
 
 }  // namespace ash

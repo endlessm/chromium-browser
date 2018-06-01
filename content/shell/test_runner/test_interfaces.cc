@@ -18,10 +18,10 @@
 #include "content/shell/test_runner/test_runner.h"
 #include "content/shell/test_runner/text_input_controller.h"
 #include "content/shell/test_runner/web_view_test_proxy.h"
-#include "third_party/WebKit/public/platform/WebCache.h"
-#include "third_party/WebKit/public/platform/WebURL.h"
-#include "third_party/WebKit/public/web/WebKit.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "third_party/blink/public/platform/web_cache.h"
+#include "third_party/blink/public/platform/web_url.h"
+#include "third_party/blink/public/web/blink.h"
+#include "third_party/blink/public/web/web_view.h"
 
 namespace test_runner {
 
@@ -96,7 +96,8 @@ void TestInterfaces::ConfigureForTestWithURL(const blink::WebURL& test_url,
     spec = spec.substr(path_start);
   bool is_devtools_test = spec.find("/devtools/") != std::string::npos;
   test_runner_->setShouldGeneratePixelResults(generate_pixels);
-  if (spec.find("loading/") != std::string::npos)
+  // For http/tests/loading/, which is served via httpd and becomes /loading/.
+  if (spec.find("/loading/") != std::string::npos)
     test_runner_->setShouldDumpFrameLoadCallbacks(true);
   if (spec.find("/dumpAsText/") != std::string::npos) {
     test_runner_->setShouldDumpAsText(true);

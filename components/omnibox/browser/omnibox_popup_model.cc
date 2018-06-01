@@ -12,8 +12,8 @@
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/omnibox_client.h"
+#include "components/omnibox/browser/omnibox_edit_controller.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
-#include "components/omnibox/browser/omnibox_popup_model_observer.h"
 #include "components/omnibox/browser/omnibox_popup_view.h"
 #include "third_party/icu/source/common/unicode/ubidi.h"
 #include "ui/gfx/geometry/rect.h"
@@ -242,19 +242,8 @@ void OmniboxPopupModel::OnResultChanged() {
 
   bool popup_was_open = view_->IsOpen();
   view_->UpdatePopupAppearance();
-  // If popup has just been shown or hidden, notify observers.
-  if (view_->IsOpen() != popup_was_open) {
-    for (OmniboxPopupModelObserver& observer : observers_)
-      observer.OnOmniboxPopupShownOrHidden();
-  }
-}
-
-void OmniboxPopupModel::AddObserver(OmniboxPopupModelObserver* observer) {
-  observers_.AddObserver(observer);
-}
-
-void OmniboxPopupModel::RemoveObserver(OmniboxPopupModelObserver* observer) {
-  observers_.RemoveObserver(observer);
+  if (view_->IsOpen() != popup_was_open)
+    edit_model_->controller()->OnPopupVisibilityChanged();
 }
 
 void OmniboxPopupModel::SetAnswerBitmap(const SkBitmap& bitmap) {
@@ -288,10 +277,10 @@ gfx::Image OmniboxPopupModel::GetMatchIcon(const AutocompleteMatch& match,
       return favicon;
   }
 
-  const auto& vector_icon_type =
-      AutocompleteMatch::TypeToVectorIcon(match.type, IsStarredMatch(match));
-  return gfx::Image(
-      gfx::CreateVectorIcon(vector_icon_type, 16, vector_icon_color));
+  const auto& vector_icon_type = AutocompleteMatch::TypeToVectorIcon(
+      match.type, IsStarredMatch(match), match.has_tab_match);
+  return edit_model_->client()->GetSizedIcon(vector_icon_type,
+                                             vector_icon_color);
 }
 #endif  // !defined(OS_ANDROID) && !defined(OS_IOS)
 

@@ -11,6 +11,7 @@
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_constants.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tab_grid_button.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tools_menu_button.h"
+#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
 #import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 #import "ios/third_party/material_components_ios/src/components/ProgressView/src/MaterialProgressView.h"
 
@@ -22,9 +23,11 @@
 // Factory used to create the buttons.
 @property(nonatomic, strong) ToolbarButtonFactory* buttonFactory;
 
-// Content view in which the view that might have vibrancy effect should be
-// added.
+// ContentView of the vibrancy effect if there is one, self otherwise.
 @property(nonatomic, strong) UIView* contentView;
+
+// The blur visual effect view, redefined as readwrite.
+@property(nonatomic, strong, readwrite) UIVisualEffectView* blur;
 
 // Container for the location bar, redefined as readwrite.
 @property(nonatomic, strong, readwrite) UIView* locationBarContainer;
@@ -48,8 +51,8 @@
 #pragma mark** Buttons in the leading stack view. **
 // Button to navigate back, redefined as readwrite.
 @property(nonatomic, strong, readwrite) ToolbarButton* backButton;
-// Button to navigate forward, leading position, redefined as readwrite.
-@property(nonatomic, strong, readwrite) ToolbarButton* forwardLeadingButton;
+// Button to navigate forward, redefined as readwrite.
+@property(nonatomic, strong, readwrite) ToolbarButton* forwardButton;
 // Button to display the TabGrid, redefined as readwrite.
 @property(nonatomic, strong, readwrite) ToolbarTabGridButton* tabGridButton;
 // Button to stop the loading of the page, redefined as readwrite.
@@ -58,8 +61,6 @@
 @property(nonatomic, strong, readwrite) ToolbarButton* reloadButton;
 
 #pragma mark** Buttons in the trailing stack view. **
-// Button to navigate forward, trailing position, redefined as readwrite.
-@property(nonatomic, strong, readwrite) ToolbarButton* forwardTrailingButton;
 // Button to display the share menu, redefined as readwrite.
 @property(nonatomic, strong, readwrite) ToolbarButton* shareButton;
 // Button to manage the bookmarks of this page, redefined as readwrite.
@@ -70,14 +71,13 @@
 // Button to cancel the edit of the location bar, redefined as readwrite.
 @property(nonatomic, strong, readwrite) UIButton* cancelButton;
 
-// Constraints to be activated when the location bar is focused, redefined as
-// readwrite.
+// Constraints for the location bar, redefined as readwrite.
 @property(nonatomic, strong, readwrite)
-    NSMutableArray<NSLayoutConstraint*>* focusedConstraints;
-// Constraints to be activated when the location bar is unfocused, redefined as
-// readwrite.
+    NSMutableArray<NSLayoutConstraint*>* expandedConstraints;
 @property(nonatomic, strong, readwrite)
-    NSMutableArray<NSLayoutConstraint*>* unfocusedConstraints;
+    NSMutableArray<NSLayoutConstraint*>* contractedConstraints;
+@property(nonatomic, strong, readwrite)
+    NSMutableArray<NSLayoutConstraint*>* contractedNoMarginConstraints;
 
 @end
 
@@ -92,20 +92,20 @@
 @synthesize leadingStackView = _leadingStackView;
 @synthesize leadingStackViewButtons = _leadingStackViewButtons;
 @synthesize backButton = _backButton;
-@synthesize forwardLeadingButton = _forwardLeadingButton;
+@synthesize forwardButton = _forwardButton;
 @synthesize tabGridButton = _tabGridButton;
 @synthesize stopButton = _stopButton;
 @synthesize reloadButton = _reloadButton;
 @synthesize locationBarContainer = _locationBarContainer;
 @synthesize trailingStackView = _trailingStackView;
 @synthesize trailingStackViewButtons = _trailingStackViewButtons;
-@synthesize forwardTrailingButton = _forwardTrailingButton;
 @synthesize shareButton = _shareButton;
 @synthesize bookmarkButton = _bookmarkButton;
 @synthesize toolsMenuButton = _toolsMenuButton;
 @synthesize cancelButton = _cancelButton;
-@synthesize focusedConstraints = _focusedConstraints;
-@synthesize unfocusedConstraints = _unfocusedConstraints;
+@synthesize expandedConstraints = _expandedConstraints;
+@synthesize contractedConstraints = _contractedConstraints;
+@synthesize contractedNoMarginConstraints = _contractedNoMarginConstraints;
 @synthesize blur = _blur;
 @synthesize contentView = _contentView;
 
@@ -150,8 +150,7 @@
 - (void)setUpBlurredBackground {
   UIBlurEffect* blurEffect = self.buttonFactory.toolbarConfiguration.blurEffect;
   self.blur = [[UIVisualEffectView alloc] initWithEffect:blurEffect];
-  self.blur.contentView.backgroundColor =
-      self.buttonFactory.toolbarConfiguration.blurEffectBackgroundColor;
+  [self addSubview:self.blur];
 
   self.contentView = self;
 
@@ -160,12 +159,11 @@
     UIVisualEffectView* vibrancyView =
         [[UIVisualEffectView alloc] initWithEffect:vibrancy];
     self.contentView = vibrancyView.contentView;
-    [self.blur.contentView addSubview:vibrancyView];
+    [self addSubview:vibrancyView];
     vibrancyView.translatesAutoresizingMaskIntoConstraints = NO;
-    AddSameConstraints(self.blur, vibrancyView);
+    AddSameConstraints(self, vibrancyView);
   }
 
-  [self addSubview:self.blur];
 
   self.blur.translatesAutoresizingMaskIntoConstraints = NO;
   AddSameConstraints(self.blur, self);
@@ -175,7 +173,7 @@
 - (void)setUpCancelButton {
   self.cancelButton = [self.buttonFactory cancelButton];
   self.cancelButton.translatesAutoresizingMaskIntoConstraints = NO;
-  [self.contentView addSubview:self.cancelButton];
+  [self addSubview:self.cancelButton];
 }
 
 // Sets the location bar container and its view if present.
@@ -202,38 +200,43 @@
 // Sets the leading stack view.
 - (void)setUpLeadingStackView {
   self.backButton = [self.buttonFactory backButton];
-  self.forwardLeadingButton = [self.buttonFactory leadingForwardButton];
+  self.forwardButton = [self.buttonFactory forwardButton];
   self.tabGridButton = [self.buttonFactory tabGridButton];
   self.stopButton = [self.buttonFactory stopButton];
   self.stopButton.hiddenInCurrentState = YES;
   self.reloadButton = [self.buttonFactory reloadButton];
 
   self.leadingStackViewButtons = @[
-    self.backButton, self.forwardLeadingButton, self.tabGridButton,
-    self.stopButton, self.reloadButton
+    self.backButton, self.forwardButton, self.tabGridButton, self.stopButton,
+    self.reloadButton
   ];
   self.leadingStackView = [[UIStackView alloc]
       initWithArrangedSubviews:self.leadingStackViewButtons];
   self.leadingStackView.translatesAutoresizingMaskIntoConstraints = NO;
   self.leadingStackView.spacing = kAdaptiveToolbarStackViewSpacing;
+  [self.leadingStackView
+      setContentHuggingPriority:UILayoutPriorityDefaultHigh
+                        forAxis:UILayoutConstraintAxisHorizontal];
+
   [self.contentView addSubview:self.leadingStackView];
 }
 
 // Sets the trailing stack view.
 - (void)setUpTrailingStackView {
-  self.forwardTrailingButton = [self.buttonFactory trailingForwardButton];
   self.shareButton = [self.buttonFactory shareButton];
   self.bookmarkButton = [self.buttonFactory bookmarkButton];
   self.toolsMenuButton = [self.buttonFactory toolsMenuButton];
 
-  self.trailingStackViewButtons = @[
-    self.forwardTrailingButton, self.shareButton, self.bookmarkButton,
-    self.toolsMenuButton
-  ];
+  self.trailingStackViewButtons =
+      @[ self.shareButton, self.bookmarkButton, self.toolsMenuButton ];
   self.trailingStackView = [[UIStackView alloc]
       initWithArrangedSubviews:self.trailingStackViewButtons];
   self.trailingStackView.translatesAutoresizingMaskIntoConstraints = NO;
   self.trailingStackView.spacing = kAdaptiveToolbarStackViewSpacing;
+  [self.trailingStackView
+      setContentHuggingPriority:UILayoutPriorityDefaultHigh
+                        forAxis:UILayoutConstraintAxisHorizontal];
+
   [self.contentView addSubview:self.trailingStackView];
 }
 
@@ -248,8 +251,9 @@
 // Sets the constraints up.
 - (void)setUpConstraints {
   id<LayoutGuideProvider> safeArea = SafeAreaLayoutGuideForView(self);
-  self.focusedConstraints = [NSMutableArray array];
-  self.unfocusedConstraints = [NSMutableArray array];
+  self.expandedConstraints = [NSMutableArray array];
+  self.contractedConstraints = [NSMutableArray array];
+  self.contractedNoMarginConstraints = [NSMutableArray array];
 
   // Leading StackView constraints
   [NSLayoutConstraint activateConstraints:@[
@@ -274,7 +278,7 @@
     self.locationBarBottomConstraint,
     self.locationBarHeight,
   ]];
-  [self.unfocusedConstraints addObjectsFromArray:@[
+  [self.contractedConstraints addObjectsFromArray:@[
     [self.locationBarContainer.trailingAnchor
         constraintEqualToAnchor:self.trailingStackView.leadingAnchor
                        constant:-kContractedLocationBarHorizontalMargin],
@@ -282,7 +286,18 @@
         constraintEqualToAnchor:self.leadingStackView.trailingAnchor
                        constant:kContractedLocationBarHorizontalMargin],
   ]];
-  [self.focusedConstraints addObjectsFromArray:@[
+
+  // Constraints for contractedNoMarginConstraints.
+  [self.contractedNoMarginConstraints addObjectsFromArray:@[
+    [self.locationBarContainer.leadingAnchor
+        constraintEqualToAnchor:safeArea.leadingAnchor
+                       constant:kExpandedLocationBarHorizontalMargin],
+    [self.locationBarContainer.trailingAnchor
+        constraintEqualToAnchor:safeArea.trailingAnchor
+                       constant:-kExpandedLocationBarHorizontalMargin]
+  ]];
+
+  [self.expandedConstraints addObjectsFromArray:@[
     [self.locationBarContainer.trailingAnchor
         constraintEqualToAnchor:self.cancelButton.leadingAnchor],
     [self.locationBarContainer.leadingAnchor
@@ -304,7 +319,7 @@
 
   // locationBarView constraints, if present.
   if (self.locationBarView) {
-    AddSameConstraints(self.locationBarContainer, self.locationBarView);
+    AddSameConstraints(self.locationBarView, self.locationBarContainer);
   }
 
   // Cancel button constraints.
@@ -314,13 +329,14 @@
     [self.cancelButton.bottomAnchor
         constraintEqualToAnchor:self.trailingStackView.bottomAnchor],
   ]];
-  NSLayoutConstraint* focusedTrailing = [self.cancelButton.trailingAnchor
+  NSLayoutConstraint* visibleCancel = [self.cancelButton.trailingAnchor
       constraintEqualToAnchor:safeArea.trailingAnchor
                      constant:-kExpandedLocationBarHorizontalMargin];
-  [self.focusedConstraints addObject:focusedTrailing];
-  [self.unfocusedConstraints
-      addObject:[self.cancelButton.leadingAnchor
-                    constraintEqualToAnchor:self.trailingAnchor]];
+  NSLayoutConstraint* hiddenCancel = [self.cancelButton.leadingAnchor
+      constraintEqualToAnchor:self.trailingAnchor];
+  [self.expandedConstraints addObject:visibleCancel];
+  [self.contractedConstraints addObject:hiddenCancel];
+  [self.contractedNoMarginConstraints addObject:hiddenCancel];
 
   // ProgressBar constraints.
   [NSLayoutConstraint activateConstraints:@[
@@ -331,8 +347,6 @@
     [self.progressBar.heightAnchor
         constraintEqualToConstant:kProgressBarHeight],
   ]];
-
-  [NSLayoutConstraint activateConstraints:self.unfocusedConstraints];
 }
 
 #pragma mark - Property accessors
@@ -352,7 +366,10 @@
     return;
 
   [self.locationBarContainer addSubview:locationBarView];
-  AddSameConstraints(self.locationBarContainer, locationBarView);
+  AddSameConstraints(self.locationBarView, self.locationBarContainer);
+  [self.locationBarContainer.trailingAnchor
+      constraintGreaterThanOrEqualToAnchor:self.locationBarView.trailingAnchor]
+      .active = YES;
 }
 
 - (NSArray<ToolbarButton*>*)allButtons {

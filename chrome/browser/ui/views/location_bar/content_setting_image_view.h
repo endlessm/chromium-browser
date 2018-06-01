@@ -75,10 +75,13 @@ class ContentSettingImageView : public IconLabelBubbleView {
   SkColor GetInkDropBaseColor() const override;
   SkColor GetTextColor() const override;
   bool ShouldShowLabel() const override;
+  bool ShouldShowSeparator() const override;
   double WidthMultiplier() const override;
   bool IsShrinking() const override;
   bool ShowBubble(const ui::Event& event) override;
   bool IsBubbleShowing() const override;
+
+  ContentSettingImageModel::ImageType GetTypeForTesting() const;
 
  private:
   // The total animation time, including open and close as well as an

@@ -7,6 +7,7 @@
 
 from __future__ import print_function
 
+import copy
 import json
 import mock
 import re
@@ -144,7 +145,7 @@ class FindConfigsForBoardTest(cros_test_lib.TestCase):
 
   def testInternal(self):
     """Test finding of a release builder."""
-    self._CheckFullConfig('lumpy', internal_expected='lumpy-release')
+    self._CheckFullConfig('eve', internal_expected='eve-release')
 
   def testBoth(self):
     """Both an external and internal config exist for board."""
@@ -162,7 +163,7 @@ class FindConfigsForBoardTest(cros_test_lib.TestCase):
 
   def testAFDOCanonicalResolution(self):
     """Test prefer non-AFDO over AFDO builder."""
-    self._CheckCanonicalConfig('lumpy', 'release')
+    self._CheckCanonicalConfig('eve', 'release')
 
   def testOneFullConfigPerBoard(self):
     """There is at most one 'full' config for a board."""
@@ -1275,6 +1276,31 @@ class BoardConfigsTest(ChromeosConfigTestBase):
   def testInternalsDontDefineTests(self):
     """Verify no internal boards define tests at the board level."""
     self.verifyNoTests(self.internal_board_configs.items())
+
+  def testUpdateBoardConfigs(self):
+    """Test UpdateBoardConfigs."""
+    pre_test = copy.deepcopy(self.internal_board_configs)
+    update_boards = pre_test.keys()[2:5]
+
+    result = chromeos_config.UpdateBoardConfigs(
+        self.internal_board_configs, update_boards,
+        test_specific_flag=True,
+    )
+
+    # The source wasn't modified.
+    self.assertEqual(self.internal_board_configs, pre_test)
+
+    # The result as the same list of boards.
+    self.assertItemsEqual(result.keys(), pre_test.keys())
+
+    # And only appropriate values were updated.
+    for b in pre_test:
+      if b in update_boards:
+        # Has new key.
+        self.assertTrue(result[b].test_specific_flag, 'Failed in %s' % b)
+      else:
+        # Was not updated.
+        self.assertEqual(result[b], pre_test[b], 'Failed in %s' % b)
 
 
 class SiteInterfaceTest(ChromeosConfigTestBase):

@@ -22,7 +22,7 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "content/public/common/resource_type.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
 
 namespace content {
 class NavigationHandle;
@@ -117,13 +117,6 @@ class MetricsWebContentsObserver
       base::TimeTicks creation_time,
       int net_error,
       std::unique_ptr<net::LoadTimingInfo> load_timing_info);
-
-  // Invoked on navigations where a navigation delay was added by the
-  // DelayNavigationThrottle. This is a temporary method that will be removed
-  // once the experiment is complete.
-  void OnNavigationDelayComplete(content::NavigationHandle* navigation_handle,
-                                 base::TimeDelta scheduled_delay,
-                                 base::TimeDelta actual_delay);
 
   // Flush any buffered metrics, as part of the metrics subsystem persisting
   // metrics as the application goes into the background. The application may be

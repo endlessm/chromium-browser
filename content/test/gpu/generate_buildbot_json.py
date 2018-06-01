@@ -469,6 +469,16 @@ FYI_WATERFALL = {
           'pool': 'Chrome-GPU',
         },
       ],
+      # TODO(kbr): this separate dictionary is a hack to avoid generalizing the
+      # "swarming_dimensions" handling in this generator script. When merging
+      # this script with the one in src/testing/buildbot/, this will no longer
+      # be necessary.
+      'swarming_settings': {
+        # There are only two bots of this type in the Swarming pool right now,
+        # so we have to increase the default expiration time of 1 hour (3600
+        # seconds) to prevent webgl2_conformance_tests' shards from timing out.
+        'expiration': 10800,
+      },
       'build_config': 'Release',
       # Even though this bot is a one-off, it's still in the Swarming pool.
       'swarming': True,
@@ -787,16 +797,14 @@ FYI_WATERFALL = {
     'Android FYI Release (NVIDIA Shield TV)': {
       'swarming_dimensions': [
         {
-          # There are no PCI IDs on Android.
-          # This is a hack to get the script working.
-          'gpu': '0000:0000',
-          'os': 'Android'
+          'device_type': 'foster',
+          'device_os': 'N',
+          'os': 'Android',
+          'pool': 'Chrome-GPU',
         },
       ],
       'build_config': 'android-chromium',
-      # This bot is a one-off and doesn't have similar slaves in the
-      # swarming pool.
-      'swarming': False,
+      'swarming': True,
       'os_type': 'android',
     },
     'Android FYI dEQP Release (Nexus 5X)': {
@@ -811,6 +819,32 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'android',
       'type': Types.DEQP,
+    },
+    'Android FYI 32 Vk Release (Nexus 5X)': {
+      'swarming_dimensions': [
+        {
+          'device_type': 'bullhead',
+          'device_os': 'O',
+          'os': 'Android',
+          'pool': 'Chrome-GPU',
+        },
+      ],
+      'build_config': 'android-chromium',
+      'swarming': True,
+      'os_type': 'android',
+    },
+    'Android FYI 64 Vk Release (Nexus 5X)': {
+      'swarming_dimensions': [
+        {
+          'device_type': 'bullhead',
+          'device_os': 'O',
+          'os': 'Android',
+          'pool': 'Chrome-GPU',
+        },
+      ],
+      'build_config': 'android-chromium',
+      'swarming': True,
+      'os_type': 'android',
     },
 
     # The following "optional" testers don't actually exist on the
@@ -981,7 +1015,6 @@ V8_FYI_WATERFALL = {
         "gfx_unittests",
         "gn_unittests",
         "google_apis_unittests",
-        "gpu_ipc_service_unittests",
         "gpu_unittests",
         "interactive_ui_tests",
         "ipc_tests",
@@ -1808,7 +1841,8 @@ COMMON_GTESTS = {
       '--enable-gpu',
       '--test-launcher-bot-mode',
       '--test-launcher-jobs=1',
-      '--gtest_filter=VrBrowserTest*',
+      '--gtest_filter=VrBrowserTest*:XrBrowserTest*',
+      '--enable-pixel-output-in-tests',
       '--gtest_also_run_disabled_tests',
     ],
     'test': 'browser_tests',
@@ -2401,7 +2435,7 @@ NON_TELEMETRY_ISOLATED_SCRIPT_TESTS = {
     'tester_configs': [
       {
         'predicate': Predicates.FYI_AND_OPTIONAL,
-        # Run on the Win/Linux Release NVIDIA bots and Nexus 5X and 6P
+        # Run on the Win/Linux Release NVIDIA bots and Android
         'build_configs': ['Release', 'android-chromium'],
         'swarming_dimension_sets': [
           {
@@ -2412,19 +2446,9 @@ NON_TELEMETRY_ISOLATED_SCRIPT_TESTS = {
             'gpu': LINUX_QUADRO_P400_STABLE_DRIVER,
             'os': 'Ubuntu'
           },
-          # Nexus 5X
           {
-            'device_type': 'bullhead',
-            'device_os': 'MMB29Q',
             'os': 'Android'
           },
-          # Nexus 6P
-          {
-            'device_type': 'angler',
-            'device_os': 'M',
-            'os': 'Android',
-            'pool': 'Chrome-GPU',
-          }
         ],
       },
     ],
@@ -2432,6 +2456,8 @@ NON_TELEMETRY_ISOLATED_SCRIPT_TESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          # anglebug.com/2433
+          'Android FYI Release (Nexus 6)',
         ],
       },
     ],

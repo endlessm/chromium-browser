@@ -145,7 +145,8 @@ UIColor* IncognitoSecureTextColor() {
 
 // When editing, forward the message on to |editView_|.
 - (BOOL)textFieldShouldClear:(UITextField*)textField {
-  editView_->OnClear();
+  DCHECK(IsRefreshLocationBarEnabled());
+  editView_->ClearText();
   processingUserEvent_ = YES;
   return YES;
 }
@@ -367,10 +368,6 @@ bool OmniboxViewIOS::IsSelectAll() const {
   return false;
 }
 
-bool OmniboxViewIOS::DeleteAtEndPressed() {
-  return false;
-}
-
 void OmniboxViewIOS::GetSelectionBounds(base::string16::size_type* start,
                                         base::string16::size_type* end) const {
   if ([field_ isFirstResponder]) {
@@ -411,8 +408,10 @@ void OmniboxViewIOS::OnDidBeginEditing() {
   [field_ setText:[field_ text]];
   OnBeforePossibleChange();
   // In the case where the user taps the fakebox on the Google landing page,
-  // the focus source is already set to FAKEBOX. Otherwise, set it to OMNIBOX.
-  if (model()->focus_source() != OmniboxEditModel::FocusSource::FAKEBOX) {
+  // or from the secondary toolbar search button, the focus source is already
+  // set to FAKEBOX or SEARCH_BUTTON respectively. Otherwise, set it to OMNIBOX.
+  if (model()->focus_source() != OmniboxEditModel::FocusSource::FAKEBOX &&
+      model()->focus_source() != OmniboxEditModel::FocusSource::SEARCH_BUTTON) {
     model()->set_focus_source(OmniboxEditModel::FocusSource::OMNIBOX);
   }
 
@@ -613,24 +612,31 @@ void OmniboxViewIOS::OnClear() {
 
 bool OmniboxViewIOS::OnCopy() {
   UIPasteboard* board = [UIPasteboard generalPasteboard];
-  UITextRange* selected_range = [field_ selectedTextRange];
-  base::string16 text =
-      base::SysNSStringToUTF16([field_ textInRange:selected_range]);
-
-  UITextPosition* start = [field_ beginningOfDocument];
-  UITextPosition* end = [field_ endOfDocument];
-  BOOL is_select_all = ([field_ comparePosition:[selected_range start]
-                                     toPosition:start] == NSOrderedSame) &&
-                       ([field_ comparePosition:[selected_range end]
-                                     toPosition:end] == NSOrderedSame);
-
-  // The following call to |-offsetFromPosition:toPosition:| gives the offset in
-  // terms of the number of "visible characters."  The documentation does not
-  // specify whether this means glyphs or UTF16 chars.  This does not matter for
-  // the current implementation of AdjustTextForCopy(), but it may become an
-  // issue at some point.
-  NSInteger start_location =
-      [field_ offsetFromPosition:start toPosition:[selected_range start]];
+  NSString* selectedText = nil;
+  BOOL is_select_all = NO;
+  NSInteger start_location = 0;
+  if ([field_ isPreEditing]) {
+    selectedText = [field_ preEditText];
+    is_select_all = YES;
+    start_location = 0;
+  } else {
+    UITextRange* selected_range = [field_ selectedTextRange];
+    selectedText = [field_ textInRange:selected_range];
+    UITextPosition* start = [field_ beginningOfDocument];
+    UITextPosition* end = [field_ endOfDocument];
+    is_select_all = ([field_ comparePosition:[selected_range start]
+                                  toPosition:start] == NSOrderedSame) &&
+                    ([field_ comparePosition:[selected_range end]
+                                  toPosition:end] == NSOrderedSame);
+    // The following call to |-offsetFromPosition:toPosition:| gives the offset
+    // in terms of the number of "visible characters."  The documentation does
+    // not specify whether this means glyphs or UTF16 chars.  This does not
+    // matter for the current implementation of AdjustTextForCopy(), but it may
+    // become an issue at some point.
+    start_location =
+        [field_ offsetFromPosition:start toPosition:[selected_range start]];
+  }
+  base::string16 text = base::SysNSStringToUTF16(selectedText);
 
   GURL url;
   bool write_url = false;
@@ -768,6 +774,11 @@ void OmniboxViewIOS::UpdateAppearance() {
 }
 
 void OmniboxViewIOS::CreateClearTextIcon(bool is_incognito) {
+  if (IsRefreshLocationBarEnabled()) {
+    // In UI Refresh, the system clear button is used.
+    return;
+  }
+
   UIButton* button = [UIButton buttonWithType:UIButtonTypeCustom];
   UIImage* omniBoxClearImage = is_incognito
                                    ? NativeImage(IDR_IOS_OMNIBOX_CLEAR_OTR)
@@ -794,6 +805,10 @@ void OmniboxViewIOS::CreateClearTextIcon(bool is_incognito) {
 }
 
 void OmniboxViewIOS::UpdateRightDecorations() {
+  if (IsRefreshLocationBarEnabled()) {
+    return;
+  }
+
   DCHECK(clear_text_button_);
   if (!model()->has_focus()) {
     // Do nothing for iPhone. The right view will be set to nil after the
@@ -872,7 +887,9 @@ bool OmniboxViewIOS::ShouldIgnoreUserInputDueToPendingVoiceSearch() {
 }
 
 void OmniboxViewIOS::SetLeftImage(int imageId) {
-  left_image_provider_->SetLeftImage(imageId);
+  if (left_image_provider_) {
+    left_image_provider_->SetLeftImage(imageId);
+  }
 }
 
 void OmniboxViewIOS::HideKeyboardAndEndEditing() {

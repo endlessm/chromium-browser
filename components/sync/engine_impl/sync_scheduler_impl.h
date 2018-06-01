@@ -217,12 +217,6 @@ class SyncSchedulerImpl : public SyncScheduler {
   // up and does not need to perform an initial sync.
   void SendInitialSnapshot();
 
-  // This is used for histogramming and analysis of ScheduleNudge* APIs.
-  // SyncScheduler is the ultimate choke-point for all such invocations (with
-  // and without InvalidationState variants, all NudgeSources, etc) and as such
-  // is the most flexible place to do this bookkeeping.
-  void UpdateNudgeTimeRecords(ModelTypeSet types);
-
   bool IsEarlierThanCurrentPendingJob(const base::TimeDelta& delay);
 
   // Used for logging.
@@ -270,10 +264,9 @@ class SyncSchedulerImpl : public SyncScheduler {
 
   SyncCycleContext* cycle_context_;
 
-  // A map tracking LOCAL NudgeSource invocations of ScheduleNudge* APIs,
-  // organized by datatype. Each datatype that was part of the types requested
-  // in the call will have its TimeTicks value updated.
-  std::map<ModelType, base::TimeTicks> last_local_nudges_by_model_type_;
+  // The last time we ran a sync cycle. Null if we haven't ran one since Chrome
+  // startup. Used for metrics.
+  base::TimeTicks last_sync_cycle_start_;
 
   // TryJob might get called for multiple reasons. It should only call
   // DoPollSyncCycleJob after some time since the last attempt.

@@ -32,7 +32,6 @@
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachinePassRegistry.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/MachineValueType.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/RegisterClassInfo.h"
 #include "llvm/CodeGen/RegisterPressure.h"
@@ -55,6 +54,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/GraphWriter.h"
+#include "llvm/Support/MachineValueType.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <cassert>
@@ -762,10 +762,6 @@ void ScheduleDAGMI::schedule() {
   SmallVector<SUnit*, 8> TopRoots, BotRoots;
   findRootsAndBiasEdges(TopRoots, BotRoots);
 
-  // Initialize the strategy before modifying the DAG.
-  // This may initialize a DFSResult to be used for queue priority.
-  SchedImpl->initialize(this);
-
   DEBUG(
     if (EntrySU.getInstr() != nullptr)
       EntrySU.dumpAll(this);
@@ -775,6 +771,10 @@ void ScheduleDAGMI::schedule() {
       ExitSU.dumpAll(this);
   );
   if (ViewMISchedDAGs) viewGraph();
+
+  // Initialize the strategy before modifying the DAG.
+  // This may initialize a DFSResult to be used for queue priority.
+  SchedImpl->initialize(this);
 
   // Initialize ready queues now that the DAG and priority data are finalized.
   initQueues(TopRoots, BotRoots);

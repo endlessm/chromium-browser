@@ -7,6 +7,7 @@ package org.chromium.base;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.ActivityManager;
+import android.app.ActivityOptions;
 import android.app.PendingIntent;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -24,6 +25,7 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.VectorDrawable;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.PowerManager;
 import android.os.Process;
 import android.os.StatFs;
@@ -700,15 +702,6 @@ public class ApiCompatibilityUtils {
     }
 
     /**
-     *  Null-safe equivalent of {@code a.equals(b)}.
-     *
-     *  @see Objects#equals(Object, Object)
-     */
-    public static boolean objectEquals(Object a, Object b) {
-        return (a == null) ? (b == null) : a.equals(b);
-    }
-
-    /**
      * Disables the Smart Select {@link TextClassifier} for the given {@link TextView} instance.
      * @param textView The {@link TextView} that should have its classifier disabled.
      */
@@ -717,5 +710,18 @@ public class ApiCompatibilityUtils {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
 
         textView.setTextClassifier(TextClassifier.NO_OP);
+    }
+
+    /**
+     * Creates an ActivityOptions Bundle with basic options and the LaunchDisplayId set.
+     * @param displayId The id of the display to launch into.
+     * @return The created bundle, or null if unsupported.
+     */
+    public static Bundle createLaunchDisplayIdActivityOptions(int displayId) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null;
+
+        ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(displayId);
+        return options.toBundle();
     }
 }

@@ -34,6 +34,7 @@
 #include "content/public/test/test_renderer_host.h"
 #include "content/public/test/web_contents_tester.h"
 #include "ipc/ipc_test_sink.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -100,15 +101,15 @@ ACTION(QuitUIMessageLoop) {
 }
 
 ACTION_P(InvokeDoneCallback, verdict) {
-  std::unique_ptr<ClientPhishingRequest> request(::std::tr1::get<1>(args));
+  std::unique_ptr<ClientPhishingRequest> request(std::get<1>(args));
   request->CopyFrom(*verdict);
-  ::std::tr1::get<2>(args).Run(true, std::move(request));
+  std::get<2>(args).Run(true, std::move(request));
 }
 
 ACTION_P(InvokeMalwareCallback, verdict) {
-  std::unique_ptr<ClientMalwareRequest> request(::std::tr1::get<1>(args));
+  std::unique_ptr<ClientMalwareRequest> request(std::get<1>(args));
   request->CopyFrom(*verdict);
-  ::std::tr1::get<2>(args).Run(true, std::move(request));
+  std::get<2>(args).Run(true, std::move(request));
 }
 
 class MockClientSideDetectionService : public ClientSideDetectionService {
@@ -1233,5 +1234,17 @@ TEST_F(ClientSideDetectionHostTest, TestPreClassificationCheckValidCached) {
   // Showing a phishing warning will invalidate all the weak pointers which
   // means we will not extract malware features.
   ExpectShouldClassifyForMalwareResult(false);
+}
+
+TEST_F(ClientSideDetectionHostTest,
+       SubresourceResponseStartedSkipsMissingIPAddress) {
+  auto resource_load_info = content::mojom::ResourceLoadInfo::New();
+  resource_load_info->url = GURL("http://host1.com");
+  resource_load_info->referrer = GURL("http://host2.com");
+  resource_load_info->method = "GET";
+  resource_load_info->resource_type = content::RESOURCE_TYPE_SUB_FRAME;
+  csd_host_->ResourceLoadComplete(*resource_load_info);
+
+  EXPECT_EQ(0u, GetBrowseInfo()->ips.size());
 }
 }  // namespace safe_browsing

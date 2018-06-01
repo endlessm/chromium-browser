@@ -54,7 +54,7 @@ function testPromiseAndApps(promise, apps) {
   }), function(error) {
     chrome.test.fail(error.stack || error);
   });
-};
+}
 
 /**
  * Interval milliseconds between checks of repeatUntil.
@@ -71,15 +71,42 @@ var REPEAT_UNTIL_INTERVAL = 200;
 var LOG_INTERVAL = 3000;
 
 /**
+ * Returns caller's file, function and line/column number from the call stack.
+ * @return {string} String with the caller's file name and line/column number,
+ *     as returned by exception stack trace. Example "at /a_file.js:1:1".
+ */
+function getCaller() {
+  var caller = '';
+  try {
+    throw new Error('Force an exception to produce e.stack');
+  } catch (error) {
+    var ignoreStackLines = 3;
+    var lines = error.stack.split('\n');
+    if (ignoreStackLines < lines.length) {
+      caller = lines[ignoreStackLines];
+      // Strip 'chrome-extension://oobinhbdbiehknkpbpejbbpdbkdjmoco' prefix.
+      caller = caller.replace(/(chrome-extension:\/\/\w*)/gi, '').trim();
+      return caller;
+    }
+  }
+  return caller;
+}
+
+
+/**
  * Returns a pending marker. See also the repeatUntil function.
+ * @param {string} name of test function that originated the operation,
+ *     it's the return of getCaller() function.
  * @param {string} message Pending reason including %s, %d, or %j markers. %j
  *     format an object as JSON.
  * @param {Array<*>} var_args Values to be assigined to %x markers.
  * @return {Object} Object which returns true for the expression: obj instanceof
  *     pending.
  */
-function pending(message, var_args) {
-  var index = 1;
+function pending(caller, message, var_args) {
+  // |index| is used to ignore caller and message arguments subsisting markers
+  // (%s, %d and %j) within message with the remaining |arguments|.
+  var index = 2;
   var args = arguments;
   var formattedMessage = message.replace(/%[sdj]/g, function(pattern) {
     var arg = args[index++];
@@ -91,9 +118,9 @@ function pending(message, var_args) {
     }
   });
   var pendingMarker = Object.create(pending.prototype);
-  pendingMarker.message = formattedMessage;
+  pendingMarker.message = caller + ': ' + formattedMessage;
   return pendingMarker;
-};
+}
 
 /**
  * Waits until the checkFunction returns a value but a pending marker.
@@ -119,7 +146,7 @@ function repeatUntil(checkFunction) {
     });
   };
   return step();
-};
+}
 
 /**
  * Adds the givin entries to the target volume(s).
@@ -147,7 +174,7 @@ function addEntries(volumeNames, entries, opt_callback) {
                        opt_callback.bind(null, false));
   }
   return resultPromise;
-};
+}
 
 /**
  * @enum {string}
@@ -209,7 +236,7 @@ function TestEntryInfo(type,
   this.sizeText = sizeText;
   this.typeText = typeText;
   Object.freeze(this);
-};
+}
 
 TestEntryInfo.getExpectedRows = function(entries) {
   return entries.map(function(entry) { return entry.getExpectedRow(); });

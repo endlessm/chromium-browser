@@ -142,7 +142,9 @@ extern llvm::cl::opt<bool> DumpLines;
 extern llvm::cl::opt<bool> DumpInlineeLines;
 extern llvm::cl::opt<bool> DumpXmi;
 extern llvm::cl::opt<bool> DumpXme;
+extern llvm::cl::opt<bool> DumpNamedStreams;
 extern llvm::cl::opt<bool> DumpStringTable;
+extern llvm::cl::opt<bool> DumpStringTableDetails;
 extern llvm::cl::opt<bool> DumpTypes;
 extern llvm::cl::opt<bool> DumpTypeData;
 extern llvm::cl::opt<bool> DumpTypeExtras;
@@ -187,13 +189,6 @@ extern llvm::cl::list<ModuleSubsection> DumpModuleSubsections;
 extern llvm::cl::opt<bool> DumpModuleSyms;
 } // namespace pdb2yaml
 
-namespace diff {
-extern llvm::cl::opt<bool> PrintValueColumns;
-extern llvm::cl::opt<bool> PrintResultColumn;
-extern llvm::DenseMap<uint32_t, uint32_t> Equivalences;
-extern llvm::cl::opt<std::string> LeftRoot;
-extern llvm::cl::opt<std::string> RightRoot;
-} // namespace diff
 }
 
 #endif

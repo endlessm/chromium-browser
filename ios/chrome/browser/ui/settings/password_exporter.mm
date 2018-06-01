@@ -15,6 +15,7 @@
 #include "components/password_manager/core/browser/export/password_csv_writer.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/passwords/passwords_directory_util.h"
 #import "ios/chrome/browser/ui/settings/reauthentication_module.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ui/base/l10n/l10n_util_mac.h"
@@ -56,16 +57,28 @@ enum class ReauthenticationStatus {
 
 @implementation PasswordFileWriter
 
-- (void)writeData:(NSString*)data
+- (void)writeData:(NSData*)data
             toURL:(NSURL*)fileURL
           handler:(void (^)(WriteToURLStatus))handler {
   WriteToURLStatus (^writeToFile)() = ^() {
     base::AssertBlockingAllowed();
     NSError* error = nil;
-    BOOL success = [data writeToURL:fileURL
-                         atomically:YES
-                           encoding:NSUTF8StringEncoding
-                              error:&error];
+
+    NSURL* directoryURL = [fileURL URLByDeletingLastPathComponent];
+    NSFileManager* fileManager = [NSFileManager defaultManager];
+
+    if (![fileManager createDirectoryAtURL:directoryURL
+               withIntermediateDirectories:YES
+                                attributes:nil
+                                     error:nil]) {
+      return WriteToURLStatus::UNKNOWN_ERROR;
+    }
+
+    BOOL success = [data
+        writeToURL:fileURL
+           options:(NSDataWritingAtomic | NSDataWritingFileProtectionComplete)
+             error:&error];
+
     if (!success) {
       if (error.code == NSFileWriteOutOfSpaceError) {
         return WriteToURLStatus::OUT_OF_DISK_SPACE_ERROR;
@@ -258,10 +271,13 @@ enum class ReauthenticationStatus {
     [self resetExportState];
     return;
   }
-  NSURL* tempPasswordsFileURL =
-      [[NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES]
-          URLByAppendingPathComponent:_tempPasswordsFileName
-                          isDirectory:NO];
+
+  NSURL* uniqueDirectoryURL = [GetPasswordsDirectoryURL()
+      URLByAppendingPathComponent:[[NSUUID UUID] UUIDString]
+                      isDirectory:YES];
+  NSURL* passwordsTempFileURL =
+      [uniqueDirectoryURL URLByAppendingPathComponent:_tempPasswordsFileName
+                                          isDirectory:NO];
 
   __weak PasswordExporter* weakSelf = self;
   void (^onFileWritten)(WriteToURLStatus) = ^(WriteToURLStatus status) {
@@ -275,7 +291,7 @@ enum class ReauthenticationStatus {
     }
     switch (status) {
       case WriteToURLStatus::SUCCESS:
-        [strongSelf showActivityView];
+        [strongSelf showActivityView:passwordsTempFileURL];
         break;
       case WriteToURLStatus::OUT_OF_DISK_SPACE_ERROR:
         [strongSelf
@@ -304,39 +320,33 @@ enum class ReauthenticationStatus {
     }
   };
 
-  NSString* serializedPasswords = self.serializedPasswords;
-  // |serializedPasswords| is not needed by |self| anymore. Resetting
-  // it here ensures that it is not referenced from two different threads later.
+  NSData* serializedPasswordsData =
+      [self.serializedPasswords dataUsingEncoding:NSUTF8StringEncoding];
+
+  // Drop |serializedPasswords| as it is no longer needed.
   self.serializedPasswords = nil;
 
-  [_passwordFileWriter writeData:serializedPasswords
-                           toURL:tempPasswordsFileURL
+  [_passwordFileWriter writeData:serializedPasswordsData
+                           toURL:passwordsTempFileURL
                          handler:onFileWritten];
 }
 
 - (void)deleteTemporaryFile:(NSURL*)passwordsTempFileURL {
-  __weak PasswordExporter* weakSelf = self;
-  base::PostTaskWithTraitsAndReply(
+  NSURL* uniqueDirectoryURL =
+      [passwordsTempFileURL URLByDeletingLastPathComponent];
+  base::PostTaskWithTraits(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
       base::BindBlockArc(^() {
         base::AssertBlockingAllowed();
         NSFileManager* fileManager = [NSFileManager defaultManager];
-        [fileManager removeItemAtURL:passwordsTempFileURL error:nil];
-      }),
-      base::BindBlockArc(^() {
-        [weakSelf resetExportState];
+        [fileManager removeItemAtURL:uniqueDirectoryURL error:nil];
       }));
 }
 
-- (void)showActivityView {
-  NSURL* passwordsTempFileURL =
-      [[NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES]
-          URLByAppendingPathComponent:_tempPasswordsFileName
-                          isDirectory:NO];
+- (void)showActivityView:(NSURL*)passwordsTempFileURL {
   if (self.exportState == ExportState::CANCELLING) {
-    // Initiate cleanup. Once the file is deleted, the export state will be
-    // reset;
     [self deleteTemporaryFile:passwordsTempFileURL];
+    [self resetExportState];
     return;
   }
   __weak PasswordExporter* weakSelf = self;

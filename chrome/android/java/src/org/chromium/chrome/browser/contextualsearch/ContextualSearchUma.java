@@ -695,6 +695,24 @@ public class ContextualSearchUma {
     }
 
     /**
+     * Logs whether search results were seen for a Tap gesture.  Recorded for all users.
+     * @param wasPanelSeen Whether the panel was seen.
+     */
+    public static void logTapResultsSeen(boolean wasPanelSeen) {
+        RecordHistogram.recordBooleanHistogram(
+                "Search.ContextualSearch.Tap.ResultsSeen", wasPanelSeen);
+    }
+
+    /**
+     * Logs whether search results were seen for all gestures.  Recorded for all users.
+     * @param wasPanelSeen Whether the panel was seen.
+     */
+    public static void logAllResultsSeen(boolean wasPanelSeen) {
+        RecordHistogram.recordBooleanHistogram(
+                "Search.ContextualSearch.All.ResultsSeen", wasPanelSeen);
+    }
+
+    /**
      * Logs the whether the panel was seen and the type of the trigger and if Bar nearly overlapped.
      * If the panel was seen, logs the duration of the panel view into a BarOverlap or BarNoOverlap
      * duration histogram.
@@ -1341,6 +1359,17 @@ public class ContextualSearchUma {
     private static void logRecordedToRanker(boolean areOutcomes) {
         RecordHistogram.recordBooleanHistogram(
                 "Search.ContextualSearch.Ranker.Recorded", areOutcomes);
+    }
+
+    /**
+     * Logs that features or outcomes are available to record to Ranker.
+     * This data can be used to correlate with #logRecordedToRanker to validate that everything that
+     * should be recorded is actually being recorded.
+     * @param areOutcomes Whether the features available are outcomes.
+     */
+    static void logRankerFeaturesAvailable(boolean areOutcomes) {
+        RecordHistogram.recordBooleanHistogram(
+                "Search.ContextualSearch.Ranker.FeaturesAvailable", areOutcomes);
     }
 
     /**

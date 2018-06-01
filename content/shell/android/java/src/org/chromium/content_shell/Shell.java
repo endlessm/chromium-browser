@@ -125,6 +125,7 @@ public class Shell extends LinearLayout {
         mWindow = null;
         mNativeShell = 0;
         mContentViewCore.destroy();
+        mWebContents = null;
     }
 
     /**
@@ -299,15 +300,15 @@ public class Shell extends LinearLayout {
     @CalledByNative
     private void initFromNativeTabContents(WebContents webContents) {
         Context context = getContext();
-        mContentViewCore = (ContentViewCoreImpl) ContentViewCore.create(context, "");
-        ContentView cv = ContentView.createContentView(context, mContentViewCore);
+        ContentView cv = ContentView.createContentView(context, webContents);
         mViewAndroidDelegate = new ShellViewAndroidDelegate(cv);
-        mContentViewCore.initialize(mViewAndroidDelegate, cv, webContents, mWindow);
-        mWebContents = mContentViewCore.getWebContents();
+        mContentViewCore = (ContentViewCoreImpl) ContentViewCore.create(
+                context, "", webContents, mViewAndroidDelegate, cv, mWindow);
+        mWebContents = webContents;
         SelectionPopupController controller = SelectionPopupController.fromWebContents(webContents);
         controller.setActionModeCallback(defaultActionCallback());
         mNavigationController = mWebContents.getNavigationController();
-        if (getParent() != null) mContentViewCore.onShow();
+        if (getParent() != null) mWebContents.onShow();
         if (mWebContents.getVisibleUrl() != null) {
             mUrlTextView.setText(mWebContents.getVisibleUrl());
         }
@@ -316,7 +317,7 @@ public class Shell extends LinearLayout {
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT));
         cv.requestFocus();
-        mContentViewRenderView.setCurrentContentViewCore(mContentViewCore);
+        mContentViewRenderView.setCurrentWebContents(mWebContents);
     }
 
     /**

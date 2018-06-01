@@ -36,6 +36,7 @@ import java.lang.RuntimeException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import javax.annotation.Nullable;
 import org.appspot.apprtc.AppRTCAudioManager.AudioDevice;
 import org.appspot.apprtc.AppRTCAudioManager.AudioManagerEvents;
 import org.appspot.apprtc.AppRTCClient.RoomConnectionParameters;
@@ -96,7 +97,6 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
   public static final String EXTRA_DISABLE_BUILT_IN_AEC = "org.appspot.apprtc.DISABLE_BUILT_IN_AEC";
   public static final String EXTRA_DISABLE_BUILT_IN_AGC = "org.appspot.apprtc.DISABLE_BUILT_IN_AGC";
   public static final String EXTRA_DISABLE_BUILT_IN_NS = "org.appspot.apprtc.DISABLE_BUILT_IN_NS";
-  public static final String EXTRA_ENABLE_LEVEL_CONTROL = "org.appspot.apprtc.ENABLE_LEVEL_CONTROL";
   public static final String EXTRA_DISABLE_WEBRTC_AGC_AND_HPF =
       "org.appspot.apprtc.DISABLE_WEBRTC_GAIN_CONTROL";
   public static final String EXTRA_DISPLAY_HUD = "org.appspot.apprtc.DISPLAY_HUD";
@@ -120,6 +120,8 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
   public static final String EXTRA_NEGOTIATED = "org.appspot.apprtc.NEGOTIATED";
   public static final String EXTRA_ID = "org.appspot.apprtc.ID";
   public static final String EXTRA_ENABLE_RTCEVENTLOG = "org.appspot.apprtc.ENABLE_RTCEVENTLOG";
+  public static final String EXTRA_USE_LEGACY_AUDIO_DEVICE =
+      "org.appspot.apprtc.USE_LEGACY_AUDIO_DEVICE";
 
   private static final int CAPTURE_PERMISSION_REQUEST_CODE = 1;
 
@@ -169,18 +171,26 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
 
   private final ProxyRenderer remoteProxyRenderer = new ProxyRenderer();
   private final ProxyVideoSink localProxyVideoSink = new ProxyVideoSink();
+  @Nullable
   private PeerConnectionClient peerConnectionClient = null;
+  @Nullable
   private AppRTCClient appRtcClient;
+  @Nullable
   private SignalingParameters signalingParameters;
+  @Nullable
   private AppRTCAudioManager audioManager = null;
+  @Nullable
   private SurfaceViewRenderer pipRenderer;
+  @Nullable
   private SurfaceViewRenderer fullscreenRenderer;
+  @Nullable
   private VideoFileRenderer videoFileRenderer;
   private final List<VideoRenderer.Callbacks> remoteRenderers = new ArrayList<>();
   private Toast logToast;
   private boolean commandLineRun;
   private boolean activityRunning;
   private RoomConnectionParameters roomConnectionParameters;
+  @Nullable
   private PeerConnectionParameters peerConnectionParameters;
   private boolean iceConnected;
   private boolean isError;
@@ -270,7 +280,7 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
 
     pipRenderer.setZOrderMediaOverlay(true);
     pipRenderer.setEnableHardwareScaler(true /* enabled */);
-    fullscreenRenderer.setEnableHardwareScaler(true /* enabled */);
+    fullscreenRenderer.setEnableHardwareScaler(false /* enabled */);
     // Start with local feed in fullscreen and swap it to the pip when the call is connected.
     setSwappedFeeds(true /* isSwappedFeeds */);
 
@@ -338,9 +348,9 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
             intent.getBooleanExtra(EXTRA_DISABLE_BUILT_IN_AEC, false),
             intent.getBooleanExtra(EXTRA_DISABLE_BUILT_IN_AGC, false),
             intent.getBooleanExtra(EXTRA_DISABLE_BUILT_IN_NS, false),
-            intent.getBooleanExtra(EXTRA_ENABLE_LEVEL_CONTROL, false),
             intent.getBooleanExtra(EXTRA_DISABLE_WEBRTC_AGC_AND_HPF, false),
-            intent.getBooleanExtra(EXTRA_ENABLE_RTCEVENTLOG, false), dataChannelParameters);
+            intent.getBooleanExtra(EXTRA_ENABLE_RTCEVENTLOG, false),
+            intent.getBooleanExtra(EXTRA_USE_LEGACY_AUDIO_DEVICE, false), dataChannelParameters);
     commandLineRun = intent.getBooleanExtra(EXTRA_CMDLINE, false);
     int runTimeMs = intent.getIntExtra(EXTRA_RUNTIME, 0);
 
@@ -442,7 +452,7 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
     return getIntent().getBooleanExtra(EXTRA_CAPTURETOTEXTURE_ENABLED, false);
   }
 
-  private VideoCapturer createCameraCapturer(CameraEnumerator enumerator) {
+  private @Nullable VideoCapturer createCameraCapturer(CameraEnumerator enumerator) {
     final String[] deviceNames = enumerator.getDeviceNames();
 
     // First, try to find front facing camera
@@ -475,7 +485,7 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
   }
 
   @TargetApi(21)
-  private VideoCapturer createScreenCapturer() {
+  private @Nullable VideoCapturer createScreenCapturer() {
     if (mediaProjectionPermissionResultCode != Activity.RESULT_OK) {
       reportError("User didn't give permission to capture the screen.");
       return null;
@@ -712,7 +722,7 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
     });
   }
 
-  private VideoCapturer createVideoCapturer() {
+  private @Nullable VideoCapturer createVideoCapturer() {
     final VideoCapturer videoCapturer;
     String videoFileAsCamera = getIntent().getStringExtra(EXTRA_VIDEO_FILE_AS_CAMERA);
     if (videoFileAsCamera != null) {

@@ -16,7 +16,7 @@
 #include "net/base/net_errors.h"
 #include "net/log/net_log_with_source.h"
 #include "net/proxy_resolution/proxy_info.h"
-#include "net/proxy_resolution/proxy_service.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
@@ -129,9 +129,9 @@ void ProxyResolutionServiceProvider::ResolveProxy(
   // lookup, in which case the result won't be available immediately.
   context_getter->GetNetworkTaskRunner()->PostTask(
       FROM_HERE,
-      base::Bind(&ProxyResolutionServiceProvider::ResolveProxyOnNetworkThread,
-                 base::Passed(std::move(request)), origin_thread_,
-                 notify_callback));
+      base::BindOnce(
+          &ProxyResolutionServiceProvider::ResolveProxyOnNetworkThread,
+          std::move(request), origin_thread_, notify_callback));
 }
 
 // static
@@ -179,8 +179,8 @@ void ProxyResolutionServiceProvider::OnResolutionComplete(
   if (request->error.empty() && result != net::OK)
     request->error = net::ErrorToString(result);
 
-  notify_thread->PostTask(
-      FROM_HERE, base::Bind(notify_callback, base::Passed(std::move(request))));
+  notify_thread->PostTask(FROM_HERE,
+                          base::BindOnce(notify_callback, std::move(request)));
 }
 
 void ProxyResolutionServiceProvider::NotifyProxyResolved(

@@ -10,12 +10,13 @@ import android.view.View;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
+import org.chromium.content.browser.PopupController;
+import org.chromium.content.browser.PopupController.HideablePopup;
 import org.chromium.content.browser.WindowAndroidChangedObserver;
 import org.chromium.content.browser.WindowEventObserver;
 import org.chromium.content.browser.webcontents.WebContentsImpl;
-import org.chromium.content.browser.webcontents.WebContentsUserData;
-import org.chromium.content.browser.webcontents.WebContentsUserData.UserDataFactory;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.content_public.browser.WebContents.UserDataFactory;
 import org.chromium.ui.base.WindowAndroid;
 
 /**
@@ -24,7 +25,8 @@ import org.chromium.ui.base.WindowAndroid;
  * the commands in that menu (by calling back to the C++ class).
  */
 @JNINamespace("content")
-public class TextSuggestionHost implements WindowEventObserver, WindowAndroidChangedObserver {
+public class TextSuggestionHost
+        implements WindowEventObserver, WindowAndroidChangedObserver, HideablePopup {
     private long mNativeTextSuggestionHost;
     private final WebContentsImpl mWebContents;
 
@@ -51,8 +53,8 @@ public class TextSuggestionHost implements WindowEventObserver, WindowAndroidCha
      */
     public static TextSuggestionHost create(
             Context context, WebContents webContents, WindowAndroid windowAndroid, View view) {
-        TextSuggestionHost host = WebContentsUserData.fromWebContents(
-                webContents, TextSuggestionHost.class, UserDataFactoryLazyHolder.INSTANCE);
+        TextSuggestionHost host = webContents.getOrSetUserData(
+                TextSuggestionHost.class, UserDataFactoryLazyHolder.INSTANCE);
         assert host != null;
         assert !host.initialized();
         host.init(context, windowAndroid, view);
@@ -67,7 +69,7 @@ public class TextSuggestionHost implements WindowEventObserver, WindowAndroidCha
      *         {@link #create()} is not called yet.
      */
     public static TextSuggestionHost fromWebContents(WebContents webContents) {
-        return WebContentsUserData.fromWebContents(webContents, TextSuggestionHost.class, null);
+        return webContents.getOrSetUserData(TextSuggestionHost.class, null);
     }
 
     /**
@@ -83,6 +85,7 @@ public class TextSuggestionHost implements WindowEventObserver, WindowAndroidCha
         mWindowAndroid = windowAndroid;
         mContainerView = view;
         mNativeTextSuggestionHost = nativeInit(mWebContents);
+        PopupController.register(mWebContents, this);
         mInitialized = true;
     }
 
@@ -121,6 +124,12 @@ public class TextSuggestionHost implements WindowEventObserver, WindowAndroidCha
     @Override
     public void onDetachedFromWindow() {
         mIsAttachedToWindow = false;
+    }
+
+    // HieablePopup
+    @Override
+    public void hide() {
+        hidePopups();
     }
 
     @CalledByNative

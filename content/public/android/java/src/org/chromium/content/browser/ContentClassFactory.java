@@ -4,10 +4,10 @@
 
 package org.chromium.content.browser;
 
-import android.view.View;
-
 import org.chromium.base.ThreadUtils;
+import org.chromium.content.browser.selection.AdditionalMenuItemProvider;
 import org.chromium.content.browser.selection.SelectionInsertionHandleObserver;
+import org.chromium.content.browser.selection.SelectionPopupControllerImpl;
 
 /**
  * A class factory for downstream injecting code to content layer.
@@ -42,7 +42,16 @@ public class ContentClassFactory {
     /**
      * Creates HandleObserver object.
      */
-    public SelectionInsertionHandleObserver createHandleObserver(View view) {
+    public SelectionInsertionHandleObserver createHandleObserver(
+            SelectionPopupControllerImpl.ReadbackViewCallback callback) {
+        // Implemented by a subclass.
+        return null;
+    }
+
+    /**
+     * Creates AddtionalMenuItems object.
+     */
+    public AdditionalMenuItemProvider createAddtionalMenuItemProvider() {
         // Implemented by a subclass.
         return null;
     }

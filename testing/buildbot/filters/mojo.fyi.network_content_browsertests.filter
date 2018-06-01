@@ -35,32 +35,21 @@
 -DataUrlNavigationBrowserTest.PDF_NavigationFromFrame_Block
 -DataUrlNavigationBrowserTest.PDF_NavigationFromFrame_TopFrameIsDataURL_Block
 
--AsyncResourceHandlerBrowserTest/AsyncResourceHandlerBrowserTest.UploadProgress*
--DevToolsDownloadContentTest.MultiDownload
--DevToolsDownloadContentTest.DefaultDownload
--DevToolsDownloadContentTest.ResetDownloadState
--DevToolsDownloadContentTest.DownloadCancelled
--DevToolsDownloadContentTest.DeniedDownload
--DevToolsDownloadContentTest.DefaultDownloadHeadless
--DevToolsDownloadContentTest.SingleDownload
--DevToolsProtocolTest.ControlNavigationsMainFrame
--DevToolsProtocolTest.SubresourceWithCertificateError
--GetUserMediaVideoCaptureBrowserTest.RecoverFromCrashInVideoCaptureProcess
--IsolatedDevToolsProtocolTest.ControlNavigationsChildFrames
--IsolateIcelandFrameTreeBrowserTest.ProcessSwitchForIsolatedBlob
--ManifestBrowserTest.UseCredentialsSendCookies
--NavigationHandleImplBrowserTest.ErrorCodeOnRedirect
--NavigationHandleImplBrowserTest.RedirectToRendererDebugUrl
--PowerMonitorTest.TestGpuProcess
--PowerMonitorTest.TestRendererProcess
--PowerMonitorTest.TestUtilityProcess
+# http://crbug.com/820060
 -PreviewsStateResourceDispatcherHostBrowserTest.ShouldEnableLoFiModeNavigateBackThenForward
 -PreviewsStateResourceDispatcherHostBrowserTest.ShouldEnableLoFiModeOff
 -PreviewsStateResourceDispatcherHostBrowserTest.ShouldEnableLoFiModeOn
 -PreviewsStateResourceDispatcherHostBrowserTest.ShouldEnableLoFiModeReload
 -PreviewsStateResourceDispatcherHostBrowserTest.ShouldEnableLoFiModeReloadDisableLoFi
--RenderThreadImplBrowserTest.NonResourceDispatchIPCTasksDontGoThroughScheduler
--RenderThreadImplBrowserTest.ResourceDispatchIPCTasksGoThroughScheduler
+
+-AsyncResourceHandlerBrowserTest/AsyncResourceHandlerBrowserTest.UploadProgress*
+-GetUserMediaVideoCaptureBrowserTest.RecoverFromCrashInVideoCaptureProcess
+-IsolatedDevToolsProtocolTest.ControlNavigationsChildFrames
+-NavigationHandleImplBrowserTest.ErrorCodeOnRedirect
+-NavigationHandleImplBrowserTest.RedirectToRendererDebugUrl
+-PowerMonitorTest.TestGpuProcess
+-PowerMonitorTest.TestRendererProcess
+-PowerMonitorTest.TestUtilityProcess
 -RenderViewBrowserTest.ConfirmCacheInformationPlumbed
 -RequestDataResourceDispatcherHostBrowserTest.Basic
 -RequestDataResourceDispatcherHostBrowserTest.BasicCrossSite
@@ -71,10 +60,7 @@
 -RequestDataResourceDispatcherHostBrowserTest.LinkRelPrefetchReferrerPolicy
 -RequestDataResourceDispatcherHostBrowserTest.SameOriginAuxiliary
 -RequestDataResourceDispatcherHostBrowserTest.SameOriginNested
--SitePerProcessIgnoreCertErrorsBrowserTest.SubresourceWithCertificateErrors
 -WebContentsImplBrowserTest.DownloadImage_Deny_FileImage
--WorkerTest.WorkerTlsClientAuthFetch
--WorkerTest.WorkerTlsClientAuthImportScripts
 
 # services/network/url_loader.cc should handle failure in
 # URLLoaderImpl::OnResponseBodyStreamRead(). Note this is flaky, so it will pass
@@ -101,18 +87,12 @@
 -ResourceDispatcherHostBrowserTest.CrossOriginRedirectBlocked
 -ResourceDispatcherHostBrowserTest.CrossSiteAfterCrash
 -ResourceDispatcherHostBrowserTest.CrossSiteNavigationNonBuffered
--ResourceDispatcherHostBrowserTest.DoNotSniffHTMLFromImageGIF
--ResourceDispatcherHostBrowserTest.DoNotSniffHTMLFromTextPlain
--ResourceDispatcherHostBrowserTest.PageTransitionClientRedirect
--ResourceDispatcherHostBrowserTest.RespectNoSniffDirective
--ResourceDispatcherHostBrowserTest.SniffHTMLWithNoContentType
 -ResourceDispatcherHostBrowserTest.SniffNoContentTypeNoData
 
 # Cross-origin read blocking (CORB) needs to be implemented in the network
 # service.
 # https://crbug.com/786505 (cross site document blocking)
 # https://crbug.com/792546 (cross site document blocking in network service)
--SiteIsolationStatsGathererBrowserTest.CrossSiteDocumentBlockingForMimeType
 -CrossSiteDocumentBlockingTest.BlockDocuments
 -CrossSiteDocumentBlockingTest.BlockHeaders
 -CrossSiteDocumentBlockingTest.BlockRequestFromErrorPage
@@ -123,6 +103,10 @@
 
 # Flakes https://logs.chromium.org/v/?s=chromium%2Fbb%2Fchromium.linux%2FLinux_Tests__dbg__1_%2F69105%2F%2B%2Frecipes%2Fsteps%2Fnetwork_service_content_browsertests%2F0%2Flogs%2FWebContentsImplBrowserTest.DownloadImage_Allow_FileImage%2F0
 -WebContentsImplBrowserTest.DownloadImage_Allow_FileImage
+
+# Network service path needs some way to update the per-WebContents load state.
+# http://crbug.com/819663.
+-WebContentsImplBrowserTest.UpdateLoadState
 
 # https://crbug.com/808759
 -DownloadContentTest.DownloadAttributeBlobURL

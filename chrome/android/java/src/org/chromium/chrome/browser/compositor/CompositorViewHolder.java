@@ -396,6 +396,13 @@ public class CompositorViewHolder extends FrameLayout
         return mCompositorView;
     }
 
+    /**
+     * @return The active {@link SurfaceView} of the Compositor.
+     */
+    public View getActiveSurfaceView() {
+        return mCompositorView.getActiveSurfaceView();
+    }
+
     private Tab getCurrentTab() {
         if (mLayoutManager == null || mTabModelSelector == null) return null;
         Tab currentTab = mTabModelSelector.getCurrentTab();
@@ -549,7 +556,8 @@ public class CompositorViewHolder extends FrameLayout
         int actionMasked = SPenSupport.convertSPenEventAction(e.getActionMasked());
 
         if (actionMasked == MotionEvent.ACTION_DOWN
-                || actionMasked == MotionEvent.ACTION_HOVER_ENTER) {
+                || actionMasked == MotionEvent.ACTION_HOVER_ENTER
+                || actionMasked == MotionEvent.ACTION_HOVER_MOVE) {
             if (mLayoutManager != null) mLayoutManager.getViewportPixel(mCacheViewport);
             webContents.getEventForwarder().setCurrentTouchEventOffsets(
                     -mCacheViewport.left, -mCacheViewport.top);
@@ -610,7 +618,6 @@ public class CompositorViewHolder extends FrameLayout
     @Override
     public float getHeightMinusBrowserControls() {
         return getHeight() - (getTopControlsHeightPixels() + getBottomControlsHeightPixels());
-
     }
 
     @Override
@@ -726,16 +733,12 @@ public class CompositorViewHolder extends FrameLayout
                 : ColorUtils.getTextBoxAlphaForToolbarBackground(mTabVisible);
     }
 
-    /**
-     * @return The height of the top browser controls in pixels.
-     */
+    @Override
     public int getTopControlsHeightPixels() {
         return mFullscreenManager != null ? mFullscreenManager.getTopControlsHeight() : 0;
     }
 
-    /**
-     * @return The height of the bottom conrols in pixels.
-     */
+    @Override
     public int getBottomControlsHeightPixels() {
         return mFullscreenManager != null ? mFullscreenManager.getBottomControlsHeight() : 0;
     }

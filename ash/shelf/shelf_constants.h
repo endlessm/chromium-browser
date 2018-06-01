@@ -10,6 +10,10 @@
 
 namespace ash {
 
+// The fallback notifier id for ARC notifications. Used when ArcNotificationItem
+// is provided with an empty app id.
+ASH_EXPORT constexpr char kDefaultArcNotifierId[] = "ARC_NOTIFICATION";
+
 // Size of the shelf when visible (height when the shelf is horizontal and
 // width when the shelf is vertical).
 ASH_EXPORT constexpr int kShelfSize = 48;
@@ -53,6 +57,9 @@ constexpr float kShelfInkDropVisibleOpacity = 0.2f;
 // The foreground color of the icons used in the shelf (launcher,
 // notifications, etc).
 ASH_EXPORT constexpr SkColor kShelfIconColor = SK_ColorWHITE;
+
+// The dip offset for showing a context menu with a long touch press.
+ASH_EXPORT constexpr int kScaledIconContextMenuOffset = 5;
 
 // The alpha value for the shelf background when a window is overlapping.
 ASH_EXPORT constexpr int kShelfTranslucentAlpha = 153;

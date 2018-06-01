@@ -11,7 +11,7 @@
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "content/public/utility/content_utility_client.h"
-#include "printing/features/features.h"
+#include "printing/buildflags/buildflags.h"
 
 class MashServiceFactory;
 
@@ -33,8 +33,6 @@ class ChromeContentUtilityClient : public content::ContentUtilityClient {
   void RegisterServices(StaticServiceMap* services) override;
   void RegisterNetworkBinders(
       service_manager::BinderRegistry* registry) override;
-
-  static void PreSandboxStartup();
 
   // See NetworkBinderProvider above.
   static void SetNetworkBinderCreationCallback(

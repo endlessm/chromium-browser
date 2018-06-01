@@ -482,9 +482,9 @@ TEST_F(HistoryQuickProviderTest, ContentsClass) {
                             "82.A7.E3.83.AB.E3.82.B5.E3.82.A4.E3.83.A6.E4.BD."
                             "93.E5.88.B6"),
           base::string16());
-#ifndef NDEBUG
+#if DCHECK_IS_ON()
   ac_matches()[0].Validate();
-#endif
+#endif  // DCHECK_IS_ON();
   // Verify that contents_class divides the string in the right places.
   // [22, 24) is the "第二".  All the other pairs are the "e3".
   ACMatchClassifications contents_class(ac_matches()[0].contents_class);
@@ -821,6 +821,22 @@ TEST_F(HistoryQuickProviderTest, DoTrimHttpsScheme) {
 
   AutocompleteMatch match = provider().QuickMatchToACMatch(history_match, 100);
   EXPECT_EQ(ASCIIToUTF16("facebook.com"), match.contents);
+}
+
+TEST_F(HistoryQuickProviderTest, CorrectAutocompleteWithTrailingSlash) {
+  provider().autocomplete_input_ = AutocompleteInput(
+      base::ASCIIToUTF16("cr/"), metrics::OmniboxEventProto::OTHER,
+      TestSchemeClassifier());
+  RowWordStarts word_starts;
+  word_starts.url_word_starts_ = {0};
+  ScoredHistoryMatch sh_match(history::URLRow(GURL("http://cr/")),
+                              VisitInfoVector(), ASCIIToUTF16("cr/"),
+                              {ASCIIToUTF16("cr")}, {0}, word_starts, false, 0,
+                              base::Time());
+  AutocompleteMatch ac_match(provider().QuickMatchToACMatch(sh_match, 0));
+  EXPECT_EQ(base::ASCIIToUTF16("cr/"), ac_match.fill_into_edit);
+  EXPECT_EQ(base::ASCIIToUTF16(""), ac_match.inline_autocompletion);
+  EXPECT_TRUE(ac_match.allowed_to_be_default_match);
 }
 
 // HQPOrderingTest -------------------------------------------------------------

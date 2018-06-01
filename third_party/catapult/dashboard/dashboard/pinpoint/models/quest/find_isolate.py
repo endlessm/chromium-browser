@@ -2,19 +2,24 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-from dashboard.common import namespaced_stored_object
 from dashboard.pinpoint.models import isolate
 from dashboard.pinpoint.models.quest import execution
 from dashboard.pinpoint.models.quest import quest
 from dashboard.services import buildbucket_service
 
 
-_BOT_CONFIGURATIONS = 'bot_configurations'
 BUCKET = 'master.tryserver.chromium.perf'
 
 
 class BuildError(Exception):
   """Raised when the build fails."""
+
+
+class IsolateNotFoundError(StandardError):
+  """Raised when the build succeeds, but Pinpoint can't find the isolate.
+
+  This error is fatal to the Job.
+  """
 
 
 class FindIsolate(quest.Quest):
@@ -38,27 +43,15 @@ class FindIsolate(quest.Quest):
 
   @classmethod
   def FromDict(cls, arguments):
-    builder = _GetBuilder(arguments)
+    builder = arguments.get('builder')
+    if not builder:
+      raise TypeError('Missing "builder" argument.')
 
     target = arguments.get('target')
     if not target:
       raise TypeError('Missing "target" argument.')
 
     return cls(builder, target)
-
-
-def _GetBuilder(arguments):
-  configuration = arguments.get('configuration')
-  builder = arguments.get('builder')
-  if builder:
-    pass
-  elif configuration:
-    bots = namespaced_stored_object.Get(_BOT_CONFIGURATIONS)
-    builder = bots[configuration]['builder']
-  else:
-    raise TypeError('Missing a "configuration" or a "builder" argument.')
-
-  return builder
 
 
 class _FindIsolateExecution(execution.Execution):
@@ -121,8 +114,9 @@ class _FindIsolateExecution(execution.Execution):
     else:
       if self._CheckCompleted():
         return
-      raise BuildError('Buildbucket says the build completed successfully, '
-                       "but Pinpoint can't find the isolate hash.")
+      raise IsolateNotFoundError(
+          'Buildbucket says the build completed successfully, '
+          "but Pinpoint can't find the isolate hash.")
 
   def _RequestBuild(self):
     """Requests a build.

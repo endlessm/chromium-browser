@@ -13,6 +13,7 @@
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/in_memory_url_index_types.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/url_util.h"
@@ -105,11 +106,13 @@ ACMatchClassifications HistoryProvider::SpansFromTermMatch(
   return spans;
 }
 
-void HistoryProvider::ConvertOpenTabMatches() {
+void HistoryProvider::ConvertOpenTabMatches(const AutocompleteInput* input) {
   for (auto& match : matches_) {
     // If url is in a tab, change type, update classification.
-    if (client()->IsTabOpenWithURL(match.destination_url)) {
-      match.type = AutocompleteMatchType::TAB_SEARCH;
+    if (client()->IsTabOpenWithURL(match.destination_url, input)) {
+      match.has_tab_match = true;
+      if (OmniboxFieldTrial::InTabSwitchSuggestionWithButtonTrial())
+        continue;
       const base::string16 switch_tab_message =
           l10n_util::GetStringUTF16(IDS_OMNIBOX_TAB_SUGGEST_HINT) +
           base::UTF8ToUTF16(match.description.empty() ? "" : " - ");

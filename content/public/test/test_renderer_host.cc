@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -16,6 +15,7 @@
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/render_widget_host_iterator.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/test/browser_side_navigation_test_utils.h"
@@ -296,8 +296,12 @@ void RenderViewHostTestHarness::TearDown() {
 #endif
 
   // Delete any RenderProcessHosts before the BrowserContext goes away.
-  if (rvh_test_enabler_->rph_factory_)
+  if (rvh_test_enabler_->rph_factory_) {
+    auto render_widget_hosts = RenderWidgetHost::GetRenderWidgetHosts();
+    ASSERT_EQ(nullptr, render_widget_hosts->GetNextHost()) <<
+        "Test is leaking at least one RenderWidgetHost.";
     rvh_test_enabler_->rph_factory_.reset();
+  }
 
   rvh_test_enabler_.reset();
 

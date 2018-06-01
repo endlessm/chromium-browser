@@ -11,8 +11,8 @@
 
 #include "ash/app_list/model/search/search_box_model.h"
 #include "ash/app_list/model/search/search_model.h"
+#include "ash/public/cpp/wallpaper_types.h"
 #include "base/macros.h"
-#include "components/wallpaper/wallpaper_color_profile.h"
 #include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/app_list_util.h"
 #include "ui/app_list/app_list_view_delegate.h"
@@ -38,10 +38,11 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/vector_icons.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 
-using wallpaper::ColorProfileType;
+using ash::ColorProfileType;
 
 namespace app_list {
 
@@ -87,6 +88,28 @@ SearchBoxView::~SearchBoxView() {
   view_delegate_->RemoveObserver(this);
 }
 
+void SearchBoxView::ClearSearch() {
+  search_box::SearchBoxViewBase::ClearSearch();
+  app_list_view_->SetStateFromSearchBoxView(true);
+}
+
+views::View* SearchBoxView::GetSelectedViewInContentsView() {
+  if (!contents_view())
+    return nullptr;
+  return static_cast<ContentsView*>(contents_view())->GetSelectedView();
+}
+
+void SearchBoxView::HandleSearchBoxEvent(ui::LocatedEvent* located_event) {
+  if (located_event->type() == ui::ET_MOUSEWHEEL) {
+    if (!app_list_view_->HandleScroll(
+            located_event->AsMouseWheelEvent()->offset().y(),
+            ui::ET_MOUSEWHEEL)) {
+      return;
+    }
+  }
+  search_box::SearchBoxViewBase::HandleSearchBoxEvent(located_event);
+}
+
 void SearchBoxView::ModelChanged() {
   if (search_model_)
     search_model_->search_box()->RemoveObserver(this);
@@ -98,11 +121,6 @@ void SearchBoxView::ModelChanged() {
 
   HintTextChanged();
   OnWallpaperColorsChanged();
-}
-
-void SearchBoxView::ClearSearch() {
-  search_box::SearchBoxViewBase::ClearSearch();
-  app_list_view_->SetStateFromSearchBoxView(true);
 }
 
 void SearchBoxView::UpdateKeyboardVisibility() {
@@ -125,15 +143,65 @@ void SearchBoxView::UpdateKeyboardVisibility() {
       keyboard::KeyboardController::HIDE_REASON_MANUAL);
 }
 
-void SearchBoxView::HandleSearchBoxEvent(ui::LocatedEvent* located_event) {
-  if (located_event->type() == ui::ET_MOUSEWHEEL) {
-    if (!app_list_view_->HandleScroll(
-            located_event->AsMouseWheelEvent()->offset().y(),
-            ui::ET_MOUSEWHEEL)) {
-      return;
-    }
+void SearchBoxView::UpdateModel(bool initiated_by_user) {
+  // Temporarily remove from observer to ignore notifications caused by us.
+  search_model_->search_box()->RemoveObserver(this);
+  search_model_->search_box()->Update(search_box()->text(), initiated_by_user);
+  search_model_->search_box()->SetSelectionModel(
+      search_box()->GetSelectionModel());
+  search_model_->search_box()->AddObserver(this);
+}
+
+void SearchBoxView::UpdateSearchIcon() {
+  const gfx::VectorIcon& google_icon =
+      is_search_box_active() ? kIcGoogleColorIcon : kIcGoogleBlackIcon;
+  const gfx::VectorIcon& icon = search_model_->search_engine_is_google()
+                                    ? google_icon
+                                    : kIcSearchEngineNotGoogleIcon;
+  SetSearchIconImage(gfx::CreateVectorIcon(icon, search_box::kSearchIconSize,
+                                           search_box_color()));
+}
+
+void SearchBoxView::UpdateSearchBoxBorder() {
+  if (search_box()->HasFocus() && !is_search_box_active()) {
+    // Show a gray ring around search box to indicate that the search box is
+    // selected. Do not show it when search box is active, because blinking
+    // cursor already indicates that.
+    SetBorder(views::CreateRoundedRectBorder(kSearchBoxBorderWidth,
+                                             kSearchBoxFocusBorderCornerRadius,
+                                             kSearchBoxBorderColor));
+    return;
   }
-  search_box::SearchBoxViewBase::HandleSearchBoxEvent(located_event);
+
+  // Creates an empty border as a placeholder for colored border so that
+  // re-layout won't move views below the search box.
+  SetBorder(
+      views::CreateEmptyBorder(kSearchBoxBorderWidth, kSearchBoxBorderWidth,
+                               kSearchBoxBorderWidth, kSearchBoxBorderWidth));
+}
+
+void SearchBoxView::SetupCloseButton() {
+  views::ImageButton* close = close_button();
+  close->SetImage(views::ImageButton::STATE_NORMAL,
+                  gfx::CreateVectorIcon(views::kIcCloseIcon, kCloseIconSize,
+                                        search_box_color()));
+  close->SetVisible(false);
+  close->SetAccessibleName(
+      l10n_util::GetStringUTF16(IDS_APP_LIST_CLEAR_SEARCHBOX));
+}
+
+void SearchBoxView::SetupBackButton() {
+  views::ImageButton* back = back_button();
+  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
+  back->SetImage(views::ImageButton::STATE_NORMAL,
+                 rb.GetImageSkiaNamed(IDR_APP_LIST_FOLDER_BACK_NORMAL));
+  back->SetImageAlignment(views::ImageButton::ALIGN_CENTER,
+                          views::ImageButton::ALIGN_MIDDLE);
+  back->SetVisible(false);
+  base::string16 back_button_label(
+      l10n_util::GetStringUTF16(IDS_APP_LIST_BACK));
+  back->SetAccessibleName(back_button_label);
+  back->SetTooltipText(back_button_label);
 }
 
 void SearchBoxView::OnKeyEvent(ui::KeyEvent* event) {
@@ -199,6 +267,10 @@ void SearchBoxView::UpdateOpacity() {
   // changes from |kOpacityStartFraction| to |kOpaticyEndFraction|, the opacity
   // of searchbox changes from 0.f to 1.0f.
   ContentsView* contents = static_cast<ContentsView*>(contents_view());
+  if (!contents->GetPageView(contents->GetActivePageIndex())
+           ->ShouldShowSearchBox()) {
+    return;
+  }
   int app_list_y_position_in_screen =
       contents->app_list_view()->app_list_y_position_in_screen();
   float fraction =
@@ -222,34 +294,30 @@ void SearchBoxView::UpdateOpacity() {
       should_restore_opacity ? 1.0f : opacity);
 }
 
-views::View* SearchBoxView::GetSelectedViewInContentsView() {
-  if (!contents_view())
-    return nullptr;
-  return static_cast<ContentsView*>(contents_view())->GetSelectedView();
-}
-
-void SearchBoxView::UpdateModel(bool initiated_by_user) {
-  // Temporarily remove from observer to ignore notifications caused by us.
-  search_model_->search_box()->RemoveObserver(this);
-  search_model_->search_box()->Update(search_box()->text(), initiated_by_user);
-  search_model_->search_box()->SetSelectionModel(
-      search_box()->GetSelectionModel());
-  search_model_->search_box()->AddObserver(this);
-}
-
-void SearchBoxView::UpdateSearchIcon() {
-  const gfx::VectorIcon& google_icon =
-      is_search_box_active() ? kIcGoogleColorIcon : kIcGoogleBlackIcon;
-  const gfx::VectorIcon& icon = search_model_->search_engine_is_google()
-                                    ? google_icon
-                                    : kIcSearchEngineNotGoogleIcon;
-  SetSearchIconImage(gfx::CreateVectorIcon(icon, search_box::kSearchIconSize,
-                                           search_box_color()));
-}
-
 void SearchBoxView::GetWallpaperProminentColors(
     AppListViewDelegate::GetWallpaperProminentColorsCallback callback) {
   view_delegate_->GetWallpaperProminentColors(std::move(callback));
+}
+
+void SearchBoxView::OnWallpaperProminentColorsReceived(
+    const std::vector<SkColor>& prominent_colors) {
+  if (prominent_colors.empty())
+    return;
+  DCHECK_EQ(static_cast<size_t>(ColorProfileType::NUM_OF_COLOR_PROFILES),
+            prominent_colors.size());
+
+  SetSearchBoxColor(
+      prominent_colors[static_cast<int>(ColorProfileType::DARK_MUTED)]);
+  SetBackgroundColor(
+      prominent_colors[static_cast<int>(ColorProfileType::LIGHT_VIBRANT)]);
+  UpdateSearchIcon();
+  close_button()->SetImage(
+      views::Button::STATE_NORMAL,
+      gfx::CreateVectorIcon(views::kIcCloseIcon, kCloseIconSize,
+                            search_box_color()));
+  search_box()->set_placeholder_text_color(search_box_color());
+  UpdateBackgroundColor(background_color());
+  SchedulePaint();
 }
 
 void SearchBoxView::ContentsChanged(views::Textfield* sender,
@@ -300,6 +368,7 @@ void SearchBoxView::HintTextChanged() {
       search_model_->search_box();
   search_box()->set_placeholder_text(search_box_model->hint_text());
   search_box()->SetAccessibleName(search_box_model->accessible_name());
+  SchedulePaint();
 }
 
 void SearchBoxView::SelectionModelChanged() {
@@ -313,72 +382,14 @@ void SearchBoxView::Update() {
   NotifyQueryChanged();
 }
 
-void SearchBoxView::OnWallpaperProminentColorsReceived(
-    const std::vector<SkColor>& prominent_colors) {
-  if (prominent_colors.empty())
-    return;
-  DCHECK_EQ(static_cast<size_t>(ColorProfileType::NUM_OF_COLOR_PROFILES),
-            prominent_colors.size());
-
-  SetSearchBoxColor(
-      prominent_colors[static_cast<int>(ColorProfileType::DARK_MUTED)]);
-  SetBackgroundColor(
-      prominent_colors[static_cast<int>(ColorProfileType::LIGHT_VIBRANT)]);
+void SearchBoxView::SearchEngineChanged() {
   UpdateSearchIcon();
-  close_button()->SetImage(
-      views::Button::STATE_NORMAL,
-      gfx::CreateVectorIcon(kIcCloseIcon, kCloseIconSize, search_box_color()));
-  search_box()->set_placeholder_text_color(search_box_color());
-  UpdateBackgroundColor(background_color());
-  SchedulePaint();
 }
 
 void SearchBoxView::OnWallpaperColorsChanged() {
   GetWallpaperProminentColors(
       base::BindOnce(&SearchBoxView::OnWallpaperProminentColorsReceived,
                      weak_ptr_factory_.GetWeakPtr()));
-}
-
-void SearchBoxView::UpdateSearchBoxBorder() {
-  if (search_box()->HasFocus() && !is_search_box_active()) {
-    // Show a gray ring around search box to indicate that the search box is
-    // selected. Do not show it when search box is active, because blinking
-    // cursor already indicates that.
-    SetBorder(views::CreateRoundedRectBorder(kSearchBoxBorderWidth,
-                                             kSearchBoxFocusBorderCornerRadius,
-                                             kSearchBoxBorderColor));
-    return;
-  }
-
-  // Creates an empty border as a placeholder for colored border so that
-  // re-layout won't move views below the search box.
-  SetBorder(
-      views::CreateEmptyBorder(kSearchBoxBorderWidth, kSearchBoxBorderWidth,
-                               kSearchBoxBorderWidth, kSearchBoxBorderWidth));
-}
-
-void SearchBoxView::SetupBackButton() {
-  views::ImageButton* back = back_button();
-  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
-  back->SetImage(views::ImageButton::STATE_NORMAL,
-                 rb.GetImageSkiaNamed(IDR_APP_LIST_FOLDER_BACK_NORMAL));
-  back->SetImageAlignment(views::ImageButton::ALIGN_CENTER,
-                          views::ImageButton::ALIGN_MIDDLE);
-  back->SetVisible(false);
-  base::string16 back_button_label(
-      l10n_util::GetStringUTF16(IDS_APP_LIST_BACK));
-  back->SetAccessibleName(back_button_label);
-  back->SetTooltipText(back_button_label);
-}
-
-void SearchBoxView::SetupCloseButton() {
-  views::ImageButton* close = close_button();
-  close->SetImage(
-      views::ImageButton::STATE_NORMAL,
-      gfx::CreateVectorIcon(kIcCloseIcon, kCloseIconSize, search_box_color()));
-  close->SetVisible(false);
-  close->SetAccessibleName(
-      l10n_util::GetStringUTF16(IDS_APP_LIST_CLEAR_SEARCHBOX));
 }
 
 }  // namespace app_list

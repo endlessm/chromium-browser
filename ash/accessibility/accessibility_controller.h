@@ -9,10 +9,10 @@
 
 #include "ash/ash_constants.h"
 #include "ash/ash_export.h"
-#include "ash/public/cpp/accessibility_types.h"
 #include "ash/public/interfaces/accessibility_controller.mojom.h"
 #include "ash/session/session_observer.h"
 #include "base/macros.h"
+#include "base/observer_list.h"
 #include "base/time/time.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "ui/accessibility/ax_enums.mojom.h"
@@ -28,7 +28,13 @@ class Connector;
 namespace ash {
 
 class AccessibilityHighlightController;
+class AccessibilityObserver;
 class ScopedBacklightsForcedOff;
+
+enum AccessibilityNotificationVisibility {
+  A11Y_NOTIFICATION_NONE,
+  A11Y_NOTIFICATION_SHOW,
+};
 
 // The controller for accessibility features in ash. Features can be enabled
 // in chrome's webui settings or the system tray menu (see TrayAccessibility).
@@ -42,6 +48,9 @@ class ASH_EXPORT AccessibilityController
 
   // See Shell::RegisterProfilePrefs().
   static void RegisterProfilePrefs(PrefRegistrySimple* registry, bool for_test);
+
+  void AddObserver(AccessibilityObserver* observer);
+  void RemoveObserver(AccessibilityObserver* observer);
 
   // Binds the mojom::AccessibilityController interface to this object.
   void BindRequest(mojom::AccessibilityControllerRequest request);
@@ -121,11 +130,16 @@ class ASH_EXPORT AccessibilityController
   // countdown.
   void PlaySpokenFeedbackToggleCountdown(int tick_count);
 
+  // Public because a11y features like screen magnifier are managed outside of
+  // this controller.
+  void NotifyAccessibilityStatusChanged();
+
   // mojom::AccessibilityController:
   void SetClient(mojom::AccessibilityControllerClientPtr client) override;
   void SetDarkenScreen(bool darken) override;
   void BrailleDisplayStateChanged(bool connected) override;
   void SetFocusHighlightRect(const gfx::Rect& bounds_in_screen) override;
+  void SetAccessibilityPanelFullscreen(bool fullscreen) override;
 
   // SessionObserver:
   void OnSigninScreenPrefServiceInitialized(PrefService* prefs) override;
@@ -153,7 +167,14 @@ class ASH_EXPORT AccessibilityController
   void UpdateVirtualKeyboardFromPref();
   void UpdateAccessibilityHighlightingFromPrefs();
 
+  void NotifyShowAccessibilityNotification();
+
   service_manager::Connector* connector_ = nullptr;
+
+  // The pref service of the currently active user or the signin profile before
+  // user logs in. Can be null in ash_unittests.
+  PrefService* active_user_prefs_ = nullptr;
+
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
 
   // Binding for mojom::AccessibilityController interface.
@@ -188,6 +209,8 @@ class ASH_EXPORT AccessibilityController
 
   // Used to force the backlights off to darken the screen.
   std::unique_ptr<ScopedBacklightsForcedOff> scoped_backlights_forced_off_;
+
+  base::ObserverList<AccessibilityObserver> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(AccessibilityController);
 };

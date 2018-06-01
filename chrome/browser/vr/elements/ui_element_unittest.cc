@@ -72,10 +72,133 @@ TEST(UiElement, BoundsContainChildren) {
   grand_parent->set_padding(0.1, 0.2);
   grand_parent->AddChild(std::move(parent));
 
+  auto anchored = std::make_unique<UiElement>();
+  anchored->set_y_anchoring(BOTTOM);
+  anchored->set_contributes_to_parent_bounds(false);
+
+  auto* anchored_ptr = anchored.get();
+  grand_parent->AddChild(std::move(anchored));
+
   grand_parent->DoLayOutChildren();
   EXPECT_RECT_NEAR(
       gfx::RectF(-0.5f, 0.5f, 9.4f, 7.8f),
       gfx::RectF(grand_parent->local_origin(), grand_parent->size()), kEpsilon);
+
+  gfx::Point3F p;
+  anchored_ptr->LocalTransform().TransformPoint(&p);
+  EXPECT_FLOAT_EQ(-3.9, p.y());
+}
+
+TEST(UiElement, IgnoringAsymmetricPadding) {
+  // This test ensures that when we ignore asymmetric padding that we don't
+  // accidentally shift the location of the parent; it should stay put.
+  auto a = std::make_unique<UiElement>();
+  a->set_bounds_contain_children(true);
+
+  auto b = std::make_unique<UiElement>();
+  b->set_bounds_contain_children(true);
+  b->set_bounds_contain_padding(false);
+  b->set_padding(0.0f, 5.0f, 0.0f, 0.0f);
+
+  auto c = std::make_unique<UiElement>();
+  c->set_bounds_contain_children(true);
+  c->set_bounds_contain_padding(false);
+  c->set_padding(0.0f, 2.0f, 0.0f, 0.0f);
+
+  auto d = std::make_unique<UiElement>();
+  d->SetSize(0.5f, 0.5f);
+
+  c->AddChild(std::move(d));
+  c->DoLayOutChildren();
+  b->AddChild(std::move(c));
+  b->DoLayOutChildren();
+  a->AddChild(std::move(b));
+  a->DoLayOutChildren();
+
+  a->UpdateWorldSpaceTransform(false);
+
+  gfx::Point3F p;
+  a->world_space_transform().TransformPoint(&p);
+
+  EXPECT_VECTOR3DF_EQ(gfx::Point3F(), p);
+}
+
+TEST(UiElement, BoundsContainPaddingWithAnchoring) {
+  // If an element's bounds do not contain padding, then padding should be
+  // discounted when doing anchoring.
+  auto parent = std::make_unique<UiElement>();
+  parent->SetSize(1.0, 1.0);
+
+  auto child = std::make_unique<UiElement>();
+  child->SetSize(0.5, 0.5);
+  child->set_padding(2.0, 2.0);
+  child->set_bounds_contain_padding(false);
+
+  auto* child_ptr = child.get();
+
+  parent->AddChild(std::move(child));
+
+  struct {
+    LayoutAlignment x_anchoring;
+    LayoutAlignment y_anchoring;
+    gfx::Point3F expected_position;
+  } test_cases[] = {
+      {LEFT, NONE, {-0.5, 0, 0}},
+      {RIGHT, NONE, {0.5, 0, 0}},
+      {NONE, TOP, {0, 0.5, 0}},
+      {NONE, BOTTOM, {0, -0.5, 0}},
+  };
+
+  for (auto test_case : test_cases) {
+    child_ptr->set_x_anchoring(test_case.x_anchoring);
+    child_ptr->set_y_anchoring(test_case.y_anchoring);
+    parent->DoLayOutChildren();
+    gfx::Point3F p;
+    child_ptr->LocalTransform().TransformPoint(&p);
+    EXPECT_VECTOR3DF_EQ(test_case.expected_position, p);
+  }
+}
+
+TEST(UiElement, BoundsContainPaddingWithCentering) {
+  // If an element's bounds do not contain padding, then padding should be
+  // discounted when doing centering.
+  auto parent = std::make_unique<UiElement>();
+  parent->SetSize(1.0, 1.0);
+
+  auto child = std::make_unique<UiElement>();
+  child->set_padding(2.0, 2.0);
+  child->set_bounds_contain_padding(false);
+  child->set_bounds_contain_children(true);
+
+  auto grandchild = std::make_unique<UiElement>();
+  grandchild->SetSize(0.5, 0.5);
+
+  child->AddChild(std::move(grandchild));
+
+  auto* child_ptr = child.get();
+
+  parent->AddChild(std::move(child));
+
+  struct {
+    LayoutAlignment x_centering;
+    LayoutAlignment y_centering;
+    gfx::Point3F expected_position;
+  } test_cases[] = {
+      {LEFT, NONE, {0.25, 0, 0}},
+      {RIGHT, NONE, {-0.25, 0, 0}},
+      {NONE, TOP, {0, -0.25, 0}},
+      {NONE, BOTTOM, {0, 0.25, 0}},
+  };
+
+  for (auto test_case : test_cases) {
+    child_ptr->set_x_centering(test_case.x_centering);
+    child_ptr->set_y_centering(test_case.y_centering);
+    child_ptr->DoLayOutChildren();
+    parent->DoLayOutChildren();
+    gfx::Point3F p;
+    child_ptr->LocalTransform().TransformPoint(&p);
+    EXPECT_VECTOR3DF_EQ(test_case.expected_position, p);
+  }
 }
 
 TEST(UiElement, BoundsContainScaledChildren) {

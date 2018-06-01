@@ -4,9 +4,12 @@
 
 #import "ios/chrome/browser/ui/download/download_manager_mediator.h"
 
+#import <UIKit/UIKit.h>
+
 #include "base/run_loop.h"
 #include "base/strings/sys_string_conversions.h"
 #include "ios/chrome/browser/download/download_directory_util.h"
+#import "ios/chrome/browser/download/google_drive_app_util.h"
 #import "ios/chrome/test/fakes/fake_download_manager_consumer.h"
 #import "ios/testing/wait_util.h"
 #import "ios/web/public/test/fakes/fake_download_task.h"
@@ -15,6 +18,7 @@
 #include "net/url_request/url_fetcher_response_writer.h"
 #include "testing/gtest_mac.h"
 #include "testing/platform_test.h"
+#import "third_party/ocmock/OCMock/OCMock.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -38,12 +42,17 @@ class DownloadManagerMediatorTest : public PlatformTest {
  protected:
   DownloadManagerMediatorTest()
       : consumer_([[FakeDownloadManagerConsumer alloc] init]),
-        task_(GURL(kTestUrl), kTestMimeType) {}
+        application_(OCMClassMock([UIApplication class])),
+        task_(GURL(kTestUrl), kTestMimeType) {
+    OCMStub([application_ sharedApplication]).andReturn(application_);
+  }
+  ~DownloadManagerMediatorTest() override { [application_ stopMocking]; }
 
   web::FakeDownloadTask* task() { return &task_; }
 
   DownloadManagerMediator mediator_;
   FakeDownloadManagerConsumer* consumer_;
+  id application_;
 
  private:
   web::TestWebThreadBundle thread_bundle_;
@@ -61,6 +70,7 @@ TEST_F(DownloadManagerMediatorTest, Start) {
 
   // Starting download is async for task and sync for consumer.
   EXPECT_EQ(kDownloadManagerStateInProgress, consumer_.state);
+  EXPECT_FALSE(consumer_.installDriveButtonVisible);
   ASSERT_TRUE(WaitUntilConditionOrTimeout(testing::kWaitForDownloadTimeout, ^{
     base::RunLoop().RunUntilIdle();
     return task()->GetState() == web::DownloadTask::State::kInProgress;
@@ -72,8 +82,6 @@ TEST_F(DownloadManagerMediatorTest, Start) {
   base::FilePath download_dir;
   ASSERT_TRUE(GetDownloadsDirectory(&download_dir));
   EXPECT_TRUE(download_dir.IsParent(file));
-
-  mediator_.SetDownloadTask(nullptr);
 }
 
 // Tests starting and failing the download. Simulates download failure from
@@ -89,27 +97,29 @@ TEST_F(DownloadManagerMediatorTest, StartFailure) {
     base::RunLoop().RunUntilIdle();
     return consumer_.state == kDownloadManagerStateFailed;
   }));
-
-  mediator_.SetDownloadTask(nullptr);
+  EXPECT_FALSE(consumer_.installDriveButtonVisible);
 }
 
 // Tests that consumer is updated right after it's set.
 TEST_F(DownloadManagerMediatorTest, ConsumerInstantUpdate) {
+  OCMStub([application_ canOpenURL:GetGoogleDriveAppUrl()]).andReturn(YES);
+
   task()->SetDone(true);
   task()->SetSuggestedFilename(
       base::SysNSStringToUTF16(kTestSuggestedFileName));
   task()->SetTotalBytes(kTestTotalBytes);
   task()->SetReceivedBytes(kTestReceivedBytes);
+  task()->SetPercentComplete(80);
 
   mediator_.SetDownloadTask(task());
   mediator_.SetConsumer(consumer_);
 
-  EXPECT_EQ(kDownloadManagerStateSuceeded, consumer_.state);
+  EXPECT_EQ(kDownloadManagerStateSucceeded, consumer_.state);
+  EXPECT_FALSE(consumer_.installDriveButtonVisible);
   EXPECT_NSEQ(kTestSuggestedFileName, consumer_.fileName);
   EXPECT_EQ(kTestTotalBytes, consumer_.countOfBytesExpectedToReceive);
   EXPECT_EQ(kTestReceivedBytes, consumer_.countOfBytesReceived);
-
-  mediator_.SetDownloadTask(nullptr);
+  EXPECT_FLOAT_EQ(0.8f, consumer_.progress);
 }
 
 // Tests that consumer changes the state to kDownloadManagerStateFailed if task
@@ -121,20 +131,34 @@ TEST_F(DownloadManagerMediatorTest, ConsumerFailedStateUpdate) {
   task()->SetErrorCode(net::ERR_INTERNET_DISCONNECTED);
   task()->SetDone(true);
   EXPECT_EQ(kDownloadManagerStateFailed, consumer_.state);
-
-  mediator_.SetDownloadTask(nullptr);
+  EXPECT_FALSE(consumer_.installDriveButtonVisible);
 }
 
-// Tests that consumer changes the state to kDownloadManagerStateSuceeded if
+// Tests that consumer changes the state to kDownloadManagerStateSucceeded if
 // task competed without an error.
 TEST_F(DownloadManagerMediatorTest, ConsumerSuceededStateUpdate) {
+  OCMStub([application_ canOpenURL:GetGoogleDriveAppUrl()]).andReturn(YES);
+
   mediator_.SetDownloadTask(task());
   mediator_.SetConsumer(consumer_);
 
   task()->SetDone(true);
-  EXPECT_EQ(kDownloadManagerStateSuceeded, consumer_.state);
+  EXPECT_EQ(kDownloadManagerStateSucceeded, consumer_.state);
+  EXPECT_FALSE(consumer_.installDriveButtonVisible);
+}
 
-  mediator_.SetDownloadTask(nullptr);
+// Tests that consumer changes the state to kDownloadManagerStateSucceeded if
+// task competed without an error and Google Drive app is not installed.
+TEST_F(DownloadManagerMediatorTest,
+       ConsumerSuceededStateUpdateWithoutDriveAppInstalled) {
+  OCMStub([application_ canOpenURL:GetGoogleDriveAppUrl()]).andReturn(NO);
+
+  mediator_.SetDownloadTask(task());
+  mediator_.SetConsumer(consumer_);
+
+  task()->SetDone(true);
+  EXPECT_EQ(kDownloadManagerStateSucceeded, consumer_.state);
+  EXPECT_TRUE(consumer_.installDriveButtonVisible);
 }
 
 // Tests that consumer changes the state to kDownloadManagerStateInProgress if
@@ -145,6 +169,6 @@ TEST_F(DownloadManagerMediatorTest, ConsumerInProgressStateUpdate) {
 
   task()->Start(std::make_unique<net::URLFetcherStringWriter>());
   EXPECT_EQ(kDownloadManagerStateInProgress, consumer_.state);
-
-  mediator_.SetDownloadTask(nullptr);
+  EXPECT_FALSE(consumer_.installDriveButtonVisible);
+  EXPECT_EQ(0.0, consumer_.progress);
 }

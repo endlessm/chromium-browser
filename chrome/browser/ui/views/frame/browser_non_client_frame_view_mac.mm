@@ -20,6 +20,8 @@ namespace {
 const int kTabstripTopInset = 8;
 const int kTabstripLeftInset = 70;  // Make room for window control buttons.
 constexpr int kTabstripRightInset = 4;  // Margin for profile switcher.
+constexpr const gfx::Size kMinTabbedWindowSize(400, 272);
+constexpr const gfx::Size kMinPopupWindowSize(100, 122);
 
 }  // namespace
 
@@ -42,7 +44,7 @@ gfx::Rect BrowserNonClientFrameViewMac::GetBoundsForTabStrip(
   DCHECK(tabstrip);
   gfx::Rect bounds = gfx::Rect(0, kTabstripTopInset, width(),
                                tabstrip->GetPreferredSize().height());
-  bounds.Inset(kTabstripLeftInset, 0, GetTabStripRightInset(), 0);
+  bounds.Inset(GetTabStripLeftInset(), 0, GetTabStripRightInset(), 0);
   return bounds;
 }
 
@@ -52,11 +54,12 @@ int BrowserNonClientFrameViewMac::GetTopInset(bool restored) const {
 
 int BrowserNonClientFrameViewMac::GetTabStripRightInset() const {
   int inset = kTabstripRightInset;
-  views::View* profile_switcher_view = GetProfileSwitcherView();
+  views::View* profile_switcher_view = GetProfileSwitcherButton();
   if (profile_switcher_view) {
     inset += profile_switcher_view->GetPreferredSize().width();
   } else if (profile_indicator_icon()) {
-    inset += profile_indicator_icon()->bounds().width() + kAvatarIconPadding;
+    inset +=
+        profile_indicator_icon()->bounds().width() + GetAvatarIconPadding();
   }
   return inset;
 }
@@ -66,6 +69,10 @@ int BrowserNonClientFrameViewMac::GetThemeBackgroundXInset() const {
 }
 
 void BrowserNonClientFrameViewMac::UpdateThrobber(bool running) {
+}
+
+int BrowserNonClientFrameViewMac::GetTabStripLeftInset() const {
+  return kTabstripLeftInset;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -81,7 +88,7 @@ gfx::Rect BrowserNonClientFrameViewMac::GetWindowBoundsForClientBounds(
 }
 
 int BrowserNonClientFrameViewMac::NonClientHitTest(const gfx::Point& point) {
-  views::View* profile_switcher_view = GetProfileSwitcherView();
+  views::View* profile_switcher_view = GetProfileSwitcherButton();
   if (profile_switcher_view) {
     gfx::Point point_in_switcher(point);
     views::View::ConvertPointToTarget(this, profile_switcher_view,
@@ -121,29 +128,21 @@ void BrowserNonClientFrameViewMac::SizeConstraintsChanged() {
 // BrowserNonClientFrameViewMac, views::View implementation:
 
 gfx::Size BrowserNonClientFrameViewMac::GetMinimumSize() const {
-  return browser_view()->GetMinimumSize();
+  gfx::Size size = browser_view()->GetMinimumSize();
+  size.SetToMax(browser_view()->browser()->is_type_tabbed()
+                    ? kMinTabbedWindowSize
+                    : kMinPopupWindowSize);
+  return size;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // BrowserNonClientFrameViewMac, protected:
 
 // views::View:
-void BrowserNonClientFrameViewMac::OnPaint(gfx::Canvas* canvas) {
-  if (!browser_view()->IsBrowserTypeNormal())
-    return;
-
-  canvas->DrawColor(GetFrameColor());
-
-  if (!GetThemeProvider()->UsingSystemTheme())
-    PaintThemedFrame(canvas);
-
-  if (browser_view()->IsToolbarVisible())
-    PaintToolbarBackground(canvas);
-}
 
 void BrowserNonClientFrameViewMac::Layout() {
   DCHECK(browser_view());
-  views::View* profile_switcher_view = GetProfileSwitcherView();
+  views::View* profile_switcher_view = GetProfileSwitcherButton();
   if (profile_indicator_icon() && browser_view()->IsTabStripVisible()) {
     LayoutIncognitoButton();
     // Mac lays out the incognito icon on the right, as the stoplight
@@ -164,6 +163,19 @@ void BrowserNonClientFrameViewMac::Layout() {
                                      button_size.height());
   }
   BrowserNonClientFrameView::Layout();
+}
+
+void BrowserNonClientFrameViewMac::OnPaint(gfx::Canvas* canvas) {
+  if (!browser_view()->IsBrowserTypeNormal())
+    return;
+
+  canvas->DrawColor(GetFrameColor());
+
+  if (!GetThemeProvider()->UsingSystemTheme())
+    PaintThemedFrame(canvas);
+
+  if (browser_view()->IsToolbarVisible())
+    PaintToolbarBackground(canvas);
 }
 
 // BrowserNonClientFrameView:

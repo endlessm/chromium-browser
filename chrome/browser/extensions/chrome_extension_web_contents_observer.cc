@@ -26,6 +26,8 @@
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/extension_urls.h"
 #include "extensions/common/switches.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/platform/autoplay.mojom.h"
 
 using content::BrowserContext;
 
@@ -40,11 +42,24 @@ ChromeExtensionWebContentsObserver::ChromeExtensionWebContentsObserver(
 
 ChromeExtensionWebContentsObserver::~ChromeExtensionWebContentsObserver() {}
 
+// static
+void ChromeExtensionWebContentsObserver::CreateForWebContents(
+    content::WebContents* web_contents) {
+  content::WebContentsUserData<
+      ChromeExtensionWebContentsObserver>::CreateForWebContents(web_contents);
+
+  // Initialize this instance if necessary.
+  FromWebContents(web_contents)->Initialize();
+}
+
 void ChromeExtensionWebContentsObserver::RenderFrameCreated(
     content::RenderFrameHost* render_frame_host) {
+  DCHECK(initialized());
   ReloadIfTerminated(render_frame_host);
   ExtensionWebContentsObserver::RenderFrameCreated(render_frame_host);
 
+  // This logic should match
+  // ChromeContentBrowserClient::RegisterNonNetworkSubresourceURLLoaderFactories.
   const Extension* extension = GetExtensionFromFrame(render_frame_host, false);
   if (!extension)
     return;
@@ -80,12 +95,14 @@ void ChromeExtensionWebContentsObserver::RenderFrameCreated(
 
 void ChromeExtensionWebContentsObserver::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
+  DCHECK(initialized());
   ExtensionWebContentsObserver::DidFinishNavigation(navigation_handle);
 }
 
 bool ChromeExtensionWebContentsObserver::OnMessageReceived(
     const IPC::Message& message,
     content::RenderFrameHost* render_frame_host) {
+  DCHECK(initialized());
   if (ExtensionWebContentsObserver::OnMessageReceived(message,
                                                       render_frame_host)) {
     return true;
@@ -107,6 +124,7 @@ void ChromeExtensionWebContentsObserver::OnDetailedConsoleMessageAdded(
     const base::string16& source,
     const StackTrace& stack_trace,
     int32_t severity_level) {
+  DCHECK(initialized());
   if (!IsSourceFromAnExtension(source))
     return;
 
@@ -125,6 +143,7 @@ void ChromeExtensionWebContentsObserver::OnDetailedConsoleMessageAdded(
 
 void ChromeExtensionWebContentsObserver::InitializeRenderFrame(
     content::RenderFrameHost* render_frame_host) {
+  DCHECK(initialized());
   ExtensionWebContentsObserver::InitializeRenderFrame(render_frame_host);
   WindowController* controller = dispatcher()->GetExtensionWindowController();
   if (controller) {
@@ -135,6 +154,7 @@ void ChromeExtensionWebContentsObserver::InitializeRenderFrame(
 
 void ChromeExtensionWebContentsObserver::ReloadIfTerminated(
     content::RenderFrameHost* render_frame_host) {
+  DCHECK(initialized());
   std::string extension_id = GetExtensionIdFromFrame(render_frame_host);
   if (extension_id.empty())
     return;
@@ -148,6 +168,27 @@ void ChromeExtensionWebContentsObserver::ReloadIfTerminated(
   if (registry->GetExtensionById(extension_id, ExtensionRegistry::TERMINATED)) {
     ExtensionSystem::Get(browser_context())->
         extension_service()->ReloadExtension(extension_id);
+  }
+}
+
+void ChromeExtensionWebContentsObserver::ReadyToCommitNavigation(
+    content::NavigationHandle* navigation_handle) {
+  const ExtensionRegistry* registry = ExtensionRegistry::Get(
+      navigation_handle->GetWebContents()->GetBrowserContext());
+
+  // If the top most frame is an extension, packaged app, hosted app, etc. then
+  // the main frame and all iframes should be able to autoplay without
+  // restriction. <webview> should still have autoplay blocked though.
+  GURL url = navigation_handle->IsInMainFrame()
+                 ? navigation_handle->GetURL()
+                 : navigation_handle->GetWebContents()->GetLastCommittedURL();
+  if (registry->enabled_extensions().GetExtensionOrAppByURL(url)) {
+    blink::mojom::AutoplayConfigurationClientAssociatedPtr client;
+    navigation_handle->GetRenderFrameHost()
+        ->GetRemoteAssociatedInterfaces()
+        ->GetInterface(&client);
+    client->AddAutoplayFlags(url::Origin::Create(navigation_handle->GetURL()),
+                             blink::mojom::kAutoplayFlagForceAllow);
   }
 }
 

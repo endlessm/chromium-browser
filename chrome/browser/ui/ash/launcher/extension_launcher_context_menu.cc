@@ -21,6 +21,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "content/public/common/context_menu_params.h"
 #include "extensions/browser/extension_prefs.h"
+#include "ui/base/ui_base_features.h"
 
 namespace {
 
@@ -52,60 +53,64 @@ void ExtensionLauncherContextMenu::Init() {
                        GetLaunchType() == extensions::LAUNCH_TYPE_REGULAR)
                           ? IDS_APP_LIST_CONTEXT_MENU_NEW_TAB
                           : IDS_APP_LIST_CONTEXT_MENU_NEW_WINDOW;
-      AddItemWithStringId(MENU_OPEN_NEW, string_id);
-      AddSeparator(ui::NORMAL_SEPARATOR);
+      AddContextMenuOption(MENU_OPEN_NEW, string_id);
+      if (!features::IsTouchableAppContextMenuEnabled())
+        AddSeparator(ui::NORMAL_SEPARATOR);
     }
 
     AddPinMenu();
 
     if (controller()->IsOpen(item().id))
-      AddItemWithStringId(MENU_CLOSE, IDS_LAUNCHER_CONTEXT_MENU_CLOSE);
+      AddContextMenuOption(MENU_CLOSE, IDS_LAUNCHER_CONTEXT_MENU_CLOSE);
 
     if (!controller()->IsPlatformApp(item().id) &&
         item().type == ash::TYPE_PINNED_APP) {
-      AddSeparator(ui::NORMAL_SEPARATOR);
+      if (!features::IsTouchableAppContextMenuEnabled())
+        AddSeparator(ui::NORMAL_SEPARATOR);
       if (extensions::util::IsNewBookmarkAppsEnabled()) {
         // With bookmark apps enabled, hosted apps launch in a window by
         // default. This menu item is re-interpreted as a single, toggle-able
         // option to launch the hosted app as a tab.
-        AddCheckItemWithStringId(LAUNCH_TYPE_WINDOW,
-                                 IDS_APP_CONTEXT_MENU_OPEN_WINDOW);
+        AddContextMenuOption(LAUNCH_TYPE_WINDOW,
+                             IDS_APP_CONTEXT_MENU_OPEN_WINDOW);
       } else {
-        AddCheckItemWithStringId(LAUNCH_TYPE_REGULAR_TAB,
-                                 IDS_APP_CONTEXT_MENU_OPEN_REGULAR);
-        AddCheckItemWithStringId(LAUNCH_TYPE_PINNED_TAB,
-                                 IDS_APP_CONTEXT_MENU_OPEN_PINNED);
-        AddCheckItemWithStringId(LAUNCH_TYPE_WINDOW,
-                                 IDS_APP_CONTEXT_MENU_OPEN_WINDOW);
+        AddContextMenuOption(LAUNCH_TYPE_REGULAR_TAB,
+                             IDS_APP_CONTEXT_MENU_OPEN_REGULAR);
+        AddContextMenuOption(LAUNCH_TYPE_PINNED_TAB,
+                             IDS_APP_CONTEXT_MENU_OPEN_PINNED);
+        AddContextMenuOption(LAUNCH_TYPE_WINDOW,
+                             IDS_APP_CONTEXT_MENU_OPEN_WINDOW);
         // Even though the launch type is Full Screen it is more accurately
         // described as Maximized in Ash.
-        AddCheckItemWithStringId(LAUNCH_TYPE_FULLSCREEN,
-                                 IDS_APP_CONTEXT_MENU_OPEN_MAXIMIZED);
+        AddContextMenuOption(LAUNCH_TYPE_FULLSCREEN,
+                             IDS_APP_CONTEXT_MENU_OPEN_MAXIMIZED);
       }
     }
   } else if (item().type == ash::TYPE_BROWSER_SHORTCUT) {
-    AddItemWithStringId(MENU_NEW_WINDOW, IDS_APP_LIST_NEW_WINDOW);
+    AddContextMenuOption(MENU_NEW_WINDOW, IDS_APP_LIST_NEW_WINDOW);
     if (!controller()->profile()->IsGuestSession()) {
-      AddItemWithStringId(MENU_NEW_INCOGNITO_WINDOW,
-                          IDS_APP_LIST_NEW_INCOGNITO_WINDOW);
+      AddContextMenuOption(MENU_NEW_INCOGNITO_WINDOW,
+                           IDS_APP_LIST_NEW_INCOGNITO_WINDOW);
     }
     if (!BrowserShortcutLauncherItemController(controller()->shelf_model())
              .IsListOfActiveBrowserEmpty()) {
-      AddItemWithStringId(MENU_CLOSE, IDS_LAUNCHER_CONTEXT_MENU_CLOSE);
+      AddContextMenuOption(MENU_CLOSE, IDS_LAUNCHER_CONTEXT_MENU_CLOSE);
     }
   } else if (item().type == ash::TYPE_DIALOG) {
-    AddItemWithStringId(MENU_CLOSE, IDS_LAUNCHER_CONTEXT_MENU_CLOSE);
+    AddContextMenuOption(MENU_CLOSE, IDS_LAUNCHER_CONTEXT_MENU_CLOSE);
   } else if (controller()->IsOpen(item().id)) {
-    AddItemWithStringId(MENU_CLOSE, IDS_LAUNCHER_CONTEXT_MENU_CLOSE);
+    AddContextMenuOption(MENU_CLOSE, IDS_LAUNCHER_CONTEXT_MENU_CLOSE);
   }
-  AddSeparator(ui::NORMAL_SEPARATOR);
+  if (!features::IsTouchableAppContextMenuEnabled())
+    AddSeparator(ui::NORMAL_SEPARATOR);
   if (item().type == ash::TYPE_PINNED_APP || item().type == ash::TYPE_APP) {
     const extensions::MenuItem::ExtensionKey app_key(item().id.app_id);
     if (!app_key.empty()) {
       int index = 0;
       extension_items_->AppendExtensionItems(app_key, base::string16(), &index,
                                              false);  // is_action_menu
-      AddSeparator(ui::NORMAL_SEPARATOR);
+      if (!features::IsTouchableAppContextMenuEnabled())
+        AddSeparator(ui::NORMAL_SEPARATOR);
     }
   }
 }

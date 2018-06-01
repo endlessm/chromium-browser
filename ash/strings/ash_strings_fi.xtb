@@ -26,11 +26,13 @@
 <translation id="1537254971476575106">Koko näytön suurennus</translation>
 <translation id="15373452373711364">Suuri hiiren osoitin</translation>
 <translation id="1550523713251050646">Näet lisävaihtoehtoja klikkaamalla tätä.</translation>
+<translation id="1567387640189251553">Laitteeseen on kytketty eri näppäimistö sen jälkeen, kun annoit salasanasi edellisen kerran. Sillä voidaan yrittää kaapata näppäinpainalluksesi.</translation>
 <translation id="1608626060424371292">Poista tämä käyttäjä</translation>
 <translation id="1621499497873603021">Akku on tyhjä <ph name="TIME_LEFT" /> kuluttua</translation>
 <translation id="1658406695958299976">Salasanan vahvistaminen ei onnistunut vieläkään. Huom. Jos vaihdoit salasanasi äskettäin, uusi salasana otetaan käyttöön kirjauduttuasi ulos. Käytä tässä vanhaa salasanaasi.</translation>
 <translation id="1677472565718498478"><ph name="TIME" /> jäljellä</translation>
 <translation id="1698760176351776263">IPv6-osoite: <ph name="ADDRESS" /></translation>
+<translation id="170389796989115980">Laitteen järjestelmänvalvoja voi ehkä seurata toimintaasi.</translation>
 <translation id="1734367976349034509">Tämä laite on yrityksen hallinnoima.</translation>
 <translation id="1746730358044914197">Järjestelmänvalvoja on määrittänyt syöttötavat.</translation>
 <translation id="1747827819627189109">Ruutunäppäimistö otettiin käyttöön</translation>
@@ -41,9 +43,11 @@
 <translation id="1882897271359938046">Peilataan: <ph name="DISPLAY_NAME" /></translation>
 <translation id="1919743966458266018">Tehtävänhallinnan avaamisen pikanäppäin on muuttunut. Käytä uutta pikanäppäintä <ph name="NEW_SHORTCUT" /> vanhan (<ph name="OLD_SHORTCUT" />) sijaan.</translation>
 <translation id="1923539912171292317">Automaattiset klikkaukset</translation>
+<translation id="1928739107511554905">Voit asentaa päivityksen käynnistämällä Chromebookisi uudelleen kosketusnäytön avulla niin, että näppäimistö on kytkettynä.</translation>
 <translation id="1942830294380034169">Overflow-painike</translation>
 <translation id="1951012854035635156">Assistant</translation>
 <translation id="1957803754585243749">0°</translation>
+<translation id="1957958912175573503">Määritä kieli</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
 <translation id="1995660704900986789">Virta pois</translation>
 <translation id="2012624427112548395">Ctrl + haku + H</translation>
@@ -63,6 +67,7 @@
 <translation id="2292698582925480719">Näytön skaalaus</translation>
 <translation id="2303600792989757991">Vaihda ikkunan yleiskatsausta</translation>
 <translation id="2338501278241028356">Löydä lähellä olevat laitteet ottamalla ensin Bluetooth käyttöön.</translation>
+<translation id="2351266942280602854">Kieli ja syöttötapa</translation>
 <translation id="2352467521400612932">Näyttökynäasetukset</translation>
 <translation id="2354174487190027830">Aktivoidaan <ph name="NAME" /></translation>
 <translation id="2365393535144473978">Jos otat mobiilidatan käyttöön, Bluetooth otetaan samalla käyttöön.</translation>
@@ -78,6 +83,9 @@
 <translation id="2653659639078652383">Lähetä</translation>
 <translation id="2675319268637823299">Järjestelmänvalvoja on kieltänyt käyttäjää <ph name="USER_EMAIL" /> kirjautumasta sisään useille tileille.
     Kaikkien käyttäjien on kirjauduttava ulos jatkaakseen käyttöä.</translation>
+<translation id="2696763960464195425">Tietosi poistetaan, kun kirjaudut ulos. <ph name="LEARN_MORE" /></translation>
+<translation id="2700493154570097719">Määritä näppäimistö</translation>
+<translation id="2718395828230677721">Yövalo</translation>
 <translation id="2727977024730340865">Pienitehoinen laturi kytketty. Akku ei ehkä lataudu luotettavasti.</translation>
 <translation id="2761704814324807722">Tila-alue, aika <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581">Yhdistetään uudelleen verkkoon <ph name="NAME" /></translation>
@@ -100,9 +108,11 @@
 <translation id="3077734595579995578">shift</translation>
 <translation id="3087734570205094154">Alaosa</translation>
 <translation id="3105990244222795498"><ph name="DEVICE_NAME" /> (Bluetooth)</translation>
+<translation id="3112378005171663295">Tiivistä</translation>
 <translation id="3126069444801937830">Päivitä käynnistämällä uudelleen</translation>
 <translation id="3147142846278915599">Käynnistysohjelma (synkronoidaan sovelluksia…)</translation>
 <translation id="315116470104423982">Mobiilitiedonsiirto</translation>
+<translation id="3151786313568798007">Suunta</translation>
 <translation id="3153444934357957346">Voit lisätä enintään <ph name="MULTI_PROFILE_USER_LIMIT" /> tiliä useille tileille kirjautumista varten.</translation>
 <translation id="3236488194889173876">Mobiiliverkkoja ei ole käytettävissä</translation>
 <translation id="3294437725009624529">Vieras</translation>
@@ -124,6 +134,7 @@
 <translation id="3621202678540785336">Äänitulo:</translation>
 <translation id="3626281679859535460">Kirkkaus</translation>
 <translation id="3631369015426612114">Salli ilmoitukset seuraavista:</translation>
+<translation id="3705722231355495246">-</translation>
 <translation id="3712407551474845318">Tallenna kuvakaappaus alueesta</translation>
 <translation id="371370241367527062">Etumikrofoni</translation>
 <translation id="3771549900096082774">Suuri kontrasti ‑tila</translation>
@@ -169,6 +180,7 @@
 <translation id="4905614135390995787">Suuren kontrastin tilan pikanäppäin on muuttunut. Käytä uutta pikanäppäintä <ph name="NEW_SHORTCUT" /> vanhan (<ph name="OLD_SHORTCUT" />) sijaan.</translation>
 <translation id="4918086044614829423">Hyväksy</translation>
 <translation id="4961318399572185831">Suoratoista näyttö</translation>
+<translation id="5136175204352732067">Eri näppäimistö kytketty</translation>
 <translation id="5168181903108465623">Cast-laitteita käytettävissä</translation>
 <translation id="5207949376430453814">Korosta tekstikursori</translation>
 <translation id="5222676887888702881">Kirjaudu ulos</translation>
@@ -180,6 +192,7 @@
 <translation id="5431825016875453137">OpenVPN/L2TP</translation>
 <translation id="544691375626129091">Kaikki käytettävissä olevat käyttäjät on jo lisätty tähän istuntoon.</translation>
 <translation id="5457599981699367932">Selaa vierailijana</translation>
+<translation id="54609108002486618">Hallinnoitu</translation>
 <translation id="553675580533261935">Käyttökerran lopettaminen</translation>
 <translation id="5548285847212963613">Laajennus <ph name="EXTENSION_NAME" /> voi auttaa muodostamaan yhteyden tähän verkkoon.</translation>
 <translation id="5571066253365925590">Bluetooth käytössä</translation>
@@ -204,6 +217,7 @@
 <translation id="5977415296283489383">Kuulokkeet</translation>
 <translation id="5978382165065462689">Näyttösi hallinta jaetaan Etätuen kautta.</translation>
 <translation id="5980301590375426705">Sulje vierastila</translation>
+<translation id="598882571027504733">Voit asentaa päivityksen käynnistämällä Chromebookisi uudelleen niin, että näppäimistö on kytkettynä.</translation>
 <translation id="5992218262414051481">Suuri kontrasti ‑tila on käytössä. Poista se käytöstä painamalla uudelleen Ctrl + haku + H.</translation>
 <translation id="6018164090099858612">Poistutaan peilitilasta</translation>
 <translation id="6043212731627905357">Näyttö ja <ph name="DEVICE_TYPE" /> eivät sovi yhteen (näyttöä ei tueta).</translation>
@@ -242,6 +256,7 @@ Käytä tätä ominaisuutta vain luotettavien tilien kanssa.</translation>
 <translation id="6650933572246256093">Bluetooth-laite <ph name="DEVICE_NAME" /> pyytää lupaa laiteparin muodostamiseen. Anna tämä avain kyseisellä laitteella: <ph name="PASSKEY" /></translation>
 <translation id="6657585470893396449">Salasana</translation>
 <translation id="6691659475504239918">Haku + vaihto + H</translation>
+<translation id="6696025732084565524">Irrotettavaan näppäimistöösi täytyy asentaa kriittinen päivitys</translation>
 <translation id="6700713906295497288">IME-valikkopainike</translation>
 <translation id="6713285437468012787">Bluetooth-laitteeseen <ph name="DEVICE_NAME" /> on nyt muodostettu laitepariyhteys, ja se on kaikkien käyttäjien saatavilla. Voit poistaa laiteparin Asetuksien kautta.</translation>
 <translation id="6715542151869432661">Mobiililaitteita ei löytynyt.</translation>
@@ -261,6 +276,7 @@ Käytä tätä ominaisuutta vain luotettavien tilien kanssa.</translation>
 <translation id="7098389117866926363">C-tyypin USB-laite (vasemmanpuoleinen takaportti)</translation>
 <translation id="7131634465328662194">Sinut kirjataan automaattisesti ulos.</translation>
 <translation id="7165278925115064263">Alt+Vaihto+K</translation>
+<translation id="7165511658052620796">(TEMP) Show webui login; if used file bug (crbug.com) or feedback (alt+shift+i)</translation>
 <translation id="7168224885072002358">Palautetaan vanha tarkkuus, aikaa palautukseen <ph name="TIMEOUT_SECONDS" /></translation>
 <translation id="7256634071279256947">Takamikrofoni</translation>
 <translation id="726276584504105859">Jaa näyttö vetämällä tähän.</translation>
@@ -320,6 +336,8 @@ Käytä tätä ominaisuutta vain luotettavien tilien kanssa.</translation>
 <translation id="8652175077544655965">Sulje asetukset</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">Pienitehoinen laturi kytketty</translation>
+<translation id="8734991477317290293">Sillä voidaan yrittää kaapata näppäinpainalluksesi</translation>
+<translation id="8809737090443522491">Kirjoita sovelluksen tai dokumentin nimi</translation>
 <translation id="8814190375133053267">Wi-Fi</translation>
 <translation id="8814715559352963456">Ikkunan siirtämisellä toiselle työpöydälle voi olla odottamattomia seurauksia.
 
@@ -333,6 +351,7 @@ Myöhemmät ilmoitukset, ikkunat ja valintaikkunat voidaan jakaa työpöytien v�
 <translation id="8921624153894383499">Google Assistant ei ole käytettävissä tällä kielellä.</translation>
 <translation id="8938800817013097409">C-tyypin USB-laite (oikeanpuoleinen takaportti)</translation>
 <translation id="8940956008527784070">Akku vähissä (<ph name="PERCENTAGE" /> %)</translation>
+<translation id="8995603266996330174">Hallinnoija: <ph name="DOMAIN" /></translation>
 <translation id="9074739597929991885">Bluetooth</translation>
 <translation id="9079731690316798640">Wi-Fi: <ph name="ADDRESS" /></translation>
 <translation id="9080206825613744995">Mikrofoni on käytössä.</translation>

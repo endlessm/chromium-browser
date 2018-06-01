@@ -3,9 +3,6 @@
 <translationbundle lang="iw">
 <translation id="1002108253973310084">זוהתה גרסת פרוטוקול לא תואמת. ודא שהתקנת את הגרסה העדכנית ביותר של התוכנה בשני המחשבים ונסה שוב.</translation>
 <translation id="1050693411695664090">איכות גרועה</translation>
-<translation id="1059802506829356230">‏• ממשק בעיצוב חדש.
-• שיפור בביצועים, במהירות התגובה ובאמינות.
-• תמיכה בהפעלת אודיו ממחשבי Windows או Linux.</translation>
 <translation id="1152528166145813711">בחר...</translation>
 <translation id="1199593201721843963">השבת חיבורים מרוחקים</translation>
 <translation id="1291443878853470558">‏אם ברצונך להשתמש ב-Chromoting כדי לגשת למחשב זה, עליך להפעיל חיבורים מרוחקים.</translation>
@@ -121,7 +118,6 @@
 <translation id="3581045510967524389">לא ניתן היה להתחבר לרשת. בדוק שהמכשיר שלך מקוון.</translation>
 <translation id="3596628256176442606">‏שירות זה מאפשר חיבורים נכנסים מלקוחות Chromoting.</translation>
 <translation id="3606997049964069799">‏אתה לא מחובר ל-Chromium. היכנס ונסה שוב.</translation>
-<translation id="3608841044971751032">גישה מאובטחת למחשב שלך</translation>
 <translation id="3649256019230929621">מזער את החלון</translation>
 <translation id="369442766917958684">פועל במצב לא מקוון.</translation>
 <translation id="3695446226812920698">איך עושים זאת</translation>
@@ -144,10 +140,12 @@
 <translation id="4145029455188493639">התחברת באמצעות חשבון <ph name="EMAIL_ADDRESS" />.</translation>
 <translation id="4155497795971509630">חלק מהרכיבים הדרושים חסרים. ודא שהתקנת את הגרסה העדכנית ביותר של התוכנה ונסה שוב.</translation>
 <translation id="4156740505453712750">‏כדי להגן על הגישה למחשב זה, בחר PIN באורך <ph name="BOLD_START" />שש ספרות לפחות<ph name="BOLD_END" />. PIN זה יידרש בעת התחברות ממיקום אחר.</translation>
+<translation id="4169432154993690151">‏כדי לבחור תמונת פרופיל, צריך לאפשר ל-Chrome Remote Desktop גישה למצלמה שלך</translation>
 <translation id="4176825807642096119">קוד גישה</translation>
 <translation id="4207623512727273241">הפעל את המתקין לפני שתמשיך.</translation>
 <translation id="4227991223508142681">Host Provisioning Utility</translation>
 <translation id="4240294130679914010">‏מסיר ההתקנה של מארח Chromoting</translation>
+<translation id="4249741460382919890">תיקונים כלליים ושיפורי יציבות.</translation>
 <translation id="4277463233460010382">‏מחשב זה מוגדר לאפשר ללקוח אחד או יותר להתחבר מבלי להזין PIN.</translation>
 <translation id="4277736576214464567">קוד הגישה אינו חוקי. נסה שוב.</translation>
 <translation id="4361728918881830843">‏כדי להפעיל חיבורים מרחוק למחשב אחר, התקן את 'שולחן עבודה מרוחק של Chrome' במחשב האחר ולחץ על '<ph name="BUTTON_NAME" />'.</translation>
@@ -193,6 +191,7 @@ Chrome
 <translation id="5064360042339518108"><ph name="HOSTNAME" /> (לא מקוון)</translation>
 <translation id="5070121137485264635">‏המארח המרוחק דורש שתבצע אימות מול אתר של צד שלישי. כדי להמשיך, עליך להעניק לשולחן העבודה המרוחק של Chrome הרשאות נוספות כדי לגשת לכתובת זו:</translation>
 <translation id="507204348399810022">האם אתה בטוח שברצונך להשבית את החיבורים המרוחקים אל <ph name="HOSTNAME" />?</translation>
+<translation id="5081343395220691640">לא ניתן לתקשר עם השרת: <ph name="ERROR" /></translation>
 <translation id="5156271271724754543">‏הזן את אותו PIN בשתי התיבות.</translation>
 <translation id="5170982930780719864">מזהה מארח לא חוקי.</translation>
 <translation id="518094545883702183">המידע הזה משמש רק לאבחון הבעיה שדיווחת עליה. הוא זמין רק למי שבוחן את הדוח, ונשמר למשך זמן של 30 ימים לכל היותר.</translation>
@@ -243,6 +242,7 @@ Chrome
 <translation id="6381670701864002291">משהו אחר.</translation>
 <translation id="6398765197997659313">צא ממסך מלא</translation>
 <translation id="6441316101718669559">שילוב של שולחן עבודה אינו נתמך בפלטפורמה זו. תוכל עדיין להשתמש ביישום, אבל תהיה לכך השפעה שלילית על חוויית המשתמש.</translation>
+<translation id="6502629188777329097">גישה מאובטחת למחשב שלך</translation>
 <translation id="652218476070540101">‏ה-PIN של מחשב זה מתעדכן...</translation>
 <translation id="6527303717912515753">שתף</translation>
 <translation id="6541219117979389420">‏יומני יישומים עשויים לכלול פרטים אישיים, כולל הזהות שלך (כתובת אימייל) וגם השמות והתכונות של קבצים ותיקיות ב-Google Drive.</translation>
@@ -260,6 +260,7 @@ Chrome
 <translation id="6748108480210050150">מאת</translation>
 <translation id="677755392401385740">המארח הופעל עבור המשתמש: <ph name="HOST_USERNAME" />.</translation>
 <translation id="6865175692670882333">הצג/ערוך</translation>
+<translation id="6913710942997637770">‏כדי לבחור תמונת פרופיל, צריך לאפשר ל-Chrome Remote Desktop גישה לתמונות שלך</translation>
 <translation id="6930242544192836755">משך החיבור</translation>
 <translation id="6939719207673461467">הצג/הסתר מקלדת.</translation>
 <translation id="6944854424004126054">שחזר חלון</translation>

@@ -71,7 +71,6 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
   void InitAsChild(gfx::NativeView parent_view) override {}
   void SetSize(const gfx::Size& size) override {}
   void SetBounds(const gfx::Rect& rect) override {}
-  gfx::Vector2dF GetLastScrollOffset() const override;
   gfx::NativeView GetNativeView() const override;
   gfx::NativeViewAccessible GetNativeViewAccessible() override;
   ui::TextInputClient* GetTextInputClient() override;
@@ -87,10 +86,7 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
 #if defined(OS_MACOSX)
   void SetActive(bool active) override;
   void ShowDefinitionForSelection() override {}
-  bool SupportsSpeech() const override;
   void SpeakSelection() override;
-  bool IsSpeaking() const override;
-  void StopSpeaking() override;
 #endif  // defined(OS_MACOSX)
   void DidCreateNewRendererCompositorFrameSink(
       viz::mojom::CompositorFrameSinkClient* renderer_compositor_frame_sink)
@@ -102,6 +98,7 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
   void ClearCompositorFrame() override {}
   void SetNeedsBeginFrames(bool needs_begin_frames) override {}
   void SetWantsAnimateOnlyBeginFrames() override {}
+  void TakeFallbackContentFrom(RenderWidgetHostView* view) override;
 
   // RenderWidgetHostViewBase:
   void InitAsPopup(RenderWidgetHostView* parent_host_view,
@@ -118,7 +115,6 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
   gfx::Rect GetBoundsInRootWindow() override;
   bool LockMouse() override;
   void UnlockMouse() override;
-  RenderWidgetHostImpl* GetRenderWidgetHostImpl() const override;
   viz::FrameSinkId GetFrameSinkId() override;
   viz::SurfaceId GetCurrentSurfaceId() const override;
 
@@ -142,7 +138,6 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
   void OnFrameTokenChanged(uint32_t frame_token) override;
 
  protected:
-  RenderWidgetHostImpl* rwh_;
   viz::FrameSinkId frame_sink_id_;
 
  private:

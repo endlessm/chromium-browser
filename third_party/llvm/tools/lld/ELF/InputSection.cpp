@@ -142,9 +142,9 @@ uint64_t SectionBase::getOffset(uint64_t Offset) const {
     return Offset == uint64_t(-1) ? OS->Size : Offset;
   }
   case Regular:
-    return cast<InputSection>(this)->OutSecOff + Offset;
+    return cast<InputSection>(this->Repl)->OutSecOff + Offset;
   case Synthetic: {
-    auto *IS = cast<InputSection>(this);
+    auto *IS = cast<InputSection>(this->Repl);
     // For synthetic sections we treat offset -1 as the end of the section.
     return IS->OutSecOff + (Offset == uint64_t(-1) ? IS->getSize() : Offset);
   }
@@ -156,23 +156,28 @@ uint64_t SectionBase::getOffset(uint64_t Offset) const {
   case Merge:
     const MergeInputSection *MS = cast<MergeInputSection>(this);
     if (InputSection *IS = MS->getParent())
-      return IS->OutSecOff + MS->getOffset(Offset);
+      return cast<InputSection>(IS->Repl)->OutSecOff + MS->getOffset(Offset);
     return MS->getOffset(Offset);
   }
   llvm_unreachable("invalid section kind");
 }
 
+uint64_t SectionBase::getVA(uint64_t Offset) const {
+  const OutputSection *Out = getOutputSection();
+  return (Out ? Out->Addr : 0) + getOffset(Offset);
+}
+
 OutputSection *SectionBase::getOutputSection() {
   InputSection *Sec;
   if (auto *IS = dyn_cast<InputSection>(this))
-    return IS->getParent();
+    Sec = IS;
   else if (auto *MS = dyn_cast<MergeInputSection>(this))
     Sec = MS->getParent();
   else if (auto *EH = dyn_cast<EhInputSection>(this))
     Sec = EH->getParent();
   else
     return cast<OutputSection>(this);
-  return Sec ? Sec->getParent() : nullptr;
+  return Sec ? cast<InputSection>(Sec->Repl)->getParent() : nullptr;
 }
 
 // Decompress section contents if required. Note that this function
@@ -206,15 +211,9 @@ void InputSectionBase::maybeDecompress() {
 }
 
 InputSection *InputSectionBase::getLinkOrderDep() const {
-  if ((Flags & SHF_LINK_ORDER) && Link != 0) {
-    InputSectionBase *L = File->getSections()[Link];
-    if (auto *IS = dyn_cast<InputSection>(L))
-      return IS;
-    error("a section with SHF_LINK_ORDER should not refer a non-regular "
-          "section: " +
-          toString(L));
-  }
-  return nullptr;
+  assert(Link);
+  assert(Flags & SHF_LINK_ORDER);
+  return cast<InputSection>(File->getSections()[Link]);
 }
 
 // Returns a source location string. Used to construct an error message.
@@ -331,7 +330,8 @@ template <class ELFT> void InputSection::copyShtGroup(uint8_t *Buf) {
 }
 
 InputSectionBase *InputSection::getRelocatedSection() {
-  assert(Type == SHT_RELA || Type == SHT_REL);
+  if (!File || (Type != SHT_RELA && Type != SHT_REL))
+    return nullptr;
   ArrayRef<InputSectionBase *> Sections = File->getSections();
   return Sections[Info];
 }
@@ -355,7 +355,7 @@ void InputSection::copyRelocations(uint8_t *Buf, ArrayRef<RelTy> Rels) {
 
     // Output section VA is zero for -r, so r_offset is an offset within the
     // section, but for --emit-relocs it is an virtual address.
-    P->r_offset = Sec->getOutputSection()->Addr + Sec->getOffset(Rel.r_offset);
+    P->r_offset = Sec->getVA(Rel.r_offset);
     P->setSymbolAndType(InX::SymTab->getSymbolIndex(&Sym), Type,
                         Config->IsMips64EL);
 
@@ -710,11 +710,10 @@ void InputSectionBase::relocateAlloc(uint8_t *Buf, uint8_t *BufEnd) {
   const unsigned Bits = Config->Wordsize * 8;
 
   for (const Relocation &Rel : Relocations) {
-    uint64_t Offset = getOffset(Rel.Offset);
-    uint8_t *BufLoc = Buf + Offset;
+    uint8_t *BufLoc = Buf + getOffset(Rel.Offset);
     RelType Type = Rel.Type;
 
-    uint64_t AddrLoc = getOutputSection()->Addr + Offset;
+    uint64_t AddrLoc = getVA(Rel.Offset);
     RelExpr Expr = Rel.Expr;
     uint64_t TargetVA = SignExtend64(
         getRelocTargetVA(Type, Rel.Addend, AddrLoc, *Rel.Sym, Expr), Bits);
@@ -922,14 +921,8 @@ void MergeInputSection::splitIntoPieces() {
     splitNonStrings(Data, Entsize);
 
   if (Config->GcSections && (Flags & SHF_ALLOC))
-    for (uint64_t Off : LiveOffsets)
+    for (uint32_t Off : LiveOffsets)
       getSectionPiece(Off)->Live = true;
-}
-
-// Do binary search to get a section piece at a given input offset.
-SectionPiece *MergeInputSection::getSectionPiece(uint64_t Offset) {
-  auto *This = static_cast<const MergeInputSection *>(this);
-  return const_cast<SectionPiece *>(This->getSectionPiece(Offset));
 }
 
 template <class It, class T, class Compare>
@@ -945,7 +938,8 @@ static It fastUpperBound(It First, It Last, const T &Value, Compare Comp) {
   return Comp(Value, *First) ? First : First + 1;
 }
 
-const SectionPiece *MergeInputSection::getSectionPiece(uint64_t Offset) const {
+// Do binary search to get a section piece at a given input offset.
+SectionPiece *MergeInputSection::getSectionPiece(uint64_t Offset) {
   if (Data.size() <= Offset)
     fatal(toString(this) + ": entry is past the end of the section");
 
@@ -964,13 +958,6 @@ uint64_t MergeInputSection::getOffset(uint64_t Offset) const {
   if (!Live)
     return 0;
 
-  // Initialize OffsetMap lazily.
-  llvm::call_once(InitOffsetMap, [&] {
-    OffsetMap.reserve(Pieces.size());
-    for (size_t I = 0; I < Pieces.size(); ++I)
-      OffsetMap[Pieces[I].InputOff] = I;
-  });
-
   // Find a string starting at a given offset.
   auto It = OffsetMap.find(Offset);
   if (It != OffsetMap.end())
@@ -984,6 +971,12 @@ uint64_t MergeInputSection::getOffset(uint64_t Offset) const {
 
   uint64_t Addend = Offset - Piece.InputOff;
   return Piece.OutputOff + Addend;
+}
+
+void MergeInputSection::initOffsetMap() {
+  OffsetMap.reserve(Pieces.size());
+  for (size_t I = 0; I < Pieces.size(); ++I)
+    OffsetMap[Pieces[I].InputOff] = I;
 }
 
 template InputSection::InputSection(ObjFile<ELF32LE> &, const ELF32LE::Shdr &,

@@ -27,7 +27,6 @@ class AppsContainerView;
 class AppsGridView;
 class AppListFolderItem;
 class AppListItemView;
-class AppListMainView;
 class AppListModel;
 class FolderHeaderView;
 class PageSwitcher;
@@ -39,7 +38,7 @@ class APP_LIST_EXPORT AppListFolderView : public views::View,
  public:
   AppListFolderView(AppsContainerView* container_view,
                     AppListModel* model,
-                    AppListMainView* app_list_main_view);
+                    ContentsView* contents_view);
   ~AppListFolderView() override;
 
   // An interface for the folder opening and closing animations.
@@ -71,6 +70,10 @@ class APP_LIST_EXPORT AppListFolderView : public views::View,
   // AppListModelObserver
   void OnAppListItemWillBeDeleted(AppListItem* item) override;
 
+  // Updates preferred bounds of this view based on the activated folder item
+  // icon's bounds.
+  void UpdatePreferredBounds();
+
   // Returns true if this view's child views are in animation for opening or
   // closing the folder.
   bool IsAnimationRunning() const;
@@ -100,10 +103,6 @@ class APP_LIST_EXPORT AppListFolderView : public views::View,
 
  private:
   void CalculateIdealBounds();
-
-  // Updates preferred bounds of this view based on the activated folder item
-  // icon's bounds.
-  void UpdatePreferredBounds();
 
   // Starts setting up drag in root level apps grid view for re-parenting a
   // folder item.
@@ -141,7 +140,7 @@ class APP_LIST_EXPORT AppListFolderView : public views::View,
 
   // Views below are not owned by views hierarchy.
   AppsContainerView* container_view_;
-  AppListMainView* app_list_main_view_;
+  ContentsView* contents_view_;
 
   // The view is used to draw a background with corner radius.
   views::View* background_view_;  // Owned by views hierarchy.

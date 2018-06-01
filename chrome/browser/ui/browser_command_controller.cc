@@ -34,6 +34,7 @@
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
+#include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/extensions/hosted_app_browser_controller.h"
 #include "chrome/browser/ui/page_info/page_info_dialog.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -57,7 +58,7 @@
 #include "content/public/common/service_manager_connection.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/browser/extension_system.h"
-#include "printing/features/features.h"
+#include "printing/buildflags/buildflags.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 
 #if defined(OS_MACOSX)
@@ -401,6 +402,10 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
     case IDC_FULLSCREEN:
       chrome::ToggleFullscreenMode(browser_);
       break;
+    case IDC_OPEN_IN_PWA_WINDOW:
+      base::RecordAction(base::UserMetricsAction("OpenActiveTabInPwaWindow"));
+      ReparentSecureActiveTabIntoPwaWindow(browser_);
+      break;
 
 #if defined(OS_CHROMEOS)
     case IDC_VISIT_DESKTOP_OF_LRU_USER_2:
@@ -679,7 +684,7 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
       break;
     case IDC_HOSTED_APP_MENU_APP_INFO:
       ShowPageInfoDialog(browser_->tab_strip_model()->GetActiveWebContents(),
-                         bubble_anchor_util::kHostedAppMenu);
+                         bubble_anchor_util::kAppMenuButton);
       break;
 
     default:
@@ -833,6 +838,7 @@ void BrowserCommandController::InitCommandState() {
   command_updater_.UpdateCommandEnabled(IDC_RESTORE_WINDOW, true);
   command_updater_.UpdateCommandEnabled(IDC_USE_SYSTEM_TITLE_BAR, true);
 #endif
+  command_updater_.UpdateCommandEnabled(IDC_OPEN_IN_PWA_WINDOW, true);
 
   // Page-related commands
   command_updater_.UpdateCommandEnabled(IDC_EMAIL_PAGE_LOCATION, true);
@@ -1173,6 +1179,20 @@ void BrowserCommandController::UpdateCommandsForFullscreenMode() {
 
   UpdateCommandsForBookmarkBar();
   UpdateCommandsForIncognitoAvailability();
+  UpdateCommandsForHostedAppAvailability();
+}
+
+void BrowserCommandController::UpdateCommandsForHostedAppAvailability() {
+  bool has_toolbar =
+      browser_->is_type_tabbed() ||
+      extensions::HostedAppBrowserController::IsForExperimentalHostedAppBrowser(
+          browser_);
+  if (window() && window()->ShouldHideUIForFullscreen())
+    has_toolbar = false;
+  command_updater_.UpdateCommandEnabled(IDC_FOCUS_TOOLBAR, has_toolbar);
+  command_updater_.UpdateCommandEnabled(IDC_FOCUS_NEXT_PANE, has_toolbar);
+  command_updater_.UpdateCommandEnabled(IDC_FOCUS_PREVIOUS_PANE, has_toolbar);
+  command_updater_.UpdateCommandEnabled(IDC_SHOW_APP_MENU, has_toolbar);
 }
 
 #if defined(OS_CHROMEOS)

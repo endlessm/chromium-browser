@@ -9,7 +9,6 @@
 
 #include "base/macros.h"
 #include "chrome/browser/vr/elements/ui_element.h"
-#include "chrome/browser/vr/model/reticle_model.h"
 #include "ui/gfx/transform.h"
 
 namespace vr {
@@ -33,17 +32,25 @@ class Repositioner : public UiElement {
   void SetEnabled(bool enabled);
   void Reset();
 
+  // This method returns true if the user has repositioned far enough that we
+  // should consider it an intentional drag (and the UI may want to respond
+  // different if this has happened).
+  bool HasMovedBeyondThreshold() const { return has_moved_beyond_threshold_; }
+
+  bool ShouldUpdateWorldSpaceTransform(
+      bool parent_transform_changed) const override;
+
  private:
   gfx::Transform LocalTransform() const override;
   gfx::Transform GetTargetLocalTransform() const override;
   void UpdateTransform(const gfx::Transform& head_pose);
-  bool OnBeginFrame(const base::TimeTicks& time,
-                    const gfx::Transform& head_pose) override;
+  bool OnBeginFrame(const gfx::Transform& head_pose) override;
 #ifndef NDEBUG
   void DumpGeometry(std::ostringstream* os) const override;
 #endif
 
   bool enabled_ = false;
+  bool has_moved_beyond_threshold_ = false;
   gfx::Transform transform_;
   gfx::Vector3dF laser_direction_;
 

@@ -48,11 +48,11 @@ SafeBrowsingUIManager::SafeBrowsingUIManager(
 
 SafeBrowsingUIManager::~SafeBrowsingUIManager() {}
 
-void SafeBrowsingUIManager::StopOnIOThread(bool shutdown) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+void SafeBrowsingUIManager::Stop(bool shutdown) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (shutdown)
-    sb_service_ = NULL;
+    sb_service_ = nullptr;
 }
 
 void SafeBrowsingUIManager::CreateAndSendHitReport(
@@ -121,17 +121,8 @@ void SafeBrowsingUIManager::MaybeReportSafeBrowsingHit(
 
   // Send report if user opted-in to extended reporting and is not in
   //  incognito mode.
-  if (ShouldSendHitReport(hit_report, web_contents)) {
-    BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE,
-        base::BindOnce(&SafeBrowsingUIManager::ReportSafeBrowsingHitOnIOThread,
-                       this, hit_report));
-  }
-}
-
-void SafeBrowsingUIManager::ReportSafeBrowsingHitOnIOThread(
-    const HitReport& hit_report) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  if (!ShouldSendHitReport(hit_report, web_contents))
+    return;
 
   // The service may delete the ping manager (i.e. when user disabling service,
   // etc). This happens on the IO thread.
@@ -142,15 +133,6 @@ void SafeBrowsingUIManager::ReportSafeBrowsingHitOnIOThread(
            << hit_report.page_url << " " << hit_report.referrer_url << " "
            << hit_report.is_subresource << " " << hit_report.threat_type;
   sb_service_->ping_manager()->ReportSafeBrowsingHit(hit_report);
-}
-
-void SafeBrowsingUIManager::ReportPermissionAction(
-    const PermissionReportInfo& report_info) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::BindOnce(&SafeBrowsingUIManager::ReportPermissionActionOnIOThread,
-                     this, report_info));
 }
 
 // Static.
@@ -187,23 +169,11 @@ const GURL SafeBrowsingUIManager::default_safe_page() const {
   return GURL(chrome::kChromeUINewTabURL);
 }
 
-void SafeBrowsingUIManager::ReportPermissionActionOnIOThread(
-    const PermissionReportInfo& report_info) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-
-  // The service may delete the ping manager (i.e. when user disabling service,
-  // etc). This happens on the IO thread.
-  if (!sb_service_ || !sb_service_->ping_manager())
-    return;
-
-  sb_service_->ping_manager()->ReportPermissionAction(report_info);
-}
-
 // If the user had opted-in to send ThreatDetails, this gets called
 // when the report is ready.
 void SafeBrowsingUIManager::SendSerializedThreatDetails(
     const std::string& serialized) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   // The service may delete the ping manager (i.e. when user disabling service,
   // etc). This happens on the IO thread.

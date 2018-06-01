@@ -252,20 +252,21 @@ class AddHistogramsQueueTest(testing_common.TestCase):
     self.assertEqual(len(diagnostics), 3)
 
   def testPostHistogram_StoresUnescapedStoryName(self):
-    hists = [histogram_module.Histogram('hist', 'count')]
-    histograms = histogram_set.HistogramSet(hists)
+    hist = histogram_module.Histogram('hist', 'count')
+    hist.AddSample(42)
+    histograms = histogram_set.HistogramSet([hist])
     histograms.AddSharedDiagnostic(
         reserved_infos.STORIES.name,
         generic_set.GenericSet(['http://unescaped_story']))
 
     test_path = 'Chromium/win7/suite/metric'
     params = [{
-        'data': hists[0].AsDict(),
+        'data': hist.AsDict(),
         'test_path': test_path,
         'benchmark_description': None,
         'revision': 123,
         'diagnostics': {
-            'stories': hists[0].diagnostics.get('stories').AsDict(),
+            'stories': hist.diagnostics.get('stories').AsDict(),
         }
     }]
     self.testapp.post('/add_histograms_queue', json.dumps(params))
@@ -341,6 +342,23 @@ class AddHistogramsQueueTest(testing_common.TestCase):
         rows[0].key.parent().id(),
         'Chromium/win7/v8.browsing_desktop/v8-gc-blah')
 
+  def testPostHistogram_FiltersBenchmarkTotalDuration(self):
+    test_path = 'Chromium/win7/benchmark/benchmark_total_duration'
+
+    params = [{
+        'data': TEST_HISTOGRAM,
+        'test_path': test_path,
+        'revision': 123,
+        'benchmark_description': None
+    }]
+    self.testapp.post('/add_histograms_queue', json.dumps(params))
+
+    rows = graph_data.Row.query().fetch()
+    self.assertEqual(len(rows), 1)
+    self.assertEqual(
+        rows[0].key.parent().id(),
+        'Chromium/win7/benchmark/benchmark_total_duration')
+
   def testPostHistogram_CreatesNoLegacyRowsForLegacyTest(self):
     test_path = 'Chromium/win7/blink_perf.dom/foo'
     params = [{
@@ -353,6 +371,24 @@ class AddHistogramsQueueTest(testing_common.TestCase):
 
     rows = graph_data.Row.query().fetch()
     self.assertEqual(len(rows), 1)
+
+  def testPostHistogram_EmptyCreatesNoTestsOrRowsOrHistograms(self):
+    test_path = 'Chromium/win7/blink_perf.dom/foo'
+    hist = histogram_module.Histogram('foo', 'count')
+    params = [{
+        'data': hist.AsDict(),
+        'test_path': test_path,
+        'benchmark_description': None,
+        'revision': 123
+    }]
+    self.testapp.post('/add_histograms_queue', json.dumps(params))
+
+    rows = graph_data.Row.query().fetch()
+    self.assertEqual(len(rows), 0)
+    tests = graph_data.TestMetadata.query().fetch()
+    self.assertEqual(len(tests), 0)
+    hists = histogram.Histogram.query().fetch()
+    self.assertEqual(len(hists), 0)
 
   def testGetUnitArgs_Up(self):
     unit_args = add_histograms_queue.GetUnitArgs('count_biggerIsBetter')
@@ -391,19 +427,19 @@ class AddHistogramsQueueTest(testing_common.TestCase):
     self.assertAlmostEqual(1.0, avg_row.error)
     std_row = rows_by_path.pop('Chromium/win7/suite/metric_std')
     self.assertAlmostEqual(1.0, std_row.value)
-    self.assertEqual(None, std_row.error)
+    self.assertEqual(0.0, std_row.error)
     count_row = rows_by_path.pop('Chromium/win7/suite/metric_count')
     self.assertEqual(3, count_row.value)
-    self.assertEqual(None, count_row.error)
+    self.assertEqual(0.0, count_row.error)
     max_row = rows_by_path.pop('Chromium/win7/suite/metric_max')
     self.assertAlmostEqual(3.0, max_row.value)
-    self.assertEqual(None, max_row.error)
+    self.assertEqual(0.0, max_row.error)
     min_row = rows_by_path.pop('Chromium/win7/suite/metric_min')
     self.assertAlmostEqual(1.0, min_row.value)
-    self.assertEqual(None, min_row.error)
+    self.assertEqual(0.0, min_row.error)
     sum_row = rows_by_path.pop('Chromium/win7/suite/metric_sum')
     self.assertAlmostEqual(6.0, sum_row.value)
-    self.assertEqual(None, sum_row.error)
+    self.assertEqual(0.0, sum_row.error)
 
     row = rows_by_path.pop('Chromium/win7/suite/metric')
     self.assertEqual(0, len(rows_by_path))
@@ -435,7 +471,7 @@ class AddHistogramsQueueTest(testing_common.TestCase):
 
     self.assertEqual(2, len(a_fields))
     self.assertEqual('http://google.com/', row.a_tracing_uri)
-    self.assertEqual('http://log.url/', row.a_stdio_url)
+    self.assertEqual('http://log.url/', row.a_stdio_uri)
 
   def testAddRows_WithCustomSummaryOptions(self):
     test_path = 'Chromium/win7/suite/metric'

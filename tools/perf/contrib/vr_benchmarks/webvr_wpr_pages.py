@@ -5,6 +5,7 @@
 from telemetry import story
 from telemetry import page
 from contrib.vr_benchmarks import (shared_android_vr_page_state as vr_state)
+from contrib.vr_benchmarks.vr_story_set import VrStorySet
 
 class WebVrWprPage(page.Page):
   """Class for running a story on a WebVR WPR page."""
@@ -50,13 +51,14 @@ class WebVrWprPage(page.Page):
     return self._shared_page_state.recording_wpr
 
 
-class WebVrWprPageSet(story.StorySet):
+class WebVrWprPageSet(VrStorySet):
   """A page set using live WebVR sites recorded using WPR."""
 
-  def __init__(self):
+  def __init__(self, use_fake_pose_tracker=True):
     super(WebVrWprPageSet, self).__init__(
         archive_data_file='data/webvr_wpr.json',
-        cloud_storage_bucket=story.PARTNER_BUCKET)
+        cloud_storage_bucket=story.PARTNER_BUCKET,
+        use_fake_pose_tracker=use_fake_pose_tracker)
 
     # View the Pirates: Dock model on Sketchfab
     def SketchfabInteraction(action_runner, _):
@@ -92,7 +94,7 @@ class WebVrWprPageSet(story.StorySet):
     # opening when you enter VR, but we're still viewing a relatively complex
     # WebGL scene, so it's still useful for perf testing
     def UnderNeonLightsInteraction(action_runner, _):
-      action_runner.WaitForNetworkQuiescence()
+      action_runner.WaitForNetworkQuiescence(timeout_in_seconds=30)
       # The VR button doesn't have any unique ID or anything, so instead select
       # based on the unique text in a child div
       action_runner.WaitForElement(text='Start in VR')
@@ -112,8 +114,9 @@ class WebVrLivePageSet(WebVrWprPageSet):
   Also contains sites that we would like to run with WPR, but that interact
   badly when replayed. So, access the live version instead.
   """
-  def __init__(self):
-    super(WebVrLivePageSet, self).__init__()
+  def __init__(self, use_fake_pose_tracker=True):
+    super(WebVrLivePageSet, self).__init__(
+        use_fake_pose_tracker=use_fake_pose_tracker)
 
     # Look at "randomly" generated (constant seed) geometry in Mass Migrations
     # Not usable via WPR due to it often not submitting frames while using WPR

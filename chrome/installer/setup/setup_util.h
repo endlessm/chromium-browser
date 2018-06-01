@@ -14,6 +14,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/optional.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "chrome/installer/util/browser_distribution.h"
@@ -62,7 +63,7 @@ int BsdiffPatchFiles(const base::FilePath& src,
 
 // Applies a patch file to source file using Zucchini. Returns 0 in case of
 // success. In case of errors, it returns kZucchiniErrorOffset + a Zucchini
-// status code, as defined in chrome/installer/zucchini/zucchini.h
+// status code, as defined in components/zucchini/zucchini.h
 int ZucchiniPatchFiles(const base::FilePath& src,
                        const base::FilePath& patch,
                        const base::FilePath& dest);
@@ -162,9 +163,15 @@ base::Time GetConsoleSessionStartTime();
 // tiles.
 bool OsSupportsDarkTextTiles();
 
-// Returns the toast activator registry path if found, or an empty string in
-// case of error.
-base::string16 GetToastActivatorRegistryPath();
+// Returns a DM token decoded from the base-64 |encoded_token|, or null in case
+// of a decoding error.  The returned DM token is an opaque binary blob and
+// should not be treated as an ASCII or UTF-8 string.
+base::Optional<std::string> DecodeDMTokenSwitchValue(
+    const base::string16& encoded_token);
+
+// Saves a DM token to a global location on the machine accessible to all
+// install modes of the browser (i.e., stable and all three side-by-side modes).
+bool StoreDMToken(const std::string& token);
 
 }  // namespace installer
 

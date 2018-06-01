@@ -28,8 +28,11 @@ class WindowTree;
 
 namespace aura {
 
+class EmbedRoot;
 class Window;
+class WindowManagerDelegate;
 class WindowMus;
+class WindowTreeClientDelegate;
 class WindowTreeClient;
 class WindowTreeHostMus;
 
@@ -43,6 +46,10 @@ class WindowTreeClientPrivate {
   explicit WindowTreeClientPrivate(WindowTreeClient* tree_client_impl);
   explicit WindowTreeClientPrivate(Window* window);
   ~WindowTreeClientPrivate();
+
+  static std::unique_ptr<WindowTreeClient> CreateWindowTreeClient(
+      WindowTreeClientDelegate* window_tree_delegate,
+      WindowManagerDelegate* window_manager_delegate);
 
   // Calls OnEmbed() on the WindowTreeClient.
   void OnEmbed(ui::mojom::WindowTree* window_tree);
@@ -59,6 +66,10 @@ class WindowTreeClientPrivate {
   void CallOnCaptureChanged(Window* new_capture, Window* old_capture);
 
   void CallOnConnect();
+
+  // Simulates the EmbedRoot receiving the token from the WindowTree and then
+  // the WindowTree calling OnEmbedFromToken().
+  void CallOnEmbedFromToken(EmbedRoot* embed_root);
 
   WindowTreeHostMusInitParams CallCreateInitParamsForNewDisplay();
 
@@ -78,7 +89,11 @@ class WindowTreeClientPrivate {
 
   bool HasChangeInFlightOfType(ChangeType type);
 
+  void WaitForInitialDisplays();
+
  private:
+  ui::mojom::WindowDataPtr CreateWindowDataForEmbed();
+
   WindowTreeClient* tree_client_impl_;
   uint16_t next_window_id_ = 1u;
 

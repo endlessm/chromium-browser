@@ -4,8 +4,11 @@
 
 package org.chromium.chrome.browser.vr_shell;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
+import android.graphics.Color;
 import android.text.InputType;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -22,11 +25,16 @@ public class VrDialog extends FrameLayout {
      * Constructor of VrDialog. Sets the DialogManager that will be used to
      * communicate with the vr presentation of the dialog.
      */
+    // For some reason we have to use Gravity.LEFT instead of Gravity.{START|END}. This works for
+    // both LTR and RTL languages.
+    @SuppressLint("RtlHardcoded")
     public VrDialog(Context context, VrDialogManager vrDialogManager) {
         super(context);
-        setLayoutParams(
-                new FrameLayout.LayoutParams(DIALOG_WIDTH, ViewGroup.LayoutParams.WRAP_CONTENT));
+        setLayoutParams(new FrameLayout.LayoutParams(
+                DIALOG_WIDTH, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.LEFT));
+        setBackgroundColor(Color.WHITE);
         mVrDialogManager = vrDialogManager;
+        mVrDialogManager.setDialogFloating(false);
     }
 
     /**
@@ -60,7 +68,19 @@ public class VrDialog extends FrameLayout {
             if (view instanceof ViewGroup) {
                 disableSoftKeyboard((ViewGroup) view);
             } else if (view instanceof TextView) {
-                ((TextView) view).setInputType(InputType.TYPE_NULL);
+                TextView text = (TextView) view;
+                // It is important to avoid setting InputType to NULL again. Otherwise, it will
+                // change the TextView to single line mode and cause other unexpected issues(such as
+                // text in button is not captiablized).
+                int type = text.getInputType();
+                if (type != InputType.TYPE_NULL) {
+                    text.setInputType(InputType.TYPE_NULL);
+                    // If the TextView has multi line flag, reset line mode to multi line.
+                    if ((type & (InputType.TYPE_MASK_CLASS | InputType.TYPE_TEXT_FLAG_MULTI_LINE))
+                            == (InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE)) {
+                        text.setSingleLine(false);
+                    }
+                }
             }
         }
     }

@@ -26,11 +26,13 @@
 <translation id="1537254971476575106">Lupa de tela cheia</translation>
 <translation id="15373452373711364">Cursor grande do mouse</translation>
 <translation id="1550523713251050646">Clique para ver mais opções</translation>
+<translation id="1567387640189251553">Um teclado diferente foi conectado desde a última vez que você inseriu sua senha. Ele pode estar tentando capturar sua digitação.</translation>
 <translation id="1608626060424371292">Remover este usuário</translation>
 <translation id="1621499497873603021">O tempo restante até que a bateria se esgote é de <ph name="TIME_LEFT" /></translation>
 <translation id="1658406695958299976">Ainda não foi possível confirmar sua senha. Observação: se você alterou sua senha recentemente, a nova senha será aplicada depois que você sair da conta. Use a senha antiga aqui.</translation>
 <translation id="1677472565718498478"><ph name="TIME" /> restante(s)</translation>
 <translation id="1698760176351776263">Endereço IPv6: <ph name="ADDRESS" /></translation>
+<translation id="170389796989115980">O administrador do dispositivo pode conseguir monitorar sua atividade.</translation>
 <translation id="1734367976349034509">Este dispositivo é gerenciado por uma empresa</translation>
 <translation id="1746730358044914197">Os métodos de entrada são configurados pelo administrador.</translation>
 <translation id="1747827819627189109">Teclado na tela ativado</translation>
@@ -41,9 +43,11 @@
 <translation id="1882897271359938046">Espelhamento de <ph name="DISPLAY_NAME" /></translation>
 <translation id="1919743966458266018">O atalho para abrir o gerenciador de tarefas foi alterado. Use <ph name="NEW_SHORTCUT" /> em vez de <ph name="OLD_SHORTCUT" />.</translation>
 <translation id="1923539912171292317">Cliques automáticos</translation>
+<translation id="1928739107511554905">Para receber a atualização, use a touchscreen para reiniciar o Chromebook com o teclado conectado.</translation>
 <translation id="1942830294380034169">Botão de estouro</translation>
 <translation id="1951012854035635156">Assistente</translation>
 <translation id="1957803754585243749">0°</translation>
+<translation id="1957958912175573503">Configurar idioma</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
 <translation id="1995660704900986789">Desligar</translation>
 <translation id="2012624427112548395">Ctrl+Pesquisa+H</translation>
@@ -63,6 +67,7 @@
 <translation id="2292698582925480719">Escala de exibição</translation>
 <translation id="2303600792989757991">Visão geral da janela de alternância</translation>
 <translation id="2338501278241028356">Ativar o Bluetooth para descobrir dispositivos nas proximidades</translation>
+<translation id="2351266942280602854">Idioma e entrada</translation>
 <translation id="2352467521400612932">Configurações da stylus</translation>
 <translation id="2354174487190027830">Ativando <ph name="NAME" /></translation>
 <translation id="2365393535144473978">A ativação dos dados móveis também ativará o Bluetooth.</translation>
@@ -78,6 +83,9 @@
 <translation id="2653659639078652383">Enviar</translation>
 <translation id="2675319268637823299">Um administrador desativou o login múltiplo para <ph name="USER_EMAIL" />.
     Todos os usuários precisam sair para continuar.</translation>
+<translation id="2696763960464195425">Suas informações serão removidas quando você sair. <ph name="LEARN_MORE" /></translation>
+<translation id="2700493154570097719">Configurar teclado</translation>
+<translation id="2718395828230677721">Modo noturno</translation>
 <translation id="2727977024730340865">Conectado a um carregador de baixa potência. O carregamento da bateria pode não ser confiável.</translation>
 <translation id="2761704814324807722">Bandeja de status, tempo <ph name="TIME" />, <ph name="BATTERY" /></translation>
 <translation id="277257480934873581">Reconectando-se a <ph name="NAME" /></translation>
@@ -100,9 +108,11 @@
 <translation id="3077734595579995578">shift</translation>
 <translation id="3087734570205094154">Parte inferior</translation>
 <translation id="3105990244222795498"><ph name="DEVICE_NAME" /> (Bluetooth)</translation>
+<translation id="3112378005171663295">Recolher</translation>
 <translation id="3126069444801937830">Reiniciar para atualizar</translation>
 <translation id="3147142846278915599">Tela de início (sincronizando aplicativos...)</translation>
 <translation id="315116470104423982">Dados do celular</translation>
+<translation id="3151786313568798007">Orientação</translation>
 <translation id="3153444934357957346">Só é possível ter até <ph name="MULTI_PROFILE_USER_LIMIT" /> contas em login múltiplo.</translation>
 <translation id="3236488194889173876">Nenhuma rede móvel disponível</translation>
 <translation id="3294437725009624529">Visitante</translation>
@@ -124,6 +134,7 @@
 <translation id="3621202678540785336">Entrada</translation>
 <translation id="3626281679859535460">Brilho</translation>
 <translation id="3631369015426612114">Permitir as seguintes notificações</translation>
+<translation id="3705722231355495246">-</translation>
 <translation id="3712407551474845318">Capturar região</translation>
 <translation id="371370241367527062">Microfone frontal</translation>
 <translation id="3771549900096082774">Modo de alto contraste</translation>
@@ -169,6 +180,7 @@
 <translation id="4905614135390995787">O atalho para alternar o modo de alto contraste foi alterado. Use <ph name="NEW_SHORTCUT" /> em vez de <ph name="OLD_SHORTCUT" />.</translation>
 <translation id="4918086044614829423">Aceitar</translation>
 <translation id="4961318399572185831">Transmitir tela</translation>
+<translation id="5136175204352732067">Teclado diferente conectado</translation>
 <translation id="5168181903108465623">Dispositivos de transmissão disponíveis</translation>
 <translation id="5207949376430453814">Destacar cursor de texto</translation>
 <translation id="5222676887888702881">Sair</translation>
@@ -180,6 +192,7 @@
 <translation id="5431825016875453137">OpenVPN / L2TP</translation>
 <translation id="544691375626129091">Todos os usuários disponíveis já foram adicionados a esta sessão.</translation>
 <translation id="5457599981699367932">Navegar como visitante</translation>
+<translation id="54609108002486618">Gerenciado</translation>
 <translation id="553675580533261935">Saindo da sessão</translation>
 <translation id="5548285847212963613">A extensão "<ph name="EXTENSION_NAME" />" pode ajudar na conexão com esta rede.</translation>
 <translation id="5571066253365925590">Bluetooth ativado</translation>
@@ -204,6 +217,7 @@
 <translation id="5977415296283489383">Fone de ouvido</translation>
 <translation id="5978382165065462689">Compartilhando o controle de sua tela por meio da Assistência remota.</translation>
 <translation id="5980301590375426705">Sair da sessão de visitante</translation>
+<translation id="598882571027504733">Para receber a atualização, reinicie seu Chromebook com o teclado conectado.</translation>
 <translation id="5992218262414051481">Modo de alto contraste ativado. Pressione Ctrl+Pesquisa+H novamente para desativá-lo.</translation>
 <translation id="6018164090099858612">Saindo do modo espelhado</translation>
 <translation id="6043212731627905357">Este monitor não está funcionando bem com seu <ph name="DEVICE_TYPE" /> (o monitor não é compatível).</translation>
@@ -241,6 +255,7 @@ Use esse recurso somente com contas nas quais você confia.</translation>
 <translation id="6650933572246256093">O dispositivo Bluetooth "<ph name="DEVICE_NAME" />" deseja permissão para realizar o pareamento. Digite esta senha no dispositivo: <ph name="PASSKEY" /></translation>
 <translation id="6657585470893396449">Senha</translation>
 <translation id="6691659475504239918">Pesquisa+Shift+H</translation>
+<translation id="6696025732084565524">Seu teclado removível precisa de uma atualização crítica</translation>
 <translation id="6700713906295497288">Botão do menu do IME</translation>
 <translation id="6713285437468012787">O dispositivo Bluetooth "<ph name="DEVICE_NAME" />" está pareado e disponível para todos os usuários. Para cancelar o pareamento, vá para "Configurações".</translation>
 <translation id="6715542151869432661">Nenhum dispositivo móvel encontrado.</translation>
@@ -260,6 +275,7 @@ Use esse recurso somente com contas nas quais você confia.</translation>
 <translation id="7098389117866926363">Dispositivo USB-C (porta traseira da esquerda)</translation>
 <translation id="7131634465328662194">Você será automaticamente desconectado.</translation>
 <translation id="7165278925115064263">Alt+Shift+K</translation>
+<translation id="7165511658052620796">(TEMP) Mostrar login da WebUI se a opção de bug de arquivo (crbug.com) ou feedback (alt+shift+i) for utilizada</translation>
 <translation id="7168224885072002358">Revertendo para resolução anterior em <ph name="TIMEOUT_SECONDS" /></translation>
 <translation id="7256634071279256947">Microfone traseiro</translation>
 <translation id="726276584504105859">Arraste aqui para usar a tela dividida</translation>
@@ -272,7 +288,7 @@ Use esse recurso somente com contas nas quais você confia.</translation>
 <translation id="7526573455193969409">A rede pode ser monitorada</translation>
 <translation id="7536035074519304529">Endereço IP: <ph name="ADDRESS" /></translation>
 <translation id="7561014039265304140"><ph name="DISPLAY_NAME" /> não suporta <ph name="SPECIFIED_RESOLUTION" />. A resolução foi alterada para <ph name="FALLBACK_RESOLUTION" /></translation>
-<translation id="7562368315689366235">Paleta de emoticons</translation>
+<translation id="7562368315689366235">Teclado de emojis</translation>
 <translation id="7569509451529460200">Braille e ChromeVox estão ativados</translation>
 <translation id="7593891976182323525">Pesquisar ou Shift</translation>
 <translation id="7645176681409127223"><ph name="USER_NAME" /> (proprietário)</translation>
@@ -319,6 +335,8 @@ Use esse recurso somente com contas nas quais você confia.</translation>
 <translation id="8652175077544655965">Fechar configurações</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">Carregador de baixa potência conectado</translation>
+<translation id="8734991477317290293">Ele pode estar tentando capturar sua digitação</translation>
+<translation id="8809737090443522491">Digite o nome de um app ou documento</translation>
 <translation id="8814190375133053267">Wi-Fi</translation>
 <translation id="8814715559352963456">A movimentação de janelas para outra área de trabalho pode resultar em comportamentos inesperados.
 
@@ -332,6 +350,7 @@ Notificações posteriores, janelas e caixas de diálogo podem ser divididas ent
 <translation id="8921624153894383499">O Google Assistente não fala esse idioma.</translation>
 <translation id="8938800817013097409">Dispositivo USB-C (porta traseira da direita)</translation>
 <translation id="8940956008527784070">Nível de bateria baixo (<ph name="PERCENTAGE" />%)</translation>
+<translation id="8995603266996330174">Gerenciado por <ph name="DOMAIN" /></translation>
 <translation id="9074739597929991885">Bluetooth</translation>
 <translation id="9079731690316798640">Wi-Fi: <ph name="ADDRESS" /></translation>
 <translation id="9080206825613744995">O microfone está sendo usado.</translation>

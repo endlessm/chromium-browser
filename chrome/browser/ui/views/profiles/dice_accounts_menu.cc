@@ -24,37 +24,17 @@ constexpr int kUseAnotherAccountCmdId = std::numeric_limits<int>::max();
 // Anchor inset used to position the accounts menu.
 constexpr int kAnchorInset = 8;
 
-// TODO(tangltom): Calculate these values considering the existing menu config
+// TODO(tangltom): Calculate these values considering the existing menu config.
 constexpr int kVerticalImagePadding = 9;
 constexpr int kHorizontalImagePadding = 6;
-
-class PaddedImageSource : public gfx::CanvasImageSource {
- public:
-  explicit PaddedImageSource(const gfx::Image& image)
-      : CanvasImageSource(gfx::Size(image.Width() + 2 * kHorizontalImagePadding,
-                                    image.Height() + 2 * kVerticalImagePadding),
-                          false),
-        image_(image) {}
-
-  // gfx::CanvasImageSource:
-  void Draw(gfx::Canvas* canvas) override {
-    canvas->DrawImageInt(*image_.ToImageSkia(), kHorizontalImagePadding,
-                         kVerticalImagePadding);
-  }
-
- private:
-  gfx::Image image_;
-
-  DISALLOW_COPY_AND_ASSIGN(PaddedImageSource);
-};
 
 gfx::Image SizeAndCircleIcon(const gfx::Image& icon) {
   gfx::Image circled_icon = profiles::GetSizedAvatarIcon(
       icon, true, kAvatarIconSize, kAvatarIconSize, profiles::SHAPE_CIRCLE);
 
-  gfx::Image padded_icon = gfx::Image(gfx::ImageSkia(
-      std::make_unique<PaddedImageSource>(circled_icon), 1 /* scale */));
-  return padded_icon;
+  return gfx::Image(gfx::CanvasImageSource::CreatePadded(
+      *circled_icon.ToImageSkia(),
+      gfx::Insets(kVerticalImagePadding, kHorizontalImagePadding)));
 }
 
 }  // namespace
@@ -86,7 +66,8 @@ DiceAccountsMenu::DiceAccountsMenu(const std::vector<AccountInfo>& accounts,
   menu_.AddSeparator(ui::SPACING_SEPARATOR);
 }
 
-void DiceAccountsMenu::Show(views::View* anchor_view) {
+void DiceAccountsMenu::Show(views::View* anchor_view,
+                            views::MenuButton* menu_button) {
   DCHECK(!runner_);
   runner_ =
       std::make_unique<views::MenuRunner>(&menu_, views::MenuRunner::COMBOBOX);
@@ -97,22 +78,13 @@ void DiceAccountsMenu::Show(views::View* anchor_view) {
   // so the menu only takes the width it needs.
   gfx::Rect anchor_bounds = anchor_view->GetBoundsInScreen();
   anchor_bounds.Inset(kAnchorInset, kAnchorInset);
-#if defined(OS_MACOSX)
-  // On Mac, menus align to the left of the anchor, so collapse the right side
-  // of the rect.
-  bool collapse_right = true;
-#else
-  bool collapse_right = false;
-#endif
-  if (base::i18n::IsRTL())
-    collapse_right = !collapse_right;
 
-  if (collapse_right)
+  if (base::i18n::IsRTL())
     anchor_bounds.Inset(0, 0, anchor_bounds.width(), 0);
   else
     anchor_bounds.Inset(anchor_bounds.width(), 0, 0, 0);
 
-  runner_->RunMenuAt(anchor_view->GetWidget(), nullptr, anchor_bounds,
+  runner_->RunMenuAt(anchor_view->GetWidget(), menu_button, anchor_bounds,
                      views::MENU_ANCHOR_TOPRIGHT, ui::MENU_SOURCE_MOUSE);
 }
 

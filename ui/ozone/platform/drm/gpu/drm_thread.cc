@@ -9,7 +9,6 @@
 
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
@@ -42,10 +41,15 @@ class GbmBufferGenerator : public ScanoutBufferGenerator {
   // ScanoutBufferGenerator:
   scoped_refptr<ScanoutBuffer> Create(const scoped_refptr<DrmDevice>& drm,
                                       uint32_t format,
+                                      const std::vector<uint64_t>& modifiers,
                                       const gfx::Size& size) override {
     scoped_refptr<GbmDevice> gbm(static_cast<GbmDevice*>(drm.get()));
-    // TODO(dcastagna): Use GBM_BO_USE_MAP modifier once minigbm exposes it.
-    return GbmBuffer::CreateBuffer(gbm, format, size, GBM_BO_USE_SCANOUT);
+    if (modifiers.size() > 0) {
+      return GbmBuffer::CreateBufferWithModifiers(
+          gbm, format, size, GBM_BO_USE_SCANOUT, modifiers);
+    } else {
+      return GbmBuffer::CreateBuffer(gbm, format, size, GBM_BO_USE_SCANOUT);
+    }
   }
 
  protected:
@@ -204,7 +208,7 @@ void DrmThread::SchedulePageFlip(gfx::AcceleratedWidget widget,
   drm_device->plane_manager()->RequestPlanesReadyCallback(
       planes, base::BindOnce(&DrmThread::OnPlanesReadyForPageFlip,
                              weak_ptr_factory_.GetWeakPtr(), widget, planes,
-                             base::Passed(&callback)));
+                             std::move(callback)));
 }
 
 void DrmThread::OnPlanesReadyForPageFlip(

@@ -37,6 +37,7 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
+#include "ui/compositor_extra/shadow.h"
 #include "ui/gfx/animation/tween.h"
 #include "ui/gfx/color_analysis.h"
 #include "ui/gfx/color_utils.h"
@@ -46,7 +47,7 @@
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/coordinate_conversion.h"
-#include "ui/wm/core/shadow.h"
+#include "ui/wm/core/window_animations.h"
 
 namespace ash {
 namespace {
@@ -81,10 +82,6 @@ constexpr float kOldShieldOpacity = 0.7f;
 // The base color which is mixed with the dark muted color from wallpaper to
 // form the shield widgets color.
 constexpr SkColor kShieldBaseColor = SkColorSetARGB(179, 0, 0, 0);
-
-// Amount of blur to apply on the wallpaper when we enter or exit overview mode.
-constexpr float kWallpaperBlurSigma = 10.f;
-constexpr float kWallpaperClearBlurSigma = 0.f;
 
 // In the conceptual overview table, the window margin is the space reserved
 // around the window within the cell. This margin does not overlap so the
@@ -158,6 +155,7 @@ class WindowGrid::ShieldView : public views::View {
     label_container_->SetPaintToLayer();
     label_container_->layer()->SetFillsBoundsOpaquely(false);
     label_container_->layer()->SetOpacity(kNoItemsIndicatorBackgroundOpacity);
+    label_container_->SetVisible(false);
 
     AddChildView(background_view_);
     AddChildView(label_container_);
@@ -173,20 +171,27 @@ class WindowGrid::ShieldView : public views::View {
     label_container_->SetVisible(visible);
   }
 
-  bool IsLabelVisible() const { return label_container_->visible(); }
+  gfx::Rect GetLabelBounds() const {
+    return label_container_->GetBoundsInScreen();
+  }
 
- protected:
-  // views::View:
-  void Layout() override {
-    background_view_->SetBoundsRect(GetLocalBounds());
-
+  // ShieldView takes up the whole workspace since it changes opacity of the
+  // whole wallpaper. The bounds of the grid may be smaller in some cases of
+  // splitview. The label should be centered in the bounds of the grid.
+  void SetGridBounds(const gfx::Rect& bounds) {
     const int label_width = label_->GetPreferredSize().width() +
                             2 * kNoItemsIndicatorHorizontalPaddingDp;
-    gfx::Rect label_container_bounds = GetLocalBounds();
+    gfx::Rect label_container_bounds = bounds;
     label_container_bounds.ClampToCenteredSize(
         gfx::Size(label_width, kNoItemsIndicatorHeightDp));
     label_container_->SetBoundsRect(label_container_bounds);
   }
+
+  bool IsLabelVisible() const { return label_container_->visible(); }
+
+ protected:
+  // views::View:
+  void Layout() override { background_view_->SetBoundsRect(GetLocalBounds()); }
 
  private:
   // Owned by views heirarchy.
@@ -232,13 +237,6 @@ WindowGrid::WindowGrid(aura::Window* root_window,
     window_list_.push_back(
         std::make_unique<WindowSelectorItem>(window, window_selector_, this));
   }
-
-  if (IsNewOverviewUi() &&
-      Shell::Get()->wallpaper_controller()->IsBlurEnabled()) {
-    RootWindowController::ForWindow(root_window_)
-        ->wallpaper_widget_controller()
-        ->SetWallpaperBlur(kWallpaperBlurSigma);
-  }
 }
 
 WindowGrid::~WindowGrid() = default;
@@ -271,13 +269,6 @@ void WindowGrid::Shutdown() {
         std::move(observer));
     shield_widget->SetOpacity(0.f);
   }
-
-  if (IsNewOverviewUi() &&
-      Shell::Get()->wallpaper_controller()->IsBlurEnabled()) {
-    RootWindowController::ForWindow(root_window_)
-        ->wallpaper_widget_controller()
-        ->SetWallpaperBlur(kWallpaperClearBlurSigma);
-  }
 }
 
 void WindowGrid::PrepareForOverview() {
@@ -289,8 +280,14 @@ void WindowGrid::PrepareForOverview() {
 
 void WindowGrid::PositionWindows(bool animate,
                                  WindowSelectorItem* ignored_item) {
-  if (window_selector_->IsShuttingDown() || window_list_.empty())
+  if (window_selector_->IsShuttingDown())
     return;
+  if (window_list_.empty()) {
+    if (IsNewOverviewUi())
+      ShowNoRecentsWindowMessage(/*visible=*/true);
+    return;
+  }
+
   DCHECK(shield_widget_.get());
   // Keep the background shield widget covering the whole screen.
   aura::Window* widget_window = shield_widget_->GetNativeWindow();
@@ -555,6 +552,8 @@ void WindowGrid::WindowClosing(WindowSelectorItem* window) {
 
 void WindowGrid::SetBoundsAndUpdatePositions(const gfx::Rect& bounds) {
   bounds_ = bounds;
+  if (shield_view_)
+    shield_view_->SetGridBounds(bounds_);
   PositionWindows(/*animate=*/true);
 }
 
@@ -562,6 +561,8 @@ void WindowGrid::SetBoundsAndUpdatePositionsIgnoringWindow(
     const gfx::Rect& bounds,
     WindowSelectorItem* ignored_item) {
   bounds_ = bounds;
+  if (shield_view_)
+    shield_view_->SetGridBounds(bounds_);
   PositionWindows(/*animate=*/true, ignored_item);
 }
 
@@ -573,6 +574,15 @@ void WindowGrid::SetSelectionWidgetVisibility(bool visible) {
     selection_widget_->Show();
   else
     selection_widget_->Hide();
+}
+
+void WindowGrid::ShowNoRecentsWindowMessage(bool visible) {
+  // Only show the warning on the grid associated with primary root.
+  if (root_window_ != Shell::GetPrimaryRootWindow())
+    return;
+
+  if (shield_view_)
+    shield_view_->SetLabelVisibility(visible);
 }
 
 void WindowGrid::UpdateCannotSnapWarningVisibility() {
@@ -603,6 +613,7 @@ void WindowGrid::OnWindowDestroying(aura::Window* window) {
   window_list_.erase(iter);
 
   if (empty()) {
+    selection_widget_.reset();
     // If the grid is now empty, notify the window selector so that it erases us
     // from its grid list.
     window_selector_->OnGridEmpty(this);
@@ -672,6 +683,13 @@ bool WindowGrid::IsNoItemsIndicatorLabelVisibleForTesting() {
   return shield_view_ && shield_view_->IsLabelVisible();
 }
 
+gfx::Rect WindowGrid::GetNoItemsIndicatorLabelBoundsForTesting() const {
+  if (!shield_view_)
+    return gfx::Rect();
+
+  return shield_view_->GetLabelBounds();
+}
+
 void WindowGrid::SetWindowListAnimationStates(
     WindowSelectorItem* selected_item,
     WindowSelector::OverviewTransition transition) {
@@ -729,6 +747,13 @@ void WindowGrid::SetWindowListAnimationStates(
   }
 }
 
+void WindowGrid::SetWindowListNotAnimatedWhenExiting() {
+  for (const auto& item : window_list_) {
+    item->set_should_animate_when_exiting(false);
+    item->set_should_be_observed_when_exiting(false);
+  }
+}
+
 void WindowGrid::ResetWindowListAnimationStates() {
   for (const auto& selector_item : window_list_)
     selector_item->ResetAnimationStates();
@@ -770,7 +795,7 @@ void WindowGrid::InitShieldWidget() {
     // Create |shield_view_| and animate its background and label if needed.
     shield_view_ = new ShieldView();
     shield_view_->SetBackgroundColor(shield_color);
-    shield_view_->SetLabelVisibility(empty());
+    shield_view_->SetGridBounds(bounds_);
     shield_widget_->SetContentsView(shield_view_);
     shield_widget_->SetOpacity(initial_opacity);
   }
@@ -805,7 +830,7 @@ void WindowGrid::InitSelectionWidget(WindowSelector::Direction direction) {
   widget_window->SetBounds(target_bounds - fade_out_direction);
   widget_window->SetName("OverviewModeSelector");
 
-  selector_shadow_ = std::make_unique<::wm::Shadow>();
+  selector_shadow_ = std::make_unique<ui::Shadow>();
   selector_shadow_->Init(kWindowSelectionShadowElevation);
   selector_shadow_->layer()->SetVisible(true);
   selection_widget_->GetLayer()->SetMasksToBounds(false);

@@ -114,6 +114,7 @@ class FakeDownloadItem : public download::DownloadItem {
   bool IsPaused() const override;
   bool IsTemporary() const override;
   bool CanResume() const override;
+  int64_t GetBytesWasted() const override;
   const GURL& GetReferrerUrl() const override;
   const GURL& GetSiteUrl() const override;
   const GURL& GetTabUrl() const override;
@@ -131,6 +132,7 @@ class FakeDownloadItem : public download::DownloadItem {
   TargetDisposition GetTargetDisposition() const override;
   const std::string& GetHash() const override;
   void DeleteFile(const base::Callback<void(bool)>& callback) override;
+  download::DownloadFile* GetDownloadFile() override;
   bool IsDangerous() const override;
   download::DownloadDangerType GetDangerType() const override;
   bool TimeRemaining(base::TimeDelta* remaining) const override;

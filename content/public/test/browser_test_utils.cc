@@ -19,6 +19,7 @@
 #include "base/macros.h"
 #include "base/process/kill.h"
 #include "base/rand_util.h"
+#include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_number_conversions.h"
@@ -619,11 +620,17 @@ bool IsLastCommittedEntryOfPageType(WebContents* web_contents,
   return last_entry->GetPageType() == page_type;
 }
 
+void OverrideLastCommittedOrigin(RenderFrameHost* render_frame_host,
+                                 const url::Origin& origin) {
+  static_cast<RenderFrameHostImpl*>(render_frame_host)
+      ->SetLastCommittedOriginForTesting(origin);
+}
+
 void CrashTab(WebContents* web_contents) {
   RenderProcessHost* rph = web_contents->GetMainFrame()->GetProcess();
   RenderProcessHostWatcher watcher(
       rph, RenderProcessHostWatcher::WATCH_FOR_PROCESS_EXIT);
-  rph->Shutdown(0, false);
+  rph->Shutdown(0);
   watcher.Wait();
 }
 
@@ -789,12 +796,9 @@ void SimulateGesturePinchSequence(WebContents* web_contents,
   blink::WebGestureEvent pinch_begin(
       blink::WebInputEvent::kGesturePinchBegin,
       blink::WebInputEvent::kNoModifiers,
-      ui::EventTimeStampToSeconds(ui::EventTimeForNow()));
-  pinch_begin.source_device = source_device;
-  pinch_begin.x = point.x();
-  pinch_begin.y = point.y();
-  pinch_begin.global_x = point.x();
-  pinch_begin.global_y = point.y();
+      ui::EventTimeStampToSeconds(ui::EventTimeForNow()), source_device);
+  pinch_begin.SetPositionInWidget(gfx::PointF(point));
+  pinch_begin.SetPositionInScreen(gfx::PointF(point));
   widget_host->ForwardGestureEvent(pinch_begin);
 
   blink::WebGestureEvent pinch_update(pinch_begin);
@@ -816,10 +820,9 @@ void SimulateGestureScrollSequence(WebContents* web_contents,
   blink::WebGestureEvent scroll_begin(
       blink::WebGestureEvent::kGestureScrollBegin,
       blink::WebInputEvent::kNoModifiers,
-      ui::EventTimeStampToSeconds(ui::EventTimeForNow()));
-  scroll_begin.source_device = blink::kWebGestureDeviceTouchpad;
-  scroll_begin.x = point.x();
-  scroll_begin.y = point.y();
+      ui::EventTimeStampToSeconds(ui::EventTimeForNow()),
+      blink::kWebGestureDeviceTouchpad);
+  scroll_begin.SetPositionInWidget(gfx::PointF(point));
   scroll_begin.data.scroll_begin.delta_x_hint = delta.x();
   scroll_begin.data.scroll_begin.delta_y_hint = delta.y();
   widget_host->ForwardGestureEvent(scroll_begin);
@@ -827,10 +830,9 @@ void SimulateGestureScrollSequence(WebContents* web_contents,
   blink::WebGestureEvent scroll_update(
       blink::WebGestureEvent::kGestureScrollUpdate,
       blink::WebInputEvent::kNoModifiers,
-      ui::EventTimeStampToSeconds(ui::EventTimeForNow()));
-  scroll_update.source_device = blink::kWebGestureDeviceTouchpad;
-  scroll_update.x = point.x();
-  scroll_update.y = point.y();
+      ui::EventTimeStampToSeconds(ui::EventTimeForNow()),
+      blink::kWebGestureDeviceTouchpad);
+  scroll_update.SetPositionInWidget(gfx::PointF(point));
   scroll_update.data.scroll_update.delta_x = delta.x();
   scroll_update.data.scroll_update.delta_y = delta.y();
   scroll_update.data.scroll_update.velocity_x = 0;
@@ -840,10 +842,9 @@ void SimulateGestureScrollSequence(WebContents* web_contents,
   blink::WebGestureEvent scroll_end(
       blink::WebGestureEvent::kGestureScrollEnd,
       blink::WebInputEvent::kNoModifiers,
-      ui::EventTimeStampToSeconds(ui::EventTimeForNow()));
-  scroll_end.source_device = blink::kWebGestureDeviceTouchpad;
-  scroll_end.x = point.x() + delta.x();
-  scroll_end.y = point.y() + delta.y();
+      ui::EventTimeStampToSeconds(ui::EventTimeForNow()),
+      blink::kWebGestureDeviceTouchpad);
+  scroll_end.SetPositionInWidget(gfx::PointF(point));
   widget_host->ForwardGestureEvent(scroll_end);
 }
 
@@ -856,28 +857,25 @@ void SimulateGestureFlingSequence(WebContents* web_contents,
   blink::WebGestureEvent scroll_begin(
       blink::WebGestureEvent::kGestureScrollBegin,
       blink::WebInputEvent::kNoModifiers,
-      ui::EventTimeStampToSeconds(ui::EventTimeForNow()));
-  scroll_begin.source_device = blink::kWebGestureDeviceTouchpad;
-  scroll_begin.x = point.x();
-  scroll_begin.y = point.y();
+      ui::EventTimeStampToSeconds(ui::EventTimeForNow()),
+      blink::kWebGestureDeviceTouchpad);
+  scroll_begin.SetPositionInWidget(gfx::PointF(point));
   widget_host->ForwardGestureEvent(scroll_begin);
 
   blink::WebGestureEvent scroll_end(
       blink::WebGestureEvent::kGestureScrollEnd,
       blink::WebInputEvent::kNoModifiers,
-      ui::EventTimeStampToSeconds(ui::EventTimeForNow()));
-  scroll_end.source_device = blink::kWebGestureDeviceTouchpad;
-  scroll_end.x = point.x();
-  scroll_end.y = point.y();
+      ui::EventTimeStampToSeconds(ui::EventTimeForNow()),
+      blink::kWebGestureDeviceTouchpad);
+  scroll_end.SetPositionInWidget(gfx::PointF(point));
   widget_host->ForwardGestureEvent(scroll_end);
 
   blink::WebGestureEvent fling_start(
       blink::WebGestureEvent::kGestureFlingStart,
       blink::WebInputEvent::kNoModifiers,
-      ui::EventTimeStampToSeconds(ui::EventTimeForNow()));
-  fling_start.source_device = blink::kWebGestureDeviceTouchpad;
-  fling_start.x = point.x();
-  fling_start.y = point.y();
+      ui::EventTimeStampToSeconds(ui::EventTimeForNow()),
+      blink::kWebGestureDeviceTouchpad);
+  fling_start.SetPositionInWidget(gfx::PointF(point));
   fling_start.data.fling_start.target_viewport = false;
   fling_start.data.fling_start.velocity_x = velocity.x();
   fling_start.data.fling_start.velocity_y = velocity.y();
@@ -893,12 +891,10 @@ void SimulateGestureEvent(WebContents* web_contents,
 }
 
 void SimulateTapAt(WebContents* web_contents, const gfx::Point& point) {
-  blink::WebGestureEvent tap(
-      blink::WebGestureEvent::kGestureTap, 0,
-      ui::EventTimeStampToSeconds(ui::EventTimeForNow()));
-  tap.source_device = blink::kWebGestureDeviceTouchpad;
-  tap.x = point.x();
-  tap.y = point.y();
+  blink::WebGestureEvent tap(blink::WebGestureEvent::kGestureTap, 0,
+                             ui::EventTimeStampToSeconds(ui::EventTimeForNow()),
+                             blink::kWebGestureDeviceTouchscreen);
+  tap.SetPositionInWidget(gfx::PointF(point));
   RenderWidgetHostImpl* widget_host = RenderWidgetHostImpl::From(
       web_contents->GetRenderViewHost()->GetWidget());
   widget_host->ForwardGestureEvent(tap);
@@ -907,12 +903,10 @@ void SimulateTapAt(WebContents* web_contents, const gfx::Point& point) {
 void SimulateTapWithModifiersAt(WebContents* web_contents,
                                 unsigned modifiers,
                                 const gfx::Point& point) {
-  blink::WebGestureEvent tap(
-      blink::WebGestureEvent::kGestureTap, modifiers,
-      ui::EventTimeStampToSeconds(ui::EventTimeForNow()));
-  tap.source_device = blink::kWebGestureDeviceTouchpad;
-  tap.x = point.x();
-  tap.y = point.y();
+  blink::WebGestureEvent tap(blink::WebGestureEvent::kGestureTap, modifiers,
+                             ui::EventTimeStampToSeconds(ui::EventTimeForNow()),
+                             blink::kWebGestureDeviceTouchpad);
+  tap.SetPositionInWidget(gfx::PointF(point));
   RenderWidgetHostImpl* widget_host = RenderWidgetHostImpl::From(
       web_contents->GetRenderViewHost()->GetWidget());
   widget_host->ForwardGestureEvent(tap);
@@ -928,7 +922,7 @@ void SimulateTouchPressAt(WebContents* web_contents, const gfx::Point& point) {
       ->OnTouchEvent(&touch);
 }
 
-void SimulateLongPressAt(WebContents* web_contents, const gfx::Point& point) {
+void SimulateLongTapAt(WebContents* web_contents, const gfx::Point& point) {
   RenderWidgetHostViewAura* rwhva = static_cast<RenderWidgetHostViewAura*>(
       web_contents->GetRenderWidgetHostView());
 
@@ -954,6 +948,12 @@ void SimulateLongPressAt(WebContents* web_contents, const gfx::Point& point) {
       ui::ET_TOUCH_RELEASED, point, base::TimeTicks(),
       ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, 0));
   rwhva->OnTouchEvent(&touch_end);
+
+  ui::GestureEventDetails long_tap_details(ui::ET_GESTURE_LONG_TAP);
+  long_tap_details.set_device_type(ui::GestureDeviceType::DEVICE_TOUCHSCREEN);
+  ui::GestureEvent long_tap(point.x(), point.y(), 0, ui::EventTimeForNow(),
+                            long_tap_details, touch_end.unique_event_id());
+  rwhva->OnGestureEvent(&long_tap);
 }
 #endif
 
@@ -1415,8 +1415,8 @@ void WaitForAccessibilityTreeToContainNodeWithName(WebContents* web_contents,
         web_contents_impl->GetBrowserContext()->GetGuestManager();
     if (guest_manager) {
       guest_manager->ForEachGuest(web_contents_impl,
-                                  base::Bind(&ListenToGuestWebContents,
-                                             &accessibility_waiter));
+                                  base::BindRepeating(&ListenToGuestWebContents,
+                                                      &accessibility_waiter));
     }
 
     accessibility_waiter.WaitForNotification();
@@ -1892,6 +1892,22 @@ void RenderFrameSubmissionObserver::WaitForMetadataChange() {
   Wait();
 }
 
+void RenderFrameSubmissionObserver::WaitForScrollOffset(
+    const gfx::Vector2dF& expected_offset) {
+  while (render_frame_metadata_provider_->LastRenderFrameMetadata()
+             .root_scroll_offset != expected_offset) {
+    WaitForMetadataChange();
+  }
+}
+
+void RenderFrameSubmissionObserver::WaitForScrollOffsetAtTop(
+    bool expected_scroll_offset_at_top) {
+  while (render_frame_metadata_provider_->LastRenderFrameMetadata()
+             .is_scroll_offset_at_top != expected_scroll_offset_at_top) {
+    WaitForMetadataChange();
+  }
+}
+
 const cc::RenderFrameMetadata&
 RenderFrameSubmissionObserver::LastRenderFrameMetadata() const {
   return render_frame_metadata_provider_->LastRenderFrameMetadata();
@@ -2103,6 +2119,37 @@ FrameFocusedObserver::FrameFocusedObserver(RenderFrameHost* owner_host)
 FrameFocusedObserver::~FrameFocusedObserver() {}
 
 void FrameFocusedObserver::Wait() {
+  impl_->Run();
+}
+
+class FrameDeletedObserver::FrameTreeNodeObserverImpl
+    : public FrameTreeNode::Observer {
+ public:
+  explicit FrameTreeNodeObserverImpl(FrameTreeNode* owner) : owner_(owner) {
+    owner->AddObserver(this);
+  }
+  ~FrameTreeNodeObserverImpl() override = default;
+
+  void Run() { run_loop_.Run(); }
+
+ private:
+  // FrameTreeNode::Observer
+  void OnFrameTreeNodeDestroyed(FrameTreeNode* node) override {
+    if (node == owner_)
+      run_loop_.Quit();
+  }
+
+  FrameTreeNode* owner_;
+  base::RunLoop run_loop_;
+};
+
+FrameDeletedObserver::FrameDeletedObserver(RenderFrameHost* owner_host)
+    : impl_(new FrameTreeNodeObserverImpl(
+          static_cast<RenderFrameHostImpl*>(owner_host)->frame_tree_node())) {}
+
+FrameDeletedObserver::~FrameDeletedObserver() = default;
+
+void FrameDeletedObserver::Wait() {
   impl_->Run();
 }
 
@@ -2445,7 +2492,7 @@ void SimulateNetworkServiceCrash() {
   ServiceManagerConnection::GetForProcess()->GetConnector()->BindInterface(
       mojom::kNetworkServiceName, &network_service_test);
 
-  base::RunLoop run_loop;
+  base::RunLoop run_loop(base::RunLoop::Type::kNestableTasksAllowed);
   network_service_test.set_connection_error_handler(run_loop.QuitClosure());
 
   network_service_test->SimulateCrash();
@@ -2481,6 +2528,16 @@ int LoadBasicRequest(network::mojom::NetworkContext* network_context,
   simple_loader_helper.WaitForCallback();
 
   return simple_loader->NetError();
+}
+
+void EnsureCookiesFlushed(BrowserContext* browser_context) {
+  BrowserContext::ForEachStoragePartition(
+      browser_context, base::BindRepeating([](StoragePartition* partition) {
+        base::RunLoop run_loop;
+        partition->GetCookieManagerForBrowserProcess()->FlushCookieStore(
+            run_loop.QuitClosure());
+        run_loop.Run();
+      }));
 }
 
 bool HasValidProcessForProcessGroup(const std::string& process_group_name) {

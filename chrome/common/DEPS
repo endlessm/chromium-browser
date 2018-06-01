@@ -37,23 +37,23 @@ include_rules = [
   "+components/translate/core/common",
   "+components/url_formatter",
   "+components/version_info",
-  "+device/vr/features/features.h",
+  "+device/vr/buildflags/buildflags.h",
+  "+extensions/buildflags",
   "+extensions/common",
-  "+extensions/features",
   "+gin/public",  # For profiling.cc
   "+google_apis/gaia",  # For gaia_switches.h
   "+media",
   "+ppapi/c",
   "+ppapi/shared_impl",
   "+ppapi/thunk",
-  "+rlz/features/features.h",
+  "+rlz/buildflags/buildflags.h",
   "+sandbox/linux/services/credentials.h",
   "+services/network/public/cpp",
   "+services/service_manager/public",
   "+services/service_manager/sandbox",
   "+third_party/boringssl/src/include",
-  "+third_party/WebKit/public/platform/web_client_hints_types.mojom.h",
-  "+third_party/WebKit/public/platform/web_feature.mojom.h",
+  "+third_party/blink/public/platform/web_client_hints_types.mojom.h",
+  "+third_party/blink/public/platform/web_feature.mojom.h",
 
   # FIXME - refactor code and remove these dependencies
   "+chrome/installer/util",

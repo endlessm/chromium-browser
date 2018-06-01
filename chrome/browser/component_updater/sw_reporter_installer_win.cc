@@ -53,7 +53,6 @@ namespace component_updater {
 
 namespace {
 
-using safe_browsing::OnReporterSequenceDone;
 using safe_browsing::SwReporterInvocation;
 using safe_browsing::SwReporterInvocationSequence;
 
@@ -69,16 +68,13 @@ enum SRTCompleted {
 // CRX hash. The extension id is: gkmgaooipdjhmangpemjhigmamcehddo. The hash was
 // generated in Python with something like this:
 // hashlib.sha256().update(open("<file>.crx").read()[16:16+294]).digest().
-const uint8_t kSha256Hash[] = {0x6a, 0xc6, 0x0e, 0xe8, 0xf3, 0x97, 0xc0, 0xd6,
-                               0xf4, 0xc9, 0x78, 0x6c, 0x0c, 0x24, 0x73, 0x3e,
-                               0x05, 0xa5, 0x62, 0x4b, 0x2e, 0xc7, 0xb7, 0x1c,
-                               0x5f, 0xea, 0xf0, 0x88, 0xf6, 0x97, 0x9b, 0xc7};
+const uint8_t kSwReporterSha2Hash[] = {
+    0x6a, 0xc6, 0x0e, 0xe8, 0xf3, 0x97, 0xc0, 0xd6, 0xf4, 0xc9, 0x78,
+    0x6c, 0x0c, 0x24, 0x73, 0x3e, 0x05, 0xa5, 0x62, 0x4b, 0x2e, 0xc7,
+    0xb7, 0x1c, 0x5f, 0xea, 0xf0, 0x88, 0xf6, 0x97, 0x9b, 0xc7};
 
 const base::FilePath::CharType kSwReporterExeName[] =
     FILE_PATH_LITERAL("software_reporter_tool.exe");
-
-constexpr base::Feature kComponentTagFeature{kComponentTagFeatureName,
-                                             base::FEATURE_DISABLED_BY_DEFAULT};
 
 void SRTHasCompleted(SRTCompleted value) {
   UMA_HISTOGRAM_ENUMERATION("SoftwareReporter.Cleaner.HasCompleted", value,
@@ -93,7 +89,7 @@ void ReportUploadsWithUma(const base::string16& upload_results) {
   int current_failure_run = 0;
   bool last_result = false;
   while (tokenizer.GetNext()) {
-    if (tokenizer.token() == L"0") {
+    if (tokenizer.token_piece() == L"0") {
       ++failure_count;
       ++current_failure_run;
       last_result = false;
@@ -396,7 +392,8 @@ base::FilePath SwReporterInstallerPolicy::GetRelativeInstallDir() const {
 
 void SwReporterInstallerPolicy::GetHash(std::vector<uint8_t>* hash) const {
   DCHECK(hash);
-  hash->assign(kSha256Hash, kSha256Hash + sizeof(kSha256Hash));
+  hash->assign(kSwReporterSha2Hash,
+               kSwReporterSha2Hash + sizeof(kSwReporterSha2Hash));
 }
 
 std::string SwReporterInstallerPolicy::GetName() const {
@@ -406,18 +403,20 @@ std::string SwReporterInstallerPolicy::GetName() const {
 update_client::InstallerAttributes
 SwReporterInstallerPolicy::GetInstallerAttributes() const {
   update_client::InstallerAttributes attributes;
-  if (base::FeatureList::IsEnabled(kComponentTagFeature)) {
-    // Pass the "tag" parameter to the installer; it will be used to choose
-    // which binary is downloaded.
-    constexpr char kTagParam[] = "tag";
+  if (base::FeatureList::IsEnabled(
+          safe_browsing::kChromeCleanupDistributionFeature)) {
+    // Pass the tag parameter to the installer as the "tag" attribute; it will
+    // be used to choose which binary is downloaded.
+    constexpr char kTagParamName[] = "reporter_omaha_tag";
     const std::string tag = variations::GetVariationParamValueByFeature(
-        kComponentTagFeature, kTagParam);
+        safe_browsing::kChromeCleanupDistributionFeature, kTagParamName);
 
     // If the tag is not a valid attribute (see the regexp in
     // ComponentInstallerPolicy::InstallerAttributes), set it to a valid but
     // unrecognized value so that nothing will be downloaded.
     constexpr size_t kMaxAttributeLength = 256;
     constexpr char kExtraAttributeChars[] = "-.,;+_=";
+    constexpr char kTagParam[] = "tag";
     if (tag.empty() ||
         !ValidateString(tag, kExtraAttributeChars, kMaxAttributeLength)) {
       ReportExperimentError(SW_REPORTER_EXPERIMENT_ERROR_BAD_TAG);

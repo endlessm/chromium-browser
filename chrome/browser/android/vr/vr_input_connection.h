@@ -11,7 +11,6 @@
 #include "base/android/jni_weak_ref.h"
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/memory/weak_ptr.h"
 #include "chrome/browser/vr/content_input_delegate.h"
 #include "chrome/browser/vr/text_edit_action.h"
 
@@ -26,8 +25,6 @@ class VrInputConnection {
   explicit VrInputConnection(content::WebContents* web_contents);
   ~VrInputConnection();
 
-  base::WeakPtr<VrInputConnection> GetWeakPtr();
-
   void OnKeyboardEdit(const TextEdits& edits);
   void SubmitInput();
   void RequestTextState(TextStateUpdateCallback callback);
@@ -35,11 +32,11 @@ class VrInputConnection {
                        const base::android::JavaParamRef<jobject>& obj,
                        jstring jtext);
 
+  base::android::ScopedJavaLocalRef<jobject> GetJavaObject();
+
  private:
   base::android::ScopedJavaGlobalRef<jobject> j_object_;
   std::queue<vr::TextStateUpdateCallback> text_state_update_callbacks_;
-
-  base::WeakPtrFactory<VrInputConnection> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(VrInputConnection);
 };

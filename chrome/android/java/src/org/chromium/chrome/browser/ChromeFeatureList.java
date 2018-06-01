@@ -153,31 +153,23 @@ public abstract class ChromeFeatureList {
     public static final String ANDROID_PAY_INTEGRATION_V2 = "AndroidPayIntegrationV2";
     public static final String ANDROID_PAYMENT_APPS = "AndroidPaymentApps";
     public static final String AUTOFILL_SCAN_CARDHOLDER_NAME = "AutofillScanCardholderName";
+    public static final String CAF_MEDIA_ROUTER_IMPL = "CafMediaRouterImpl";
     public static final String CAPTIVE_PORTAL_CERTIFICATE_LIST = "CaptivePortalCertificateList";
     public static final String CCT_BACKGROUND_TAB = "CCTBackgroundTab";
     public static final String CCT_EXTERNAL_LINK_HANDLING = "CCTExternalLinkHandling";
+    public static final String CCT_PARALLEL_REQUEST = "CCTParallelRequest";
     public static final String CCT_POST_MESSAGE_API = "CCTPostMessageAPI";
     public static final String CCT_REDIRECT_PRECONNECT = "CCTRedirectPreconnect";
     public static final String CHROME_DUPLEX = "ChromeDuplex";
     // TODO(mdjones): Remove CHROME_HOME completely.
     public static final String CHROME_HOME = "ChromeHome";
-    public static final String CHROME_HOME_BOTTOM_NAV_LABELS = "ChromeHomeBottomNavLabels";
-    public static final String CHROME_HOME_CLEAR_URL_ON_OPEN = "ChromeHomeClearUrlOnOpen";
-    public static final String CHROME_HOME_DESTROY_SUGGESTIONS = "ChromeHomeDestroySuggestions";
     public static final String CHROME_HOME_DROP_ALL_BUT_FIRST_THUMBNAIL =
             "ChromeHomeDropAllButFirstThumbnail";
-    public static final String CHROME_HOME_INACTIVITY_SHEET_EXPANSION =
-            "ChromeHomeInactivitySheetExpansion";
     public static final String CHROME_HOME_MENU_ITEMS_EXPAND_SHEET =
             "ChromeHomeMenuItemsExpandSheet";
     public static final String CHROME_HOME_PERSISTENT_IPH = "ChromeHomePersistentIph";
-    public static final String CHROME_HOME_PERSONALIZED_OMNIBOX_SUGGESTIONS =
-            "ChromeHomePersonalizedOmniboxSuggestions";
     public static final String CHROME_HOME_PULL_TO_REFRESH_IPH_AT_TOP =
             "ChromeHomePullToRefreshIphAtTop";
-    public static final String CHROME_HOME_SHOW_GOOGLE_G_WHEN_URL_CLEARED =
-            "ChromeHomeShowGoogleGWhenUrlCleared";
-    public static final String CHROME_HOME_SURVEY = "ChromeHomeSurvey";
     public static final String CHROME_HOME_SWIPE_VELOCITY_FEATURE = "ChromeHomeSwipeLogicVelocity";
     public static final String CHROME_MEMEX = "ChromeMemex";
     public static final String CHROME_MODERN_DESIGN = "ChromeModernDesign";
@@ -199,9 +191,8 @@ public abstract class ChromeFeatureList {
     public static final String CONTEXTUAL_SEARCH_SECOND_TAP = "ContextualSearchSecondTap";
     public static final String CONTEXTUAL_SEARCH_TAP_DISABLE_OVERRIDE =
             "ContextualSearchTapDisableOverride";
-    public static final String CONTEXTUAL_SUGGESTIONS_ABOVE_ARTICLES =
-            "ContextualSuggestionsAboveArticles";
-    public static final String CONTEXTUAL_SUGGESTIONS_CAROUSEL = "ContextualSuggestionsCarousel";
+    public static final String CONTEXTUAL_SUGGESTIONS_BOTTOM_SHEET =
+            "ContextualSuggestionsBottomSheet";
     public static final String CUSTOM_CONTEXT_MENU = "CustomContextMenu";
     public static final String CUSTOM_FEEDBACK_UI = "CustomFeedbackUi";
     // Enables the Data Reduction Proxy menu item in the main menu rather than under Settings on
@@ -211,12 +202,15 @@ public abstract class ChromeFeatureList {
     public static final String DOWNLOAD_HOME_SHOW_STORAGE_INFO = "DownloadHomeShowStorageInfo";
     public static final String DOWNLOADS_FOREGROUND = "DownloadsForeground";
     public static final String DOWNLOADS_LOCATION_CHANGE = "DownloadsLocationChange";
+    public static final String EXPERIMENTAL_APP_BANNERS = "ExperimentalAppBanners";
     // When enabled, fullscreen WebContents will be moved to a new Activity. Coming soon...
     public static final String FULLSCREEN_ACTIVITY = "FullscreenActivity";
     public static final String GRANT_NOTIFICATIONS_TO_DSE = "GrantNotificationsToDSE";
     public static final String HOME_PAGE_BUTTON_FORCE_ENABLED = "HomePageButtonForceEnabled";
+    public static final String HORIZONTAL_TAB_SWITCHER_ANDROID = "HorizontalTabSwitcherAndroid";
     // Whether we show an important sites dialog in the "Clear Browsing Data" flow.
     public static final String IMPORTANT_SITES_IN_CBD = "ImportantSitesInCBD";
+    public static final String INTEREST_FEED_CONTENT_SUGGESTIONS = "InterestFeedContentSuggestions";
     public static final String LANGUAGES_PREFERENCE = "LanguagesPreference";
     public static final String SEARCH_ENGINE_PROMO_EXISTING_DEVICE =
             "SearchEnginePromo.ExistingDevice";
@@ -230,13 +224,18 @@ public abstract class ChromeFeatureList {
             "NTPArticleSuggestionsExpandableHeader";
     public static final String NTP_CONDENSED_LAYOUT = "NTPCondensedLayout";
     public static final String NTP_CONDENSED_TILE_LAYOUT = "NTPCondensedTileLayout";
-    public static final String NTP_MODERN_LAYOUT = "NTPModernLayout";
     public static final String NTP_FOREIGN_SESSIONS_SUGGESTIONS = "NTPForeignSessionsSuggestions";
     public static final String NTP_LAUNCH_AFTER_INACTIVITY = "NTPLaunchAfterInactivity";
+    public static final String NTP_MODERN_LAYOUT = "NTPModernLayout";
+    public static final String NTP_SHORTCUTS = "NTPShortcuts";
     public static final String NTP_SHOW_GOOGLE_G_IN_OMNIBOX = "NTPShowGoogleGInOmnibox";
     public static final String NTP_SNIPPETS_INCREASED_VISIBILITY = "NTPSnippetsIncreasedVisibility";
+    public static final String OFFLINE_PAGES_DESCRIPTIVE_FAIL_STATUS =
+            "OfflinePagesDescriptiveFailStatus";
     public static final String OFFLINE_PAGES_DESCRIPTIVE_PENDING_STATUS =
             "OfflinePagesDescriptivePendingStatus";
+    public static final String OMNIBOX_HIDE_SCHEME_DOMAIN_IN_STEADY_STATE =
+            "OmniboxUIExperimentHideSteadyStateUrlSchemeAndSubdomains";
     public static final String OMNIBOX_SPARE_RENDERER = "OmniboxSpareRenderer";
     public static final String OMNIBOX_VOICE_SEARCH_ALWAYS_VISIBLE =
             "OmniboxVoiceSearchAlwaysVisible";
@@ -246,7 +245,9 @@ public abstract class ChromeFeatureList {
     public static final String PROGRESS_BAR_THROTTLE = "ProgressBarThrottle";
     public static final String PWA_PERSISTENT_NOTIFICATION = "PwaPersistentNotification";
     public static final String READER_MODE_IN_CCT = "ReaderModeInCCT";
+    public static final String REMOVE_NAVIGATION_HISTORY = "RemoveNavigationHistory";
     public static final String SERVICE_WORKER_PAYMENT_APPS = "ServiceWorkerPaymentApps";
+    public static final String SHOW_TRUSTED_PUBLISHER_URL = "ShowTrustedPublisherURL";
     public static final String SITE_NOTIFICATION_CHANNELS = "SiteNotificationChannels";
     public static final String SOLE_INTEGRATION = "SoleIntegration";
     public static final String SOUND_CONTENT_SETTING = "SoundContentSetting";
@@ -255,12 +256,12 @@ public abstract class ChromeFeatureList {
     public static final String TAB_REPARENTING = "TabReparenting";
     public static final String TRUSTED_WEB_ACTIVITY = "TrustedWebActivity";
     public static final String VIDEO_PERSISTENCE = "VideoPersistence";
-    public static final String VR_BROWSING = "VrBrowsing";
+    public static final String UNIFIED_CONSENT = "UnifiedConsent";
     public static final String VR_BROWSING_FEEDBACK = "VrBrowsingFeedback";
     public static final String VR_BROWSING_IN_CUSTOM_TAB = "VrBrowsingInCustomTab";
     public static final String VR_BROWSING_NATIVE_ANDROID_UI = "VrBrowsingNativeAndroidUi";
     public static final String VR_ICON_IN_DAYDREAM_HOME = "VrIconInDaydreamHome";
-    public static final String VR_LAUNCH_INTENT = "VrLaunchIntents";
+    public static final String WEB_AUTH = "WebAuthentication";
     public static final String WEB_PAYMENTS = "WebPayments";
     public static final String WEB_PAYMENTS_METHOD_SECTION_ORDER_V2 =
             "WebPaymentsMethodSectionOrderV2";

@@ -16,7 +16,7 @@
 #include "ios/chrome/browser/chrome_url_constants.h"
 #import "ios/chrome/browser/ui/authentication/signin_earlgrey_utils.h"
 #import "ios/chrome/browser/ui/authentication/signin_promo_view.h"
-#import "ios/chrome/browser/ui/history/history_entry_item.h"
+#import "ios/chrome/browser/ui/history/legacy_history_entry_item.h"
 #import "ios/chrome/browser/ui/settings/settings_collection_view_controller.h"
 #include "ios/chrome/browser/ui/tools_menu/public/tools_menu_constants.h"
 #import "ios/chrome/browser/ui/tools_menu/tools_popup_controller.h"
@@ -44,6 +44,7 @@
 #endif
 
 using chrome_test_util::ButtonWithAccessibilityLabelId;
+using chrome_test_util::ContextMenuCopyButton;
 using chrome_test_util::NavigationBarDoneButton;
 using chrome_test_util::OpenLinkInNewTabButton;
 
@@ -62,7 +63,7 @@ id<GREYMatcher> HistoryEntry(const GURL& url, const std::string& title) {
   NSString* url_spec_text = base::SysUTF8ToNSString(url.spec());
   NSString* title_text = base::SysUTF8ToNSString(title);
 
-  MatchesBlock matches = ^BOOL(HistoryEntryCell* cell) {
+  MatchesBlock matches = ^BOOL(LegacyHistoryEntryCell* cell) {
     return [cell.textLabel.text isEqual:title_text] &&
            [cell.detailTextLabel.text isEqual:url_spec_text];
   };
@@ -75,14 +76,14 @@ id<GREYMatcher> HistoryEntry(const GURL& url, const std::string& title) {
   };
 
   return grey_allOf(
-      grey_kindOfClass([HistoryEntryCell class]),
+      grey_kindOfClass([LegacyHistoryEntryCell class]),
       [[GREYElementMatcherBlock alloc] initWithMatchesBlock:matches
                                            descriptionBlock:describe],
       grey_sufficientlyVisible(), nil);
 }
 // Matcher for the history button in the tools menu.
 id<GREYMatcher> HistoryButton() {
-  return ButtonWithAccessibilityLabelId(IDS_HISTORY_SHOW_HISTORY);
+  return grey_accessibilityID(kToolsMenuHistoryId);
 }
 // Matcher for the edit button in the navigation bar.
 id<GREYMatcher> NavigationEditButton() {
@@ -113,10 +114,6 @@ id<GREYMatcher> OpenClearBrowsingDataButton() {
 id<GREYMatcher> OpenInNewIncognitoTabButton() {
   return ButtonWithAccessibilityLabelId(
       IDS_IOS_CONTENT_CONTEXT_OPENLINKNEWINCOGNITOTAB);
-}
-// Matcher for the Copy URL option in the context menu.
-id<GREYMatcher> CopyUrlButton() {
-  return ButtonWithAccessibilityLabelId(IDS_IOS_CONTENT_CONTEXT_COPY);
 }
 // Matcher for the clear browsing data button on the clear browsing data panel.
 id<GREYMatcher> ClearBrowsingDataButton() {
@@ -325,9 +322,8 @@ id<GREYMatcher> ConfirmClearBrowsingDataButton() {
   // Include sufficientlyVisible condition for the case of the clear browsing
   // dialog, which also has a "Done" button and is displayed over the history
   // panel.
-  id<GREYMatcher> visibleDoneButton =
-      grey_allOf(chrome_test_util::NavigationBarDoneButton(),
-                 grey_sufficientlyVisible(), nil);
+  id<GREYMatcher> visibleDoneButton = grey_allOf(
+      chrome_test_util::SettingsDoneButton(), grey_sufficientlyVisible(), nil);
   [[EarlGrey selectElementWithMatcher:visibleDoneButton]
       performAction:grey_tap()];
 
@@ -392,7 +388,7 @@ id<GREYMatcher> ConfirmClearBrowsingDataButton() {
       performAction:grey_longPress()];
 
   // Tap "Copy URL" and wait for the URL to be copied to the pasteboard.
-  [[EarlGrey selectElementWithMatcher:CopyUrlButton()]
+  [[EarlGrey selectElementWithMatcher:ContextMenuCopyButton()]
       performAction:grey_tap()];
   bool success =
       testing::WaitUntilConditionOrTimeout(testing::kWaitForUIElementTimeout, ^{
@@ -427,8 +423,7 @@ id<GREYMatcher> ConfirmClearBrowsingDataButton() {
 
 - (void)openHistoryPanel {
   [ChromeEarlGreyUI openToolsMenu];
-  [[EarlGrey selectElementWithMatcher:HistoryButton()]
-      performAction:grey_tap()];
+  [ChromeEarlGreyUI tapToolsMenuButton:HistoryButton()];
 }
 
 - (void)assertNoHistoryShown {
@@ -439,7 +434,7 @@ id<GREYMatcher> ConfirmClearBrowsingDataButton() {
       assertWithMatcher:grey_notNil()];
 
   id<GREYMatcher> historyEntryMatcher =
-      grey_allOf(grey_kindOfClass([HistoryEntryCell class]),
+      grey_allOf(grey_kindOfClass([LegacyHistoryEntryCell class]),
                  grey_sufficientlyVisible(), nil);
   [[EarlGrey selectElementWithMatcher:historyEntryMatcher]
       assertWithMatcher:grey_nil()];

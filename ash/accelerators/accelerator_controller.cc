@@ -12,6 +12,7 @@
 #include "ash/accelerators/accelerator_commands.h"
 #include "ash/accelerators/debug_commands.h"
 #include "ash/accessibility/accessibility_controller.h"
+#include "ash/app_list/app_list_controller_impl.h"
 #include "ash/debug.h"
 #include "ash/display/display_configuration_controller.h"
 #include "ash/display/display_move_window_util.h"
@@ -60,6 +61,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/optional.h"
+#include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/sys_info.h"
@@ -68,11 +70,8 @@
 #include "chromeos/dbus/power_manager_client.h"
 #include "components/user_manager/user_type.h"
 #include "ui/app_list/app_list_constants.h"
-#include "ui/app_list/presenter/app_list.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/accelerators/accelerator_manager.h"
-#include "ui/base/ime/chromeos/ime_keyboard.h"
-#include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/chromeos/events/keyboard_layout_util.h"
 #include "ui/compositor/layer.h"
@@ -95,7 +94,6 @@ const char kHighContrastToggleAccelNotificationId[] =
 namespace {
 
 using base::UserMetricsAction;
-using chromeos::input_method::InputMethodManager;
 using message_center::Notification;
 using message_center::SystemNotificationWarningLevel;
 
@@ -104,26 +102,6 @@ const char kSecondaryUserToastId[] = "voice_interaction_secondary_user";
 const char kUnsupportedLocaleToastId[] = "voice_interaction_locale_unsupported";
 const char kPolicyDisabledToastId[] = "voice_interaction_policy_disabled";
 const int kToastDurationMs = 2500;
-
-// The notification delegate that will be used to open the keyboard shortcut
-// help page when the notification is clicked.
-class DeprecatedAcceleratorNotificationDelegate
-    : public message_center::NotificationDelegate {
- public:
-  DeprecatedAcceleratorNotificationDelegate() = default;
-
-  // message_center::NotificationDelegate:
-  void Click() override {
-    if (!Shell::Get()->session_controller()->IsUserSessionBlocked())
-      Shell::Get()->shell_delegate()->OpenKeyboardShortcutHelpPage();
-  }
-
- private:
-  // Private destructor since NotificationDelegate is ref-counted.
-  ~DeprecatedAcceleratorNotificationDelegate() override = default;
-
-  DISALLOW_COPY_AND_ASSIGN(DeprecatedAcceleratorNotificationDelegate);
-};
 
 // Ensures that there are no word breaks at the "+"s in the shortcut texts such
 // as "Ctrl+Shift+Space".
@@ -168,6 +146,13 @@ void ShowDeprecatedAcceleratorNotification(const char* const notification_id,
                                            int new_shortcut_id) {
   const base::string16 message =
       GetNotificationText(message_id, old_shortcut_id, new_shortcut_id);
+  auto delegate =
+      base::MakeRefCounted<message_center::HandleNotificationClickDelegate>(
+          base::BindRepeating([]() {
+            if (!Shell::Get()->session_controller()->IsUserSessionBlocked())
+              Shell::Get()->shell_delegate()->OpenKeyboardShortcutHelpPage();
+          }));
+
   std::unique_ptr<Notification> notification =
       message_center::Notification::CreateSystemNotification(
           message_center::NOTIFICATION_TYPE_SIMPLE, notification_id,
@@ -176,10 +161,8 @@ void ShowDeprecatedAcceleratorNotification(const char* const notification_id,
           message_center::NotifierId(
               message_center::NotifierId::SYSTEM_COMPONENT,
               kNotifierAccelerator),
-          message_center::RichNotificationData(),
-          new DeprecatedAcceleratorNotificationDelegate,
+          message_center::RichNotificationData(), std::move(delegate),
           kNotificationKeyboardIcon, SystemNotificationWarningLevel::NORMAL);
-  notification->set_clickable(true);
   notification->set_priority(message_center::SYSTEM_PRIORITY);
   message_center::MessageCenter::Get()->AddNotification(
       std::move(notification));
@@ -507,11 +490,11 @@ void HandleToggleAppList(const ui::Accelerator& accelerator) {
   if (accelerator.key_code() == ui::VKEY_LWIN)
     base::RecordAction(UserMetricsAction("Accel_Search_LWin"));
 
-  Shell::Get()->app_list()->ToggleAppList(
+  Shell::Get()->app_list_controller()->ToggleAppList(
       display::Screen::GetScreen()
           ->GetDisplayNearestWindow(Shell::GetRootWindowForNewWindows())
           .id(),
-      app_list::kSearchKey);
+      app_list::kSearchKey, accelerator.time_stamp());
 }
 
 void HandleToggleFullscreen(const ui::Accelerator& accelerator) {
@@ -599,18 +582,12 @@ bool CanHandleDisableCapsLock(const ui::Accelerator& previous_accelerator) {
     // and released, then ignore the release of the Shift key.
     return false;
   }
-  chromeos::input_method::InputMethodManager* ime =
-      chromeos::input_method::InputMethodManager::Get();
-  chromeos::input_method::ImeKeyboard* keyboard =
-      ime ? ime->GetImeKeyboard() : NULL;
-  return (keyboard && keyboard->CapsLockIsEnabled());
+  return Shell::Get()->ime_controller()->IsCapsLockEnabled();
 }
 
 void HandleDisableCapsLock() {
   base::RecordAction(UserMetricsAction("Accel_Disable_Caps_Lock"));
-  chromeos::input_method::InputMethodManager* ime =
-      chromeos::input_method::InputMethodManager::Get();
-  ime->GetImeKeyboard()->SetCapsLockEnabled(false);
+  Shell::Get()->ime_controller()->SetCapsLockEnabled(false);
 }
 
 void HandleFileManager() {
@@ -699,7 +676,7 @@ void HandleToggleVoiceInteraction(const ui::Accelerator& accelerator) {
       break;
   }
 
-  Shell::Get()->app_list()->ToggleVoiceInteractionSession();
+  Shell::Get()->app_list_controller()->ToggleVoiceInteractionSession();
 }
 
 void HandleSuspend() {
@@ -727,11 +704,6 @@ void HandleCycleUser(CycleUserDirection direction) {
 
 bool CanHandleToggleCapsLock(const ui::Accelerator& accelerator,
                              const ui::Accelerator& previous_accelerator) {
-  chromeos::input_method::InputMethodManager* ime =
-      chromeos::input_method::InputMethodManager::Get();
-  if (!ime || !ime->GetImeKeyboard())
-    return false;
-
   // This shortcust is set to be trigger on release. Either the current
   // accelerator is a Search release or Alt release.
   if (accelerator.key_code() == ui::VKEY_LWIN &&
@@ -766,10 +738,8 @@ bool CanHandleToggleCapsLock(const ui::Accelerator& accelerator,
 
 void HandleToggleCapsLock() {
   base::RecordAction(UserMetricsAction("Accel_Toggle_Caps_Lock"));
-  chromeos::input_method::InputMethodManager* ime =
-      chromeos::input_method::InputMethodManager::Get();
-  chromeos::input_method::ImeKeyboard* keyboard = ime->GetImeKeyboard();
-  keyboard->SetCapsLockEnabled(!keyboard->CapsLockIsEnabled());
+  ImeController* ime_controller = Shell::Get()->ime_controller();
+  ime_controller->SetCapsLockEnabled(!ime_controller->IsCapsLockEnabled());
 }
 
 bool CanHandleToggleDictation() {
@@ -1049,6 +1019,8 @@ void AcceleratorController::Init() {
   }
   for (size_t i = 0; i < kActionsAllowedAtLockScreenLength; ++i)
     actions_allowed_at_lock_screen_.insert(kActionsAllowedAtLockScreen[i]);
+  for (size_t i = 0; i < kActionsAllowedAtPowerMenuLength; ++i)
+    actions_allowed_at_power_menu_.insert(kActionsAllowedAtPowerMenu[i]);
   for (size_t i = 0; i < kActionsAllowedAtModalWindowLength; ++i)
     actions_allowed_at_modal_window_.insert(kActionsAllowedAtModalWindow[i]);
   for (size_t i = 0; i < kPreferredActionsLength; ++i)
@@ -1468,13 +1440,13 @@ void AcceleratorController::PerformAction(AcceleratorAction action,
       HandleRotateActiveWindow();
       break;
     case SCALE_UI_DOWN:
-      accelerators::ZoomInternalDisplay(false /* down */);
+      accelerators::ZoomDisplay(false /* down */);
       break;
     case SCALE_UI_RESET:
-      accelerators::ResetInternalDisplayZoom();
+      accelerators::ResetDisplayZoom();
       break;
     case SCALE_UI_UP:
-      accelerators::ZoomInternalDisplay(true /* up */);
+      accelerators::ZoomDisplay(true /* up */);
       break;
     case SHOW_IME_MENU_BUBBLE:
       HandleShowImeMenuBubble();
@@ -1603,6 +1575,10 @@ AcceleratorController::GetAcceleratorProcessingRestriction(int action) const {
   if (Shell::Get()->session_controller()->IsScreenLocked() &&
       actions_allowed_at_lock_screen_.find(action) ==
           actions_allowed_at_lock_screen_.end()) {
+    return RESTRICTION_PREVENT_PROCESSING;
+  }
+  if (Shell::Get()->power_button_controller()->IsMenuOpened() &&
+      !base::ContainsKey(actions_allowed_at_power_menu_, action)) {
     return RESTRICTION_PREVENT_PROCESSING;
   }
   if (Shell::Get()->shell_delegate()->IsRunningInForcedAppMode() &&

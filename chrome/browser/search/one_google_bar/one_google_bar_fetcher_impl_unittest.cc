@@ -5,7 +5,6 @@
 #include "chrome/browser/search/one_google_bar/one_google_bar_fetcher_impl.h"
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
@@ -82,12 +81,16 @@ class OneGoogleBarFetcherImplTest : public testing::Test {
         request_context_getter_(
             new net::TestURLRequestContextGetter(task_runner_)),
         google_url_tracker_(std::make_unique<GoogleURLTrackerClientStub>(),
-                            GoogleURLTracker::UNIT_TEST_MODE),
+                            GoogleURLTracker::ALWAYS_DOT_COM_MODE),
         one_google_bar_fetcher_(request_context_getter_.get(),
                                 &google_url_tracker_,
                                 kApplicationLocale,
                                 api_url_override,
                                 account_consistency_mirror_required) {}
+
+  ~OneGoogleBarFetcherImplTest() override {
+    static_cast<KeyedService&>(google_url_tracker_).Shutdown();
+  }
 
   net::TestURLFetcher* GetRunningURLFetcher() {
     // All created URLFetchers have ID 0 by default.

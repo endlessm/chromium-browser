@@ -240,7 +240,8 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
                      arch, cpv.version_no_rev.split('_')[0])
         return
 
-    if self.suite_config.suite in [constants.HWTEST_CTS_QUAL_SUITE,
+    if self.suite_config.suite in [constants.HWTEST_CTS_FOLLOWER_SUITE,
+                                   constants.HWTEST_CTS_QUAL_SUITE,
                                    constants.HWTEST_GTS_QUAL_SUITE]:
       # Increase the priority for CTS/GTS qualification suite as we want stable
       # build to have higher priority than beta build (again higher than dev).
@@ -452,25 +453,6 @@ class CrosSigningTestStage(generic_stages.BuilderStage):
     commands.RunCrosSigningTests(self._build_root)
 
 
-class AutotestTestStage(generic_stages.BuilderStage):
-  """Stage that runs Chromite tests, including network tests."""
-
-  SUITE_SCHEDULER_TEST = ('src/third_party/autotest/files/'
-                          'site_utils/suite_scheduler/suite_scheduler.py')
-
-  SUITE_SCHEDULER_INI = ('chromeos-admin/puppet/modules/lab/files/'
-                         'autotest_cautotest/suite_scheduler.ini')
-
-  def PerformStage(self):
-    """Run the tests."""
-    # Run the Suite Scheduler INI test.
-    cmd = [os.path.join(self._build_root, self.SUITE_SCHEDULER_TEST),
-           '--sanity', '-f',
-           os.path.join(self._build_root, self.SUITE_SCHEDULER_INI)]
-
-    cros_build_lib.RunCommand(cmd, cwd=self._build_root)
-
-
 class ChromiteTestStage(generic_stages.BuilderStage):
   """Stage that runs Chromite tests, including network tests."""
 
@@ -501,4 +483,21 @@ class CidbIntegrationTestStage(generic_stages.BuilderStage):
         '-v',
         # '--network'  Doesn't work in a build, yet.
     ]
+    cros_build_lib.RunCommand(cmd, enter_chroot=True)
+
+
+class DebugInfoTestStage(generic_stages.BoardSpecificBuilderStage,
+                         generic_stages.ForgivingBuilderStage):
+  """Perform tests that are based on debug info
+
+  Tests may include, for example,
+    * whether dwarf info exists
+    * whether clang is used
+    * whether FORTIFY is enabled, etc.
+  """
+
+  def PerformStage(self):
+    cmd = ['debug_info_test',
+           os.path.join(cros_build_lib.GetSysroot(board=self._current_board),
+                        'usr/lib/debug')]
     cros_build_lib.RunCommand(cmd, enter_chroot=True)

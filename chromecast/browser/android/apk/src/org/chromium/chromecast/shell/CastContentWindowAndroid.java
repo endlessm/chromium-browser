@@ -20,7 +20,8 @@ import org.chromium.content_public.browser.WebContents;
  */
 @JNINamespace("chromecast::shell")
 public class CastContentWindowAndroid implements CastWebContentsComponent.OnComponentClosedHandler,
-                                                 CastWebContentsComponent.OnKeyDownHandler {
+                                                 CastWebContentsComponent.OnKeyDownHandler,
+                                                 CastWebContentsComponent.SurfaceEventHandler {
     private static final String TAG = "cr_CastContentWindowAndroid";
     private static final boolean DEBUG = true;
 
@@ -46,17 +47,25 @@ public class CastContentWindowAndroid implements CastWebContentsComponent.OnComp
         mNativeCastContentWindowAndroid = nativeCastContentWindowAndroid;
         mContext = context;
         mInstanceId = Integer.toString(sInstanceId++);
-
-        mComponent =
-                new CastWebContentsComponent(mInstanceId, this, this, isHeadless, enableTouchInput);
+        // TODO call nativeGetId() to set ID to CastWebContentsComponent.
+        mComponent = new CastWebContentsComponent(
+                mInstanceId, this, this, this, isHeadless, enableTouchInput);
     }
 
     @SuppressWarnings("unused")
     @CalledByNative
-    private void createWindowForWebContents(WebContents webContents) {
+    private void createWindowForWebContents(WebContents webContents, int visisbilityPriority) {
         if (DEBUG) Log.d(TAG, "createWindowForWebContents");
+        String appId = nativeGetId(mNativeCastContentWindowAndroid);
+        mComponent.start(new CastWebContentsComponent.StartParams(
+                mContext, webContents, appId, visisbilityPriority));
+    }
 
-        mComponent.start(mContext, webContents);
+    @SuppressWarnings("unused")
+    @CalledByNative
+    private void enableTouchInput(boolean enabled) {
+        if (DEBUG) Log.d(TAG, "enableTouchInput");
+        mComponent.enableTouchInput(mInstanceId, enabled);
     }
 
     @SuppressWarnings("unused")
@@ -75,6 +84,20 @@ public class CastContentWindowAndroid implements CastWebContentsComponent.OnComp
         mComponent.stop(mContext);
     }
 
+    @SuppressWarnings("unused")
+    @CalledByNative
+    private void requestVisibilityPriority(int visisbilityPriority) {
+        if (DEBUG) Log.d(TAG, "requestVisibilityPriority visibility=" + visisbilityPriority);
+        mComponent.requestVisibilityPriority(visisbilityPriority);
+    }
+
+    @SuppressWarnings("unused")
+    @CalledByNative
+    private void requestMoveOut() {
+        if (DEBUG) Log.d(TAG, "requestMoveOut");
+        mComponent.requestMoveOut();
+    }
+
     @Override
     public void onKeyDown(int keyCode) {
         if (DEBUG) Log.d(TAG, "onKeyDown");
@@ -91,7 +114,32 @@ public class CastContentWindowAndroid implements CastWebContentsComponent.OnComp
         }
     }
 
+    @Override
+    public void onVisibilityChange(int visibilityType) {
+        if (DEBUG) Log.d(TAG, "onVisibilityChange type=" + visibilityType);
+        if (mNativeCastContentWindowAndroid != 0) {
+            nativeOnVisibilityChange(mNativeCastContentWindowAndroid, visibilityType);
+        }
+    }
+
+    @Override
+    public boolean consumeGesture(int gestureType) {
+        if (DEBUG) Log.d(TAG, "consumeGesture type=" + gestureType);
+        if (mNativeCastContentWindowAndroid != 0) {
+            return nativeConsumeGesture(mNativeCastContentWindowAndroid, gestureType);
+        }
+        return false;
+    }
+
     private native void nativeOnActivityStopped(long nativeCastContentWindowAndroid);
 
     private native void nativeOnKeyDown(long nativeCastContentWindowAndroid, int keyCode);
+
+    private native boolean nativeConsumeGesture(
+            long nativeCastContentWindowAndroid, int gestureType);
+
+    private native void nativeOnVisibilityChange(
+            long nativeCastContentWindowAndroid, int visibilityType);
+
+    private native String nativeGetId(long nativeCastContentWindowAndroid);
 }

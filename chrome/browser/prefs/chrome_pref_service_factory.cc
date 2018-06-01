@@ -14,9 +14,9 @@
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -57,9 +57,9 @@
 #include "components/sync_preferences/pref_service_syncable_factory.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
-#include "rlz/features/features.h"
+#include "rlz/buildflags/buildflags.h"
 #include "services/preferences/public/cpp/tracked/configuration.h"
 #include "services/preferences/public/cpp/tracked/pref_names.h"
 #include "sql/error_delegate_util.h"
@@ -301,6 +301,12 @@ GetTrackingConfiguration() {
 // Shows notifications which correspond to PersistentPrefStore's reading errors.
 void HandleReadError(const base::FilePath& pref_filename,
                      PersistentPrefStore::PrefReadError error) {
+  // The error callback is always invoked back on the main thread (which is
+  // BrowserThread::UI unless called during early initialization before the main
+  // thread is promoted to BrowserThread::UI).
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI) ||
+         !BrowserThread::IsThreadInitialized(BrowserThread::UI));
+
   // Sample the histogram also for the successful case in order to get a
   // baseline on the success rate in addition to the error distribution.
   UMA_HISTOGRAM_ENUMERATION("PrefService.ReadError", error,
@@ -319,8 +325,11 @@ void HandleReadError(const base::FilePath& pref_filename,
     }
 
     if (message_id) {
-      BrowserThread::PostTask(
-          BrowserThread::UI, FROM_HERE,
+      // Note: ThreadTaskRunnerHandle() is usually BrowserThread::UI but during
+      // early startup it can be ChromeBrowserMainParts::DeferringTaskRunner
+      // which will forward to BrowserThread::UI when it's initialized.
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
+          FROM_HERE,
           base::BindOnce(&ShowProfileErrorDialog, ProfileErrorType::PREFERENCES,
                          message_id,
                          sql::GetCorruptFileDiagnosticsInfo(pref_filename)));
@@ -390,7 +399,8 @@ void PrepareFactory(sync_preferences::PrefServiceSyncableFactory* factory,
   factory->set_command_line_prefs(
       base::MakeRefCounted<ChromeCommandLinePrefStore>(
           base::CommandLine::ForCurrentProcess()));
-  factory->set_read_error_callback(base::Bind(&HandleReadError, pref_filename));
+  factory->set_read_error_callback(
+      base::BindRepeating(&HandleReadError, pref_filename));
   factory->set_user_prefs(std::move(user_pref_store));
   factory->SetPrefModelAssociatorClient(
       ChromePrefModelAssociatorClient::GetInstance());

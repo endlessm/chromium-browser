@@ -10,6 +10,8 @@
 #include "chrome/browser/chromeos/login/user_selection_screen_proxy.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/ui/ash/login_screen_client.h"
+#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/session_manager_client.h"
 #include "components/user_manager/known_user.h"
 
 namespace chromeos {
@@ -42,12 +44,21 @@ void LoginDisplayViews::Init(const user_manager::UserList& filtered_users,
   // Load the login screen.
   auto* client = LoginScreenClient::Get();
   client->SetDelegate(host_);
-  client->ShowLoginScreen(
-      base::BindOnce([](bool did_show) { CHECK(did_show); }));
+  client->login_screen()->ShowLoginScreen(base::BindOnce([](bool did_show) {
+    CHECK(did_show);
+
+    // Some auto-tests depend on login-prompt-visible, like
+    // login_SameSessionTwice.
+    VLOG(1) << "Emitting login-prompt-visible";
+    chromeos::DBusThreadManager::Get()
+        ->GetSessionManagerClient()
+        ->EmitLoginPromptVisible();
+  }));
 
   user_selection_screen_->Init(filtered_users);
-  client->LoadUsers(user_selection_screen_->UpdateAndReturnUserListForMojo(),
-                    show_guest);
+  client->login_screen()->LoadUsers(
+      user_selection_screen_->UpdateAndReturnUserListForMojo(), show_guest);
+  user_selection_screen_->SetUsersLoaded(true /*loaded*/);
 }
 
 void LoginDisplayViews::OnPreferencesChanged() {

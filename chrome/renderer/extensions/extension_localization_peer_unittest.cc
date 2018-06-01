@@ -11,7 +11,6 @@
 #include <string>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "content/public/renderer/fixed_received_data.h"
 #include "extensions/common/message_bundle.h"
 #include "ipc/ipc_sender.h"
@@ -70,6 +69,8 @@ class MockRequestPeer : public content::RequestPeer {
                     const network::ResourceResponseInfo& info));
   MOCK_METHOD1(OnReceivedResponse,
                void(const network::ResourceResponseInfo& info));
+  void OnStartLoadingResponseBody(
+      mojo::ScopedDataPipeConsumerHandle body) override {}
   MOCK_METHOD2(OnDownloadedData, void(int len, int encoded_data_length));
   void OnReceivedData(
       std::unique_ptr<RequestPeer::ReceivedData> data) override {

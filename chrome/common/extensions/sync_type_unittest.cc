@@ -5,7 +5,6 @@
 #include <utility>
 
 #include "base/files/file_path.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "chrome/common/extensions/sync_helper.h"
 #include "extensions/common/extension.h"
@@ -39,6 +38,7 @@ class ExtensionSyncTypeTest : public testing::Test {
     base::DictionaryValue source;
     source.SetString(keys::kName, "PossiblySyncableExtension");
     source.SetString(keys::kVersion, "0.0.0.0");
+    source.SetInteger(keys::kManifestVersion, 2);
     if (type == APP)
       source.SetString(keys::kApp, "true");
     if (type == THEME)

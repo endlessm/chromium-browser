@@ -116,6 +116,15 @@ FileTasks.ZIP_ARCHIVER_ZIP_TASK_ID =
     'dmboannefpncccogfdikhmhpmdnddgoe|app|pack';
 
 /**
+ * The task id of zip action of Zip Archiver app, using temporary dir as workdir
+ * @const
+ * @type {string}
+ */
+FileTasks.ZIP_ARCHIVER_ZIP_USING_TMP_TASK_ID =
+    'dmboannefpncccogfdikhmhpmdnddgoe|app|pack_using_tmp';
+
+
+/**
  * Available tasks in task menu button.
  * @enum {string}
  */
@@ -174,7 +183,8 @@ FileTasks.create = function(
       // Filters out Pack with Zip Archiver task because it will be accessible
       // via 'Zip selection' context menu button
       taskItems = taskItems.filter(function(item) {
-        return item.taskId !== FileTasks.ZIP_ARCHIVER_ZIP_TASK_ID;
+        return item.taskId !== FileTasks.ZIP_ARCHIVER_ZIP_TASK_ID &&
+            item.taskId !== FileTasks.ZIP_ARCHIVER_ZIP_USING_TMP_TASK_ID;
       });
 
       // Filters out Unpack with Zip Archiver task if switch is not enabled.
@@ -313,9 +323,10 @@ FileTasks.UMA_INDEX_KNOWN_EXTENSIONS = Object.freeze([
   '.wma',      '.wmv',         '.xls',
   '.xlsx',     '.crdownload',  '.crx',
   '.dmg',      '.exe',         '.html',
-  'htm',       '.jar',         '.ps',
+  '.htm',      '.jar',         '.ps',
   '.torrent',  '.txt',         '.zip',
-  'directory', 'no extension', 'unknown extension'
+  'directory', 'no extension', 'unknown extension',
+  '.mhtml'
 ]);
 
 /**

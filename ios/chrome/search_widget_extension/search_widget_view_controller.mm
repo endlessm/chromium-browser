@@ -4,7 +4,6 @@
 
 #import "ios/chrome/search_widget_extension/search_widget_view_controller.h"
 
-#include "base/ios/ios_util.h"
 #include "base/mac/foundation_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/open_from_clipboard/clipboard_recent_content_impl_ios.h"
@@ -128,11 +127,8 @@ NSString* const kXCallbackURLHost = @"x-callback-url";
            (id<UIViewControllerTransitionCoordinator>)coordinator {
   [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
 
-  BOOL isCompact = NO;
-  if (@available(iOS 10, *)) {
-    isCompact = [self.extensionContext widgetActiveDisplayMode] ==
-                NCWidgetDisplayModeCompact;
-  }
+  BOOL isCompact = [self.extensionContext widgetActiveDisplayMode] ==
+                   NCWidgetDisplayModeCompact;
 
   [coordinator
       animateAlongsideTransition:^(

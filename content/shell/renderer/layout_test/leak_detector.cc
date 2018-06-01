@@ -8,10 +8,9 @@
 
 #include "base/json/json_writer.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "content/shell/renderer/layout_test/blink_test_runner.h"
-#include "third_party/WebKit/public/web/WebLeakDetector.h"
+#include "third_party/blink/public/web/web_leak_detector.h"
 
 using blink::WebLeakDetector;
 
@@ -32,6 +31,7 @@ const int kInitialNumberOfLiveResources = 0;
 const int kInitialNumberOfScriptPromises = 0;
 const int kInitialNumberOfLiveFrames = 1;
 const int kInitialNumberOfWorkerGlobalScopes = 0;
+const int kInitialNumberOfLiveResourceFetchers = 1;
 
 // In the initial state, there are two PausableObjects (FontFaceSet created
 // by HTMLDocument and PausableTimer created by DocumentLoader).
@@ -60,15 +60,17 @@ LeakDetector::LeakDetector(BlinkTestRunner* test_runner)
       kInitialNumberOfV8PerContextData;
   previous_result_.number_of_worker_global_scopes =
       kInitialNumberOfWorkerGlobalScopes;
+  previous_result_.number_of_live_resource_fetchers =
+      kInitialNumberOfLiveResourceFetchers;
 }
 
 LeakDetector::~LeakDetector() {
 }
 
-void LeakDetector::TryLeakDetection(blink::WebFrame* frame) {
+void LeakDetector::TryLeakDetection() {
   blink::WebLeakDetector* web_leak_detector =
       blink::WebLeakDetector::Create(this);
-  web_leak_detector->PrepareForLeakDetection(frame);
+  web_leak_detector->PrepareForLeakDetection();
   web_leak_detector->CollectGarbageAndReport();
 }
 
@@ -148,6 +150,13 @@ void LeakDetector::OnLeakDetectionComplete(
     list->AppendInteger(previous_result_.number_of_worker_global_scopes);
     list->AppendInteger(result.number_of_worker_global_scopes);
     detail.Set("numberOfWorkerGlobalScopes", std::move(list));
+  }
+  if (previous_result_.number_of_live_resource_fetchers <
+      result.number_of_live_resource_fetchers) {
+    auto list = std::make_unique<base::ListValue>();
+    list->AppendInteger(previous_result_.number_of_live_resource_fetchers);
+    list->AppendInteger(result.number_of_live_resource_fetchers);
+    detail.Set("numberOfLiveResourceFetchers", std::move(list));
   }
 
   if (!detail.empty()) {

@@ -9,9 +9,10 @@
 #include <queue>
 #include <vector>
 
+#include "ash/accessibility/accessibility_panel_layout_manager.h"
 #include "ash/accessibility/touch_exploration_controller.h"
+#include "ash/accessibility/touch_exploration_manager.h"
 #include "ash/ash_constants.h"
-#include "ash/ash_touch_exploration_manager_chromeos.h"
 #include "ash/focus_cycler.h"
 #include "ash/high_contrast/high_contrast_controller.h"
 #include "ash/host/ash_window_tree_host.h"
@@ -470,17 +471,19 @@ void RootWindowController::Shutdown() {
 }
 
 void RootWindowController::CloseChildWindows() {
-  // NOTE: this may be called multiple times.
+  // Child windows can be closed by secondary monitor disconnection, Shell
+  // shutdown, or both. Avoid running the related cleanup code twice.
+  if (did_close_child_windows_)
+    return;
+  did_close_child_windows_ = true;
 
   // Deactivate keyboard container before closing child windows and shutting
   // down associated layout managers.
   DeactivateKeyboard(keyboard::KeyboardController::GetInstance());
 
   // |panel_layout_manager_| needs to be shut down before windows are destroyed.
-  if (panel_layout_manager_) {
-    panel_layout_manager_->Shutdown();
-    panel_layout_manager_ = nullptr;
-  }
+  panel_layout_manager_->Shutdown();
+  panel_layout_manager_ = nullptr;
 
   shelf_->ShutdownShelfWidget();
 
@@ -505,6 +508,7 @@ void RootWindowController::CloseChildWindows() {
     while (!toplevel_windows.windows().empty())
       delete toplevel_windows.Pop();
   }
+
   // And then remove the containers.
   while (!root->children().empty()) {
     aura::Window* child = root->children()[0];
@@ -514,9 +518,10 @@ void RootWindowController::CloseChildWindows() {
       root->RemoveChild(child);
   }
 
+  // Removing the containers destroys ShelfLayoutManager. ShelfWidget outlives
+  // ShelfLayoutManager because ShelfLayoutManager holds a pointer to it.
   shelf_->DestroyShelfWidget();
 
-  aura::client::SetDragDropClient(GetRootWindow(), nullptr);
   ::wm::SetTooltipClient(GetRootWindow(), nullptr);
 }
 
@@ -704,17 +709,19 @@ void RootWindowController::Init(RootWindowType root_window_type) {
     shell->OnRootWindowAdded(root_window);
   }
 
-  // TODO: AshTouchExplorationManager doesn't work with mus.
+  // TODO: TouchExplorationManager doesn't work with mash.
   // http://crbug.com/679782
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kAshDisableTouchExplorationMode) &&
       Shell::GetAshConfig() != Config::MASH) {
-    touch_exploration_manager_.reset(new AshTouchExplorationManager(this));
+    touch_exploration_manager_ =
+        std::make_unique<TouchExplorationManager>(this);
   }
 }
 
 void RootWindowController::InitLayoutManagers() {
-  // Create the shelf and status area widgets.
+  // Create the shelf and status area widgets. Creates the ShelfLayoutManager
+  // as a side-effect.
   DCHECK(!shelf_->shelf_widget());
   aura::Window* root = GetRootWindow();
   shelf_->CreateShelfWidget(root);
@@ -916,6 +923,12 @@ void RootWindowController::CreateContainers() {
   status_container->SetProperty(kUsesScreenCoordinatesKey, true);
   status_container->SetProperty(kLockedToRootKey, true);
 
+  aura::Window* power_menu_container =
+      CreateContainer(kShellWindowId_PowerMenuContainer, "PowerMenuContainer",
+                      lock_screen_related_containers);
+  wm::SetSnapsChildrenToPhysicalPixelBoundary(power_menu_container);
+  power_menu_container->SetProperty(kUsesScreenCoordinatesKey, true);
+
   aura::Window* settings_bubble_container =
       CreateContainer(kShellWindowId_SettingBubbleContainer,
                       "SettingBubbleContainer", lock_screen_related_containers);
@@ -923,6 +936,15 @@ void RootWindowController::CreateContainers() {
   wm::SetSnapsChildrenToPhysicalPixelBoundary(settings_bubble_container);
   settings_bubble_container->SetProperty(kUsesScreenCoordinatesKey, true);
   settings_bubble_container->SetProperty(kLockedToRootKey, true);
+
+  aura::Window* accessibility_panel_container = CreateContainer(
+      kShellWindowId_AccessibilityPanelContainer, "AccessibilityPanelContainer",
+      lock_screen_related_containers);
+  ::wm::SetChildWindowVisibilityChangesAnimated(accessibility_panel_container);
+  accessibility_panel_container->SetProperty(kUsesScreenCoordinatesKey, true);
+  accessibility_panel_container->SetProperty(kLockedToRootKey, true);
+  accessibility_panel_container->SetLayoutManager(
+      new AccessibilityPanelLayoutManager());
 
   aura::Window* virtual_keyboard_parent_container = CreateContainer(
       kShellWindowId_ImeWindowParentContainer, "VirtualKeyboardParentContainer",

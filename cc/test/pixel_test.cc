@@ -5,7 +5,6 @@
 #include "cc/test/pixel_test.h"
 
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -163,7 +162,7 @@ void PixelTest::SetUpGLWithoutRenderer(bool flipped_output_surface) {
   enable_pixel_output_ = std::make_unique<gl::DisableNullDrawGLBindings>();
 
   auto context_provider =
-      base::MakeRefCounted<TestInProcessContextProvider>(nullptr);
+      base::MakeRefCounted<TestInProcessContextProvider>(nullptr, false);
   output_surface_ = std::make_unique<PixelTestOutputSurface>(
       std::move(context_provider), flipped_output_surface);
   output_surface_->BindToClient(output_surface_client_.get());
@@ -175,7 +174,7 @@ void PixelTest::SetUpGLWithoutRenderer(bool flipped_output_surface) {
       output_surface_->context_provider(), shared_bitmap_manager_.get());
 
   child_context_provider_ =
-      base::MakeRefCounted<TestInProcessContextProvider>(nullptr);
+      base::MakeRefCounted<TestInProcessContextProvider>(nullptr, false);
   child_context_provider_->BindToCurrentThread();
   child_resource_provider_ = std::make_unique<LayerTreeResourceProvider>(
       child_context_provider_.get(), shared_bitmap_manager_.get(),
@@ -188,6 +187,14 @@ void PixelTest::SetUpGLRenderer(bool flipped_output_surface) {
   renderer_ = std::make_unique<viz::GLRenderer>(
       &renderer_settings_, output_surface_.get(), resource_provider_.get(),
       base::ThreadTaskRunnerHandle::Get());
+  renderer_->Initialize();
+  renderer_->SetVisible(true);
+}
+
+void PixelTest::SetUpSkiaRenderer() {
+  SetUpGLWithoutRenderer(false);
+  renderer_ = std::make_unique<viz::SkiaRenderer>(
+      &renderer_settings_, output_surface_.get(), resource_provider_.get());
   renderer_->Initialize();
   renderer_->SetVisible(true);
 }

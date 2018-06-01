@@ -6,7 +6,6 @@
 
 #include "ash/public/interfaces/constants.mojom.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/time/default_tick_clock.h"
 #include "base/time/tick_clock.h"
 #include "chrome/browser/browser_process.h"
@@ -56,7 +55,7 @@ void BrowserProcessPlatformPart::InitializeAutomaticRebootManager() {
   DCHECK(!automatic_reboot_manager_);
 
   automatic_reboot_manager_.reset(new chromeos::system::AutomaticRebootManager(
-      std::unique_ptr<base::TickClock>(new base::DefaultTickClock)));
+      base::DefaultTickClock::GetInstance()));
 }
 
 void BrowserProcessPlatformPart::ShutdownAutomaticRebootManager() {

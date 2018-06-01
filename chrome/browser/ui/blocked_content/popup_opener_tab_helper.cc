@@ -14,13 +14,13 @@
 #include "chrome/browser/ui/blocked_content/tab_under_navigation_throttle.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
-#include "services/metrics/public/cpp/ukm_source_id.h"
 
 DEFINE_WEB_CONTENTS_USER_DATA_KEY(PopupOpenerTabHelper);
 
 // static
-void PopupOpenerTabHelper::CreateForWebContents(content::WebContents* contents,
-                                                base::TickClock* tick_clock) {
+void PopupOpenerTabHelper::CreateForWebContents(
+    content::WebContents* contents,
+    const base::TickClock* tick_clock) {
   DCHECK(contents);
   if (!FromWebContents(contents)) {
     contents->SetUserData(
@@ -62,22 +62,11 @@ void PopupOpenerTabHelper::OnDidTabUnder() {
 }
 
 PopupOpenerTabHelper::PopupOpenerTabHelper(content::WebContents* web_contents,
-                                           base::TickClock* tick_clock)
+                                           const base::TickClock* tick_clock)
     : content::WebContentsObserver(web_contents), tick_clock_(tick_clock) {
   visibility_tracker_ = std::make_unique<ScopedVisibilityTracker>(
       tick_clock_,
       web_contents->GetVisibility() != content::Visibility::HIDDEN);
-}
-
-void PopupOpenerTabHelper::DidFinishNavigation(
-    content::NavigationHandle* navigation_handle) {
-  if (!navigation_handle->HasCommitted() ||
-      !navigation_handle->IsInMainFrame() ||
-      navigation_handle->IsSameDocument()) {
-    return;
-  }
-  last_committed_source_id_ = ukm::ConvertToSourceId(
-      navigation_handle->GetNavigationId(), ukm::SourceIdType::NAVIGATION_ID);
 }
 
 void PopupOpenerTabHelper::OnVisibilityChanged(content::Visibility visibility) {

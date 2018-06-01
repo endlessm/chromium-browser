@@ -248,7 +248,6 @@ MON_REPO_INIT_RETRY_COUNT = 'chromeos/cbuildbot/repo/init_retry_count'
 MON_REPO_MANIFEST_FAILURE_COUNT = ('chromeos/cbuildbot/repo/'
                                    'manifest_failure_count')
 MON_GIT_FETCH_COUNT = 'chromeos/cbuildbot/git/fetch_count'
-MON_GIT_FETCH_RETRY_COUNT = 'chromeos/cbuildbot/git/fetch_retry_count'
 MON_BB_RETRY_BUILD_COUNT = ('chromeos/cbuildbot/buildbucket/'
                             'retry_build_count')
 MON_BB_CANCEL_BATCH_BUILDS_COUNT = ('chromeos/cbuildbot/buildbucket/'
@@ -326,17 +325,23 @@ DEFAULT_CTS_TEST_XML_MAP = {
 DEFAULT_CTS_RESULTS_GSURI = 'gs://chromeos-cts-results/'
 DEFAULT_CTS_APFE_GSURI = 'gs://chromeos-cts-apfe/'
 
+ANDROID_INTERNAL_PATTERN = r'\.zip.internal$'
 ANDROID_BUCKET_URL = 'gs://android-build-chromeos/builds'
 ANDROID_MST_BUILD_BRANCH = 'git_master-arc-dev'
 ANDROID_NYC_BUILD_BRANCH = 'git_nyc-mr1-arc'
+ANDROID_PI_BUILD_BRANCH = 'git_pi-arc-dev'
+ANDROID_GTS_BUILD_TARGETS = {
+    # "gts_arm64" is the build maintained by GMS team.
+    'XTS': ('linux-gts_arm64', r'\.zip$'),
+}
 ANDROID_MST_BUILD_TARGETS = {
+    'ARM': ('linux-cheets_arm-user', r'\.zip$'),
+    'X86': ('linux-cheets_x86-user', r'\.zip$'),
+    'X86_64': ('linux-cheets_x86_64-user', r'\.zip$'),
     'ARM_USERDEBUG': ('linux-cheets_arm-userdebug', r'\.zip$'),
     'X86_USERDEBUG': ('linux-cheets_x86-userdebug', r'\.zip$'),
     'X86_64_USERDEBUG': ('linux-cheets_x86_64-userdebug', r'\.zip$'),
 }
-
-ANDROID_INTERNAL_PATTERN = r'\.zip.internal$'
-
 ANDROID_NYC_BUILD_TARGETS = {
     # TODO(b/29509721): Workaround to roll adb with system image. We want to
     # get rid of this.
@@ -345,7 +350,7 @@ ANDROID_NYC_BUILD_TARGETS = {
     'X86_INTERNAL': ('linux-cheets_x86-user', ANDROID_INTERNAL_PATTERN),
     'X86_USERDEBUG': ('linux-cheets_x86-userdebug', r'\.zip$'),
     'AOSP_X86_USERDEBUG': ('linux-aosp_cheets_x86-userdebug', r'\.zip$'),
-    'SDK_TOOLS': ('linux-static_sdk_tools', r'/(aapt|adb)$'),
+    'SDK_TOOLS': ('linux-static_sdk_tools', r'/(aapt|adb|zipalign)$'),
     'SDK_GOOGLE_X86_USERDEBUG': ('linux-sdk_google_cheets_x86-userdebug',
                                  r'\.zip$'),
     'SDK_GOOGLE_X86_64_USERDEBUG': ('linux-sdk_google_cheets_x86_64-userdebug',
@@ -353,10 +358,15 @@ ANDROID_NYC_BUILD_TARGETS = {
     'X86_64': ('linux-cheets_x86_64-user', r'\.zip$'),
     'X86_64_USERDEBUG': ('linux-cheets_x86_64-userdebug', r'\.zip$'),
 }
-ANDROID_GTS_BUILD_TARGETS = {
-    # "gts_arm64" is the build maintained by GMS team.
-    'XTS': ('linux-gts_arm64', r'\.zip$'),
+ANDROID_PI_BUILD_TARGETS = {
+    'ARM': ('linux-cheets_arm-user', r'\.zip$'),
+    'X86': ('linux-cheets_x86-user', r'\.zip$'),
+    'X86_64': ('linux-cheets_x86_64-user', r'\.zip$'),
+    'ARM_USERDEBUG': ('linux-cheets_arm-userdebug', r'\.zip$'),
+    'X86_USERDEBUG': ('linux-cheets_x86-userdebug', r'\.zip$'),
+    'X86_64_USERDEBUG': ('linux-cheets_x86_64-userdebug', r'\.zip$'),
 }
+
 ARC_BUCKET_URL = 'gs://chromeos-arc-images/builds'
 ARC_BUCKET_ACLS = {
     'ARM': 'googlestorage_acl_arm.txt',
@@ -378,10 +388,6 @@ ANDROID_SYMBOLS_URL_TEMPLATE = (
     ARC_BUCKET_URL +
     '/%(branch)s-linux-cheets_%(arch)s-user/%(version)s'
     '/cheets_%(arch)s-symbols-%(version)s.zip')
-ANDROID_SYMBOLS_BERTHA_URL_TEMPLATE = (
-    ARC_BUCKET_URL +
-    '/%(branch)s-linux-aosp_bertha_%(arch)s-userdebug/%(version)s'
-    '/bertha_aosp_%(arch)s_userdebug-symbols-%(version)s.zip')
 ANDROID_SYMBOLS_FILE = 'android-symbols.zip'
 # x86-user, x86-userdebug and x86-eng builders create build artifacts with the
 # same name, e.g. cheets_x86-target_files-${VERSION}.zip. Chrome OS builders
@@ -453,6 +459,11 @@ CREATED_BRANCHES = [
     STABLE_EBUILD_BRANCH,
     MERGE_BRANCH
 ]
+
+# Default OS target packages.
+TARGET_OS_PKG = 'virtual/target-os'
+TARGET_OS_DEV_PKG = 'virtual/target-os-dev'
+TARGET_OS_TEST_PKG = 'virtual/target-os-test'
 
 # Constants for uprevving Chrome
 
@@ -592,12 +603,13 @@ VALID_BUILD_TYPES = (
 # The default list of pre-cq configs to use.
 PRE_CQ_DEFAULT_CONFIGS = [
     # Betty is the designated board to run vmtest on N.
-    'betty-pre-cq',                   # vm board                       vmtest
+    'betty-pre-cq',                   # vm board                  vmtest
     'cyan-no-vmtest-pre-cq',          # braswell     kernel 3.18
     'daisy_spring-no-vmtest-pre-cq',  # arm32        kernel 3.8
-    'kevin-arcnext-no-vmtest-pre-cq', # arm64        kernel 4.4        arcnext
+    'eve-no-vmtest-pre-cq',           # kabylake     kernel 4.4   cheets_user_64
+    'kevin-arcnext-no-vmtest-pre-cq', # arm64        kernel 4.4   arcnext
     'nyan_blaze-no-vmtest-pre-cq',    # arm32        kernel 3.10
-    'reef-no-vmtest-pre-cq',          # apollolake   kernel 4.4        vulkan
+    'reef-no-vmtest-pre-cq',          # apollolake   kernel 4.4   vulkan
     'samus-no-vmtest-pre-cq',         # broadwell    kernel 3.14
     'whirlwind-no-vmtest-pre-cq',     # brillo
     'zako-no-vmtest-pre-cq',          # haswell      kernel 3.8
@@ -666,6 +678,7 @@ HWTEST_MOBLAB_QUICK_SUITE = 'moblab_quick'
 HWTEST_SANITY_SUITE = 'sanity'
 HWTEST_TOOLCHAIN_SUITE = 'toolchain-tests'
 HWTEST_PROVISION_SUITE = 'provision'
+HWTEST_CTS_FOLLOWER_SUITE = 'arc-cts-follower'
 HWTEST_CTS_QUAL_SUITE = 'arc-cts-qual'
 HWTEST_GTS_QUAL_SUITE = 'arc-gts-qual'
 HWTEST_CTS_PRIORITY = 11
@@ -1014,6 +1027,7 @@ BASE_IMAGE_BIN = '%s.bin' % BASE_IMAGE_NAME
 BASE_IMAGE_GCE_TAR = ImageBinToGceTar(BASE_IMAGE_BIN)
 IMAGE_SCRIPTS_NAME = 'image_scripts'
 IMAGE_SCRIPTS_TAR = '%s.tar.xz' % IMAGE_SCRIPTS_NAME
+TARGET_SYSROOT_TAR = 'sysroot_%s.tar.xz' % _SlashToUnderscore(TARGET_OS_PKG)
 VM_IMAGE_NAME = 'chromiumos_qemu_image'
 VM_IMAGE_BIN = '%s.bin' % VM_IMAGE_NAME
 VM_IMAGE_TAR = '%s.tar.xz' % VM_IMAGE_NAME
@@ -1095,6 +1109,7 @@ WIFICELL_PRE_CQ = 'wificell-pre-cq'
 BLUESTREAK_PRE_CQ = 'bluestreak-pre-cq'
 MST_ANDROID_PFQ_MASTER = 'master-mst-android-pfq'
 NYC_ANDROID_PFQ_MASTER = 'master-nyc-android-pfq'
+PI_ANDROID_PFQ_MASTER = 'master-pi-android-pfq'
 TOOLCHAIN_MASTTER = 'master-toolchain'
 
 

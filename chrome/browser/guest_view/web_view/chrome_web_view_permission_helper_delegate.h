@@ -12,8 +12,8 @@
 #include "content/public/browser/web_contents_binding_set.h"
 #include "extensions/browser/guest_view/web_view/web_view_permission_helper.h"
 #include "extensions/browser/guest_view/web_view/web_view_permission_helper_delegate.h"
-#include "ppapi/features/features.h"
-#include "third_party/WebKit/public/platform/modules/permissions/permission_status.mojom.h"
+#include "ppapi/buildflags/buildflags.h"
+#include "third_party/blink/public/platform/modules/permissions/permission_status.mojom.h"
 
 namespace extensions {
 class WebViewGuest;

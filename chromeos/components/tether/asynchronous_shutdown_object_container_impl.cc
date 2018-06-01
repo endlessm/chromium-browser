@@ -4,10 +4,12 @@
 
 #include "chromeos/components/tether/asynchronous_shutdown_object_container_impl.h"
 
+#include "base/memory/ptr_util.h"
 #include "chromeos/components/tether/ad_hoc_ble_advertiser_impl.h"
 #include "chromeos/components/tether/ble_advertisement_device_queue.h"
 #include "chromeos/components/tether/ble_advertiser_impl.h"
 #include "chromeos/components/tether/ble_connection_manager.h"
+#include "chromeos/components/tether/ble_connection_metrics_logger.h"
 #include "chromeos/components/tether/ble_scanner_impl.h"
 #include "chromeos/components/tether/ble_synchronizer.h"
 #include "chromeos/components/tether/disconnect_tethering_request_sender_impl.h"
@@ -96,6 +98,7 @@ AsynchronousShutdownObjectContainerImpl::
       ble_scanner_(BleScannerImpl::Factory::NewInstance(
           adapter,
           local_device_data_provider_.get(),
+          remote_beacon_seed_fetcher_.get(),
           ble_synchronizer_.get(),
           tether_host_fetcher_)),
       ad_hoc_ble_advertiser_(std::make_unique<AdHocBleAdvertiserImpl>(
@@ -109,6 +112,8 @@ AsynchronousShutdownObjectContainerImpl::
           ble_advertiser_.get(),
           ble_scanner_.get(),
           ad_hoc_ble_advertiser_.get())),
+      ble_connection_metrics_logger_(
+          std::make_unique<BleConnectionMetricsLogger>()),
       disconnect_tethering_request_sender_(
           DisconnectTetheringRequestSenderImpl::Factory::NewInstance(
               ble_connection_manager_.get(),
@@ -120,10 +125,16 @@ AsynchronousShutdownObjectContainerImpl::
           network_connection_handler,
           network_state_handler,
           pref_service,
-          network_configuration_remover_.get())) {}
+          network_configuration_remover_.get())) {
+  ble_connection_manager_->AddMetricsObserver(
+      ble_connection_metrics_logger_.get());
+}
 
 AsynchronousShutdownObjectContainerImpl::
     ~AsynchronousShutdownObjectContainerImpl() {
+  ble_connection_manager_->RemoveMetricsObserver(
+      ble_connection_metrics_logger_.get());
+
   ble_advertiser_->RemoveObserver(this);
   ble_scanner_->RemoveObserver(this);
   disconnect_tethering_request_sender_->RemoveObserver(this);
