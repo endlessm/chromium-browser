@@ -1560,7 +1560,7 @@ config("thin_archive") {
   if ((is_posix && !is_nacl) || is_fuchsia) {
     # TODO(thomasanderson): Enable on ChromeOS builds once
     # https://crbug.com/829956 is fixed.
-    if (default_toolchain != "//build/toolchain/cros:target") {
+    if (false) {
       arflags = [ "-T" ]
     }
   }

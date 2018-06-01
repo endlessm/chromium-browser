@@ -337,7 +337,7 @@ template("gcc_toolchain") {
 
       # TODO(thomasanderson): Remove the special ChromeOS case once
       # https://crbug.com/829956 is fixed.
-      if (default_toolchain == "//build/toolchain/cros:target") {
+      if (true) {
         extra_arflags = "rcsD"
       } else if (current_os == "aix") {
         # We use slightly different arflags for AIX.
