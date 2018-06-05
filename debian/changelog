@@ -1,3 +1,96 @@
+chromium-browser (67.0.3396.62-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 67.0.3396.62
+    - CVE-2018-6123: Use after free in Blink.
+    - CVE-2018-6124: Type confusion in Blink.
+    - CVE-2018-6125: Overly permissive policy in WebUSB.
+    - CVE-2018-6126: Heap buffer overflow in Skia.
+    - CVE-2018-6127: Use after free in indexedDB.
+    - CVE-2018-6128: uXSS in Chrome on iOS.
+    - CVE-2018-6129: Out of bounds memory access in WebRTC.
+    - CVE-2018-6130: Out of bounds memory access in WebRTC.
+    - CVE-2018-6131: Incorrect mutability protection in WebAssembly.
+    - CVE-2018-6132: Use of uninitialized memory in WebRTC.
+    - CVE-2018-6133: URL spoof in Omnibox.
+    - CVE-2018-6134: Referrer Policy bypass in Blink.
+    - CVE-2018-6135: UI spoofing in Blink.
+    - CVE-2018-6136: Out of bounds memory access in V8.
+    - CVE-2018-6137: Leak of visited status of page in Blink.
+    - CVE-2018-6138: Overly permissive policy in Extensions.
+    - CVE-2018-6139: Restrictions bypass in the debugger extension API.
+    - CVE-2018-6140: Restrictions bypass in the debugger extension API.
+    - CVE-2018-6141: Heap buffer overflow in Skia.
+    - CVE-2018-6142: Out of bounds memory access in V8.
+    - CVE-2018-6143: Out of bounds memory access in V8.
+    - CVE-2018-6144: Out of bounds memory access in PDFium.
+    - CVE-2018-6145: Incorrect escaping of MathML in Blink.
+    - CVE-2018-6147: Password fields not taking advantage of OS protections in
+      Views.
+  * debian/rules: stop installing an outdated chromium-browser.svg icon
+    (LP: #1771847)
+  * debian/chromium-browser.svg: removed (outdated)
+  * debian/patches/additional-search-engines.patch: refreshed
+  * debian/patches/configuration-directory.patch: refreshed
+  * debian/patches/default-allocator: refreshed
+  * debian/patches/disable-sse2: updated
+  * debian/patches/fix-crashpad-linux-compat.patch: added
+  * debian/patches/fix-extra-arflags.patch: added
+  * debian/patches/libcxxabi-arm-ehabi-fix.patch: refreshed
+  * debian/patches/no-new-ninja-flag.patch: updated
+  * debian/patches/revert-clang-nostdlib++.patch: refreshed
+  * debian/patches/revert-Xclang-instcombine-lower-dbg-declare.patch: refreshed
+  * debian/patches/search-credit.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/skia-disable-neon.patch: removed, no longer needed
+  * debian/patches/skia-undef-HWCAP_CRC32.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: updated
+  * debian/patches/use-clang-versioned.patch: refreshed
+  * debian/patches/widevine-allow-enable.patch: added
+  * debian/patches/widevine-other-locations: updated
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 30 May 2018 14:06:56 +0200
+
+chromium-browser (66.0.3359.181-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 66.0.3359.181
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Tue, 15 May 2018 22:36:44 +0200
+
+chromium-browser (66.0.3359.170-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 66.0.3359.170
+    - CVE-2018-6121: Privilege Escalation in extensions.
+    - CVE-2018-6122: Type confusion in V8.
+    - CVE-2018-6120: Heap buffer overflow in PDFium.
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Fri, 11 May 2018 16:17:04 +0200
+
+chromium-browser (66.0.3359.139-0ubuntu0.16.04.3) xenial; urgency=medium
+
+  * debian/control: build-depend on clang-5.0 and llvm-5.0, which are now in
+    xenial-updates
+  * debian/rules: build gn with clang 5.0
+  * debian/patches/restore-clang-no-integrated-as.patch: removed, no longer
+    needed
+  * debian/patches/skia-undef-HWCAP_CRC32.patch: added
+  * debian/patches/use-clang-versioned.patch: updated
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Fri, 04 May 2018 16:28:21 +0200
+
+chromium-browser (66.0.3359.139-0ubuntu0.16.04.2) xenial; urgency=medium
+
+  * debian/patches/libcxxabi-arm-ehabi-fix.patch: added (LP: #1768653)
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Thu, 03 May 2018 16:31:41 +0200
+
+chromium-browser (66.0.3359.139-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 66.0.3359.139
+    - CVE-2018-6118: Use after free in Media Cache.
+  * debian/patches/add-missing-blink-tools.patch: removed, no longer needed
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 02 May 2018 20:32:00 +0200
+
 chromium-browser (66.0.3359.117-0ubuntu0.16.04) UNRELEASED; urgency=medium
 
   * Upstream release: 66.0.3359.117

@@ -285,7 +285,6 @@ override_dh_install-arch:
 	    echo "There is no size $${size} icon. We expected one."; \
 	  fi; \
 	done
-	cp -a debian/chromium-browser.svg debian/chromium-browser/usr/share/icons/hicolor/scalable/apps
 
 
 	# Record files that were built, so we can compare later that we installed everything.
@@ -435,7 +434,7 @@ debian/chromium-browser.sh: debian/chromium-browser.sh.in
     $< > $@
 
 out/Release/gn:
-	CC=clang-4.0 CXX=clang++-4.0 tools/gn/bootstrap/bootstrap.py --verbose --no-rebuild --gn-gen-args '$(common_defines)'
+	CC=clang-5.0 CXX=clang++-5.0 tools/gn/bootstrap/bootstrap.py --verbose --no-rebuild --gn-gen-args '$(common_defines)'
 	echo built $@
 
 
@@ -459,7 +458,6 @@ PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/apport/package-hooks/chromium-browser
 #PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/doc/.\*/buildinfo_.\*.gz$$
 PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/gnome-control-center/default-apps/chromium-browser.xml$$
 PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/.\*/chromium-browser.png$$
-PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/.\*/chromium-browser.svg$$
 #PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/doc/.\*/copyright$$
 #PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/doc/.\*/changelog.Debian.gz$$
 PACKAGED_NOT_FROM_TREE_MATCH += ^usr/bin/chromium-browser$$
