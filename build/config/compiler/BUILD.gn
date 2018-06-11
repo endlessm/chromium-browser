@@ -417,18 +417,6 @@ config("compiler") {
       # it with -fuse-ld=gold, and clang gets a --gcc-toolchain flag passed
       # above.
       ldflags += [ "-B$gold_path" ]
-
-      if (linux_use_bundled_binutils) {
-        ldflags += [
-          # Experimentation found that using four linking threads
-          # saved ~20% of link time.
-          # https://groups.google.com/a/chromium.org/group/chromium-dev/browse_thread/thread/281527606915bb36
-          # Only apply this to the target linker, since the host
-          # linker might not be gold, but isn't used much anyway.
-          "-Wl,--threads",
-          "-Wl,--thread-count=4",
-        ]
-      }
     }
 
     # TODO(thestig): Make this flag work with GN.
@@ -2190,15 +2178,4 @@ if (is_ios || is_mac) {
 # Default linker warnings.
 config("default_fatal_linker_warnings") {
   ldflags = []
-
-  # Linker warnings.
-  if (!is_win && fatal_linker_warnings &&
-      !(is_chromeos && current_cpu == "arm") &&
-      !(is_android && use_order_profiling) && !is_mac && !is_ios &&
-      current_os != "aix") {
-    # TODO(jochen): Enable this on chromeos on arm. http://crbug.com/356580
-    # TODO(lizeb,pasko): Fix link errors when linking with order_profiling=1
-    # crbug.com/485542
-    ldflags += [ "-Wl,--fatal-warnings" ]
-  }
 }
