@@ -105,6 +105,11 @@ void DecoderSelector<StreamType>::InitializeDecoder() {
   while (!decoders_.empty()) {
     std::unique_ptr<Decoder> decoder(std::move(decoders_.front()));
     decoders_.erase(decoders_.begin());
+
+// On Endless, we want to force using the hardware accelerated video
+// decoder on ARM, so let's avoid assigning any decoder here so that
+// decrypting content is the only thing left for the CDM module to do.
+#if !defined(__arm__)
     // When |decrypted_stream_| is selected, the |config_| has changed so ignore
     // the blacklist.
     if (decrypted_stream_ ||
@@ -112,6 +117,7 @@ void DecoderSelector<StreamType>::InitializeDecoder() {
       decoder_ = std::move(decoder);
       break;
     }
+#endif
   }
 
   if (!decoder_) {
