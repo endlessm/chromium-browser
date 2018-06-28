@@ -42,8 +42,8 @@ gcc_toolchain("arm64") {
 gcc_toolchain("arm") {
   toolprefix = "arm-linux-gnueabihf-"
 
-  cc = "${toolprefix}gcc"
-  cxx = "${toolprefix}g++"
+  cc = "${toolprefix}gcc-6"
+  cxx = "${toolprefix}g++-6"
 
   ar = "${toolprefix}ar"
   ld = cxx

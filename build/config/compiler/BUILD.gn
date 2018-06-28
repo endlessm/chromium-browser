@@ -194,7 +194,7 @@ config("compiler") {
   cflags_cc = []
   cflags_objc = []
   cflags_objcc = []
-  ldflags = []
+  ldflags = ["-L", "/usr/lib/gcc/arm-linux-gnueabihf/6"]
   defines = []
   configs = []
   inputs = []
