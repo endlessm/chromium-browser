@@ -124,4 +124,8 @@ const char kForceNativePrefetch[] = "force-native-prefetch";
 const char kNativePrefetchOrderedOnly[] = "native-prefetch-ordered-only";
 #endif
 
+// Used to override the default swap-to-physical-RAM compression ratio
+// as defined in memory_pressure_monitor_endless.cc.
+const char kSwapCompressionRatio[] = "swap-compression-ratio";
+
 }  // namespace switches
