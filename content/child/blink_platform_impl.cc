@@ -367,6 +367,8 @@ BlinkPlatformImpl::~BlinkPlatformImpl() {
 }
 
 WebString BlinkPlatformImpl::UserAgent() {
+	  printf("[%s:%d] %s\n", __FILE__, __LINE__, __FUNCTION__);
+
   return blink::WebString::FromUTF8(GetContentClient()->GetUserAgent());
 }
 

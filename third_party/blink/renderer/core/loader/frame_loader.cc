@@ -114,7 +114,8 @@ using namespace HTMLNames;
 // Helper function we use on EndlessOS to alter the UserAgent string
 // returned by chromium's content layer based on the frame's URL.
 String adaptUserAgentForURL(const String& userAgent, const KURL& url) {
-#ifdef __arm__
+//#ifdef __arm__
+
   if (url.IsEmpty() || !url.IsValid())
     return userAgent;
 
@@ -131,18 +132,23 @@ String adaptUserAgentForURL(const String& userAgent, const KURL& url) {
   if (host.Contains("calendar.google.com") ||
       (host.Contains("google.com") && url.GetPath().StartsWith("/calendar")) ||
       host.Contains("yahoo.com"))
-    userAgentOS = String::FromUTF8("X11; Linux i686");
+    userAgentOS = String::FromUTF8("X11; Linux x86_64");
 
   if (!userAgentOS.IsEmpty()) {
+    printf("[%s:%d] %s MODIFYING USER AGENT!!! host: %s / path: %s / userAgentOS: %s / userAgent: %s\n", __FILE__, __LINE__, __FUNCTION__,
+	         host.Utf8().data(), url.GetPath().Utf8().data(), userAgentOS.Utf8().data(), userAgent.Utf8().data());
+
     // Replace the OS part of the UserAgent string if needed.
     StringBuilder builder;
     builder.Append(userAgent.Left(userAgent.find('(') + 1));
     builder.Append(userAgentOS);
     builder.Append(userAgent.Substring(userAgent.find(')')));
 
-    return builder.ToString();
+    String result = builder.ToString();
+    printf("[%s:%d] %s NEW USER AGENT: %s\n", __FILE__, __LINE__, __FUNCTION__, result.Utf8().data());
+    return result;
   }
-#endif
+//#endif
 
   return userAgent;
 }

@@ -150,6 +150,8 @@ std::string getUserAgentPlatform() {
 }
 
 std::string BuildUserAgentFromProduct(const std::string& product) {
+  printf("[%s:%d] %s\n", __FILE__, __LINE__, __FUNCTION__);
+
   std::string os_info;
   base::StringAppendF(
       &os_info,

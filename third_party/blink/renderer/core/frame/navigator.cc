@@ -64,6 +64,8 @@ String Navigator::platform() const {
 }
 
 String Navigator::userAgent() const {
+  printf("[%s:%d] %s\n", __FILE__, __LINE__, __FUNCTION__);
+
   // If the frame is already detached it no longer has a meaningful useragent.
   if (!GetFrame() || !GetFrame()->GetPage())
     return String();

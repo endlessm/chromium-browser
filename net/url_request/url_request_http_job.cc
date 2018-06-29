@@ -404,6 +404,49 @@ void URLRequestHttpJob::SetPriority(RequestPriority priority) {
     transaction_->SetPriority(priority_);
 }
 
+// Helper function we use on EndlessOS to alter the UserAgent string
+// returned by chromium's content layer based on the frame's URL.
+std::string GetUserAgentForURL(const HttpUserAgentSettings* user_agent_settings, const GURL& url) {
+  std::string user_agent = user_agent_settings ?
+            user_agent_settings->GetUserAgent() : std::string();
+//#ifdef __arm__
+
+  if (url.is_empty() || !url.is_valid())
+    return user_agent;
+
+  std::string host = url.host();
+  std::string user_agent_OS;
+
+  // With the default Linux user agent, Netflix presents a cryptic error when
+  // trying to play back video. Pretend to be CrOS.
+  if (host.find("netflix.com") != std::string::npos || host.find("nflxvideo.net") != std::string::npos)
+    user_agent_OS = std::string("X11; CrOS armv7l 7262.57.0");
+
+  // With the default user agent string, containing the '(X11; Linux armv7l)' part, Google
+  // Calendar and Yahoo redirect to their mobile version, so send 'Linux i686' instead.
+  if (host.find("calendar.google.com") != std::string::npos ||
+      (host.find("accounts.google.com") != std::string::npos) ||
+      host.find("yahoo.com") != std::string::npos)
+    user_agent_OS = std::string("X11; Linux x86_64");
+
+  if (!user_agent_OS.empty()) {
+    return std::string("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/66.0.3359.139 Safari/537.36");
+
+//    // Replace the OS part of the UserAgent string if needed.
+//    StringBuilder builder;
+//    builder.Append(userAgent.Left(userAgent.find('(') + 1));
+//    builder.Append(user_agent_OS);
+//    builder.Append(userAgent.Substring(userAgent.find(')')));
+//
+//    String result = builder.ToString();
+//    printf("[%s:%d] %s NEW USER AGENT: %s\n", __FILE__, __LINE__, __FUNCTION__, result.Utf8().data());
+//    return result;
+  }
+//#endif
+
+  return user_agent;
+}
+
 void URLRequestHttpJob::Start() {
   DCHECK(!transaction_.get());
 
@@ -443,10 +486,11 @@ void URLRequestHttpJob::Start() {
 
   request_info_.token_binding_referrer = request_->token_binding_referrer();
 
+  std::string useragent = GetUserAgentForURL(http_user_agent_settings_, request_->url());
+  printf("[%s:%d] %s useragent: %s / host: %s\n", __FILE__, __LINE__, __FUNCTION__, useragent.c_str(), request_info_.url.host().c_str());
   request_info_.extra_headers.SetHeaderIfMissing(
       HttpRequestHeaders::kUserAgent,
-      http_user_agent_settings_ ?
-          http_user_agent_settings_->GetUserAgent() : std::string());
+	  useragent);
 
   AddExtraHeaders();
   AddCookieHeaderAndStart();

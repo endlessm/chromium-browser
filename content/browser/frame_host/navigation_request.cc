@@ -139,6 +139,49 @@ bool NeedsHTTPOrigin(net::HttpRequestHeaders* headers,
   return true;
 }
 
+// Helper function we use on EndlessOS to alter the UserAgent string
+// returned by chromium's content layer based on the frame's URL.
+std::string GetUserAgentForURL(const GURL& url) {
+  std::string user_agent = GetContentClient()->GetUserAgent();
+
+//#ifdef __arm__
+
+  if (url.is_empty() || !url.is_valid())
+    return user_agent;
+
+  std::string host = url.host();
+  std::string user_agent_OS;
+
+  // With the default Linux user agent, Netflix presents a cryptic error when
+  // trying to play back video. Pretend to be CrOS.
+  if (host.find("netflix.com") != std::string::npos || host.find("nflxvideo.net") != std::string::npos)
+    user_agent_OS = std::string("X11; CrOS armv7l 7262.57.0");
+
+  // With the default user agent string, containing the '(X11; Linux armv7l)' part, Google
+  // Calendar and Yahoo redirect to their mobile version, so send 'Linux i686' instead.
+  if (host.find("calendar.google.com") != std::string::npos ||
+      (host.find("google.com") != std::string::npos && url.path().find("/calendar") != std::string::npos) ||
+      host.find("yahoo.com") != std::string::npos)
+    user_agent_OS = std::string("X11; Linux x86_64");
+
+  if (!user_agent_OS.empty()) {
+    return std::string("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/66.0.3359.139 Safari/537.36");
+
+//    // Replace the OS part of the UserAgent string if needed.
+//    StringBuilder builder;
+//    builder.Append(userAgent.Left(userAgent.find('(') + 1));
+//    builder.Append(user_agent_OS);
+//    builder.Append(userAgent.Substring(userAgent.find(')')));
+//
+//    String result = builder.ToString();
+//    printf("[%s:%d] %s NEW USER AGENT: %s\n", __FILE__, __LINE__, __FUNCTION__, result.Utf8().data());
+//    return result;
+  }
+//#endif
+
+  return user_agent;
+}
+
 // TODO(clamy): This should match what's happening in
 // blink::FrameFetchContext::addAdditionalRequestHeaders.
 void AddAdditionalRequestHeaders(
@@ -174,6 +217,12 @@ void AddAdditionalRequestHeaders(
   // https://w3c.github.io/webappsec/specs/upgrade/#feature-detect
   headers->SetHeaderIfMissing("Upgrade-Insecure-Requests", "1");
 
+  printf("[%s:%d] %s / host: %s / path: %s\n", __FILE__, __LINE__, __FUNCTION__, url.host().c_str(), url.path().c_str());
+  std::string useragent = user_agent_override.empty()
+                                          ? GetUserAgentForURL(url)
+                                          : user_agent_override;
+
+  printf("[%s:%d] %s useragent2: %s\n", __FILE__, __LINE__, __FUNCTION__, useragent.c_str());
   headers->SetHeaderIfMissing(net::HttpRequestHeaders::kUserAgent,
                               user_agent_override.empty()
                                   ? GetContentClient()->GetUserAgent()

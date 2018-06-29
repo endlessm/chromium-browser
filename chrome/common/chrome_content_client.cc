@@ -384,6 +384,9 @@ std::string GetProduct() {
 }  // namespace
 
 std::string GetUserAgent() {
+  printf("[%s:%d] %s\n", __FILE__, __LINE__, __FUNCTION__);
+//  return std::string("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/66.0.3359.139 Safari/537.36");
+
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kUserAgent)) {
     std::string ua = command_line->GetSwitchValueASCII(switches::kUserAgent);
