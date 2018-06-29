@@ -49,6 +49,8 @@ extern const char kEnableCrashReporterForTesting[];
 extern const char kOrderfileMemoryOptimization[];
 #endif
 
+extern const char kSwapCompressionRatio[];
+
 }  // namespace switches
 
 #endif  // BASE_BASE_SWITCHES_H_
