@@ -112,11 +112,14 @@ int MemoryPressureMonitor::GetUsedMemoryInPercent() {
     return 0;
   }
 
-  // The total memory we have is the "real memory" ONLY. We don't consider
-  // virtual (z)ram on Endless since we're shipping products with low RAM
-  // and bigger swap partitions on spinning disks, which would cause the
-  // machine to slow down even before a tab discarding situation is reached.
-  int total_memory = info.total;
+  // The available memory consists of "real" and virtual (z)ram memory.
+  // Since swappable memory uses a non pre-deterministic compression and
+  // the compression creates its own "dynamic" in the system, it gets
+  // de-emphasized by the |kSwapWeight| factor.
+  const int kSwapWeight = 4;
+
+  // The total memory we have is the "real memory" plus the virtual (z)ram.
+  int total_memory = info.total + info.swap_total / kSwapWeight;
 
   // The kernel internally uses 50MB.
   const int kMinFileMemory = 50 * 1024;
@@ -126,8 +129,9 @@ int MemoryPressureMonitor::GetUsedMemoryInPercent() {
   // unless it is dirty or it's a minimal portion which is required.
   file_memory -= info.dirty + kMinFileMemory;
 
-  // Available memory is the sum of free and easy reclaimable memory (no swap).
-  int available_memory = info.free + file_memory;
+  // Available memory is the sum of free, swap and easy reclaimable memory.
+  int available_memory =
+      info.free + info.swap_free / kSwapWeight + file_memory;
 
   DCHECK(available_memory < total_memory);
   int percentage = ((total_memory - available_memory) * 100) / total_memory;
