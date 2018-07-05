@@ -2,6 +2,7 @@
 #ifndef FFMPEG_CONFIG_H
 #define FFMPEG_CONFIG_H
 /* #define FFMPEG_CONFIGURATION "--disable-everything --disable-all --disable-doc --disable-htmlpages --disable-manpages --disable-podpages --disable-txtpages --disable-static --enable-avcodec --enable-avformat --enable-avutil --enable-fft --enable-rdft --enable-static --enable-libopus --disable-debug --disable-bzlib --disable-error-resilience --disable-iconv --disable-lzo --disable-network --disable-schannel --disable-sdl2 --disable-symver --disable-xlib --disable-zlib --disable-securetransport --disable-faan --disable-alsa --disable-autodetect --enable-decoder='vorbis,libopus,flac' --enable-decoder='pcm_u8,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,mp3' --enable-decoder='pcm_s16be,pcm_s24be,pcm_mulaw,pcm_alaw' --enable-demuxer='ogg,matroska,wav,flac,mp3,mov' --enable-parser='opus,vorbis,flac,mpegaudio' --extra-cflags=-I/not_workspace/liberato/chrome_ffmpeg/src/third_party/opus/src/include --disable-linux-perf --x86asmexe=yasm --optflags='\"-O2\"' --enable-decoder='theora,vp8' --enable-parser='vp3,vp8' --enable-lto --enable-pic --cc=clang --cxx=clang++ --ld=clang --extra-ldflags='-fuse-ld=lld' --enable-decoder='aac,h264' --enable-demuxer=aac --enable-parser='aac,h264'" -- elide long configuration string from binary */
+#define FFMPEG_CONFIGURATION "--disable-everything --disable-all --disable-doc --disable-htmlpages --disable-manpages --disable-podpages --disable-txtpages --disable-static --enable-avcodec --enable-avformat --enable-avutil --enable-fft --enable-rdft --enable-static --enable-libopus --disable-bzlib --disable-error-resilience --disable-iconv --disable-lzo --disable-network --disable-schannel --disable-sdl2 --disable-symver --disable-xlib --disable-zlib --disable-securetransport --disable-faan --disable-alsa --disable-autodetect --enable-decoder='vorbis,libopus,flac' --enable-decoder='pcm_u8,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,mp3' --enable-decoder='pcm_s16be,pcm_s24be,pcm_mulaw,pcm_alaw' --enable-demuxer='ogg,matroska,wav,flac,mp3,mov' --enable-parser='opus,vorbis,flac,mpegaudio' --extra-cflags=-I/ssd/trunk_blink_tot/src/third_party/opus/src/include --disable-linux-perf --x86asmexe=yasm --optflags='\"-O2\"' --enable-decoder='theora,vp8' --enable-parser='vp3,vp8' --enable-lto --enable-pic --cc=clang --cxx=clang++ --ld=clang --extra-ldflags='-fuse-ld=lld' --enable-libfdk-aac --enable-decoder=libfdk_aac --enable-demuxer=aac --enable-parser=aac --enable-decoder=h264 --enable-parser=h264"
 #define FFMPEG_LICENSE "LGPL version 2.1 or later"
 #define CONFIG_THIS_YEAR 2018
 #define FFMPEG_DATADIR "/usr/local/share/ffmpeg"
@@ -413,7 +414,7 @@
 #define CONFIG_LIBXVID 0
 #define CONFIG_DECKLINK 0
 #define CONFIG_LIBNDI_NEWTEK 0
-#define CONFIG_LIBFDK_AAC 0
+#define CONFIG_LIBFDK_AAC 1
 #define CONFIG_OPENSSL 0
 #define CONFIG_LIBTLS 0
 #define CONFIG_GMP 0
@@ -949,7 +950,7 @@
 #define CONFIG_ZEROCODEC_DECODER 0
 #define CONFIG_ZLIB_DECODER 0
 #define CONFIG_ZMBV_DECODER 0
-#define CONFIG_AAC_DECODER 1
+#define CONFIG_AAC_DECODER 0
 #define CONFIG_AAC_FIXED_DECODER 0
 #define CONFIG_AAC_LATM_DECODER 0
 #define CONFIG_AC3_DECODER 0
@@ -1157,7 +1158,7 @@
 #define CONFIG_LIBAOM_AV1_DECODER 0
 #define CONFIG_LIBCELT_DECODER 0
 #define CONFIG_LIBCODEC2_DECODER 0
-#define CONFIG_LIBFDK_AAC_DECODER 0
+#define CONFIG_LIBFDK_AAC_DECODER 1
 #define CONFIG_LIBGSM_DECODER 0
 #define CONFIG_LIBGSM_MS_DECODER 0
 #define CONFIG_LIBILBC_DECODER 0
