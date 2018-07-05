@@ -849,11 +849,20 @@ def ConfigureAndBuild(target_arch, target_os, host_os, host_arch, parallel_jobs,
           '--ar=cygwin-wrapper lib',
       ])
 
+  # Depend on royalty-free libfdk-aac for AAC support.
+  if target_os == 'linux':
+    configure_flags['Common'].extend([
+        # Build against libfdk-aac and enable it always.
+        '--enable-libfdk-aac',
+        '--enable-decoder=libfdk_aac',
+        '--enable-demuxer=aac',
+        '--enable-parser=aac',
+    ])
+
   # Google Chrome & ChromeOS specific configuration.
   configure_flags['Chrome'].extend([
-      '--enable-decoder=aac,h264',
-      '--enable-demuxer=aac',
-      '--enable-parser=aac,h264',
+      '--enable-decoder=h264',
+      '--enable-parser=h264',
   ])
 
   # Google ChromeOS specific configuration.
