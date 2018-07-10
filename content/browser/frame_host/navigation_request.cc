@@ -16,6 +16,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
 #include "build/build_config.h"
+#include "chrome/common/chrome_switches.h"
 #include "content/browser/appcache/appcache_navigation_handle.h"
 #include "content/browser/appcache/chrome_appcache_service.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
@@ -166,6 +167,38 @@ bool NeedsHTTPOrigin(net::HttpRequestHeaders* headers,
   return true;
 }
 
+// Helper function we use on EndlessOS to alter the UserAgent string.
+std::string AdaptUserAgentForURL(const std::string& user_agent, const GURL& url) {
+  std::string result = user_agent;
+
+  // Can't make a decision is no valid URL has been passed.
+  if (url.is_empty() || !url.is_valid())
+	return result;
+
+  // Early return if the --user-agent parameter has been passed,
+  // since we still want to be able to use its value if specified.
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(switches::kUserAgent)) {
+    std::string ua = command_line->GetSwitchValueASCII(switches::kUserAgent);
+    LOG(INFO) << "LOG :: User Agent specified via --user-agent ('" << ua << "'). Ignoring Endless-specific overrides";
+    return result;
+  }
+
+#ifdef __arm__
+  // With the default user agent string, containing the '(X11; Linux armv7l)' part,
+  // Google Calendar redirects to their mobile version, so pretend to be CrOS.
+  const std::string& host = url.host();
+  if ((host.find("calendar.google.com") != std::string::npos) ||
+      (host.find("google.com") != std::string::npos && url.path().find("/calendar") == 0)) {
+    std::string::size_type start_pos = user_agent.find('(') + 1;
+    std::string::size_type end_pos = user_agent.find(')');
+    result.replace(start_pos, end_pos - start_pos, std::string("X11; CrOS armv7l 10575.54.0"));
+  }
+#endif
+
+  return result;
+}
+
 // TODO(clamy): This should match what's happening in
 // blink::FrameFetchContext::addAdditionalRequestHeaders.
 void AddAdditionalRequestHeaders(
@@ -202,7 +235,7 @@ void AddAdditionalRequestHeaders(
   headers->SetHeaderIfMissing(
       net::HttpRequestHeaders::kUserAgent,
       user_agent_override.empty()
-          ? GetContentClient()->browser()->GetUserAgent()
+          ? AdaptUserAgentForURL(GetContentClient()->browser()->GetUserAgent(), url)
           : user_agent_override);
 
   // TODO(mkwst): Extract this logic out somewhere that can be shared between
