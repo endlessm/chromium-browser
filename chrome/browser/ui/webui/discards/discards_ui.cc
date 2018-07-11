@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "base/logging.h"
-#include "base/memory/memory_pressure_monitor_endless.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -148,12 +147,6 @@ class DiscardsDetailsProviderImpl : public mojom::DiscardsDetailsProvider {
     memory.append(AddStringRow(base::IntToString(meminfo.swap_total / 1024)));
     // Swap Free
     memory.append(AddStringRow(base::IntToString(meminfo.swap_free / 1024)));
-
-    // Swap Compression Ratio
-    base::endless::MemoryPressureMonitor* endless_mempress_monitor = base::endless::MemoryPressureMonitor::Get();
-    const double kSwapWeight = endless_mempress_monitor->GetSwapCompressionRatio();
-    memory.append(AddStringRow(base::NumberToString(kSwapWeight)));
-
     // Cached
     memory.append(AddStringRow(base::IntToString(meminfo.cached / 1024)));
     // Buffers
@@ -167,13 +160,11 @@ class DiscardsDetailsProviderImpl : public mojom::DiscardsDetailsProvider {
     // Dirty
     memory.append(AddStringRow(base::IntToString(meminfo.dirty / 1024)));
 
-    const int kMinFileMemory = 50 * 1024;
-    int total_memory = meminfo.total
-      + std::min(meminfo.total * kSwapWeight, static_cast<double>(meminfo.swap_total)) * (kSwapWeight - 1) / kSwapWeight;
+    // Check base::endless::MemoryPressureMonitor::GetUsedMemoryInPercent to know where these values come from.
+    const int kSwapWeight = 4, kMinFileMemory = 50 * 1024;
+    int total_memory = meminfo.total + meminfo.swap_total / kSwapWeight;
     int file_memory = meminfo.active_file + meminfo.inactive_file - meminfo.dirty - kMinFileMemory;
-    int available_memory = meminfo.free
-      + std::min(meminfo.free * kSwapWeight, static_cast<double>(meminfo.swap_free)) * (kSwapWeight - 1) / kSwapWeight
-      + file_memory;
+    int available_memory = meminfo.free + meminfo.swap_free / kSwapWeight + file_memory;
     int percentage = ((total_memory - available_memory) * 100) / total_memory;
     // Memory in use (%)
     memory.append(AddStringRow(base::IntToString(percentage)));

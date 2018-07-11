@@ -31,18 +31,12 @@ class BASE_EXPORT MemoryPressureMonitor : public base::MemoryPressureMonitor {
   // base::MemoryPressureListener::NotifyMemoryPressure.
   void SetDispatchCallback(const DispatchCallback& callback) override;
 
-  // Returns the swap-to-physical-RAM compression ratio (useful for discards_ui.cc);
-  inline double GetSwapCompressionRatio() { return swap_compression_ratio_; };
-
   // Returns a type-casted version of the current memory pressure monitor. A
   // simple wrapper to base::MemoryPressureMonitor::Get.
   static MemoryPressureMonitor* Get();
 
  private:
   friend TestMemoryPressureMonitor;
-
-  // Parses the command line parameters in case we want to define our own thresholds;
-  void ParseCommandLineParameters();
 
   // Starts observing the memory fill level.
   // Calls to StartObserving should always be matched with calls to
@@ -78,9 +72,6 @@ class BASE_EXPORT MemoryPressureMonitor : public base::MemoryPressureMonitor {
   // To slow down the amount of moderate pressure event calls, this counter
   // gets used to count the number of events since the last event occured.
   int moderate_pressure_repeat_count_;
-
-  // The swap-to-physical-RAM compression ratio (useful for ZRAM).
-  double swap_compression_ratio_;
 
   DispatchCallback dispatch_callback_;
 

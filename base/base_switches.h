@@ -48,8 +48,6 @@ extern const char kForceNativePrefetch[];
 extern const char kNativePrefetchOrderedOnly[];
 #endif
 
-extern const char kSwapCompressionRatio[];
-
 }  // namespace switches
 
 #endif  // BASE_BASE_SWITCHES_H_
