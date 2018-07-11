@@ -111,42 +111,6 @@ namespace blink {
 
 using namespace HTMLNames;
 
-// Helper function we use on EndlessOS to alter the UserAgent string
-// returned by chromium's content layer based on the frame's URL.
-String adaptUserAgentForURL(const String& userAgent, const KURL& url) {
-#ifdef __arm__
-  if (url.IsEmpty() || !url.IsValid())
-    return userAgent;
-
-  const String& host = url.Host();
-  String userAgentOS;
-
-  // With the default Linux user agent, Netflix presents a cryptic error when
-  // trying to play back video. Pretend to be CrOS.
-  if (host.Contains("netflix.com") || host.Contains("nflxvideo.net"))
-    userAgentOS = String::FromUTF8("X11; CrOS armv7l 7262.57.0");
-
-  // With the default user agent string, containing the '(X11; Linux armv7l)' part, Google
-  // Calendar and Yahoo redirect to their mobile version, so send 'Linux i686' instead.
-  if (host.Contains("calendar.google.com") ||
-      (host.Contains("google.com") && url.GetPath().StartsWith("/calendar")) ||
-      host.Contains("yahoo.com"))
-    userAgentOS = String::FromUTF8("X11; Linux i686");
-
-  if (!userAgentOS.IsEmpty()) {
-    // Replace the OS part of the UserAgent string if needed.
-    StringBuilder builder;
-    builder.Append(userAgent.Left(userAgent.find('(') + 1));
-    builder.Append(userAgentOS);
-    builder.Append(userAgent.Substring(userAgent.find(')')));
-
-    return builder.ToString();
-  }
-#endif
-
-  return userAgent;
-}
-
 bool IsBackForwardLoadType(FrameLoadType type) {
   return type == kFrameLoadTypeBackForward ||
          type == kFrameLoadTypeInitialHistoryLoad;
@@ -1322,13 +1286,8 @@ void FrameLoader::RestoreScrollPositionAndViewState(
 }
 
 String FrameLoader::UserAgent() const {
-  String clientUserAgent = Client()->UserAgent();
-  // On Endless, we need to still be able to alter the UserAgent string depending
-  // on the URL we are loading, so we adapt it if needed before applying it. But we
-  // might not have a committed load, so we first check the URL from the provisional
-  // loader before trying with the regular one, so that we always get a valid URL.
-  const DocumentLoader& activeLoader = provisional_document_loader_.Get() ? *provisional_document_loader_ : *document_loader_;
-  String user_agent = adaptUserAgentForURL(clientUserAgent, activeLoader.GetRequest().Url());
+  String user_agent = Client()->UserAgent();
+  probe::applyUserAgentOverride(frame_->GetDocument(), &user_agent);
   return user_agent;
 }
 
