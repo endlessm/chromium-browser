@@ -31,14 +31,11 @@ const int kModerateMemoryPressureCooldown = kModerateMemoryPressureCooldownMs / 
 const int kDefaultMemoryPressureModerateThreshold = 45;
 const int kDefaultMemoryPressureCriticalThreshold = 80;
 
-// Default value for the swap-to-physical-RAM compression ratio, based on what
-// we've observed so far since we enabled zram-backed swap partitions.
-const double kDefaultSwapCompressionRatio = 2.7;
-
 MemoryPressureMonitor::MemoryPressureMonitor()
     : current_memory_pressure_level_(MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE)
     , moderate_pressure_repeat_count_(0)
-    , swap_compression_ratio_(kDefaultSwapCompressionRatio)
+    , moderate_threshold_(kDefaultMemoryPressureModerateThreshold)
+    , critical_threshold_(kDefaultMemoryPressureCriticalThreshold)
     , dispatch_callback_(
           base::Bind(&MemoryPressureListener::NotifyMemoryPressure))
     , weak_ptr_factory_(this) {
@@ -64,15 +61,24 @@ MemoryPressureMonitor* MemoryPressureMonitor::Get() {
 void MemoryPressureMonitor::ParseCommandLineParameters() {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   std::string switch_str;
-  double value;
+  int value;
 
   // Parse the switch for the MODERATE threshold (should be a positive integer between 0 - 100).
-  if (command_line->HasSwitch(switches::kSwapCompressionRatio)) {
-    switch_str = command_line->GetSwitchValueASCII(switches::kSwapCompressionRatio);
-    if (base::StringToDouble(switch_str, &value) && value >= 1.0)
-      swap_compression_ratio_ = value;
+  if (command_line->HasSwitch(switches::kMemoryPressureModerateThreshold)) {
+    switch_str = command_line->GetSwitchValueASCII(switches::kMemoryPressureModerateThreshold);
+    if (base::StringToInt(switch_str, &value) && value >= 0 && value < 100)
+      moderate_threshold_ = value;
     else
-      VLOG(1) << "Invalid switch for swap-compression-ratio (must be a number >= 1.0): " << switch_str;
+      VLOG(1) << "Invalid switch for memory-pressure-moderate-threshold: " << switch_str;
+  }
+
+  // Parse the switch for the CRITICAL threshold (should be a positive integer between MODERATE - 100).
+  if (command_line->HasSwitch(switches::kMemoryPressureCriticalThreshold)) {
+    switch_str = command_line->GetSwitchValueASCII(switches::kMemoryPressureCriticalThreshold);
+    if (base::StringToInt(switch_str, &value) && value > moderate_threshold_ && value < 100)
+      critical_threshold_ = value;
+    else
+      VLOG(1) << "Invalid switch for memory-pressure-critical-threshold: " << switch_str;
   }
 }
 
@@ -119,10 +125,10 @@ void MemoryPressureMonitor::CheckMemoryPressure() {
 
 // Converts free percent of memory into a memory pressure value.
 MemoryPressureListener::MemoryPressureLevel MemoryPressureMonitor::GetMemoryPressureLevelFromPercent(int percent) {
-  if (percent < kDefaultMemoryPressureModerateThreshold)
+  if (percent < moderate_threshold_)
     return MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE;
 
-  if (percent < kDefaultMemoryPressureCriticalThreshold)
+  if (percent < critical_threshold_)
     return MemoryPressureListener::MEMORY_PRESSURE_LEVEL_MODERATE;
 
   return MemoryPressureListener::MEMORY_PRESSURE_LEVEL_CRITICAL;
@@ -136,17 +142,11 @@ int MemoryPressureMonitor::GetUsedMemoryInPercent() {
     return 0;
   }
 
-  // The available memory consists of "real" and virtual (z)ram memory.
-  // Since swappable memory uses a non pre-deterministic compression and
-  // the compression creates its own "dynamic" in the system, it gets
-  // de-emphasized by the |kSwapWeight| factor, which we set to the value
-  // of swap_compression_ratio_ (adjustable via --swap-compression-ratio).
-  const double kSwapWeight = swap_compression_ratio_;
-
-  // The total memory we have is the "real memory" plus the zram-backed swap, which
-  // is limited by the amount of physical memory we have, and the compression ratio.
-  int total_memory = info.total
-    + std::min(info.total * kSwapWeight, static_cast<double>(info.swap_total)) * (kSwapWeight - 1) / kSwapWeight;
+  // The total memory we have is the "real memory" ONLY. We don't consider
+  // virtual (z)ram on Endless since we're shipping products with low RAM
+  // and bigger swap partitions on spinning disks, which would cause the
+  // machine to slow down even before a tab discarding situation is reached.
+  int total_memory = info.total;
 
   // The kernel internally uses 50MB.
   const int kMinFileMemory = 50 * 1024;
@@ -156,10 +156,8 @@ int MemoryPressureMonitor::GetUsedMemoryInPercent() {
   // unless it is dirty or it's a minimal portion which is required.
   file_memory -= info.dirty + kMinFileMemory;
 
-  // Available memory is the sum of free, swap and easy reclaimable memory.
-  int available_memory = info.free
-    + std::min(info.free * kSwapWeight, static_cast<double>(info.swap_free)) * (kSwapWeight - 1) / kSwapWeight
-    + file_memory;
+  // Available memory is the sum of free and easy reclaimable memory (no swap).
+  int available_memory = info.free + file_memory;
 
   DCHECK(available_memory < total_memory);
   int percentage = ((total_memory - available_memory) * 100) / total_memory;

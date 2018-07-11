@@ -49,7 +49,8 @@ extern const char kEnableCrashReporterForTesting[];
 extern const char kOrderfileMemoryOptimization[];
 #endif
 
-extern const char kSwapCompressionRatio[];
+extern const char kMemoryPressureModerateThreshold[];
+extern const char kMemoryPressureCriticalThreshold[];
 
 }  // namespace switches
 

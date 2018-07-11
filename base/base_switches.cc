@@ -134,8 +134,10 @@ const char kEnableCrashReporterForTesting[] =
 const char kOrderfileMemoryOptimization[] = "orderfile-memory-optimization";
 #endif
 
-// Used to override the default swap-to-physical-RAM compression ratio
-// as defined in memory_pressure_monitor_endless.cc.
-const char kSwapCompressionRatio[] = "swap-compression-ratio";
+// Used to override the default thresholds used by the MemoryPressureMonitor
+// to notify the MemoryPressureListener that a relevant event has occurred.
+// If defined they must be integers between [0, 100], with CRITICAL > MODERATE.
+const char kMemoryPressureModerateThreshold[] = "memory-pressure-moderate-threshold";
+const char kMemoryPressureCriticalThreshold[] = "memory-pressure-critical-threshold";
 
 }  // namespace switches
