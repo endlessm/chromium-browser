@@ -134,8 +134,4 @@ const char kEnableCrashReporterForTesting[] =
 const char kOrderfileMemoryOptimization[] = "orderfile-memory-optimization";
 #endif
 
-// Used to override the default swap-to-physical-RAM compression ratio
-// as defined in memory_pressure_monitor_endless.cc.
-const char kSwapCompressionRatio[] = "swap-compression-ratio";
-
 }  // namespace switches
