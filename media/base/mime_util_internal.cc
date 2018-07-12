@@ -287,7 +287,7 @@ checkNonFreeMIMETypesOnEOS(bool& supports_h264, bool& supports_aac) {
 #else
     // On Intel, we check the ffmpeg-based decoders are available.
     supports_h264 = (dlsym(handle, "ff_h264_decoder") != nullptr);
-    supports_aac = (dlsym(handle, "ff_aac_decoder") != nullptr);
+    supports_aac = (dlsym(handle, "ff_libfdk_aac_decoder") != nullptr);
 #endif
 
     dlclose(handle);
