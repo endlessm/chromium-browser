@@ -712,7 +712,8 @@ def ConfigureAndBuild(target_arch, target_os, host_os, host_arch, parallel_jobs,
 
   # Google Chrome & ChromeOS specific configuration.
   configure_flags['Chrome'].extend([
-      '--enable-decoder=h264',
+      '--enable-libopenh264',
+      '--enable-decoder=h264,libopenh264',
       '--enable-parser=h264',
   ])
 
