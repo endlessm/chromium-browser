@@ -857,6 +857,8 @@ def ConfigureAndBuild(target_arch, target_os, host_os, host_arch, parallel_jobs,
         '--enable-decoder=libfdk_aac',
         '--enable-demuxer=aac',
         '--enable-parser=aac',
+        '--enable-libopenh264',
+        '--enable-decoder=libopenh264',
     ])
 
   # Google Chrome & ChromeOS specific configuration.
