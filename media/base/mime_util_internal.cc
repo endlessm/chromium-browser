@@ -266,6 +266,22 @@ void MimeUtil::InitializeMimeTypeMaps() {
  * be reported about it, so that they can decide whether to purchase
  * codecs activation key to unlock that particular type of content.
  */
+
+
+// Copied over from OpenH264's source code at codec/api/svc/codec_app_def.h
+// just to test the call to WelsGetDecoderCapability down below.
+typedef struct {
+  int iProfileIdc;     ///< profile_idc
+  int iProfileIop;     ///< profile-iop
+  int iLevelIdc;       ///< level_idc
+  int iMaxMbps;        ///< max-mbps
+  int iMaxFs;          ///< max-fs
+  int iMaxCpb;         ///< max-cpb
+  int iMaxDpb;         ///< max-dpb
+  int iMaxBr;          ///< max-br
+  bool bRedPicCap;     ///< redundant-pic-cap
+} SDecoderCapability;
+
 static void
 checkNonFreeMIMETypesOnEOS(bool& supports_h264, bool& supports_aac) {
     /* Get a handle for the current process */
@@ -281,7 +297,24 @@ checkNonFreeMIMETypesOnEOS(bool& supports_h264, bool& supports_aac) {
     supports_aac = true;
 #else
     // On Intel, we check the ffmpeg-based decoders are available.
-    supports_h264 = (dlsym(handle, "ff_h264_decoder") != nullptr);
+    supports_h264 = false;
+
+    if (dlsym(handle, "ff_h264_decoder") != nullptr) {
+      // For now, we prioritize ffmpeg's H264 decoder over Cisco's OpenH264 one.
+      supports_h264 = true;
+    } else {
+      int (*welsGetDecoderCapability) (SDecoderCapability*);
+      welsGetDecoderCapability = reinterpret_cast<int (*)(SDecoderCapability*)>(dlsym(handle, "WelsGetDecoderCapability"));
+      if (welsGetDecoderCapability) {
+        SDecoderCapability sDecCap;
+        int result = (*welsGetDecoderCapability)(&sDecCap);
+        // The real library will always return 0 (ERROR_NONE), while our
+        // own dummy library will return 3 (ERROR_API_FAILED) instead, and
+        // we only want to support H264 if it's the real one, of course.
+        supports_h264 = (result == 0);
+      }
+    }
+
     supports_aac = (dlsym(handle, "ff_libfdk_aac_decoder") != nullptr);
 #endif
 
