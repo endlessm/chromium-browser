@@ -443,7 +443,7 @@ if (is_component_ffmpeg) {
         ]
       }
       libs = [
-        "fdk-aac",
+        "fdk-aac","openh264"
       ]
 
     } else if (is_win) {
