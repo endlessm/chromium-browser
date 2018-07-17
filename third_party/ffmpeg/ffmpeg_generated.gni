@@ -199,8 +199,7 @@ if ((is_mac) || (is_win) || (use_linux_config)) {
   ]
 }
 
-# EndlessOS: Modified to always build the AAC bits, that we ship
-# on free and non-free linking against the system's libfdk-aac.
+# EndlessOS: Modified to always build the FDK-AAC and OpenH264 decoders.
 if ((is_linux && current_cpu == "arm") || (is_linux && current_cpu == "x64")) {
   ffmpeg_c_sources += [
     "libavcodec/aac_ac3_parser.c",
@@ -210,6 +209,8 @@ if ((is_linux && current_cpu == "arm") || (is_linux && current_cpu == "x64")) {
     "libavformat/apetag.c",
     "libavformat/img2.c",
     "libavcodec/libfdk-aacdec.c",
+    "libavcodec/libopenh264.c",
+    "libavcodec/libopenh264dec.c",
   ]
 }
 
