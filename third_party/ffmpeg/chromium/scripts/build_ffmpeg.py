@@ -640,9 +640,9 @@ def ConfigureAndBuild(target_arch, target_os, host_os, host_arch, parallel_jobs,
   if 'win' not in target_os:
     configure_flags['Common'].extend([
         '--enable-pic',
-        '--cc=clang',
-        '--cxx=clang++',
-        '--ld=clang',
+        '--cc=clang-4.0',
+        '--cxx=clang++-4.0',
+        '--ld=clang-4.0',
     ])
 
     # Clang Linux will use the first 'ld' it finds on the path, which will

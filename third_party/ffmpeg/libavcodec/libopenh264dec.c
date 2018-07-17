@@ -19,8 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include <wels/codec_api.h>
-#include <wels/codec_ver.h>
+#include "wels/codec_api.h"
+#include "wels/codec_ver.h"
 
 #include "libavutil/common.h"
 #include "libavutil/fifo.h"
@@ -42,9 +42,37 @@ static av_cold int svc_decode_close(AVCodecContext *avctx)
     SVCContext *s = avctx->priv_data;
 
     if (s->decoder)
-        WelsDestroyDecoder(s->decoder);
+        (*s->createDecoder)(s->decoder);
 
     return 0;
+}
+
+static av_cold int svc_init_wels_functions(AVCodecContext *avctx)
+{
+    SVCContext *s = avctx->priv_data;
+    void *handle = dlopen("/var/lib/codecs/libopenh264.so.4", RTLD_NOW | RTLD_GLOBAL);
+    int result = 0;
+
+    if (!handle) {
+        av_log(logctx, AV_LOG_ERROR, "Could not load shared object: %s\n", dlerror());
+        return AVERROR_DECODER_NOT_FOUND;
+    }
+
+    s->createDecoder = dlsym(handle, "WelsCreateDecoder");
+    if (!s->createDecoder) {
+        av_log(logctx, AV_LOG_ERROR, "Error loading symbol: %s\n", dlerror());
+        result = AVERROR_UNKNOWN;
+    }
+
+    s->destroyDecoder = dlsym(handle, "WelsDestroyDecoder");
+    if (!s->destroyDecoder) {
+        av_log(logctx, AV_LOG_ERROR, "Error loading symbol: %s\n", dlerror());
+        result = AVERROR_UNKNOWN;
+    }
+
+    dlclose(handle);
+
+    return result;
 }
 
 static av_cold int svc_decode_init(AVCodecContext *avctx)
@@ -58,7 +86,10 @@ static av_cold int svc_decode_init(AVCodecContext *avctx)
     if ((err = ff_libopenh264_check_version(avctx)) < 0)
         return err;
 
-    if (WelsCreateDecoder(&s->decoder)) {
+    if (err = svc_init_wels_functions(avctx) != 0)
+        return err;
+
+    if ((*s->createDecoder)(&s->decoder)) {
         av_log(avctx, AV_LOG_ERROR, "Unable to create decoder\n");
         return AVERROR_UNKNOWN;
     }

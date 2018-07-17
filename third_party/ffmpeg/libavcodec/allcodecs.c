@@ -29,6 +29,8 @@
 #include "avcodec.h"
 #include "version.h"
 
+#include <dlfcn.h>
+
 extern AVCodec ff_a64multi_encoder;
 extern AVCodec ff_a64multi5_encoder;
 extern AVCodec ff_aasc_decoder;
@@ -842,6 +844,18 @@ static AVCodec *find_codec(enum AVCodecID id, int (*x)(const AVCodec *))
         if (!x(p))
             continue;
         if (p->id == id) {
+            // Special case libopenh264, which we want to use only if it's
+            // been detected at runtime, despite of ffmpeg's configuration.
+            if (!strcmp(p->name, "libopenh264")) {
+                void *handle = dlopen ("/var/lib/codecs/libopenh264.so.4", RTLD_NOW | RTLD_GLOBAL);
+
+                // Couldn't find the implementation of OpenH264: ignore decoder.
+                if (!handle)
+                    continue;
+
+                dlclose(handle);
+            }
+
             if (p->capabilities & AV_CODEC_CAP_EXPERIMENTAL && !experimental) {
                 experimental = p;
             } else

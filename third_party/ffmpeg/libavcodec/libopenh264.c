@@ -20,12 +20,14 @@
  */
 
 #include <string.h>
-#include <wels/codec_api.h>
-#include <wels/codec_ver.h>
+#include "wels/codec_api.h"
+#include "wels/codec_ver.h"
 
 #include "libavutil/log.h"
 
 #include "libopenh264.h"
+
+#include <dlfcn.h>
 
 // Convert libopenh264 log level to equivalent ffmpeg log level.
 static int libopenh264_to_ffmpeg_log_level(int libopenh264_log_level)
@@ -52,11 +54,28 @@ int ff_libopenh264_check_version(void *logctx)
     // function (for functions returning larger structs), thus skip the check in those
     // configurations.
 #if !defined(_WIN32) || !defined(__GNUC__) || !ARCH_X86_32 || AV_GCC_VERSION_AT_LEAST(4, 7)
-    OpenH264Version libver = WelsGetCodecVersion();
-    if (memcmp(&libver, &g_stCodecVersion, sizeof(libver))) {
-        av_log(logctx, AV_LOG_ERROR, "Incorrect library version loaded\n");
-        return AVERROR(EINVAL);
+    OpenH264Version (*getCodecVersion) (void);
+    int result = 0;
+
+    void *handle = dlopen("/var/lib/codecs/libopenh264.so.4", RTLD_NOW | RTLD_GLOBAL);
+    if (!handle) {
+        av_log(logctx, AV_LOG_ERROR, "Could not load shared object: %s\n", dlerror());
+        return AVERROR_DECODER_NOT_FOUND;
     }
+
+    getCodecVersion = dlsym(handle, "WelsGetCodecVersion");
+    if (getCodecVersion) {
+        OpenH264Version libver = (*getCodecVersion)();
+        if (memcmp(&libver, &g_stCodecVersion, sizeof(libver))) {
+            av_log(logctx, AV_LOG_ERROR, "Incorrect library version loaded\n");
+            result = AVERROR(EINVAL);
+        }
+    } else {
+        av_log(logctx, AV_LOG_ERROR, "Error loading symbol: %s\n", dlerror());
+        result = AVERROR_UNKNOWN;
+    }
+
+    dlclose(handle);
 #endif
-    return 0;
+    return result;
 }

@@ -212,6 +212,10 @@ if ((is_linux && current_cpu == "arm") || (is_linux && current_cpu == "x64")) {
     "libavcodec/libfdk-aacdec.c",
     "libavcodec/libopenh264.c",
     "libavcodec/libopenh264dec.c",
+    "libavcodec/wels/codec_api.h",
+    "libavcodec/wels/codec_app_def.h",
+    "libavcodec/wels/codec_def.h",
+    "libavcodec/wels/codec_ver.h",
   ]
 }
 
