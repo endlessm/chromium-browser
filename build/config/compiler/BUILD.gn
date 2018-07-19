@@ -1406,7 +1406,7 @@ config("default_warnings") {
 
         # Ignore warnings about MSVC optimization pragmas.
         # TODO(thakis): Only for no_chromium_code? http://crbug.com/505314
-        "-Wno-ignored-pragma-optimize",
+        #"-Wno-ignored-pragma-optimize",
       ]
     } else if (use_xcode_clang) {
       cflags += [
