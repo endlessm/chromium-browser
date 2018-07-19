@@ -26,6 +26,7 @@ Build-Depends:
 	libasound2-dev,
 	libnss3-dev,
 	mesa-common-dev,
+	libnoopenh264-dev,
 	libfdk-aac-dev,
 	libgles2-mesa-dev [armel armhf],
 	libpci-dev,
