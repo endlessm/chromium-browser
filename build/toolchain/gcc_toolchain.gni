@@ -339,7 +339,7 @@ template("gcc_toolchain") {
         # We use slightly different arflags for AIX.
         extra_arflags = "-r -c -s"
       } else {
-        extra_arflags = "-r -c -s -D"
+        extra_arflags = "rcsD"
       }
 
       # Almost all targets build with //build/config/compiler:thin_archive which
