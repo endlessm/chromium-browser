@@ -28,8 +28,8 @@ const int kModerateMemoryPressureCooldownMs = 10000;
 const int kModerateMemoryPressureCooldown = kModerateMemoryPressureCooldownMs / kMemoryPressureIntervalMs;
 
 // Default threshold (as in % of used memory) for emission of memory pressure events.
-const int kDefaultMemoryPressureModerateThreshold = 45;
-const int kDefaultMemoryPressureCriticalThreshold = 80;
+const int kDefaultMemoryPressureModerateThreshold = 50;
+const int kDefaultMemoryPressureCriticalThreshold = 70;
 
 MemoryPressureMonitor::MemoryPressureMonitor()
     : current_memory_pressure_level_(MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE)
