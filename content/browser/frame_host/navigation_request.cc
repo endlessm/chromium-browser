@@ -163,9 +163,9 @@ std::string AdaptUserAgentForURL(const std::string& user_agent, const GURL& url)
   const std::string& host = url.host();
   if ((host.find("calendar.google.com") != std::string::npos) ||
       (host.find("google.com") != std::string::npos && url.path().find("/calendar") == 0)) {
-	std::string::size_type start_pos = user_agent.find('(');
-	std::string::size_type end_pos = user_agent.find(')');
-	result.replace(start_pos, end_pos - start_pos, std::string("X11; Linux x86_64"));
+    std::string::size_type start_pos = user_agent.find('(');
+    std::string::size_type end_pos = user_agent.find(')');
+    result.replace(start_pos, end_pos - start_pos, std::string("X11; Linux x86_64"));
   }
 #endif
 
